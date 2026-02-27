@@ -1,5 +1,5 @@
 export const metadata = {
-  title: "Ann’s Crane CRM",
+  title: "Anns Crane CRM",
   description: "CRM system",
 };
 
