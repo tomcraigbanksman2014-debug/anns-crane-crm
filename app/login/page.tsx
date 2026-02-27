@@ -15,7 +15,7 @@ export default function LoginPage() {
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 24 }}>
       <div style={{ width: "100%", maxWidth: 420, border: "1px solid #e5e7eb", borderRadius: 12, padding: 20 }}>
         <h1 style={{ fontSize: 28, margin: 0 }}>Login</h1>
-        <p style={{ marginTop: 6, color: "#6b7280" }}>Sign in to Ann’s Crane CRM</p>
+        <p style={{ marginTop: 6, color: "#6b7280" }}>Sign in to Anns Crane CRM</p>
 
         <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12, marginTop: 16 }}>
           <label style={{ display: "grid", gap: 6 }}>
