@@ -14,40 +14,50 @@ export default function RootLayout({
         style={{
           margin: 0,
           fontFamily: "system-ui",
-          background: "#cfcfd3",
-          minHeight: "100vh",
+          background: "#bfc1c6",
+          height: "100vh",
           display: "flex",
           flexDirection: "column",
         }}
       >
-        {/* Logo */}
-        <div
-          style={{
-            textAlign: "center",
-            paddingTop: 30,
-          }}
-        >
-          <img
-            src="/logo.png"
-            alt="AnnS Crane Hire"
-            style={{
-              width: 200,
-              height: "auto",
-            }}
-          />
-        </div>
-
-        {/* Page content centered */}
+        {/* Entire screen container */}
         <div
           style={{
             flex: 1,
             display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            padding: 20,
+            flexDirection: "column",
           }}
         >
-          {children}
+          {/* Logo (fixed height area) */}
+          <div
+            style={{
+              textAlign: "center",
+              padding: "20px 0",
+              flexShrink: 0,
+            }}
+          >
+            <img
+              src="/logo.png"
+              alt="AnnS Crane Hire"
+              style={{
+                width: 180,
+                height: "auto",
+              }}
+            />
+          </div>
+
+          {/* Centered content area */}
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              justifyContent: "center",
+              alignItems: "center",
+              padding: 20,
+            }}
+          >
+            {children}
+          </div>
         </div>
       </body>
     </html>
