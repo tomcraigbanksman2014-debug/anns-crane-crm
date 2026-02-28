@@ -14,33 +14,41 @@ export default function RootLayout({
         style={{
           margin: 0,
           fontFamily: "system-ui",
-          background: "#cfcfd3", // light grey like your screenshot
+          background: "#cfcfd3",
           minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        {/* Brand header shown on every page */}
-        <header
+        {/* Logo */}
+        <div
           style={{
-            display: "flex",
-            justifyContent: "center",
-            paddingTop: 48,
-            paddingBottom: 24,
+            textAlign: "center",
+            paddingTop: 30,
           }}
         >
           <img
             src="/logo.png"
             alt="AnnS Crane Hire"
             style={{
-              width: 260,
-              maxWidth: "70vw",
+              width: 200,
               height: "auto",
-              display: "block",
             }}
           />
-        </header>
+        </div>
 
-        {/* Page content */}
-        <div style={{ padding: 24 }}>{children}</div>
+        {/* Page content centered */}
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+          }}
+        >
+          {children}
+        </div>
       </body>
     </html>
   );
