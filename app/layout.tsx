@@ -1,5 +1,3 @@
-import ClientShell from "./ClientShell";
-
 export const metadata = {
   title: "Anns Crane CRM",
   description: "CRM system",
@@ -17,46 +15,50 @@ export default function RootLayout({
           height: "100%",
           margin: 0,
           fontFamily: "system-ui",
-          background: "#bfc1c6",
-          overflow: "hidden",
+          background: "#bfc1c6", // match your logo background
+          overflow: "hidden", // no scrollbars
         }}
       >
         <div
           style={{
+            position: "relative",
             height: "100vh",
-            display: "flex",
-            flexDirection: "column",
+            width: "100vw",
           }}
         >
-          {/* Logo Header */}
-          <header
+          {/* Logo overlay (does NOT affect layout) */}
+          <div
             style={{
-              height: 280, // much larger header space
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              flexShrink: 0,
+              position: "absolute",
+              top: 24,
+              left: "50%",
+              transform: "translateX(-50%)",
+              zIndex: 10,
+              pointerEvents: "none",
             }}
           >
             <img
               src="/logo.png"
               alt="Anns Crane Hire"
               style={{
-                height: 240, // larger logo
-                width: "auto",
+                width: 260, // 👈 change this number to make it bigger/smaller
+                height: "auto",
                 display: "block",
               }}
             />
-          </header>
+          </div>
 
-          {/* App Shell */}
+          {/* Page content stays perfectly centered */}
           <div
             style={{
-              flex: 1,
-              minHeight: 0,
+              height: "100%",
+              display: "grid",
+              placeItems: "center",
+              padding: 24,
+              boxSizing: "border-box",
             }}
           >
-            <ClientShell>{children}</ClientShell>
+            {children}
           </div>
         </div>
       </body>
