@@ -9,30 +9,31 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" style={{ height: "100%" }}>
       <body
         style={{
+          height: "100%",
           margin: 0,
           fontFamily: "system-ui",
           background: "#bfc1c6",
-          height: "100vh",
-          display: "flex",
-          flexDirection: "column",
+          overflow: "hidden", // ✅ kills the page scrollbar
         }}
       >
-        {/* Entire screen container */}
+        {/* Full-screen app shell */}
         <div
           style={{
-            flex: 1,
+            height: "100vh", // exact viewport height
             display: "flex",
             flexDirection: "column",
           }}
         >
-          {/* Logo (fixed height area) */}
-          <div
+          {/* Logo header (fixed height) */}
+          <header
             style={{
-              textAlign: "center",
-              padding: "20px 0",
+              height: 200, // adjust if you want bigger/smaller logo space
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               flexShrink: 0,
             }}
           >
@@ -40,24 +41,27 @@ export default function RootLayout({
               src="/logo.png"
               alt="AnnS Crane Hire"
               style={{
-                width: 180,
-                height: "auto",
+                maxHeight: 160,
+                width: "auto",
+                display: "block",
               }}
             />
-          </div>
+          </header>
 
-          {/* Centered content area */}
-          <div
+          {/* Page content fills remaining space perfectly */}
+          <main
             style={{
               flex: 1,
               display: "flex",
-              justifyContent: "center",
               alignItems: "center",
-              padding: 20,
+              justifyContent: "center",
+              padding: 16,
+              boxSizing: "border-box",
+              overflow: "hidden", // ✅ prevents main from causing body scroll
             }}
           >
             {children}
-          </div>
+          </main>
         </div>
       </body>
     </html>
