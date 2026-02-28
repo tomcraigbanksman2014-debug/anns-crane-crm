@@ -1,13 +1,11 @@
+import ClientShell from "./ClientShell";
+
 export const metadata = {
   title: "Anns Crane CRM",
   description: "CRM system",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" style={{ height: "100%" }}>
       <body
@@ -16,21 +14,14 @@ export default function RootLayout({
           margin: 0,
           fontFamily: "system-ui",
           background: "#bfc1c6",
-          overflow: "hidden", // ✅ kills the page scrollbar
+          overflow: "hidden", // no page scrollbar
         }}
       >
-        {/* Full-screen app shell */}
-        <div
-          style={{
-            height: "100vh", // exact viewport height
-            display: "flex",
-            flexDirection: "column",
-          }}
-        >
-          {/* Logo header (fixed height) */}
+        <div style={{ height: "100vh", display: "flex", flexDirection: "column" }}>
+          {/* Logo header */}
           <header
             style={{
-              height: 200, // adjust if you want bigger/smaller logo space
+              height: 170,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -39,29 +30,15 @@ export default function RootLayout({
           >
             <img
               src="/logo.png"
-              alt="AnnS Crane Hire"
-              style={{
-                maxHeight: 160,
-                width: "auto",
-                display: "block",
-              }}
+              alt="Anns Crane Hire"
+              style={{ maxHeight: 140, width: "auto", display: "block" }}
             />
           </header>
 
-          {/* Page content fills remaining space perfectly */}
-          <main
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 16,
-              boxSizing: "border-box",
-              overflow: "hidden", // ✅ prevents main from causing body scroll
-            }}
-          >
-            {children}
-          </main>
+          {/* App shell (sidebar/topbar on all pages except /login) */}
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <ClientShell>{children}</ClientShell>
+          </div>
         </div>
       </body>
     </html>
