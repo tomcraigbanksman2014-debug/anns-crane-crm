@@ -6,13 +6,15 @@ import { usePathname } from "next/navigation";
 export default function ClientShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  const isAuthPage = pathname === "/login";
+  // ✅ Prevent any "flash" while Next is hydrating the route
+  if (!pathname) return null;
 
-  // Simple helpers for active nav styling
+  // ✅ No shell on login (and also no shell on / just in case)
+  const isAuthPage = pathname === "/login" || pathname === "/";
+
   const isActive = (href: string) => pathname === href;
 
   if (isAuthPage) {
-    // Login stays clean & centered under the logo header from layout.tsx
     return <>{children}</>;
   }
 
