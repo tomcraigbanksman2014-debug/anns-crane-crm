@@ -8,9 +8,11 @@ export default function LoginPage() {
   const router = useRouter();
 
   const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    return createClient(url, anonKey);
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    // Create client even if missing; we'll show a clear error on submit
+    return createClient(url ?? "", anonKey ?? "");
   }, []);
 
   const [email, setEmail] = useState("");
@@ -25,10 +27,12 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Basic env var check (helps avoid silent failures on Vercel)
-      if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+      if (!url || !anonKey) {
         throw new Error(
-          "Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel."
+          "Missing env vars. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in Vercel, then redeploy."
         );
       }
 
@@ -37,14 +41,16 @@ export default function LoginPage() {
         password,
       });
 
-      if (signInError) throw signInError;
+      if (signInError) {
+        setError(signInError.message);
+        setLoading(false);
+        return;
+      }
 
-      // Success -> go to home (later we can make this /dashboard)
-      router.push("/");
-      router.refresh();
+      // ✅ success → go to dashboard
+      router.replace("/dashboard");
     } catch (err: any) {
       setError(err?.message ?? "Login failed");
-    } finally {
       setLoading(false);
     }
   }
@@ -59,7 +65,7 @@ export default function LoginPage() {
           <div
             style={{
               marginTop: 12,
-              padding: 10,
+              padding: 12,
               borderRadius: 10,
               border: "1px solid #fecaca",
               background: "#fef2f2",
@@ -79,8 +85,8 @@ export default function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               type="email"
               placeholder="you@example.com"
-              required
               autoComplete="email"
+              required
               style={{
                 padding: "10px 12px",
                 borderRadius: 10,
@@ -97,8 +103,8 @@ export default function LoginPage() {
               onChange={(e) => setPassword(e.target.value)}
               type="password"
               placeholder="••••••••"
-              required
               autoComplete="current-password"
+              required
               style={{
                 padding: "10px 12px",
                 borderRadius: 10,
