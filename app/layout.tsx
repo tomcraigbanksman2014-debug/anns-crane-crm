@@ -18,7 +18,7 @@ export default function RootLayout({
           margin: 0,
           fontFamily: "system-ui",
           background: "#bfc1c6",
-          overflow: "hidden", // prevents page scrollbar
+          overflow: "hidden",
         }}
       >
         <div
@@ -31,7 +31,7 @@ export default function RootLayout({
           {/* Logo Header */}
           <header
             style={{
-              height: 220, // increased header space
+              height: 280, // much larger header space
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -42,14 +42,14 @@ export default function RootLayout({
               src="/logo.png"
               alt="Anns Crane Hire"
               style={{
-                height: 180, // larger logo
+                height: 240, // larger logo
                 width: "auto",
                 display: "block",
               }}
             />
           </header>
 
-          {/* App Shell (sidebar + content) */}
+          {/* App Shell */}
           <div
             style={{
               flex: 1,
