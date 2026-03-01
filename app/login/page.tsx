@@ -1,110 +1,82 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import ClientShell from "../ClientShell";
 
 export default function LoginPage() {
   const router = useRouter();
 
-  // Keep your Supabase client around in case you still want the admin email login later.
-  // For staff username login, we use /api/login instead.
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    return createClient(url, anonKey);
-  }, []);
-
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-
-    const u = username.trim();
-    if (u.length < 3) return setError("Username must be at least 3 characters.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
-
+    setMsg(null);
     setLoading(true);
+
     try {
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: u, password }),
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+        }),
       });
 
+      // Always try JSON first
+      const data: any = await res.json().catch(() => null);
+
       if (!res.ok) {
-        const msg = await res.text();
-        setError(msg || "Login failed.");
+        // ✅ show only the error string (not the whole JSON)
+        setMsg((data && typeof data.error === "string" && data.error) || "Invalid username or password");
         return;
       }
 
-      // If the API sets a cookie/session, this will now be authenticated.
       router.replace("/dashboard");
-    } catch (err: any) {
-      setError(err?.message ?? "Something went wrong.");
+    } catch {
+      setMsg("Something went wrong. Try again.");
     } finally {
       setLoading(false);
     }
   }
 
-  // Styling: match your existing grey + no scroll
-  const bg = "#bfc1c6"; // same shade you’re using elsewhere
-  const card = "rgba(255,255,255,0.22)";
-  const border = "rgba(255,255,255,0.35)";
-
   return (
-    <main
-      style={{
-        height: "100svh",
-        overflow: "hidden",
-        background: bg,
-        fontFamily: "system-ui",
-        display: "grid",
-        placeItems: "center",
-        padding: 18,
-      }}
-    >
+    <ClientShell>
       <div
         style={{
-          width: "min(520px, 92vw)",
-          display: "grid",
-          gap: 16,
-          justifyItems: "center",
+          width: "min(720px, 92vw)",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 18,
         }}
       >
-        <img
-          src="/logo.png"
-          alt="AnnS Crane Hire"
-          style={{
-            width: 110,
-            height: "auto",
-            display: "block",
-          }}
-        />
-
-        <form
-          onSubmit={handleSubmit}
-          style={{
-            width: "100%",
-            background: card,
-            border: `1px solid ${border}`,
-            borderRadius: 14,
-            padding: 18,
-          }}
-        >
-          <h1 style={{ margin: 0, fontSize: 30 }}>Login</h1>
-          <p style={{ marginTop: 6, marginBottom: 16, opacity: 0.75 }}>
+        <div style={{ textAlign: "center" }}>
+          <h1 style={{ margin: 0, fontSize: 34 }}>Login</h1>
+          <p style={{ margin: "6px 0 0", opacity: 0.8 }}>
             Sign in to AnnS Crane CRM
           </p>
+        </div>
 
+        <form
+          onSubmit={onSubmit}
+          style={{
+            width: "min(560px, 92vw)",
+            border: "1px solid rgba(255,255,255,0.35)",
+            background: "rgba(255,255,255,0.18)",
+            borderRadius: 14,
+            padding: 18,
+            boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+          }}
+        >
           <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
             Username
           </label>
+
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -112,63 +84,81 @@ export default function LoginPage() {
             autoComplete="username"
             style={{
               width: "100%",
-              padding: "10px 12px",
+              padding: "12px 14px",
               borderRadius: 10,
               border: "1px solid rgba(0,0,0,0.15)",
               outline: "none",
-              marginBottom: 14,
+              fontSize: 16,
+              background: "rgba(255,255,255,0.85)",
             }}
           />
 
-          <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
+          <label
+            style={{
+              display: "block",
+              fontSize: 12,
+              marginTop: 12,
+              marginBottom: 6,
+            }}
+          >
             Password
           </label>
+
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
+            placeholder="••••••••"
             type="password"
             autoComplete="current-password"
             style={{
               width: "100%",
-              padding: "10px 12px",
+              padding: "12px 14px",
               borderRadius: 10,
               border: "1px solid rgba(0,0,0,0.15)",
               outline: "none",
-              marginBottom: 14,
+              fontSize: 16,
+              background: "rgba(255,255,255,0.85)",
             }}
           />
 
           <button
-            disabled={loading}
+            type="submit"
+            disabled={loading || !username.trim() || !password}
             style={{
               width: "100%",
-              padding: "10px 14px",
+              marginTop: 14,
+              padding: "12px 14px",
               borderRadius: 10,
               border: "none",
-              background: "#f0f0f0",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 600,
+              background: "#111",
+              color: "white",
+              fontSize: 15,
+              cursor:
+                loading || !username.trim() || !password
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                loading || !username.trim() || !password ? 0.7 : 1,
             }}
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
 
-          {error && (
+          {msg && (
             <div
               style={{
                 marginTop: 12,
                 padding: "10px 12px",
                 borderRadius: 10,
-                border: "1px solid rgba(0,0,0,0.12)",
-                background: "rgba(255, 90, 90, 0.18)",
+                background: "rgba(255,0,0,0.10)",
+                border: "1px solid rgba(255,0,0,0.25)",
               }}
             >
-              {error}
+              {msg}
             </div>
           )}
         </form>
       </div>
-    </main>
+    </ClientShell>
   );
 }
