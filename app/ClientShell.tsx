@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+export default function ClientShell({ children }: { children: React.ReactNode }) {
 import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 
