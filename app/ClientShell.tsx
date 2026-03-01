@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import React from "react";
 
 export default function ClientShell({
   children,
@@ -11,26 +12,34 @@ export default function ClientShell({
     <div
       style={{
         minHeight: "100vh",
-        background: "#bfc1c6", // match logo background
+        width: "100%",
+        background: "#bfc1c4", // match logo background tone
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        gap: 24,
         padding: 24,
+        boxSizing: "border-box",
         overflow: "hidden",
       }}
     >
-      <div style={{ width: 140, height: 140, position: "relative" }}>
+      {/* Logo */}
+      <div style={{ marginBottom: 18 }}>
         <Image
           src="/logo.png"
           alt="AnnS Crane Hire"
-          fill
-          style={{ objectFit: "contain" }}
+          width={220}
+          height={220}
           priority
+          style={{
+            width: 220,
+            height: "auto",
+            display: "block",
+          }}
         />
       </div>
 
+      {/* Page content */}
       {children}
     </div>
   );
