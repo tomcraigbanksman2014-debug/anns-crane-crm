@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import ClientShell from "../../ClientShell";
+import { ClientShell } from "../../ClientShell";
 
 export default function AdminLoginPage() {
   const router = useRouter();
