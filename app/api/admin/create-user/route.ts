@@ -1,60 +1,53 @@
-// app/api/admin/create-user/route.ts
-import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import crypto from "crypto";
+import bcrypt from "bcryptjs";
 
-export const runtime = "nodejs";
-
-// Hash password with scrypt (built-in Node crypto) ✅
-// Stored format: scrypt$<saltBase64>$<hashBase64>
-function hashPassword(password: string) {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(password, salt, 64);
-  return `scrypt$${salt.toString("base64")}$${hash.toString("base64")}`;
-}
-
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
+    // ✅ Protect this endpoint with a server-side token
     const adminToken = request.headers.get("x-admin-token");
-
-if (adminToken !== process.env.ADMIN_CREATE_USER_TOKEN) {
-  return new Response("Unauthorized", { status: 401 });
-}
-    // Simple admin protection (so staff can’t call this endpoint)
-    // Set ADMIN_CREATE_USER_TOKEN in Vercel env vars
-    const auth = req.headers.get("authorization") || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!process.env.ADMIN_CREATE_USER_TOKEN || token !== process.env.ADMIN_CREATE_USER_TOKEN) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!process.env.ADMIN_CREATE_USER_TOKEN) {
+      return new Response("Missing ADMIN_CREATE_USER_TOKEN env var", {
+        status: 500,
+      });
+    }
+    if (adminToken !== process.env.ADMIN_CREATE_USER_TOKEN) {
+      return new Response("Unauthorized", { status: 401 });
     }
 
-    const body = await req.json().catch(() => ({}));
-    const username = String(body.username || "").trim();
-    const password = String(body.password || "");
+    // ✅ Read payload
+    const body = await request.json();
+    const username = String(body?.username ?? "").trim();
+    const password = String(body?.password ?? "");
 
     if (!username || username.length < 3) {
-      return NextResponse.json({ error: "Username must be at least 3 characters" }, { status: 400 });
+      return new Response("Username must be at least 3 characters.", {
+        status: 400,
+      });
     }
     if (!password || password.length < 6) {
-      return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
+      return new Response("Password must be at least 6 characters.", {
+        status: 400,
+      });
     }
 
-    // Server-side Supabase client using SERVICE ROLE (never expose this to the browser)
+    // ✅ Create server Supabase client using service role key (server-only)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !serviceRoleKey) {
-      return NextResponse.json(
-        { error: "Missing env vars: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" },
-        { status: 500 }
-      );
+    if (!supabaseUrl) {
+      return new Response("Missing NEXT_PUBLIC_SUPABASE_URL env var", {
+        status: 500,
+      });
+    }
+    if (!serviceRoleKey) {
+      return new Response("Missing SUPABASE_SERVICE_ROLE_KEY env var", {
+        status: 500,
+      });
     }
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false },
-    });
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
 
-    // Ensure username is unique
+    // ✅ Check existing username
     const { data: existing, error: existingErr } = await supabase
       .from("staff_users")
       .select("id")
@@ -62,26 +55,31 @@ if (adminToken !== process.env.ADMIN_CREATE_USER_TOKEN) {
       .maybeSingle();
 
     if (existingErr) {
-      return NextResponse.json({ error: existingErr.message }, { status: 500 });
+      return new Response(`DB error checking username: ${existingErr.message}`, {
+        status: 500,
+      });
     }
     if (existing) {
-      return NextResponse.json({ error: "Username already exists" }, { status: 409 });
+      return new Response("Username already exists.", { status: 409 });
     }
 
-    const password_hash = hashPassword(password);
+    // ✅ Hash password
+    const password_hash = await bcrypt.hash(password, 10);
 
-    const { data, error } = await supabase
-      .from("staff_users")
-      .insert([{ username, password_hash }])
-      .select("id, username, created_at")
-      .single();
+    // ✅ Insert staff user
+    const { error: insertErr } = await supabase.from("staff_users").insert({
+      username,
+      password_hash,
+    });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (insertErr) {
+      return new Response(`DB error inserting user: ${insertErr.message}`, {
+        status: 500,
+      });
     }
 
-    return NextResponse.json({ ok: true, user: data });
+    return Response.json({ ok: true, username });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unknown error" }, { status: 500 });
+    return new Response(e?.message ?? "Unknown error", { status: 500 });
   }
 }
