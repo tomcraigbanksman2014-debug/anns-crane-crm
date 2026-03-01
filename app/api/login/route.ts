@@ -12,10 +12,17 @@ export async function POST(request: Request) {
     );
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceKey) {
+    return NextResponse.json(
+      { error: "Server is missing Supabase env vars" },
+      { status: 500 }
+    );
+  }
+
+  const supabase = createClient(url, serviceKey);
 
   const { data, error } = await supabase
     .from("staff_users")
@@ -43,10 +50,10 @@ export async function POST(request: Request) {
 
   res.cookies.set("staff_user", username, {
     httpOnly: true,
-    secure: true,
+    secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: 60 * 60 * 8,
+    maxAge: 60 * 60 * 8, // 8 hours
   });
 
   return res;
