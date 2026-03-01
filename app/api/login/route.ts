@@ -3,99 +3,94 @@ import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
-function getEnv(name: string) {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} is required`);
-  return v;
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+  if (!serviceKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required");
+
+  return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
-function base64url(input: Buffer | string) {
-  const buf = Buffer.isBuffer(input) ? input : Buffer.from(input);
-  return buf
-    .toString("base64")
-    .replace(/=/g, "")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_");
-}
+// Supports hashes that look like: scrypt$N$r$p$salt$hash  (Supabase/GoTrue style)
+function verifyScrypt(password: string, encoded: string): boolean {
+  const parts = encoded.split("$");
+  // Expect: ["scrypt", N, r, p, salt, hash]
+  if (parts.length !== 6 || parts[0] !== "scrypt") return false;
 
-// Simple signed cookie token: base64url(payload).base64url(hmacSHA256(payload))
-function signToken(payloadObj: any, secret: string) {
-  const payloadJson = JSON.stringify(payloadObj);
-  const payload = base64url(payloadJson);
-  const sig = base64url(crypto.createHmac("sha256", secret).update(payload).digest());
-  return `${payload}.${sig}`;
+  const N = Number(parts[1]);
+  const r = Number(parts[2]);
+  const p = Number(parts[3]);
+  const saltB64 = parts[4];
+  const hashB64 = parts[5];
+
+  if (!Number.isFinite(N) || !Number.isFinite(r) || !Number.isFinite(p)) return false;
+
+  const salt = Buffer.from(saltB64, "base64");
+  const expected = Buffer.from(hashB64, "base64");
+
+  const derived = crypto.scryptSync(password, salt, expected.length, {
+    N,
+    r,
+    p,
+    maxmem: 128 * 1024 * 1024, // 128MB safety cap
+  });
+
+  return crypto.timingSafeEqual(derived, expected);
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-    const username = (body?.username ?? "").toString().trim();
-    const password = (body?.password ?? "").toString();
+    const { username, password } = await req.json();
 
     if (!username || !password) {
-      return new NextResponse("Missing username or password", { status: 400 });
+      return NextResponse.json({ error: "Username and password are required" }, { status: 400 });
     }
 
-    // Supabase (server-side)
-    const supabaseUrl =
-      process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+    const supabase = getSupabaseAdmin();
 
-    const serviceRoleKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-    if (!serviceRoleKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required");
-
-    const supabase = createClient(supabaseUrl, serviceRoleKey);
-
-    // Look up staff user
     const { data, error } = await supabase
       .from("staff_users")
-      .select("username, password_hash")
+      .select("id, username, password_hash")
       .eq("username", username)
-      .maybeSingle();
+      .single();
 
-    if (error) {
-      console.error("Supabase error:", error);
-      return new NextResponse("Server error", { status: 500 });
+    if (error || !data) {
+      return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
-    if (!data?.password_hash) {
-      return new NextResponse("Invalid username or password", { status: 401 });
+    const stored = data.password_hash as string;
+
+    let ok = false;
+
+    if (stored.startsWith("$2a$") || stored.startsWith("$2b$") || stored.startsWith("$2y$")) {
+      ok = await bcrypt.compare(password, stored);
+    } else if (stored.startsWith("scrypt$")) {
+      ok = verifyScrypt(password, stored);
+    } else {
+      // Unknown hash type
+      ok = false;
     }
 
-    const ok = await bcrypt.compare(password, data.password_hash);
     if (!ok) {
-      return new NextResponse("Invalid username or password", { status: 401 });
+      return NextResponse.json({ error: "Invalid username or password" }, { status: 401 });
     }
 
-    // Sign cookie
-    const secret = getEnv("ADMIN_CREATE_USER_TOKEN"); // reuse your existing secret env
-    const now = Math.floor(Date.now() / 1000);
-    const exp = now + 60 * 60 * 24 * 7; // 7 days
-
-    const token = signToken(
-      {
-        sub: data.username,
-        iat: now,
-        exp,
-        v: 1,
-      },
-      secret
-    );
-
+    // Simple session cookie (you can upgrade later)
     const res = NextResponse.json({ ok: true });
-
-    res.cookies.set("staff_session", token, {
+    res.cookies.set("staff_user", data.username, {
       httpOnly: true,
-      secure: true, // Vercel is https
       sameSite: "lax",
+      secure: true,
       path: "/",
-      maxAge: 60 * 60 * 24 * 7,
+      maxAge: 60 * 60 * 8, // 8 hours
     });
-
     return res;
   } catch (e: any) {
-    console.error(e);
-    return new NextResponse(e?.message || "Server error", { status: 500 });
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
   }
 }
