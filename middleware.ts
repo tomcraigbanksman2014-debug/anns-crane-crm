@@ -1,96 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
 
-function getSecret() {
-  return process.env.ADMIN_CREATE_USER_TOKEN || "";
-}
+/**
+ * Staff auth cookie (set by /api/login)
+ */
+const STAFF_COOKIE = "staff_user";
 
-function base64UrlEncode(buf: Buffer) {
-  return buf
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
+/**
+ * Admin auth cookie (set by /api/admin/login)
+ */
+const ADMIN_COOKIE = "ac_admin";
 
-function base64UrlDecodeToBuffer(s: string) {
-  const padded =
-    s.replace(/-/g, "+").replace(/_/g, "/") +
-    "===".slice((s.length + 3) % 4);
-  return Buffer.from(padded, "base64");
-}
-
-function sign(value: string, secret: string) {
-  const payload = base64UrlEncode(Buffer.from(value, "utf8"));
-  const sig = base64UrlEncode(
-    crypto.createHmac("sha256", secret).update(payload).digest()
+function isPublicPath(pathname: string) {
+  return (
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/api/login") ||
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/logo.png"
   );
-  return `${payload}.${sig}`;
 }
 
-function verify(token: string, secret: string) {
-  const parts = token.split(".");
-  if (parts.length !== 2) return false;
+function isAdminLoginPath(pathname: string) {
+  return pathname === "/admin/login" || pathname.startsWith("/api/admin/login");
+}
 
-  const [payload, sig] = parts;
+function isAdminProtected(pathname: string) {
+  return pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
+}
 
-  const expected = base64UrlEncode(
-    crypto.createHmac("sha256", secret).update(payload).digest()
+function isStaffProtected(pathname: string) {
+  return (
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/bookings") ||
+    pathname.startsWith("/customers") ||
+    pathname.startsWith("/equipment") ||
+    pathname.startsWith("/calendar") ||
+    pathname.startsWith("/settings")
   );
-
-  const a = Buffer.from(sig);
-  const b = Buffer.from(expected);
-
-  if (a.length !== b.length) return false;
-  if (!crypto.timingSafeEqual(a, b)) return false;
-
-  const decoded = base64UrlDecodeToBuffer(payload).toString("utf8");
-  return decoded === "admin";
 }
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const isAdminPage = pathname.startsWith("/admin");
-  const isAdminLoginPage = pathname === "/admin/login";
-  const isAdminApi = pathname.startsWith("/api/admin");
+  // Always allow public assets + login endpoint + login page
+  if (isPublicPath(pathname)) return NextResponse.next();
 
-  if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) {
-    return NextResponse.next();
-  }
+  // ✅ Admin routes (separate auth)
+  if (isAdminLoginPath(pathname)) return NextResponse.next();
 
-  const secret = getSecret();
-
-  const cookie = req.cookies.get("ac_admin")?.value || "";
-  const isAuthedAdmin = cookie ? verify(cookie, secret) : false;
-
-  // Already logged in admin → skip login page
-  if (isAdminLoginPage && isAuthedAdmin) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/admin/users";
-    return NextResponse.redirect(url);
-  }
-
-  // Protect admin pages
-  if (isAdminPage && !isAdminLoginPage) {
-    if (!isAuthedAdmin) {
+  if (isAdminProtected(pathname)) {
+    const admin = req.cookies.get(ADMIN_COOKIE)?.value;
+    if (!admin) {
       const url = req.nextUrl.clone();
       url.pathname = "/admin/login";
       return NextResponse.redirect(url);
     }
+    return NextResponse.next();
   }
 
-  // Protect admin API routes
-  if (isAdminApi) {
-    if (pathname === "/api/admin/login") {
-      return NextResponse.next();
-    }
-
-    if (!isAuthedAdmin) {
-      return NextResponse.json(
-        { error: "Admin auth required" },
-        { status: 401 }
-      );
+  // ✅ Staff routes (staff cookie required)
+  if (isStaffProtected(pathname)) {
+    const staff = req.cookies.get(STAFF_COOKIE)?.value;
+    if (!staff) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/login";
+      return NextResponse.redirect(url);
     }
   }
 
@@ -98,5 +73,5 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*"],
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };
