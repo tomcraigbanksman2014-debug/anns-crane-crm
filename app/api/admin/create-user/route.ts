@@ -15,6 +15,11 @@ function hashPassword(password: string) {
 
 export async function POST(req: Request) {
   try {
+    const adminToken = request.headers.get("x-admin-token");
+
+if (adminToken !== process.env.ADMIN_CREATE_USER_TOKEN) {
+  return new Response("Unauthorized", { status: 401 });
+}
     // Simple admin protection (so staff can’t call this endpoint)
     // Set ADMIN_CREATE_USER_TOKEN in Vercel env vars
     const auth = req.headers.get("authorization") || "";
