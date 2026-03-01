@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import ClientShell from "@/app/ClientShell";
+import ClientShell from "../../ClientShell";
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -29,7 +29,6 @@ export default function AdminLoginPage() {
         return;
       }
 
-      // success -> go to admin users page
       router.replace("/admin/users");
     } catch {
       setMsg("Something went wrong. Try again.");
