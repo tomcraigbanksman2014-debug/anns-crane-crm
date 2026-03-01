@@ -1,53 +1,37 @@
-export default function ClientShell({ children }: { children: React.ReactNode }) {
-import bcrypt from "bcryptjs";
-import { NextResponse } from "next/server";
+"use client";
 
-export async function POST(request: Request) {
-  const { username, password } = await request.json();
+import Image from "next/image";
 
-  if (!username || !password) {
-    return NextResponse.json(
-      { error: "Username and password required" },
-      { status: 400 }
-    );
-  }
+export default function ClientShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#bfc1c6", // match logo background
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 24,
+        padding: 24,
+        overflow: "hidden",
+      }}
+    >
+      <div style={{ width: 140, height: 140, position: "relative" }}>
+        <Image
+          src="/logo.png"
+          alt="AnnS Crane Hire"
+          fill
+          style={{ objectFit: "contain" }}
+          priority
+        />
+      </div>
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
+      {children}
+    </div>
   );
-
-  const { data, error } = await supabase
-    .from("staff_users")
-    .select("username, password_hash")
-    .eq("username", username)
-    .single();
-
-  if (error || !data) {
-    return NextResponse.json(
-      { error: "Invalid username or password" },
-      { status: 401 }
-    );
-  }
-
-  const valid = await bcrypt.compare(password, data.password_hash);
-
-  if (!valid) {
-    return NextResponse.json(
-      { error: "Invalid username or password" },
-      { status: 401 }
-    );
-  }
-
-  const res = NextResponse.json({ success: true });
-
-  res.cookies.set("staff_user", username, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 8,
-  });
-
-  return res;
 }
