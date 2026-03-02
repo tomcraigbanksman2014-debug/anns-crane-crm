@@ -3,41 +3,49 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import ClientShell from "../ClientShell";
+import { createSupabaseBrowserClient } from "../lib/supabase/browser";
+
+function toAuthEmail(username: string) {
+  // Staff type a username; we convert to a controlled “fake email”
+  return `${username.toLowerCase()}@anns.local`;
+}
 
 export default function LoginPage() {
   const router = useRouter();
+  const supabase = createSupabaseBrowserClient();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setErrorMsg(null);
-    setLoading(true);
+    setMsg(null);
 
+    const u = username.trim().toLowerCase();
+    if (u.length < 3) {
+      setMsg("Username must be at least 3 characters.");
+      return;
+    }
+    if (password.length < 6) {
+      setMsg("Password must be at least 6 characters.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
+      const { error } = await supabase.auth.signInWithPassword({
+        email: toAuthEmail(u),
+        password,
       });
 
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        setErrorMsg(
-          data?.error || "Invalid username or password"
-        );
+      if (error) {
+        setMsg("Invalid username or password.");
         return;
       }
 
       router.replace("/dashboard");
-    } catch {
-      setErrorMsg("Something went wrong. Try again.");
     } finally {
       setLoading(false);
     }
@@ -55,23 +63,25 @@ export default function LoginPage() {
           border: "1px solid rgba(255,255,255,0.4)",
         }}
       >
-        <h1 style={{ margin: 0, fontSize: 28 }}>Staff Login</h1>
+        <h1 style={{ margin: 0, fontSize: 28 }}>Login</h1>
+        <p style={{ marginTop: 8, opacity: 0.85 }}>
+          Use your username and password to access AnnS Crane CRM.
+        </p>
 
-        <form
-          onSubmit={handleSubmit}
-          style={{ marginTop: 20, display: "grid", gap: 12 }}
-        >
+        <form onSubmit={onSubmit} style={{ marginTop: 18, display: "grid", gap: 12 }}>
           <input
             type="text"
-            placeholder="Username"
+            placeholder="Username (e.g. office1)"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
             required
             style={{
               padding: 12,
               borderRadius: 8,
               border: "1px solid #ccc",
               fontSize: 14,
+              background: "rgba(255,255,255,0.85)",
             }}
           />
 
@@ -80,12 +90,14 @@ export default function LoginPage() {
             placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
             required
             style={{
               padding: 12,
               borderRadius: 8,
               border: "1px solid #ccc",
               fontSize: 14,
+              background: "rgba(255,255,255,0.85)",
             }}
           />
 
@@ -100,22 +112,23 @@ export default function LoginPage() {
               color: "white",
               fontSize: 14,
               cursor: "pointer",
+              opacity: loading ? 0.8 : 1,
             }}
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
 
-          {errorMsg && (
+          {msg && (
             <div
               style={{
-                marginTop: 10,
+                marginTop: 6,
                 padding: 10,
                 background: "rgba(255,0,0,0.12)",
                 borderRadius: 8,
                 fontSize: 13,
               }}
             >
-              {errorMsg}
+              {msg}
             </div>
           )}
         </form>
