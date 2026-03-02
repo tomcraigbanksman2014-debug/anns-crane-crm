@@ -1,75 +1,63 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-/**
- * Staff auth cookie (set by /api/login)
- */
-const STAFF_COOKIE = "staff_user";
-
-/**
- * Admin auth cookie (set by /api/admin/login)
- */
-const ADMIN_COOKIE = "ac_admin";
-
-function isPublicPath(pathname: string) {
-  return (
-    pathname === "/" ||
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/api/login") ||
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico" ||
-    pathname === "/logo.png"
+function createSupabaseMiddlewareClient(req: NextRequest, res: NextResponse) {
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return req.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          res.cookies.set({ name, value: "", ...options, maxAge: 0 });
+        },
+      },
+    }
   );
 }
 
-function isAdminLoginPath(pathname: string) {
-  return pathname === "/admin/login" || pathname.startsWith("/api/admin/login");
-}
+const PUBLIC_PATHS = ["/login", "/"];
 
-function isAdminProtected(pathname: string) {
-  return pathname.startsWith("/admin") || pathname.startsWith("/api/admin");
-}
-
-function isStaffProtected(pathname: string) {
-  return (
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/bookings") ||
-    pathname.startsWith("/customers") ||
-    pathname.startsWith("/equipment") ||
-    pathname.startsWith("/calendar") ||
-    pathname.startsWith("/settings")
-  );
-}
-
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
   const { pathname } = req.nextUrl;
 
-  // Always allow public assets + login endpoint + login page
-  if (isPublicPath(pathname)) return NextResponse.next();
-
-  // ✅ Admin routes (separate auth)
-  if (isAdminLoginPath(pathname)) return NextResponse.next();
-
-  if (isAdminProtected(pathname)) {
-    const admin = req.cookies.get(ADMIN_COOKIE)?.value;
-    if (!admin) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/admin/login";
-      return NextResponse.redirect(url);
-    }
-    return NextResponse.next();
+  // Always allow Next assets
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/logo.png")
+  ) {
+    return res;
   }
 
-  // ✅ Staff routes (staff cookie required)
-  if (isStaffProtected(pathname)) {
-    const staff = req.cookies.get(STAFF_COOKIE)?.value;
-    if (!staff) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/login";
-      return NextResponse.redirect(url);
-    }
+  const supabase = createSupabaseMiddlewareClient(req, res);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const isPublic = PUBLIC_PATHS.includes(pathname);
+
+  // If NOT logged in and trying to access a protected page -> go login
+  if (!user && !isPublic) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  // If logged in and going to /login -> go dashboard
+  if (user && pathname === "/login") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  return res;
 }
 
 export const config = {
