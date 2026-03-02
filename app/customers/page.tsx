@@ -109,7 +109,7 @@ export default async function CustomersPage() {
                       <td style={tdStyle}>
                         <a
                           href={`/customers/${c.id}`}
-                          style={{ marginRight: 10, textDecoration: "none" }}
+                          style={{ marginRight: 12, textDecoration: "none" }}
                         >
                           Edit
                         </a>
