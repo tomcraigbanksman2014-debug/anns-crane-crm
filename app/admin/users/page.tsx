@@ -1,233 +1,199 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import ClientShell from "../../ClientShell";
+import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
+
+function toAuthEmail(username: string) {
+  return `${username.toLowerCase()}@anns.local`;
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
 
 export default function AdminUsersPage() {
   const router = useRouter();
+  const supabase = createSupabaseBrowserClient();
 
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    return createClient(url, anonKey);
-  }, []);
-
-  const [checking, setChecking] = useState(true);
+  const [loadingSession, setLoadingSession] = useState(true);
+  const [me, setMe] = useState("");
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
 
-  // Optional: lock this page behind your Supabase login
+  // Only allow admin (temporarily: username === "tom")
   useEffect(() => {
-    async function check() {
-      try {
-        const { data } = await supabase.auth.getUser();
-        if (!data?.user) {
-          router.replace("/login");
-          return;
-        }
-      } finally {
-        setChecking(false);
+    async function load() {
+      const { data } = await supabase.auth.getUser();
+      const u = fromAuthEmail(data.user?.email ?? null);
+      setMe(u);
+      setLoadingSession(false);
+
+      if (!u) {
+        router.replace("/login");
+        return;
+      }
+      if (u !== "tom") {
+        router.replace("/dashboard");
+        return;
       }
     }
-    check();
+    load();
   }, [router, supabase]);
 
-  async function handleCreateUser(e: React.FormEvent) {
+  async function createUser(e: React.FormEvent) {
     e.preventDefault();
-    setMessage(null);
+    setMsg(null);
     setIsError(false);
 
-    const u = username.trim();
+    const u = username.trim().toLowerCase();
     if (u.length < 3) {
       setIsError(true);
-      setMessage("Username must be at least 3 characters.");
+      setMsg("Username must be at least 3 characters.");
       return;
     }
     if (password.length < 6) {
       setIsError(true);
-      setMessage("Password must be at least 6 characters.");
+      setMsg("Password must be at least 6 characters.");
       return;
     }
 
-    const token = process.env.NEXT_PUBLIC_ADMIN_CREATE_USER_TOKEN;
-    if (!token) {
-      setIsError(true);
-      setMessage(
-        "Missing NEXT_PUBLIC_ADMIN_CREATE_USER_TOKEN in Vercel env vars."
-      );
-      return;
-    }
-
-    setLoading(true);
+    setSaving(true);
     try {
       const res = await fetch("/api/admin/create-user", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-token": token,
-        },
-        body: JSON.stringify({ username: u, password }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: u,
+          password,
+        }),
       });
 
+      const data = await res.json().catch(() => null);
+
       if (!res.ok) {
-        const text = await res.text();
         setIsError(true);
-        setMessage(text || `Request failed (${res.status})`);
+        setMsg(data?.error || "Failed to create user.");
         return;
       }
 
-      const data = await res.json();
       setIsError(false);
-      setMessage(`Created user "${data.username}"`);
+      setMsg(`Created user: ${u}`);
       setUsername("");
       setPassword("");
-    } catch (err: any) {
-      setIsError(true);
-      setMessage(err?.message ?? "Something went wrong.");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
-  // ---- Styling helpers ----
-  const bg = "#bfc1c6"; // match your current screen grey
-  const card = "rgba(255,255,255,0.22)";
-  const border = "rgba(255,255,255,0.35)";
-
-  if (checking) {
-    return (
-      <main
-        style={{
-          minHeight: "100svh",
-          background: bg,
-          display: "grid",
-          placeItems: "center",
-          fontFamily: "system-ui",
-        }}
-      >
-        <div>Checking session...</div>
-      </main>
-    );
-  }
+  if (loadingSession) return null;
 
   return (
-    <main
-      style={{
-        minHeight: "100svh",
-        background: bg,
-        display: "grid",
-        placeItems: "center",
-        fontFamily: "system-ui",
-        padding: 24,
-      }}
-    >
+    <ClientShell>
       <div
         style={{
-          width: "min(520px, 92vw)",
-          textAlign: "center",
+          width: "min(720px, 92vw)",
+          background: "rgba(255,255,255,0.18)",
+          borderRadius: 14,
+          padding: 24,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+          border: "1px solid rgba(255,255,255,0.4)",
         }}
       >
-        <img
-          src="/logo.png"
-          alt="AnnS Crane Hire"
-          style={{
-            width: 110, // 👈 make logo bigger here
-            height: "auto",
-            margin: "0 auto 18px",
-            display: "block",
-          }}
-        />
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ margin: 0 }}>Admin → Users</h1>
+            <p style={{ marginTop: 8, opacity: 0.85 }}>
+              Signed in as <b>{me}</b>
+            </p>
+          </div>
 
-        <h1 style={{ margin: 0, fontSize: 34, letterSpacing: 0.2 }}>
-          Admin → Create Staff User
-        </h1>
-        <p style={{ marginTop: 10, marginBottom: 18, opacity: 0.75 }}>
-          Create staff usernames + passwords. Staff do not need email accounts.
-        </p>
+          <a href="/dashboard" style={pillStyle}>
+            Back to dashboard
+          </a>
+        </div>
 
-        <form
-          onSubmit={handleCreateUser}
-          style={{
-            background: card,
-            border: `1px solid ${border}`,
-            borderRadius: 14,
-            padding: 18,
-            textAlign: "left",
-          }}
-        >
-          <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
-            Username
-          </label>
+        <form onSubmit={createUser} style={{ marginTop: 18, display: "grid", gap: 12 }}>
+          <div style={{ opacity: 0.85, fontSize: 13 }}>
+            Staff will log in using <b>username + password</b>.
+            (We store them in Supabase as <b>{`username@anns.local`}</b>.)
+          </div>
+
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="e.g. office1"
+            placeholder="New staff username (e.g. office1)"
+            style={inputStyle}
             autoComplete="off"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,0,0,0.15)",
-              outline: "none",
-              marginBottom: 14,
-            }}
           />
 
-          <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
-            Password
-          </label>
           <input
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="min 6 characters"
+            placeholder="Temporary password (min 6 characters)"
+            style={inputStyle}
             type="password"
             autoComplete="new-password"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,0,0,0.15)",
-              outline: "none",
-              marginBottom: 14,
-            }}
           />
 
           <button
-            disabled={loading}
+            disabled={saving}
+            type="submit"
             style={{
-              width: "100%",
-              padding: "10px 14px",
-              borderRadius: 10,
+              ...pillStyle,
               border: "none",
-              background: "#f0f0f0",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontWeight: 600,
+              cursor: "pointer",
+              background: "#111",
+              color: "white",
+              fontWeight: 800,
+              justifySelf: "start",
             }}
           >
-            {loading ? "Creating..." : "Create user"}
+            {saving ? "Creating..." : "Create staff user"}
           </button>
 
-          {message && (
+          {msg && (
             <div
               style={{
-                marginTop: 12,
-                padding: "10px 12px",
+                marginTop: 6,
+                padding: 10,
                 borderRadius: 10,
                 border: "1px solid rgba(0,0,0,0.12)",
-                background: isError ? "rgba(255, 90, 90, 0.18)" : "rgba(90, 255, 160, 0.22)",
+                background: isError ? "rgba(255,0,0,0.12)" : "rgba(0,255,120,0.12)",
+                fontSize: 13,
               }}
             >
-              {message}
+              {msg}
             </div>
           )}
         </form>
       </div>
-    </main>
+    </ClientShell>
   );
 }
+
+const pillStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 700,
+};
+
+const inputStyle: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  fontSize: 14,
+  background: "rgba(255,255,255,0.85)",
+};
