@@ -12,10 +12,19 @@ export default async function CustomersPage() {
   return (
     <ClientShell>
       <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+          }}
+        >
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Customers</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>View and manage customer records.</p>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              View and manage customer records.
+            </p>
           </div>
 
           <a
@@ -65,11 +74,24 @@ export default async function CustomersPage() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th align="left" style={thStyle}>Company</th>
-                    <th align="left" style={thStyle}>Contact</th>
-                    <th align="left" style={thStyle}>Phone</th>
-                    <th align="left" style={thStyle}>Email</th>
-                    <th align="left" style={thStyle}>Created</th>
+                    <th align="left" style={thStyle}>
+                      Company
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Contact
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Phone
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Email
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Created
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Actions
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -80,7 +102,23 @@ export default async function CustomersPage() {
                       <td style={tdStyle}>{c.phone ?? "-"}</td>
                       <td style={tdStyle}>{c.email ?? "-"}</td>
                       <td style={tdStyle}>
-                        {c.created_at ? new Date(c.created_at).toLocaleString() : "-"}
+                        {c.created_at
+                          ? new Date(c.created_at).toLocaleString()
+                          : "-"}
+                      </td>
+                      <td style={tdStyle}>
+                        <a
+                          href={`/customers/${c.id}`}
+                          style={{ marginRight: 10, textDecoration: "none" }}
+                        >
+                          Edit
+                        </a>
+                        <a
+                          href={`/customers/${c.id}/delete`}
+                          style={{ color: "red", textDecoration: "none" }}
+                        >
+                          Delete
+                        </a>
                       </td>
                     </tr>
                   ))}
@@ -91,7 +129,10 @@ export default async function CustomersPage() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <a href="/dashboard" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
+          <a
+            href="/dashboard"
+            style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}
+          >
             ← Back to dashboard
           </a>
         </div>
