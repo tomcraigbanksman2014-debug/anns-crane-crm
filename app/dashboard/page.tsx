@@ -16,12 +16,15 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     async function load() {
       const { data } = await supabase.auth.getUser();
-      const u = fromAuthEmail(data.user?.email ?? null);
-      setUsername(u);
+      const user = data.user;
+
+      setUsername(fromAuthEmail(user?.email ?? null));
+      setIsAdmin(user?.user_metadata?.role === "admin"); // ✅ admin flag
       setLoading(false);
     }
     load();
@@ -40,6 +43,10 @@ export default function DashboardPage() {
     { label: "Settings", href: "/settings" },
   ];
 
+  if (isAdmin) {
+    tiles.unshift({ label: "Admin: Staff Users", href: "/admin/users" }); // ✅ show for admin
+  }
+
   return (
     <ClientShell>
       <div
@@ -56,22 +63,13 @@ export default function DashboardPage() {
           <div>
             <h1 style={{ margin: 0 }}>Dashboard</h1>
             <p style={{ marginTop: 8, opacity: 0.85 }}>
-              {loading ? "Loading session..." : <>Signed in as <b>{username}</b></>}
+              {loading ? "Loading session..." : <>Signed in as <b>{username}</b>{isAdmin ? " (admin)" : ""}</>}
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {/* Temporary admin link - we’ll make role-based next */}
-            {username === "tom" && (
-              <a href="/admin/users" style={pillStyle}>
-                Admin → Users
-              </a>
-            )}
-
-            <button onClick={signOut} style={{ ...pillStyle, border: "none", cursor: "pointer" }}>
-              Sign out
-            </button>
-          </div>
+          <button onClick={signOut} style={{ ...pillStyle, border: "none", cursor: "pointer" }}>
+            Sign out
+          </button>
         </div>
 
         <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
@@ -80,10 +78,6 @@ export default function DashboardPage() {
               {t.label}
             </a>
           ))}
-        </div>
-
-        <div style={{ marginTop: 18, opacity: 0.75, fontSize: 13 }}>
-          Next: we’ll add the CRM tables (Customers, Bookings, Equipment) and the admin user manager that creates staff accounts.
         </div>
       </div>
     </ClientShell>
