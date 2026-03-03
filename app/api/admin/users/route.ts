@@ -1,48 +1,48 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export async function GET() {
-  // Verify requester is logged in + admin (using cookie session)
-  const supabase = createSupabaseServerClient();
-  const { data: auth } = await supabase.auth.getUser();
+  try {
+    const supabase = createSupabaseServerClient();
 
-  const role = (auth.user?.user_metadata as any)?.role ?? null;
-  if (!auth.user || role !== "admin") {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const serviceKey =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SUPABASE_SECRET_KEY; // fallback (you said yours starts sb_secret...)
+    if (userErr) {
+      return NextResponse.json({ error: userErr.message }, { status: 401 });
+    }
+    if (!user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
 
-  if (!serviceKey) {
+    // Admin check (matches your current approach)
+    const me = fromAuthEmail(user.email ?? null);
+    if (me !== "tom") {
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    }
+
+    // List staff users from your staff_users table (adjust fields if needed)
+    const { data, error } = await supabase
+      .from("staff_users")
+      .select("id, username, created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ users: data ?? [] });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Missing SUPABASE_SERVICE_ROLE_KEY / SUPABASE_SECRET_KEY" },
+      { error: e?.message || "Server error" },
       { status: 500 }
     );
   }
-
-  // Admin client can list users
-  const admin = createClient(url, serviceKey);
-
-  const { data, error } = await admin.auth.admin.listUsers({
-    page: 1,
-    perPage: 200,
-  });
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  const users = (data?.users || []).map((u: any) => ({
-    id: u.id,
-    email: u.email ?? null,
-    created_at: u.created_at ?? null,
-    last_sign_in_at: u.last_sign_in_at ?? null,
-    role: u.user_metadata?.role ?? null,
-  }));
-
-  return NextResponse.json({ users });
 }
