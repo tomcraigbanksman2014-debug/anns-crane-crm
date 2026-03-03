@@ -1,66 +1,37 @@
-// middleware.ts
-import { NextRequest, NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-
-function isProtectedPath(pathname: string) {
-  // Anything that should require login
-  return (
-    pathname.startsWith("/dashboard") ||
-    pathname.startsWith("/customers") ||
-    pathname.startsWith("/equipment") ||
-    pathname.startsWith("/bookings") ||
-    pathname.startsWith("/calendar") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/admin")
-  );
-}
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 
 export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+  const supabase = createMiddlewareClient({ req, res });
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { pathname } = req.nextUrl;
 
-  // Allow public pages
+  // Allow public routes
   if (
-    pathname === "/" ||
     pathname.startsWith("/login") ||
-    pathname.startsWith("/api") || // let API routes handle their own auth
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname.startsWith("/logo.png")
+    pathname === "/"
   ) {
-    return NextResponse.next();
+    return res;
   }
 
-  const res = NextResponse.next();
+  // Require login
+  if (!user) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
 
-  // Supabase SSR client that CAN write cookies (middleware is allowed)
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            res.cookies.set(name, value, options);
-          });
-        },
-      },
-    }
-  );
+  // Protect admin routes
+  if (pathname.startsWith("/admin")) {
+    const role = user.user_metadata?.role;
 
-  // If route is protected, require an authenticated user
-  if (isProtectedPath(pathname)) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      const url = req.nextUrl.clone();
-      url.pathname = "/login";
-      url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+    if (role !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
     }
   }
 
