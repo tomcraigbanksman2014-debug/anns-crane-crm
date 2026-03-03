@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "@/app/lib/supabase/server";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 export async function GET() {
   // Verify requester is logged in + admin (using cookie session)
