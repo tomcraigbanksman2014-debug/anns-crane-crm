@@ -1,72 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 
-function getCookie(req: NextRequest, name: string) {
-  const v = req.cookies.get(name)?.value;
-  return v ?? null;
-}
-
-// Supabase stores the access token in a cookie like:
-// sb-<project-ref>-auth-token
-function findSupabaseAuthCookie(req: NextRequest) {
-  const all = req.cookies.getAll();
-  const hit = all.find((c) => c.name.includes("-auth-token"));
-  return hit?.value ?? null;
-}
-
-function decodeJwtPayload(token: string): any | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length < 2) return null;
-    const payload = parts[1];
-    const json = Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
-
-export function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // Allow public + Next internal
-  if (
+function isPublicPath(pathname: string) {
+  return (
     pathname === "/" ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/public")
-  ) {
+    pathname === "/favicon.ico" ||
+    pathname === "/logo.png" ||
+    pathname.startsWith("/api") // IMPORTANT: don’t protect API routes via middleware
+  );
+}
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  if (isPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  // If no supabase auth cookie -> force login
-  const authCookie = findSupabaseAuthCookie(req);
-  if (!authCookie) {
-    return NextResponse.redirect(new URL("/login", req.url));
+  // Response we can attach refreshed cookies to
+  let res = NextResponse.next();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return req.cookies.get(name)?.value;
+        },
+        set(name: string, value: string, options: any) {
+          res.cookies.set({ name, value, ...options });
+        },
+        remove(name: string, options: any) {
+          res.cookies.set({ name, value: "", ...options });
+        },
+      },
+    }
+  );
+
+  // This both checks auth AND refreshes session cookies when needed
+  const { data, error } = await supabase.auth.getUser();
+
+  // If not logged in, force to /login
+  if (error || !data.user) {
+    const loginUrl = req.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    return NextResponse.redirect(loginUrl);
   }
 
-  // Optional: enforce admin-only for /admin/*
+  // Admin-only gate
   if (pathname.startsWith("/admin")) {
-    // The cookie is JSON with access_token in many setups
-    // Sometimes it may be a raw JWT; handle both.
-    let accessToken: string | null = null;
-
-    try {
-      const parsed = JSON.parse(authCookie);
-      accessToken = parsed?.access_token ?? null;
-    } catch {
-      accessToken = authCookie; // assume raw token
-    }
-
-    const payload = accessToken ? decodeJwtPayload(accessToken) : null;
-    const role = payload?.user_metadata?.role;
-
+    const role = (data.user.user_metadata as any)?.role ?? null;
     if (role !== "admin") {
-      return NextResponse.redirect(new URL("/dashboard", req.url));
+      const dashUrl = req.nextUrl.clone();
+      dashUrl.pathname = "/dashboard";
+      return NextResponse.redirect(dashUrl);
     }
   }
 
-  return NextResponse.next();
+  return res;
 }
 
 export const config = {
