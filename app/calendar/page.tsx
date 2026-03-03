@@ -4,12 +4,26 @@ import { createSupabaseServerClient } from "../lib/supabase/server";
 type BookingRow = {
   id: string;
   start_date: string; // YYYY-MM-DD
-  end_date: string;   // YYYY-MM-DD
+  end_date: string; // YYYY-MM-DD
   location: string | null;
   status: string | null;
   clients: { id: string; company_name: string | null; contact_name: string | null } | null;
   equipment: { id: string; name: string | null; asset_number: string | null; capacity: string | null } | null;
 };
+
+// Raw Supabase nested select shape (arrays)
+type BookingRowRaw = Omit<BookingRow, "clients" | "equipment"> & {
+  clients: { id: string; company_name: string | null; contact_name: string | null }[] | null;
+  equipment: { id: string; name: string | null; asset_number: string | null; capacity: string | null }[] | null;
+};
+
+function normalizeBooking(b: BookingRowRaw): BookingRow {
+  return {
+    ...b,
+    clients: Array.isArray(b.clients) ? b.clients[0] ?? null : null,
+    equipment: Array.isArray(b.equipment) ? b.equipment[0] ?? null : null,
+  };
+}
 
 function pad2(n: number) {
   return String(n).padStart(2, "0");
@@ -20,7 +34,6 @@ function ymd(d: Date) {
 }
 
 function parseMonthParam(monthParam?: string | null) {
-  // expects "YYYY-MM"
   if (!monthParam) return null;
   const m = monthParam.trim();
   if (!/^\d{4}-\d{2}$/.test(m)) return null;
@@ -34,7 +47,6 @@ function monthStart(y: number, m: number) {
 }
 
 function monthEndExclusive(y: number, m: number) {
-  // first day of next month
   return new Date(y, m, 1);
 }
 
@@ -53,13 +65,13 @@ function startOfCalendarGrid(monthFirst: Date) {
 }
 
 function endOfCalendarGrid(monthLast: Date) {
-  // last day of month -> extend to Sunday end (Monday-start grid means week ends Sunday)
+  // Extend to Sunday end (Monday-start grid)
   const d = new Date(monthLast);
   const day = d.getDay(); // 0 Sun ... 6 Sat
-  const sundayIndex = day; // Sunday -> 0 days to add, Monday -> 6 days to add
-  d.setDate(d.getDate() + (6 - ((day + 6) % 7))); // reach Sunday
+  const toSunday = 6 - ((day + 6) % 7);
+  d.setDate(d.getDate() + toSunday);
   d.setHours(0, 0, 0, 0);
-  // exclusive end
+
   const end = new Date(d);
   end.setDate(end.getDate() + 1);
   return end;
@@ -76,7 +88,6 @@ function eachDay(start: Date, endExclusive: Date) {
 }
 
 function expandBookingDays(b: BookingRow) {
-  // inclusive date range
   const start = new Date(b.start_date + "T00:00:00");
   const end = new Date(b.end_date + "T00:00:00");
   const days: string[] = [];
@@ -97,13 +108,13 @@ export default async function CalendarPage({
 
   const now = new Date();
   const parsed = parseMonthParam(searchParams?.month ?? null);
-  const activeMonthDate = parsed ? monthStart(parsed.y, parsed.m) : monthStart(now.getFullYear(), now.getMonth() + 1);
+  const activeMonthDate = parsed
+    ? monthStart(parsed.y, parsed.m)
+    : monthStart(now.getFullYear(), now.getMonth() + 1);
 
   const firstDay = monthStart(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
   const nextMonthFirst = monthEndExclusive(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
 
-  // Pull bookings that overlap this month:
-  // start_date < nextMonthFirst AND end_date >= firstDay
   const { data, error } = await supabase
     .from("bookings")
     .select(
@@ -121,9 +132,8 @@ export default async function CalendarPage({
     .gte("end_date", ymd(firstDay))
     .order("start_date", { ascending: true });
 
-  const bookings = (data ?? []) as BookingRow[];
+  const bookings: BookingRow[] = ((data ?? []) as unknown as BookingRowRaw[]).map(normalizeBooking);
 
-  // Map bookings into day buckets
   const byDay: Record<string, BookingRow[]> = {};
   for (const b of bookings) {
     for (const day of expandBookingDays(b)) {
@@ -131,7 +141,6 @@ export default async function CalendarPage({
     }
   }
 
-  // Build calendar grid range
   const monthLast = new Date(nextMonthFirst);
   monthLast.setDate(monthLast.getDate() - 1);
 
@@ -146,7 +155,15 @@ export default async function CalendarPage({
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Calendar</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>See bookings by day (month view).</p>
@@ -217,9 +234,7 @@ export default async function CalendarPage({
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
                     <div style={{ fontWeight: 900, opacity: inMonth ? 1 : 0.45 }}>{d.getDate()}</div>
-                    {items.length > 0 && (
-                      <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>{items.length}</div>
-                    )}
+                    {items.length > 0 && <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>{items.length}</div>}
                   </div>
 
                   {items.length === 0 ? (
@@ -248,21 +263,23 @@ export default async function CalendarPage({
                             }}
                             title={`${company} • ${equip} • ${status}`}
                           >
-                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              {company}
-                            </div>
-                            <div style={{ fontWeight: 700, opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{company}</div>
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                opacity: 0.75,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
                               {equip} • {status}
                             </div>
                           </a>
                         );
                       })}
 
-                      {items.length > 3 && (
-                        <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>
-                          +{items.length - 3} more…
-                        </div>
-                      )}
+                      {items.length > 3 && <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>+{items.length - 3} more…</div>}
                     </div>
                   )}
                 </div>
