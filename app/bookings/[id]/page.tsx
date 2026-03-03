@@ -13,6 +13,11 @@ function money(n: any) {
   return num.toLocaleString(undefined, { style: "currency", currency: "GBP" });
 }
 
+function first<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
 export default async function BookingViewPage({
   params,
 }: {
@@ -44,6 +49,9 @@ export default async function BookingViewPage({
     .eq("id", params.id)
     .single();
 
+  const client = first<any>(booking?.clients);
+  const equip = first<any>(booking?.equipment);
+
   return (
     <ClientShell>
       <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
@@ -58,9 +66,7 @@ export default async function BookingViewPage({
         >
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Booking</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View booking details.
-            </p>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>View booking details.</p>
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -74,11 +80,7 @@ export default async function BookingViewPage({
         </div>
 
         <div style={panelStyle}>
-          {error && (
-            <div style={errorStyle}>
-              {error.message}
-            </div>
-          )}
+          {error && <div style={errorStyle}>{error.message}</div>}
 
           {!booking ? (
             <p style={{ margin: 0 }}>Booking not found.</p>
@@ -99,22 +101,13 @@ export default async function BookingViewPage({
               </Section>
 
               <Section title="Customer">
-                <Row
-                  label="Company"
-                  value={booking.clients?.company_name ?? "-"}
-                />
-                <Row
-                  label="Contact"
-                  value={booking.clients?.contact_name ?? "-"}
-                />
-                <Row label="Phone" value={booking.clients?.phone ?? "-"} />
-                <Row label="Email" value={booking.clients?.email ?? "-"} />
-                {booking.clients?.id && (
+                <Row label="Company" value={client?.company_name ?? "-"} />
+                <Row label="Contact" value={client?.contact_name ?? "-"} />
+                <Row label="Phone" value={client?.phone ?? "-"} />
+                <Row label="Email" value={client?.email ?? "-"} />
+                {client?.id && (
                   <div style={{ marginTop: 10 }}>
-                    <a
-                      href={`/customers/${booking.clients.id}`}
-                      style={linkStyle}
-                    >
+                    <a href={`/customers/${client.id}`} style={linkStyle}>
                       View customer →
                     </a>
                   </div>
@@ -122,23 +115,14 @@ export default async function BookingViewPage({
               </Section>
 
               <Section title="Equipment">
-                <Row label="Name" value={booking.equipment?.name ?? "-"} />
-                <Row
-                  label="Asset #"
-                  value={booking.equipment?.asset_number ?? "-"}
-                />
-                <Row label="Type" value={booking.equipment?.type ?? "-"} />
-                <Row
-                  label="Capacity"
-                  value={booking.equipment?.capacity ?? "-"}
-                />
-                <Row label="Status" value={booking.equipment?.status ?? "-"} />
-                {booking.equipment?.id && (
+                <Row label="Name" value={equip?.name ?? "-"} />
+                <Row label="Asset #" value={equip?.asset_number ?? "-"} />
+                <Row label="Type" value={equip?.type ?? "-"} />
+                <Row label="Capacity" value={equip?.capacity ?? "-"} />
+                <Row label="Status" value={equip?.status ?? "-"} />
+                {equip?.id && (
                   <div style={{ marginTop: 10 }}>
-                    <a
-                      href={`/equipment/${booking.equipment.id}`}
-                      style={linkStyle}
-                    >
+                    <a href={`/equipment/${equip.id}`} style={linkStyle}>
                       View equipment →
                     </a>
                   </div>
@@ -149,17 +133,17 @@ export default async function BookingViewPage({
                 <Row label="Hire price" value={money(booking.hire_price)} />
                 <Row label="VAT" value={money(booking.vat)} />
                 <Row label="Total invoice" value={money(booking.total_invoice)} />
-                <Row
-                  label="Payment received"
-                  value={money(booking.payment_received)}
-                />
+                <Row label="Payment received" value={money(booking.payment_received)} />
               </Section>
             </div>
           )}
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <a href="/dashboard" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
+          <a
+            href="/dashboard"
+            style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}
+          >
             ← Dashboard
           </a>
         </div>
