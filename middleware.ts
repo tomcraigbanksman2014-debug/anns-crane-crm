@@ -1,65 +1,72 @@
-import { NextResponse, type NextRequest } from "next/server";
+// middleware.ts
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-function createSupabaseMiddlewareClient(req: NextRequest, res: NextResponse) {
-  return createServerClient(
+function isProtectedPath(pathname: string) {
+  // Anything that should require login
+  return (
+    pathname.startsWith("/dashboard") ||
+    pathname.startsWith("/customers") ||
+    pathname.startsWith("/equipment") ||
+    pathname.startsWith("/bookings") ||
+    pathname.startsWith("/calendar") ||
+    pathname.startsWith("/settings") ||
+    pathname.startsWith("/admin")
+  );
+}
+
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  // Allow public pages
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/api") || // let API routes handle their own auth
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon") ||
+    pathname.startsWith("/logo.png")
+  ) {
+    return NextResponse.next();
+  }
+
+  const res = NextResponse.next();
+
+  // Supabase SSR client that CAN write cookies (middleware is allowed)
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get(name: string) {
-          return req.cookies.get(name)?.value;
+        getAll() {
+          return req.cookies.getAll();
         },
-        set(name: string, value: string, options: any) {
-          res.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          res.cookies.set({ name, value: "", ...options, maxAge: 0 });
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            res.cookies.set(name, value, options);
+          });
         },
       },
     }
   );
-}
 
-const PUBLIC_PATHS = ["/login", "/"];
+  // If route is protected, require an authenticated user
+  if (isProtectedPath(pathname)) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const { pathname } = req.nextUrl;
-
-  // Always allow Next assets
-  if (
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/logo.png")
-  ) {
-    return res;
-  }
-
-  const supabase = createSupabaseMiddlewareClient(req, res);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const isPublic = PUBLIC_PATHS.includes(pathname);
-
-  // If NOT logged in and trying to access a protected page -> go login
-  if (!user && !isPublic) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  // If logged in and going to /login -> go dashboard
-  if (user && pathname === "/login") {
-    const url = req.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+    if (!user) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("next", pathname);
+      return NextResponse.redirect(url);
+    }
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
 };
