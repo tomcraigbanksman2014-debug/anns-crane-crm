@@ -21,4 +21,8 @@
     "@types/react-dom": "^18.0.0",
     "typescript": "^5.0.0"
   }
+{
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
 }
