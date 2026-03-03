@@ -1,266 +1,293 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 
-function fmtDate(d: string | null | undefined) {
-  if (!d) return "-";
-  // start_date / end_date are DATEs so this is safe
-  return new Date(d + "T00:00:00").toLocaleDateString();
+type BookingRow = {
+  id: string;
+  start_date: string; // YYYY-MM-DD
+  end_date: string;   // YYYY-MM-DD
+  location: string | null;
+  status: string | null;
+  clients: { id: string; company_name: string | null; contact_name: string | null } | null;
+  equipment: { id: string; name: string | null; asset_number: string | null; capacity: string | null } | null;
+};
+
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
 }
 
-function isoDate(d: Date) {
-  // yyyy-mm-dd
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+function ymd(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function parseMonthParam(monthParam?: string | null) {
+  // expects "YYYY-MM"
+  if (!monthParam) return null;
+  const m = monthParam.trim();
+  if (!/^\d{4}-\d{2}$/.test(m)) return null;
+  const [y, mm] = m.split("-").map((x) => Number(x));
+  if (!y || !mm || mm < 1 || mm > 12) return null;
+  return { y, m: mm };
+}
+
+function monthStart(y: number, m: number) {
+  return new Date(y, m - 1, 1);
+}
+
+function monthEndExclusive(y: number, m: number) {
+  // first day of next month
+  return new Date(y, m, 1);
+}
+
+function addMonths(d: Date, delta: number) {
+  return new Date(d.getFullYear(), d.getMonth() + delta, 1);
+}
+
+function startOfCalendarGrid(monthFirst: Date) {
+  // Monday-start grid
+  const d = new Date(monthFirst);
+  const day = d.getDay(); // 0 Sun ... 6 Sat
+  const mondayIndex = (day + 6) % 7; // Sun->6, Mon->0, Tue->1...
+  d.setDate(d.getDate() - mondayIndex);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function endOfCalendarGrid(monthLast: Date) {
+  // last day of month -> extend to Sunday end (Monday-start grid means week ends Sunday)
+  const d = new Date(monthLast);
+  const day = d.getDay(); // 0 Sun ... 6 Sat
+  const sundayIndex = day; // Sunday -> 0 days to add, Monday -> 6 days to add
+  d.setDate(d.getDate() + (6 - ((day + 6) % 7))); // reach Sunday
+  d.setHours(0, 0, 0, 0);
+  // exclusive end
+  const end = new Date(d);
+  end.setDate(end.getDate() + 1);
+  return end;
+}
+
+function eachDay(start: Date, endExclusive: Date) {
+  const days: Date[] = [];
+  const d = new Date(start);
+  while (d < endExclusive) {
+    days.push(new Date(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+function expandBookingDays(b: BookingRow) {
+  // inclusive date range
+  const start = new Date(b.start_date + "T00:00:00");
+  const end = new Date(b.end_date + "T00:00:00");
+  const days: string[] = [];
+  const d = new Date(start);
+  while (d <= end) {
+    days.push(ymd(d));
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
 }
 
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams?: { from?: string; to?: string; status?: string };
+  searchParams?: { month?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
-  const today = new Date();
-  const defaultFrom = isoDate(today);
+  const now = new Date();
+  const parsed = parseMonthParam(searchParams?.month ?? null);
+  const activeMonthDate = parsed ? monthStart(parsed.y, parsed.m) : monthStart(now.getFullYear(), now.getMonth() + 1);
 
-  const toDate = new Date(today);
-  toDate.setDate(toDate.getDate() + 30);
-  const defaultTo = isoDate(toDate);
+  const firstDay = monthStart(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
+  const nextMonthFirst = monthEndExclusive(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
 
-  const from = (searchParams?.from || defaultFrom).trim();
-  const to = (searchParams?.to || defaultTo).trim();
-  const status = (searchParams?.status || "").trim();
-
-  let q = supabase
+  // Pull bookings that overlap this month:
+  // start_date < nextMonthFirst AND end_date >= firstDay
+  const { data, error } = await supabase
     .from("bookings")
     .select(
       `
-        id,
-        start_date,
-        end_date,
-        location,
-        status,
-        hire_price,
-        invoice_status,
-        created_at,
-        clients ( company_name, contact_name ),
-        equipment ( name, asset_number )
-      `
+      id,
+      start_date,
+      end_date,
+      location,
+      status,
+      clients:clients(id, company_name, contact_name),
+      equipment:equipment(id, name, asset_number, capacity)
+    `
     )
-    .gte("start_date", from)
-    .lte("start_date", to)
+    .lt("start_date", ymd(nextMonthFirst))
+    .gte("end_date", ymd(firstDay))
     .order("start_date", { ascending: true });
 
-  if (status) q = q.eq("status", status);
+  const bookings = (data ?? []) as BookingRow[];
 
-  const { data: bookings, error } = await q;
+  // Map bookings into day buckets
+  const byDay: Record<string, BookingRow[]> = {};
+  for (const b of bookings) {
+    for (const day of expandBookingDays(b)) {
+      (byDay[day] ||= []).push(b);
+    }
+  }
+
+  // Build calendar grid range
+  const monthLast = new Date(nextMonthFirst);
+  monthLast.setDate(monthLast.getDate() - 1);
+
+  const gridStart = startOfCalendarGrid(firstDay);
+  const gridEnd = endOfCalendarGrid(monthLast);
+  const days = eachDay(gridStart, gridEnd);
+
+  const prev = addMonths(activeMonthDate, -1);
+  const next = addMonths(activeMonthDate, +1);
+  const monthLabel = activeMonthDate.toLocaleString(undefined, { month: "long", year: "numeric" });
 
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Calendar</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View bookings by date range.
-            </p>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>See bookings by day (month view).</p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <a href="/bookings" style={pillStyle}>
-              View bookings
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <a href={`/calendar?month=${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`} style={btnStyle}>
+              ← Prev
             </a>
-            <a href="/dashboard" style={pillStyle}>
-              ← Dashboard
+            <div style={{ fontWeight: 900, fontSize: 16 }}>{monthLabel}</div>
+            <a href={`/calendar?month=${next.getFullYear()}-${pad2(next.getMonth() + 1)}`} style={btnStyle}>
+              Next →
+            </a>
+
+            <a href="/bookings/new" style={{ ...btnStyle, fontWeight: 900 }}>
+              + New booking
             </a>
           </div>
         </div>
 
-        <div style={panelStyle}>
-          <form
-            method="GET"
-            action="/calendar"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: 12,
-              alignItems: "end",
-            }}
-          >
-            <div>
-              <label style={labelStyle}>From</label>
-              <input name="from" type="date" defaultValue={from} style={inputStyle} />
-            </div>
-
-            <div>
-              <label style={labelStyle}>To</label>
-              <input name="to" type="date" defaultValue={to} style={inputStyle} />
-            </div>
-
-            <div>
-              <label style={labelStyle}>Status (optional)</label>
-              <select name="status" defaultValue={status} style={inputStyle}>
-                <option value="">All</option>
-                <option value="Inquiry">Inquiry</option>
-                <option value="Booked">Booked</option>
-                <option value="Confirmed">Confirmed</option>
-                <option value="Completed">Completed</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
-            </div>
-
-            <button type="submit" style={buttonStyle}>
-              Apply filters
-            </button>
-          </form>
-
+        <div
+          style={{
+            marginTop: 14,
+            background: "rgba(255,255,255,0.18)",
+            padding: 14,
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.4)",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+          }}
+        >
           {error && (
-            <div style={errorStyle}>
+            <div
+              style={{
+                marginBottom: 12,
+                padding: "10px 12px",
+                borderRadius: 10,
+                background: "rgba(255,0,0,0.10)",
+                border: "1px solid rgba(255,0,0,0.25)",
+              }}
+            >
               {error.message}
             </div>
           )}
 
-          {!bookings || bookings.length === 0 ? (
-            <p style={{ marginTop: 14, marginBottom: 0 }}>No bookings found in this range.</p>
-          ) : (
-            <div style={{ overflowX: "auto", marginTop: 14 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th align="left" style={thStyle}>Start</th>
-                    <th align="left" style={thStyle}>End</th>
-                    <th align="left" style={thStyle}>Customer</th>
-                    <th align="left" style={thStyle}>Equipment</th>
-                    <th align="left" style={thStyle}>Location</th>
-                    <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Invoice</th>
-                    <th align="left" style={thStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bookings.map((b: any) => {
-                    const customer =
-                      b?.clients?.company_name ||
-                      b?.clients?.contact_name ||
-                      "-";
-                    const equip =
-                      b?.equipment?.name ||
-                      b?.equipment?.asset_number ||
-                      "-";
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 }}>
+            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              <div key={d} style={{ fontSize: 12, opacity: 0.75, fontWeight: 800, padding: "0 6px" }}>
+                {d}
+              </div>
+            ))}
 
-                    return (
-                      <tr key={b.id}>
-                        <td style={tdStyle}>{fmtDate(b.start_date)}</td>
-                        <td style={tdStyle}>{fmtDate(b.end_date)}</td>
-                        <td style={tdStyle}>{customer}</td>
-                        <td style={tdStyle}>{equip}</td>
-                        <td style={tdStyle}>{b.location ?? "-"}</td>
-                        <td style={tdStyle}>{b.status ?? "-"}</td>
-                        <td style={tdStyle}>{b.invoice_status ?? "-"}</td>
-                        <td style={tdStyle}>
-                          <a href={`/bookings/${b.id}`} style={linkStyle}>
-                            View
+            {days.map((d) => {
+              const key = ymd(d);
+              const inMonth = d.getMonth() === activeMonthDate.getMonth();
+              const items = byDay[key] ?? [];
+
+              return (
+                <div
+                  key={key}
+                  style={{
+                    minHeight: 110,
+                    borderRadius: 12,
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    background: inMonth ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.14)",
+                    padding: 10,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                    <div style={{ fontWeight: 900, opacity: inMonth ? 1 : 0.45 }}>{d.getDate()}</div>
+                    {items.length > 0 && (
+                      <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>{items.length}</div>
+                    )}
+                  </div>
+
+                  {items.length === 0 ? (
+                    <div style={{ fontSize: 12, opacity: 0.45 }}>—</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.slice(0, 3).map((b) => {
+                        const company = b.clients?.company_name ?? "Customer";
+                        const equip = b.equipment?.name ?? "Equipment";
+                        const status = b.status ?? "—";
+
+                        return (
+                          <a
+                            key={b.id}
+                            href={`/bookings/${b.id}`}
+                            style={{
+                              textDecoration: "none",
+                              color: "#111",
+                              borderRadius: 10,
+                              border: "1px solid rgba(0,0,0,0.10)",
+                              background: "rgba(255,255,255,0.55)",
+                              padding: "8px 8px",
+                              fontSize: 12,
+                              lineHeight: 1.2,
+                              fontWeight: 800,
+                            }}
+                            title={`${company} • ${equip} • ${status}`}
+                          >
+                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {company}
+                            </div>
+                            <div style={{ fontWeight: 700, opacity: 0.75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {equip} • {status}
+                            </div>
                           </a>
-                          {" · "}
-                          <a href={`/bookings/${b.id}/edit`} style={linkStyle}>
-                            Edit
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                        );
+                      })}
+
+                      {items.length > 3 && (
+                        <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>
+                          +{items.length - 3} more…
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <a href="/dashboard" style={{ textDecoration: "none", fontWeight: 900, color: "#111" }}>
+            ← Back to dashboard
+          </a>
         </div>
       </div>
     </ClientShell>
   );
 }
 
-const panelStyle: React.CSSProperties = {
-  marginTop: 16,
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 12,
-  marginBottom: 6,
-  opacity: 0.85,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.85)",
-  outline: "none",
-  fontSize: 14,
-};
-
-const buttonStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "11px 12px",
-  borderRadius: 10,
-  border: "none",
-  background: "#111",
-  color: "white",
-  fontSize: 14,
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const thStyle: React.CSSProperties = {
-  padding: "10px 10px",
-  borderBottom: "1px solid rgba(0,0,0,0.10)",
-  fontSize: 12,
-  opacity: 0.8,
-};
-
-const tdStyle: React.CSSProperties = {
-  padding: "12px 10px",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
-  fontSize: 14,
-};
-
-const pillStyle: React.CSSProperties = {
+const btnStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 12px",
+  padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-};
-
-const linkStyle: React.CSSProperties = {
-  textDecoration: "none",
-  fontWeight: 800,
-  color: "#111",
-};
-
-const errorStyle: React.CSSProperties = {
-  marginTop: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
