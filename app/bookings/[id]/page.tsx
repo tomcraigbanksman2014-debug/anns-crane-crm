@@ -18,6 +18,46 @@ function first<T>(v: T | T[] | null | undefined): T | null {
   return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
+function badge(label: string, tone: "good" | "warn" | "bad" | "neutral") {
+  const map: Record<string, React.CSSProperties> = {
+    good: { background: "rgba(0,180,120,0.15)", border: "1px solid rgba(0,180,120,0.25)" },
+    warn: { background: "rgba(255,140,0,0.15)", border: "1px solid rgba(255,140,0,0.25)" },
+    bad: { background: "rgba(255,0,0,0.12)", border: "1px solid rgba(255,0,0,0.22)" },
+    neutral: { background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.10)" },
+  };
+
+  return (
+    <span
+      style={{
+        display: "inline-block",
+        padding: "4px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 900,
+        ...map[tone],
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+function statusTone(s: string | null | undefined) {
+  const v = (s ?? "").toLowerCase();
+  if (v.includes("confirm")) return "good";
+  if (v.includes("inquiry") || v.includes("quote")) return "warn";
+  if (v.includes("cancel")) return "bad";
+  return "neutral";
+}
+
+function invoiceTone(s: string | null | undefined) {
+  const v = (s ?? "").toLowerCase();
+  if (v.includes("paid")) return "good";
+  if (v.includes("sent") || v.includes("due")) return "warn";
+  if (v.includes("over")) return "bad";
+  return "neutral";
+}
+
 export default async function BookingViewPage({
   params,
 }: {
@@ -69,7 +109,10 @@ export default async function BookingViewPage({
             <p style={{ marginTop: 6, opacity: 0.8 }}>View booking details.</p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <a href={`/api/bookings/${params.id}/invoice`} style={pillStyle}>
+              Download invoice PDF
+            </a>
             <a href={`/bookings/${params.id}/edit`} style={pillStyle}>
               Edit
             </a>
@@ -96,8 +139,15 @@ export default async function BookingViewPage({
                 <Row label="Start" value={fmtDate(booking.start_date)} />
                 <Row label="End" value={fmtDate(booking.end_date)} />
                 <Row label="Location" value={booking.location ?? "-"} />
-                <Row label="Status" value={booking.status ?? "-"} />
-                <Row label="Invoice status" value={booking.invoice_status ?? "-"} />
+
+                <Row
+                  label="Status"
+                  value={badge(booking.status ?? "-", statusTone(booking.status) as any)}
+                />
+                <Row
+                  label="Invoice status"
+                  value={badge(booking.invoice_status ?? "-", invoiceTone(booking.invoice_status) as any)}
+                />
               </Section>
 
               <Section title="Customer">
@@ -140,10 +190,7 @@ export default async function BookingViewPage({
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <a
-            href="/dashboard"
-            style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}
-          >
+          <a href="/dashboard" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
             ← Dashboard
           </a>
         </div>
