@@ -6,26 +6,24 @@ function toAuthEmail(username: string) {
   return `${username.toLowerCase()}@anns.local`;
 }
 
-function fromAuthEmail(email: string | null) {
-  if (!email) return "";
-  return email.split("@")[0] || "";
-}
-
 export async function POST(req: Request) {
   try {
-    // 1) Must be logged in (session cookie)
+    // 1) Must be logged in (cookie session)
     const supabaseSession = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabaseSession.auth.getUser();
+    const { data, error: userErr } = await supabaseSession.auth.getUser();
 
+    if (userErr) {
+      return NextResponse.json({ error: userErr.message }, { status: 401 });
+    }
+
+    const user = data.user;
     if (!user) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    // 2) Admin check (temporary: username === "tom")
-    const me = fromAuthEmail(user.email ?? null);
-    if (me !== "tom") {
+    // 2) Admin check via Supabase Auth user_metadata.role
+    const role = (user.user_metadata as any)?.role ?? null;
+    if (role !== "admin") {
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -47,34 +45,48 @@ export async function POST(req: Request) {
       );
     }
 
+    // 4) Env vars
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const secretKey =
+      process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !serviceKey) {
+    if (!supabaseUrl || !secretKey) {
       return NextResponse.json(
-        { error: "Server missing Supabase env vars" },
+        {
+          error:
+            "Server missing Supabase env vars: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY (or SUPABASE_SERVICE_ROLE_KEY)",
+        },
         { status: 500 }
       );
     }
 
-    // 4) Admin client (Service Role)
-    const admin = createClient(supabaseUrl, serviceKey);
+    // 5) Admin client (Secret key / service role)
+    const admin = createClient(supabaseUrl, secretKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     const email = toAuthEmail(username);
 
-    // 5) Create user in Supabase Auth
-    const { data, error } = await admin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true, // important so they can login immediately
-      user_metadata: { role: "staff", username },
-    });
+    // 6) Create user in Supabase Auth
+    const { data: created, error: createErr } = await admin.auth.admin.createUser(
+      {
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { role: "staff", username },
+      }
+    );
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (createErr) {
+      return NextResponse.json({ error: createErr.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, userId: data.user?.id, username });
+    return NextResponse.json({
+      success: true,
+      userId: created.user?.id ?? null,
+      username,
+      email,
+    });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Server error" },
