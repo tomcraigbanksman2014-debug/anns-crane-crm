@@ -1,10 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
-export default function CustomerForm() {
+type Customer = {
+  id: string;
+  company_name: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  notes: string | null;
+};
+
+export default function CustomerForm({
+  mode = "create",
+  customer,
+}: {
+  mode?: "create" | "edit";
+  customer?: Customer | null;
+}) {
   const router = useRouter();
   const supabase = createSupabaseBrowserClient();
 
@@ -16,6 +31,16 @@ export default function CustomerForm() {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode === "edit" && customer) {
+      setCompanyName(customer.company_name ?? "");
+      setContactName(customer.contact_name ?? "");
+      setPhone(customer.phone ?? "");
+      setEmail(customer.email ?? "");
+      setNotes(customer.notes ?? "");
+    }
+  }, [mode, customer]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -32,30 +57,47 @@ export default function CustomerForm() {
         return;
       }
 
-      const res = await fetch("/api/customers/create", {
+      const payload = {
+        company_name: company_name.trim(),
+        contact_name: contact_name.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        notes: notes.trim(),
+      };
+
+      if (!payload.company_name) {
+        setError("Company name is required");
+        setSaving(false);
+        return;
+      }
+
+      const url =
+        mode === "edit" && customer?.id
+          ? `/api/customers/${customer.id}/update`
+          : `/api/customers/create`;
+
+      const res = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          company_name,
-          contact_name,
-          phone,
-          email,
-          notes,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
-
       if (!res.ok) {
         setError(data?.error || "Failed to save customer");
         setSaving(false);
         return;
       }
 
-      router.push("/customers");
+      // Navigate back
+      if (mode === "edit" && customer?.id) {
+        router.push(`/customers/${customer.id}`);
+      } else {
+        router.push("/customers");
+      }
       router.refresh();
     } catch (err: any) {
       setError(err?.message || "Failed to save customer");
@@ -66,8 +108,12 @@ export default function CustomerForm() {
 
   return (
     <form onSubmit={onSubmit} style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
-      <h1 style={{ margin: 0, fontSize: 32 }}>Add customer</h1>
-      <p style={{ marginTop: 6, opacity: 0.8 }}>Create a new customer record.</p>
+      <h1 style={{ margin: 0, fontSize: 32 }}>
+        {mode === "edit" ? "Edit customer" : "Add customer"}
+      </h1>
+      <p style={{ marginTop: 6, opacity: 0.8 }}>
+        {mode === "edit" ? "Update this customer record." : "Create a new customer record."}
+      </p>
 
       <div style={panelStyle}>
         <label style={labelStyle}>
@@ -98,16 +144,10 @@ export default function CustomerForm() {
         </label>
 
         <button disabled={saving} type="submit" style={btnStyle}>
-          {saving ? "Saving..." : "Save customer"}
+          {saving ? "Saving..." : mode === "edit" ? "Save changes" : "Save customer"}
         </button>
 
         {error && <div style={errorStyle}>{error}</div>}
-
-        <div style={{ marginTop: 10 }}>
-          <a href="/customers" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
-            ← Back to customers
-          </a>
-        </div>
       </div>
     </form>
   );
