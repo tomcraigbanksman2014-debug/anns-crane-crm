@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/app/lib/supabase/server";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type SearchItem =
   | { type: "customer"; id: string; title: string; subtitle: string; href: string }
@@ -25,8 +25,6 @@ export async function GET(req: Request) {
   if (!auth.user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const like = `%${q}%`;
-
-  // If UUID, also allow exact lookups
   const uuid = isUuid(q) ? q : null;
 
   const [clientsRes, equipmentRes, bookingsRes, auditRes] = await Promise.all([
@@ -85,7 +83,6 @@ export async function GET(req: Request) {
       .order("start_date", { ascending: false })
       .limit(10),
 
-    // Audit log (search action/entity/meta)
     supabase
       .from("audit_log")
       .select("id, action, entity_type, entity_id, meta, created_at")
@@ -154,7 +151,7 @@ export async function GET(req: Request) {
         id: a.id,
         title: `${a.action} • ${a.entity_type}`,
         subtitle: `${a.created_at}${a.entity_id ? ` • ${a.entity_id}` : ""}${metaText ? ` • ${metaText.slice(0, 80)}…` : ""}`,
-        href: `/admin/audit`, // we’ll add this page next
+        href: `/admin/audit`,
       });
     }
   }
