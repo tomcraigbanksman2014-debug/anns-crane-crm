@@ -5,10 +5,15 @@ import { useRouter } from "next/navigation";
 import ClientShell from "../ClientShell";
 import { createClient } from "@supabase/supabase-js";
 import DashboardSearch from "../components/DashboardSearch";
+import StatusPill from "../components/StatusPill";
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
+}
+
+function moneyGBP(n: number) {
+  return n.toLocaleString(undefined, { style: "currency", currency: "GBP" });
 }
 
 export default function DashboardPage() {
@@ -23,12 +28,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "">("");
+  const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
     async function load() {
       const { data } = await supabase.auth.getUser();
       const user = data.user;
-
       if (!user) {
         router.replace("/login");
         return;
@@ -36,6 +41,12 @@ export default function DashboardPage() {
 
       setUsername(fromAuthEmail(user.email ?? null));
       setRole((user.user_metadata?.role as any) ?? "");
+
+      // Load stats
+      const res = await fetch("/api/dashboard/stats");
+      const json = await res.json().catch(() => null);
+      setStats(json);
+
       setLoading(false);
     }
 
@@ -67,7 +78,7 @@ export default function DashboardPage() {
     <ClientShell>
       <div
         style={{
-          width: "min(980px, 95vw)",
+          width: "min(1020px, 95vw)",
           background: "rgba(255,255,255,0.18)",
           borderRadius: 14,
           padding: 24,
@@ -106,14 +117,30 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* ✅ SEARCH BAR */}
+        {/* Search */}
         <div style={{ marginTop: 14 }}>
           <DashboardSearch />
         </div>
 
+        {/* Stats */}
         <div
           style={{
-            marginTop: 18,
+            marginTop: 14,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+            gap: 12,
+          }}
+        >
+          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} badge={<StatusPill text="TODAY" kind="info" />} />
+          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} badge={<StatusPill text="LIVE" kind="good" />} />
+          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} badge={<StatusPill text="AVAIL" kind="good" />} />
+          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} badge={<StatusPill text="£" kind="warn" />} />
+        </div>
+
+        {/* Navigation tiles */}
+        <div
+          style={{
+            marginTop: 14,
             display: "grid",
             gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
             gap: 12,
@@ -124,19 +151,33 @@ export default function DashboardPage() {
               {t.label}
             </a>
           ))}
-
           {adminTiles.map((t) => (
             <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
               {t.label}
             </a>
           ))}
         </div>
-
-        <div style={{ marginTop: 18, opacity: 0.75, fontSize: 13 }}>
-          Tip: Use the search bar to find any customer, equipment, booking, or audit entry instantly.
-        </div>
       </div>
     </ClientShell>
+  );
+}
+
+function StatCard({ title, value, badge }: { title: string; value: any; badge?: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: 14,
+        borderRadius: 14,
+        background: "rgba(255,255,255,0.35)",
+        border: "1px solid rgba(0,0,0,0.12)",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+        <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>{title}</div>
+        {badge}
+      </div>
+      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
+    </div>
   );
 }
 
