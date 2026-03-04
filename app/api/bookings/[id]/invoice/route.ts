@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 
 function moneyGBP(n: any) {
@@ -24,7 +24,8 @@ export async function GET(
 ) {
   const supabase = createSupabaseServerClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+  if (!auth.user)
+    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const { data: booking, error } = await supabase
     .from("bookings")
@@ -49,7 +50,10 @@ export async function GET(
     .single();
 
   if (error || !booking) {
-    return NextResponse.json({ error: error?.message ?? "Booking not found" }, { status: 404 });
+    return NextResponse.json(
+      { error: error?.message ?? "Booking not found" },
+      { status: 404 }
+    );
   }
 
   const client = first<any>(booking.clients);
@@ -64,7 +68,13 @@ export async function GET(
   const margin = 50;
   let y = 790;
 
-  const drawText = (text: string, x: number, y: number, size = 11, isBold = false) => {
+  const drawText = (
+    text: string,
+    x: number,
+    y: number,
+    size = 11,
+    isBold = false
+  ) => {
     page.drawText(text, { x, y, size, font: isBold ? bold : font });
   };
 
@@ -105,7 +115,11 @@ export async function GET(
   y -= 14;
   drawText(`Asset #: ${equip?.asset_number ?? "-"}`, margin, y);
   y -= 14;
-  drawText(`Type/Capacity: ${(equip?.type ?? "-")} / ${(equip?.capacity ?? "-")}`, margin, y);
+  drawText(
+    `Type/Capacity: ${(equip?.type ?? "-")} / ${(equip?.capacity ?? "-")}`,
+    margin,
+    y
+  );
 
   // Line items
   y -= 28;
@@ -117,7 +131,6 @@ export async function GET(
   drawText("Amount", 450, y, 10, true);
   y -= 12;
 
-  // Lines
   const hire = Number(booking.hire_price ?? 0);
   const vat = Number(booking.vat ?? 0);
   const total = Number(booking.total_invoice ?? hire + vat);
@@ -139,7 +152,12 @@ export async function GET(
   y -= 12;
   drawText(`Invoice status: ${booking.invoice_status ?? "-"}`, margin, y, 10);
   y -= 12;
-  drawText(`Payment received: ${moneyGBP(booking.payment_received ?? 0)}`, margin, y, 10);
+  drawText(
+    `Payment received: ${moneyGBP(booking.payment_received ?? 0)}`,
+    margin,
+    y,
+    10
+  );
 
   const bytes = await pdf.save();
 
