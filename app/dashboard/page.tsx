@@ -1,160 +1,161 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
+"use client";
 
-type SearchItem =
-  | { type: "customer"; id: string; title: string; subtitle: string; href: string }
-  | { type: "equipment"; id: string; title: string; subtitle: string; href: string }
-  | { type: "booking"; id: string; title: string; subtitle: string; href: string }
-  | { type: "audit"; id: string; title: string; subtitle: string; href: string };
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import ClientShell from "../ClientShell";
+import { createClient } from "@supabase/supabase-js";
+import DashboardSearch from "../components/DashboardSearch";
 
-function safeQ(q: string) {
-  return q.trim().slice(0, 120);
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
-function isUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s);
+export default function DashboardPage() {
+  const router = useRouter();
+
+  const supabase = useMemo(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    return createClient(url, anon);
+  }, []);
+
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const [role, setRole] = useState<"admin" | "staff" | "">("");
+
+  useEffect(() => {
+    async function load() {
+      const { data } = await supabase.auth.getUser();
+      const user = data.user;
+
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+
+      setUsername(fromAuthEmail(user.email ?? null));
+      setRole((user.user_metadata?.role as any) ?? "");
+      setLoading(false);
+    }
+
+    load();
+  }, [router, supabase]);
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    router.replace("/login");
+  }
+
+  const tiles = [
+    { label: "Bookings", href: "/bookings", tone: "warn" as const },
+    { label: "Customers", href: "/customers", tone: "good" as const },
+    { label: "Equipment", href: "/equipment", tone: "good" as const },
+    { label: "Calendar", href: "/calendar", tone: "neutral" as const },
+    { label: "Settings", href: "/settings", tone: "neutral" as const },
+  ];
+
+  const adminTiles =
+    role === "admin"
+      ? [
+          { label: "Admin → Staff Users", href: "/admin/users", tone: "bad" as const },
+          { label: "Admin → Audit Log", href: "/admin/audit", tone: "bad" as const },
+        ]
+      : [];
+
+  return (
+    <ClientShell>
+      <div
+        style={{
+          width: "min(980px, 95vw)",
+          background: "rgba(255,255,255,0.18)",
+          borderRadius: 14,
+          padding: 24,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+          border: "1px solid rgba(255,255,255,0.4)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0 }}>Dashboard</h1>
+            <p style={{ marginTop: 8, opacity: 0.85 }}>
+              {loading ? "Loading session..." : <>Signed in as <b>{username}</b> {role ? `(${role})` : ""}</>}
+            </p>
+          </div>
+
+          <button
+            onClick={signOut}
+            style={{
+              padding: "10px 12px",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.12)",
+              background: "rgba(255,255,255,0.45)",
+              cursor: "pointer",
+              fontWeight: 900,
+            }}
+          >
+            Sign out
+          </button>
+        </div>
+
+        {/* ✅ SEARCH BAR */}
+        <div style={{ marginTop: 14 }}>
+          <DashboardSearch />
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gap: 12,
+          }}
+        >
+          {tiles.map((t) => (
+            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
+              {t.label}
+            </a>
+          ))}
+
+          {adminTiles.map((t) => (
+            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
+              {t.label}
+            </a>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 18, opacity: 0.75, fontSize: 13 }}>
+          Tip: Use the search bar to find any customer, equipment, booking, or audit entry instantly.
+        </div>
+      </div>
+    </ClientShell>
+  );
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const q = safeQ(url.searchParams.get("q") ?? "");
-  if (!q) return NextResponse.json({ results: [] });
+function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperties {
+  const tones: Record<string, React.CSSProperties> = {
+    good: { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" },
+    warn: { background: "rgba(255,140,0,0.18)", border: "1px solid rgba(255,140,0,0.28)" },
+    bad: { background: "rgba(255,0,0,0.14)", border: "1px solid rgba(255,0,0,0.22)" },
+    neutral: { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" },
+  };
 
-  const supabase = createSupabaseServerClient();
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-
-  const like = `%${q}%`;
-  const uuid = isUuid(q) ? q : null;
-
-  const [clientsRes, equipmentRes, bookingsRes, auditRes] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, notes, created_at")
-      .or(
-        [
-          uuid ? `id.eq.${uuid}` : null,
-          `company_name.ilike.${like}`,
-          `contact_name.ilike.${like}`,
-          `phone.ilike.${like}`,
-          `email.ilike.${like}`,
-          `notes.ilike.${like}`,
-        ]
-          .filter(Boolean)
-          .join(",")
-      )
-      .limit(10),
-
-    supabase
-      .from("equipment")
-      .select("id, name, asset_number, type, capacity, status, notes, created_at")
-      .or(
-        [
-          uuid ? `id.eq.${uuid}` : null,
-          `name.ilike.${like}`,
-          `asset_number.ilike.${like}`,
-          `type.ilike.${like}`,
-          `capacity.ilike.${like}`,
-          `status.ilike.${like}`,
-          `notes.ilike.${like}`,
-        ]
-          .filter(Boolean)
-          .join(",")
-      )
-      .limit(10),
-
-    supabase
-      .from("bookings")
-      .select(`
-        id, start_date, end_date, location, status, invoice_status, total_invoice, hire_price,
-        clients:client_id ( id, company_name, contact_name, phone, email ),
-        equipment:equipment_id ( id, name, asset_number, type, capacity )
-      `)
-      .or(
-        [
-          uuid ? `id.eq.${uuid}` : null,
-          `location.ilike.${like}`,
-          `status.ilike.${like}`,
-          `invoice_status.ilike.${like}`,
-        ]
-          .filter(Boolean)
-          .join(",")
-      )
-      .order("start_date", { ascending: false })
-      .limit(10),
-
-    supabase
-      .from("audit_log")
-      .select("id, action, entity_type, entity_id, meta, created_at")
-      .or(
-        [
-          uuid ? `id.eq.${uuid}` : null,
-          uuid ? `entity_id.eq.${uuid}` : null,
-          `action.ilike.${like}`,
-          `entity_type.ilike.${like}`,
-          `meta::text.ilike.${like}`,
-        ]
-          .filter(Boolean)
-          .join(",")
-      )
-      .order("created_at", { ascending: false })
-      .limit(10),
-  ]);
-
-  const results: SearchItem[] = [];
-
-  if (clientsRes.data) {
-    for (const c of clientsRes.data as any[]) {
-      results.push({
-        type: "customer",
-        id: c.id,
-        title: c.company_name ?? "(No company)",
-        subtitle: `${c.contact_name ?? "-"} • ${c.phone ?? "-"} • ${c.email ?? "-"}${c.notes ? " • notes" : ""}`,
-        href: `/customers/${c.id}`,
-      });
-    }
-  }
-
-  if (equipmentRes.data) {
-    for (const e of equipmentRes.data as any[]) {
-      results.push({
-        type: "equipment",
-        id: e.id,
-        title: e.name ?? "(No name)",
-        subtitle: `${e.asset_number ?? "-"} • ${e.type ?? "-"} • ${e.capacity ?? "-"} • ${e.status ?? "-"}${
-          e.notes ? " • notes" : ""
-        }`,
-        href: `/equipment/${e.id}`,
-      });
-    }
-  }
-
-  if (bookingsRes.data) {
-    for (const b of bookingsRes.data as any[]) {
-      const client = b.clients?.[0];
-      const eq = b.equipment?.[0];
-      results.push({
-        type: "booking",
-        id: b.id,
-        title: `${b.start_date} → ${b.end_date} • ${b.status ?? "-"}`,
-        subtitle: `${client?.company_name ?? "-"} • ${eq?.name ?? "-"} • ${b.location ?? "-"} • ${b.invoice_status ?? "-"}`,
-        href: `/bookings/${b.id}`,
-      });
-    }
-  }
-
-  if (auditRes.data) {
-    for (const a of auditRes.data as any[]) {
-      const metaText = a.meta ? JSON.stringify(a.meta) : "";
-      results.push({
-        type: "audit",
-        id: a.id,
-        title: `${a.action} • ${a.entity_type}`,
-        subtitle: `${a.created_at}${a.entity_id ? ` • ${a.entity_id}` : ""}${metaText ? ` • ${metaText.slice(0, 80)}…` : ""}`,
-        href: `/admin/audit`,
-      });
-    }
-  }
-
-  return NextResponse.json({ results });
+  return {
+    display: "block",
+    padding: 16,
+    borderRadius: 12,
+    textDecoration: "none",
+    color: "#111",
+    fontWeight: 900,
+    textAlign: "center",
+    ...tones[tone],
+  };
 }
