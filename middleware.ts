@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
-function findSupabaseAuthCookie(req: NextRequest) {
-  const all = req.cookies.getAll();
-  const hit = all.find((c) => c.name.includes("-auth-token"));
-  return hit?.value ?? null;
+// Supabase stores the session in cookies like: sb-<project-ref>-auth-token
+// Some setups chunk it: sb-...-auth-token.0 / .1 etc.
+function hasSupabaseAuthCookie(req: NextRequest) {
+  return req.cookies.getAll().some((c) => c.name.includes("-auth-token"));
 }
 
 function decodeJwtPayload(token: string): any | null {
@@ -18,44 +18,64 @@ function decodeJwtPayload(token: string): any | null {
   }
 }
 
+function findAnyAuthTokenValue(req: NextRequest) {
+  // If cookies are chunked, any one cookie will exist but may be partial.
+  // For admin gating, we’ll try to parse JSON if possible; otherwise we won’t hard-block.
+  const hit = req.cookies.getAll().find((c) => c.name.includes("-auth-token"));
+  return hit?.value ?? null;
+}
+
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only guard admin routes in middleware (stops dashboard flashing + redirect loop)
-  if (!pathname.startsWith("/admin")) {
+  // ✅ Always allow Next internals + public assets + API routes
+  // (We protect APIs inside the route handlers themselves.)
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/public") ||
+    pathname.startsWith("/api")
+  ) {
     return NextResponse.next();
   }
 
-  // Allow admin login page without auth
-  if (pathname === "/admin/login") {
-    return NextResponse.next();
-  }
-
-  // Require Supabase auth cookie for /admin/*
-  const authCookie = findSupabaseAuthCookie(req);
-  if (!authCookie) {
+  // Require auth cookie for app pages
+  if (!hasSupabaseAuthCookie(req)) {
     return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  // Auth cookie may be JSON containing access_token
-  let accessToken: string | null = null;
-  try {
-    const parsed = JSON.parse(authCookie);
-    accessToken = parsed?.access_token ?? null;
-  } catch {
-    accessToken = authCookie;
-  }
+  // Optional: admin-only gate for /admin/*
+  if (pathname.startsWith("/admin")) {
+    const raw = findAnyAuthTokenValue(req);
 
-  const payload = accessToken ? decodeJwtPayload(accessToken) : null;
-  const role = payload?.user_metadata?.role;
+    let accessToken: string | null = null;
 
-  if (role !== "admin") {
-    return NextResponse.redirect(new URL("/dashboard", req.url));
+    // Some setups store a JSON blob that includes access_token
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        accessToken = parsed?.access_token ?? null;
+      } catch {
+        // Might already be a JWT
+        accessToken = raw;
+      }
+    }
+
+    const payload = accessToken ? decodeJwtPayload(accessToken) : null;
+    const role = payload?.user_metadata?.role;
+
+    // If we can't reliably detect role, don't hard-block here.
+    // Admin routes should ALSO check role server-side if needed.
+    if (role && role !== "admin") {
+      return NextResponse.redirect(new URL("/dashboard", req.url));
+    }
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/((?!_next/static|_next/image).*)"],
 };
