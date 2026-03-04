@@ -2,180 +2,169 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
-type Customer = {
-  id: string;
-  company_name: string | null;
-  contact_name: string | null;
-  phone: string | null;
-  email: string | null;
-  notes: string | null;
-};
-
-export default function CustomerForm({
-  mode,
-  customer,
-}: {
-  mode: "create" | "edit";
-  customer?: Customer;
-}) {
+export default function CustomerForm() {
   const router = useRouter();
+  const supabase = createSupabaseBrowserClient();
 
-  const [companyName, setCompanyName] = useState(customer?.company_name ?? "");
-  const [contactName, setContactName] = useState(customer?.contact_name ?? "");
-  const [phone, setPhone] = useState(customer?.phone ?? "");
-  const [email, setEmail] = useState(customer?.email ?? "");
-  const [notes, setNotes] = useState(customer?.notes ?? "");
+  const [company_name, setCompanyName] = useState("");
+  const [contact_name, setContactName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [notes, setNotes] = useState("");
 
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMsg(null);
+    setError(null);
+    setSaving(true);
 
-    if (!companyName.trim()) {
-      setMsg("Company name is required");
-      return;
-    }
-
-    setLoading(true);
     try {
-      const res = await fetch("/api/customers/save", {
+      const { data: sessionRes } = await supabase.auth.getSession();
+      const token = sessionRes.session?.access_token;
+
+      if (!token) {
+        setError("Not authenticated");
+        setSaving(false);
+        return;
+      }
+
+      const res = await fetch("/api/customers/create", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
-          mode,
-          id: customer?.id ?? null,
-          company_name: companyName.trim(),
-          contact_name: contactName.trim() || null,
-          phone: phone.trim() || null,
-          email: email.trim() || null,
-          notes: notes.trim() || null,
+          company_name,
+          contact_name,
+          phone,
+          email,
+          notes,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMsg(data?.error || "Save failed");
+        setError(data?.error || "Failed to save customer");
+        setSaving(false);
         return;
       }
 
-      router.replace("/customers");
+      router.push("/customers");
       router.refresh();
-    } catch {
-      setMsg("Something went wrong. Try again.");
+    } catch (err: any) {
+      setError(err?.message || "Failed to save customer");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit}>
-      <label style={labelStyle}>Company name *</label>
-      <input
-        value={companyName}
-        onChange={(e) => setCompanyName(e.target.value)}
-        placeholder="Company name"
-        style={inputStyle}
-      />
+    <form onSubmit={onSubmit} style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+      <h1 style={{ margin: 0, fontSize: 32 }}>Add customer</h1>
+      <p style={{ marginTop: 6, opacity: 0.8 }}>Create a new customer record.</p>
 
-      <label style={labelStyle}>Contact name</label>
-      <input
-        value={contactName}
-        onChange={(e) => setContactName(e.target.value)}
-        placeholder="Contact name"
-        style={inputStyle}
-      />
+      <div style={panelStyle}>
+        <label style={labelStyle}>
+          Company name *
+          <input value={company_name} onChange={(e) => setCompanyName(e.target.value)} style={inputStyle} />
+        </label>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div>
-          <label style={labelStyle}>Phone</label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Phone"
-            style={inputStyle}
-          />
+        <label style={labelStyle}>
+          Contact name
+          <input value={contact_name} onChange={(e) => setContactName(e.target.value)} style={inputStyle} />
+        </label>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <label style={labelStyle}>
+            Phone
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
+          </label>
+
+          <label style={labelStyle}>
+            Email
+            <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+          </label>
         </div>
 
-        <div>
-          <label style={labelStyle}>Email</label>
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Email"
-            style={inputStyle}
-          />
+        <label style={labelStyle}>
+          Notes
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={textareaStyle} />
+        </label>
+
+        <button disabled={saving} type="submit" style={btnStyle}>
+          {saving ? "Saving..." : "Save customer"}
+        </button>
+
+        {error && <div style={errorStyle}>{error}</div>}
+
+        <div style={{ marginTop: 10 }}>
+          <a href="/customers" style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}>
+            ← Back to customers
+          </a>
         </div>
       </div>
-
-      <label style={labelStyle}>Notes</label>
-      <textarea
-        value={notes}
-        onChange={(e) => setNotes(e.target.value)}
-        placeholder="Notes"
-        rows={5}
-        style={{ ...inputStyle, resize: "vertical" }}
-      />
-
-      <button
-        type="submit"
-        disabled={loading || !companyName.trim()}
-        style={{
-          width: "100%",
-          marginTop: 14,
-          padding: "12px 14px",
-          borderRadius: 10,
-          border: "none",
-          background: "#111",
-          color: "white",
-          fontSize: 15,
-          cursor: loading || !companyName.trim() ? "not-allowed" : "pointer",
-          opacity: loading || !companyName.trim() ? 0.7 : 1,
-          fontWeight: 800,
-        }}
-      >
-        {loading
-          ? "Saving..."
-          : mode === "create"
-          ? "Save customer"
-          : "Update customer"}
-      </button>
-
-      {msg && (
-        <div
-          style={{
-            marginTop: 12,
-            padding: "10px 12px",
-            borderRadius: 10,
-            background: "rgba(255,0,0,0.10)",
-            border: "1px solid rgba(255,0,0,0.25)",
-          }}
-        >
-          {msg}
-        </div>
-      )}
     </form>
   );
 }
 
+const panelStyle: React.CSSProperties = {
+  marginTop: 16,
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
 const labelStyle: React.CSSProperties = {
   display: "block",
-  fontSize: 12,
-  marginTop: 10,
-  marginBottom: 6,
   fontWeight: 800,
-  opacity: 0.85,
+  marginBottom: 10,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  padding: "12px 14px",
+  marginTop: 6,
+  padding: "12px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.15)",
+  border: "1px solid rgba(0,0,0,0.14)",
+  background: "rgba(255,255,255,0.7)",
   outline: "none",
-  fontSize: 16,
-  background: "rgba(255,255,255,0.85)",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  marginTop: 6,
+  padding: "12px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  background: "rgba(255,255,255,0.7)",
+  outline: "none",
+  minHeight: 110,
+};
+
+const btnStyle: React.CSSProperties = {
+  width: "100%",
+  marginTop: 12,
+  padding: "14px 12px",
+  borderRadius: 12,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const errorStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
 };
