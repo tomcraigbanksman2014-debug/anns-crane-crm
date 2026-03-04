@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 type Result = {
-  type: "customer" | "equipment" | "booking";
+  type: "customer" | "equipment" | "booking" | "audit";
   id: string;
   title: string;
   subtitle: string;
@@ -15,6 +15,7 @@ function typePill(type: Result["type"]) {
     customer: { background: "rgba(0,120,255,0.15)", border: "1px solid rgba(0,120,255,0.25)" },
     equipment: { background: "rgba(0,180,120,0.15)", border: "1px solid rgba(0,180,120,0.25)" },
     booking: { background: "rgba(255,140,0,0.15)", border: "1px solid rgba(255,140,0,0.25)" },
+    audit: { background: "rgba(255,0,0,0.12)", border: "1px solid rgba(255,0,0,0.22)" },
   };
   return map[type];
 }
