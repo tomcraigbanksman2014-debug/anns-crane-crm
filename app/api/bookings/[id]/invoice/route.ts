@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { PDFDocument, StandardFonts } from "pdf-lib";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+
+function moneyGBP(n: any) {
+  const num = Number(n ?? 0);
+  if (!Number.isFinite(num)) return "£0.00";
+  return num.toLocaleString(undefined, { style: "currency", currency: "GBP" });
+}
+
+function fmtDate(d: string | null | undefined) {
+  if (!d) return "-";
+  return new Date(d + "T00:00:00").toLocaleDateString();
+}
 
 function first<T>(v: T | T[] | null | undefined): T | null {
   if (!v) return null;
   return Array.isArray(v) ? (v[0] ?? null) : v;
-}
-
-function money(n: any) {
-  const num = Number(n ?? 0);
-  if (Number.isNaN(num)) return "£0.00";
-  return num.toLocaleString(undefined, { style: "currency", currency: "GBP" });
 }
 
 export async function GET(
@@ -18,104 +23,127 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   const supabase = createSupabaseServerClient();
-
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
+  if (!auth.user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const { data: booking, error } = await supabase
     .from("bookings")
     .select(
       `
-        id,
-        start_date,
-        end_date,
-        location,
-        status,
-        hire_price,
-        vat,
-        total_invoice,
-        payment_received,
-        invoice_status,
-        created_at,
-        clients ( id, company_name, contact_name, phone, email ),
-        equipment ( id, name, asset_number, type, capacity )
-      `
+      id,
+      start_date,
+      end_date,
+      location,
+      status,
+      hire_price,
+      vat,
+      total_invoice,
+      invoice_status,
+      payment_received,
+      created_at,
+      clients:client_id ( id, company_name, contact_name, phone, email ),
+      equipment:equipment_id ( id, name, asset_number, type, capacity )
+    `
     )
     .eq("id", params.id)
     .single();
 
   if (error || !booking) {
-    return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    return NextResponse.json({ error: error?.message ?? "Booking not found" }, { status: 404 });
   }
 
   const client = first<any>(booking.clients);
   const equip = first<any>(booking.equipment);
 
-  // Build PDF
+  // --- Build PDF ---
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595.28, 841.89]); // A4
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const margin = 48;
-  let y = 780;
+  const margin = 50;
+  let y = 790;
 
-  const draw = (text: string, size = 11, isBold = false) => {
-    page.drawText(text, {
-      x: margin,
-      y,
-      size,
-      font: isBold ? bold : font,
-    });
-    y -= size + 8;
+  const drawText = (text: string, x: number, y: number, size = 11, isBold = false) => {
+    page.drawText(text, { x, y, size, font: isBold ? bold : font });
   };
 
-  draw("AnnS Crane Hire", 20, true);
-  draw("Invoice (Booking)", 14, true);
-  y -= 6;
+  // Header
+  drawText("Ann’s Crane Hire", margin, y, 18, true);
+  y -= 22;
+  drawText("INVOICE", margin, y, 14, true);
 
-  draw(`Booking ID: ${booking.id}`, 10);
-  draw(`Invoice status: ${booking.invoice_status ?? "-"}`, 10);
-  draw(`Status: ${booking.status ?? "-"}`, 10);
-  y -= 6;
+  // Right side details
+  drawText(`Invoice date: ${new Date().toLocaleDateString()}`, 350, 790, 10);
+  drawText(`Booking ID: ${booking.id}`, 350, 775, 10);
 
-  draw("Customer", 12, true);
-  draw(`Company: ${client?.company_name ?? "-"}`, 10);
-  draw(`Contact: ${client?.contact_name ?? "-"}`, 10);
-  draw(`Phone: ${client?.phone ?? "-"}`, 10);
-  draw(`Email: ${client?.email ?? "-"}`, 10);
-  y -= 6;
+  y -= 35;
 
-  draw("Booking details", 12, true);
-  draw(`Dates: ${booking.start_date ?? "-"} to ${booking.end_date ?? "-"}`, 10);
-  draw(`Location: ${booking.location ?? "-"}`, 10);
-  draw(
-    `Equipment: ${equip?.name ?? "-"} (${equip?.asset_number ?? "-"})`,
-    10
-  );
-  draw(`Type/Capacity: ${equip?.type ?? "-"} • ${equip?.capacity ?? "-"}`, 10);
-  y -= 6;
+  // Bill To
+  drawText("Bill To", margin, y, 12, true);
+  y -= 18;
+  drawText(client?.company_name ?? "-", margin, y, 11, true);
+  y -= 14;
+  drawText(`Contact: ${client?.contact_name ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Phone: ${client?.phone ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Email: ${client?.email ?? "-"}`, margin, y);
 
-  draw("Charges", 12, true);
-  draw(`Hire price: ${money(booking.hire_price)}`, 11);
-  draw(`VAT: ${money(booking.vat)}`, 11);
-  draw(`Total: ${money(booking.total_invoice)}`, 12, true);
-  draw(`Payment received: ${money(booking.payment_received)}`, 11);
+  // Booking details box
+  y -= 26;
+  drawText("Booking Details", margin, y, 12, true);
+  y -= 18;
+  drawText(`Start: ${fmtDate(booking.start_date)}`, margin, y);
+  drawText(`End: ${fmtDate(booking.end_date)}`, 260, y);
+  y -= 14;
+  drawText(`Location: ${booking.location ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Status: ${booking.status ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Equipment: ${equip?.name ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Asset #: ${equip?.asset_number ?? "-"}`, margin, y);
+  y -= 14;
+  drawText(`Type/Capacity: ${(equip?.type ?? "-")} / ${(equip?.capacity ?? "-")}`, margin, y);
 
+  // Line items
+  y -= 28;
+  drawText("Charges", margin, y, 12, true);
   y -= 16;
-  page.drawText("Thank you for your business.", {
-    x: margin,
-    y,
-    size: 11,
-    font,
-  });
+
+  // Table headers
+  drawText("Description", margin, y, 10, true);
+  drawText("Amount", 450, y, 10, true);
+  y -= 12;
+
+  // Lines
+  const hire = Number(booking.hire_price ?? 0);
+  const vat = Number(booking.vat ?? 0);
+  const total = Number(booking.total_invoice ?? hire + vat);
+
+  drawText("Hire charge", margin, y, 10);
+  drawText(moneyGBP(hire), 450, y, 10);
+  y -= 14;
+
+  drawText("VAT", margin, y, 10);
+  drawText(moneyGBP(vat), 450, y, 10);
+  y -= 14;
+
+  drawText("Total", margin, y, 11, true);
+  drawText(moneyGBP(total), 450, y, 11, true);
+
+  // Footer
+  y -= 60;
+  drawText("Payment terms: Due on receipt", margin, y, 10);
+  y -= 12;
+  drawText(`Invoice status: ${booking.invoice_status ?? "-"}`, margin, y, 10);
+  y -= 12;
+  drawText(`Payment received: ${moneyGBP(booking.payment_received ?? 0)}`, margin, y, 10);
 
   const bytes = await pdf.save();
 
   return new NextResponse(Buffer.from(bytes), {
-    status: 200,
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="invoice-${booking.id}.pdf"`,
