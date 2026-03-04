@@ -30,6 +30,7 @@ export default function DashboardSearch() {
 
   useEffect(() => {
     let t: any;
+
     if (!trimmed) {
       setResults([]);
       setLoading(false);
@@ -88,7 +89,10 @@ export default function DashboardSearch() {
         >
           <div style={{ padding: 10, display: "flex", justifyContent: "space-between", opacity: 0.8, fontSize: 12 }}>
             <span>{loading ? "Searching…" : `${results.length} result(s)`}</span>
-            <button onClick={() => setOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer" }}>
+            <button
+              onClick={() => setOpen(false)}
+              style={{ border: "none", background: "transparent", cursor: "pointer" }}
+            >
               Close
             </button>
           </div>
