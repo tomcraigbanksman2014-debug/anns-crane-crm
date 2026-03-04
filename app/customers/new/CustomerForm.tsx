@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
@@ -14,70 +14,56 @@ type Customer = {
 };
 
 export default function CustomerForm({
-  mode = "create",
+  mode,
   customer,
 }: {
-  mode?: "create" | "edit";
+  mode: "create" | "edit";
   customer?: Customer | null;
 }) {
   const router = useRouter();
-  const supabase = createSupabaseBrowserClient();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
-  const [company_name, setCompanyName] = useState("");
-  const [contact_name, setContactName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [email, setEmail] = useState("");
-  const [notes, setNotes] = useState("");
+  const [companyName, setCompanyName] = useState(customer?.company_name ?? "");
+  const [contactName, setContactName] = useState(customer?.contact_name ?? "");
+  const [phone, setPhone] = useState(customer?.phone ?? "");
+  const [email, setEmail] = useState(customer?.email ?? "");
+  const [notes, setNotes] = useState(customer?.notes ?? "");
 
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (mode === "edit" && customer) {
-      setCompanyName(customer.company_name ?? "");
-      setContactName(customer.contact_name ?? "");
-      setPhone(customer.phone ?? "");
-      setEmail(customer.email ?? "");
-      setNotes(customer.notes ?? "");
-    }
-  }, [mode, customer]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
-    setSaving(true);
+    setError("");
+    setLoading(true);
 
     try {
-      const { data: sessionRes } = await supabase.auth.getSession();
-      const token = sessionRes.session?.access_token;
+      // IMPORTANT: send the access token so Route Handlers can authenticate staff reliably
+      const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
+      if (sessErr) throw new Error(sessErr.message);
 
-      if (!token) {
-        setError("Not authenticated");
-        setSaving(false);
-        return;
-      }
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Not authenticated");
 
       const payload = {
-        company_name: company_name.trim(),
-        contact_name: contact_name.trim(),
-        phone: phone.trim(),
-        email: email.trim(),
-        notes: notes.trim(),
+        company_name: companyName.trim(),
+        contact_name: contactName.trim() || null,
+        phone: phone.trim() || null,
+        email: email.trim() || null,
+        notes: notes.trim() || null,
       };
 
-      if (!payload.company_name) {
-        setError("Company name is required");
-        setSaving(false);
-        return;
-      }
+      if (!payload.company_name) throw new Error("Company name is required");
 
       const url =
         mode === "edit" && customer?.id
-          ? `/api/customers/${customer.id}/update`
+          ? `/api/customers/${customer.id}`
           : `/api/customers/create`;
 
+      const method = mode === "edit" && customer?.id ? "PATCH" : "POST";
+
       const res = await fetch(url, {
-        method: "POST",
+        method,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
@@ -86,125 +72,112 @@ export default function CustomerForm({
       });
 
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setError(data?.error || "Failed to save customer");
-        setSaving(false);
-        return;
+        throw new Error(data?.error || "Failed to save customer");
       }
 
-      // Navigate back
-      if (mode === "edit" && customer?.id) {
-        router.push(`/customers/${customer.id}`);
-      } else {
-        router.push("/customers");
-      }
+      // Go back to customers list
+      router.push("/customers");
       router.refresh();
     } catch (err: any) {
       setError(err?.message || "Failed to save customer");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={onSubmit} style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
-      <h1 style={{ margin: 0, fontSize: 32 }}>
-        {mode === "edit" ? "Edit customer" : "Add customer"}
-      </h1>
-      <p style={{ marginTop: 6, opacity: 0.8 }}>
-        {mode === "edit" ? "Update this customer record." : "Create a new customer record."}
-      </p>
-
-      <div style={panelStyle}>
+    <form onSubmit={onSubmit}>
+      <div style={{ display: "grid", gap: 12 }}>
         <label style={labelStyle}>
-          Company name *
-          <input value={company_name} onChange={(e) => setCompanyName(e.target.value)} style={inputStyle} />
+          Company name <span style={{ color: "#b00020" }}>*</span>
+          <input
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            style={inputStyle}
+            placeholder="Company name"
+          />
         </label>
 
         <label style={labelStyle}>
           Contact name
-          <input value={contact_name} onChange={(e) => setContactName(e.target.value)} style={inputStyle} />
+          <input
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            style={inputStyle}
+            placeholder="Contact name"
+          />
         </label>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <label style={labelStyle}>
             Phone
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} placeholder="Phone" />
           </label>
 
           <label style={labelStyle}>
             Email
-            <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} placeholder="Email" />
           </label>
         </div>
 
         <label style={labelStyle}>
           Notes
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} style={textareaStyle} />
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            style={{ ...inputStyle, minHeight: 110, resize: "vertical" as const }}
+            placeholder="Notes"
+          />
         </label>
 
-        <button disabled={saving} type="submit" style={btnStyle}>
-          {saving ? "Saving..." : mode === "edit" ? "Save changes" : "Save customer"}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "14px 14px",
+            borderRadius: 12,
+            border: "none",
+            cursor: loading ? "not-allowed" : "pointer",
+            background: "linear-gradient(180deg, #111, #000)",
+            color: "white",
+            fontWeight: 900,
+          }}
+        >
+          {loading ? "Saving..." : "Save customer"}
         </button>
 
-        {error && <div style={errorStyle}>{error}</div>}
+        {error && (
+          <div
+            style={{
+              padding: "12px 12px",
+              borderRadius: 12,
+              background: "rgba(255,0,0,0.10)",
+              border: "1px solid rgba(255,0,0,0.25)",
+            }}
+          >
+            {error}
+          </div>
+        )}
       </div>
     </form>
   );
 }
 
-const panelStyle: React.CSSProperties = {
-  marginTop: 16,
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
 const labelStyle: React.CSSProperties = {
-  display: "block",
+  display: "grid",
+  gap: 8,
   fontWeight: 800,
-  marginBottom: 10,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  marginTop: 6,
   padding: "12px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.14)",
-  background: "rgba(255,255,255,0.7)",
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.75)",
   outline: "none",
-};
-
-const textareaStyle: React.CSSProperties = {
-  width: "100%",
-  marginTop: 6,
-  padding: "12px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.14)",
-  background: "rgba(255,255,255,0.7)",
-  outline: "none",
-  minHeight: 110,
-};
-
-const btnStyle: React.CSSProperties = {
-  width: "100%",
-  marginTop: 12,
-  padding: "14px 12px",
-  borderRadius: 12,
-  border: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const errorStyle: React.CSSProperties = {
-  marginTop: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  fontSize: 14,
 };
