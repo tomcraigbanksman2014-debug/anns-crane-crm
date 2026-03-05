@@ -1,27 +1,16 @@
-import { NextRequest, NextResponse } from "next/server";
+// middleware.ts
+import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-function isPublicPath(pathname: string) {
-  if (pathname === "/" || pathname.startsWith("/login")) return true;
-  if (pathname.startsWith("/_next")) return true;
-  if (pathname === "/favicon.ico") return true;
-  // Static assets in /public are served from the root
-  if (pathname === "/logo.png") return true;
-  // Common static extensions
-  if (pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|txt|xml)$/i)) return true;
-  return false;
-}
-
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+  // Start a response we can attach cookies to
+  let res = NextResponse.next({
+    request: {
+      headers: req.headers,
+    },
+  });
 
-  // Always allow public paths and static assets
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
-  }
-
-  let res = NextResponse.next();
-
+  // Supabase SSR client that can READ + WRITE cookies in middleware
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -30,29 +19,49 @@ export async function middleware(req: NextRequest) {
         getAll() {
           return req.cookies.getAll();
         },
-        setAll(cookies) {
-          for (const c of cookies) {
-            res.cookies.set(c.name, c.value, c.options);
-          }
+        setAll(cookiesToSet) {
+          // Apply cookies to the request (so downstream can see it)
+          cookiesToSet.forEach(({ name, value }) => req.cookies.set(name, value));
+          // Apply cookies to the response (so browser saves it)
+          res = NextResponse.next({
+            request: {
+              headers: req.headers,
+            },
+          });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            res.cookies.set(name, value, options)
+          );
         },
       },
     }
   );
 
-  // This will also refresh the session cookie if needed
+  const { pathname } = req.nextUrl;
+
+  // Allow public routes + Next internals + public files
+  const isPublic =
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/logo.png") ||
+    pathname.startsWith("/public");
+
+  if (isPublic) return res;
+
+  // This forces a refresh of session cookies if needed
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Not signed in -> go login
   if (!user) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    // Optional: preserve original destination
-    url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  // Admin-only routes
+  // Admin-only pages
   if (pathname.startsWith("/admin")) {
     const role = (user.user_metadata as any)?.role;
     if (role !== "admin") {
