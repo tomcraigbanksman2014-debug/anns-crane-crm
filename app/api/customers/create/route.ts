@@ -1,16 +1,43 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+
+function getBearer(req: Request) {
+  const h = req.headers.get("authorization") || "";
+  const m = h.match(/^Bearer\s+(.+)$/i);
+  return m?.[1] ?? null;
+}
 
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
-
-    const { data: auth } = await supabase.auth.getUser();
-    if (!auth.user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
-
     const body = await req.json();
+
+    const bearer = getBearer(req);
+
+    let user = null;
+
+    if (bearer) {
+      const sb = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      );
+
+      const { data, error } = await sb.auth.getUser(bearer);
+      if (error || !data.user) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      }
+
+      user = data.user;
+    } else {
+      const supabase = createSupabaseServerClient();
+      const { data } = await supabase.auth.getUser();
+
+      if (!data.user) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      }
+
+      user = data.user;
+    }
 
     const company_name = body.company_name?.trim();
     const contact_name = body.contact_name?.trim() || null;
@@ -24,6 +51,8 @@ export async function POST(req: Request) {
         { status: 400 }
       );
     }
+
+    const supabase = createSupabaseServerClient();
 
     const { data, error } = await supabase
       .from("clients")
