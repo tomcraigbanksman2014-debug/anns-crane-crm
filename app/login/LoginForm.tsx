@@ -95,21 +95,24 @@ export default function LoginForm() {
           style={inputStyle}
         />
 
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            marginTop: 2,
-            padding: "14px 14px",
-            borderRadius: 12,
-            border: "none",
-            background: "#111",
-            color: "#fff",
-            fontWeight: 900,
-            fontSize: 16,
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
-          }}
+<button
+  type="submit"
+  disabled={loading}
+  style={{
+    marginTop: 4,
+    padding: "14px 20px",
+    borderRadius: 12,
+    border: "none",
+    background: "#111",
+    color: "#fff",
+    fontWeight: 900,
+    fontSize: 16,
+    cursor: loading ? "not-allowed" : "pointer",
+    opacity: loading ? 0.7 : 1,
+    width: 220,
+    marginLeft: "auto",
+    marginRight: "auto",
+  }}
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>
