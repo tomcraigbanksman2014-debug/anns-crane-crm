@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, PDFFont } from "pdf-lib";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 function first<T>(v: T | T[] | null | undefined): T | null {
@@ -18,6 +18,18 @@ function fmtDate(d: string | null | undefined) {
   return new Date(d).toLocaleDateString("en-GB");
 }
 
+function fmtDateTime(d: string | null | undefined) {
+  if (!d) return "-";
+  const dt = new Date(d);
+  return dt.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function dueDateFrom(startAt?: string | null) {
   if (!startAt) return "-";
   const d = new Date(startAt);
@@ -27,6 +39,27 @@ function dueDateFrom(startAt?: string | null) {
 
 function invoiceNumberFrom(id: string) {
   return `SI-${id.slice(0, 6).toUpperCase()}`;
+}
+
+function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    const test = current ? `${current} ${word}` : word;
+    const width = font.widthOfTextAtSize(test, size);
+
+    if (width <= maxWidth) {
+      current = test;
+    } else {
+      if (current) lines.push(current);
+      current = word;
+    }
+  }
+
+  if (current) lines.push(current);
+  return lines;
 }
 
 export async function GET(
@@ -91,106 +124,138 @@ export async function GET(
 
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595.28, 841.89]); // A4
+
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
-  const draw = (
+  const left = 38;
+  const right = 557;
+  const pageWidth = 595.28;
+
+  function drawText(
     text: string,
     x: number,
     y: number,
     size = 10,
     isBold = false
-  ) => {
+  ) {
     page.drawText(text, {
       x,
       y,
       size,
       font: isBold ? bold : font,
     });
-  };
+  }
 
-  const left = 36;
-  const right = 560;
+  function drawWrappedBlock(
+    lines: string[],
+    x: number,
+    y: number,
+    size = 9,
+    lineGap = 11,
+    boldIndexes: number[] = []
+  ) {
+    let yy = y;
+    lines.forEach((line, idx) => {
+      drawText(line, x, yy, size, boldIndexes.includes(idx));
+      yy -= lineGap;
+    });
+    return yy;
+  }
 
-  // Header block
-  let y = 805;
-  draw("ANNS CRANE HIRE LTD", left, y, 12, true);
-  y -= 14;
-  draw("6 Bay Street", left, y);
-  y -= 12;
-  draw("Swansea, SA1 8LB", left, y);
-  y -= 12;
-  draw("United Kingdom", left, y);
-  y -= 12;
-  draw("Telephone: 01792 641 653", left, y);
-  y -= 12;
-  draw("Mobile 01792 641653", left, y);
-  y -= 12;
-  draw("Email info@annscranehire.co.uk", left, y);
-  y -= 12;
-  draw("Registered in England and Wales No. 15895379 , VAT Registration Number GB 475188652", left, y, 8);
-  y -= 10;
-  draw("Registered Address 6 Bay Street, Swansea, SA1 8LB", left, y, 8);
+  // ---------- TOP BLOCKS ----------
+  let leftY = 805;
+  const companyLines = [
+    "ANNS CRANE HIRE LTD",
+    "6 Bay Street",
+    "Swansea, SA1 8LB",
+    "United Kingdom",
+    "Telephone: 01792 641 653",
+    "Mobile 07442158882",
+    "Email info@annscranehire.co.uk",
+    "Registered in England and Wales No. 15895379, VAT Registration Number GB 475188652",
+    "Registered Address 6 Bay Street, Swansea, SA1 8LB",
+  ];
 
-  // Finance / bank block
-  let fy = 805;
-  draw("The debt represented by this invoice has been", 310, fy, 8);
-  fy -= 10;
-  draw("purchased by, and assigned to, Ultimate Finance Ltd", 310, fy, 8);
-  fy -= 10;
-  draw("and is to be paid to: Ultimate Finance Ltd", 310, fy, 8);
-  fy -= 10;
-  draw("First Floor, Equinox North, Great Park Road, Bradley", 310, fy, 8);
-  fy -= 10;
-  draw("Stoke, Bristol, BS32 4QL T: 01454 207 050", 310, fy, 8);
-  fy -= 10;
-  draw("They alone can give you a valid discharge of this", 310, fy, 8);
-  fy -= 10;
-  draw("debt.", 310, fy, 8);
-  fy -= 14;
-  draw("PLEASE DO NOT SEND ANY PAYMENTS", 310, fy, 8, true);
-  fy -= 10;
-  draw("DIRECTLY TO ANNS CRANE HIRE LIMITED", 310, fy, 8, true);
-  fy -= 14;
-  draw("BANK DETAILS: Sort Code - 30-15-99", 310, fy, 8);
-  fy -= 10;
-  draw("Account Number – 13622760", 310, fy, 8);
-  fy -= 10;
-  draw("IBAN – GB87 LOYD 3015 9913 6227 60", 310, fy, 8);
-  fy -= 10;
-  draw("Swift - LOYDGB21021", 310, fy, 8);
-  fy -= 10;
-  draw("Vat No - 475188652", 310, fy, 8);
+  drawText(companyLines[0], left, leftY, 12, true);
+  leftY -= 16;
+  drawWrappedBlock(companyLines.slice(1, 7), left, leftY, 9, 12);
+  leftY -= 72;
 
-  // Divider
+  const regLine1 = wrapText(companyLines[7], font, 8, 235);
+  const regLine2 = wrapText(companyLines[8], font, 8, 235);
+  leftY = 733;
+  drawWrappedBlock(regLine1, left, leftY, 8, 10);
+  leftY -= regLine1.length * 10;
+  drawWrappedBlock(regLine2, left, leftY, 8, 10);
+
+  let rightY = 805;
+  const financeText = [
+    "The debt represented by this invoice has been purchased by, and assigned to, Ultimate Finance Ltd and is to be paid to: Ultimate Finance Ltd",
+    "First Floor, Equinox North, Great Park Road, Bradley Stoke, Bristol, BS32 4QL T: 01454 207 050",
+    "They alone can give you a valid discharge of this debt.",
+    "PLEASE DO NOT SEND ANY PAYMENTS",
+    "DIRECTLY TO ANNS CRANE HIRE LIMITED",
+    "BANK DETAILS: Sort Code - 30-15-99",
+    "Account Number - 13622760",
+    "IBAN - GB87 LOYD 3015 9913 6227 60",
+    "Swift - LOYDGB21021",
+    "Vat No - 475188652",
+  ];
+
+  for (let i = 0; i < financeText.length; i++) {
+    const lines = wrapText(financeText[i], i >= 5 ? font : font, i >= 5 ? 8 : 8, 178);
+    rightY = drawWrappedBlock(
+      lines,
+      315,
+      rightY,
+      8,
+      10,
+      i === 3 || i === 4 ? [0] : []
+    );
+    rightY -= 4;
+  }
+
+  // ---------- DIVIDER ----------
   page.drawLine({
-    start: { x: left, y: 655 },
-    end: { x: right, y: 655 },
+    start: { x: left, y: 610 },
+    end: { x: right, y: 610 },
     thickness: 1,
   });
 
-  // Invoice title + summary
-  draw("SALES INVOICE", left, 635, 16, true);
-  draw(`Invoice Date  ${invoiceDate}`, 360, 635, 9);
-  draw(`Due Date      ${dueDate}`, 360, 621, 9);
-  draw(`Invoice Number ${invoiceNumber}`, 360, 607, 9);
-  draw(`Reference ${equip?.name ?? "Booking"} - ${booking.location ?? "-"}`, 360, 593, 9);
+  // ---------- TITLE ----------
+  drawText("SALES INVOICE", left, 585, 16, true);
 
-  // Invoice to
-  draw("Invoice To:", left, 605, 10, true);
-  draw(client?.contact_name ?? "-", left, 591, 9);
-  draw(client?.company_name ?? "-", left, 579, 9, true);
-  draw(client?.email ?? "-", left, 567, 9);
-  draw(client?.phone ?? "-", left, 555, 9);
+  // ---------- INVOICE META ----------
+  drawText(`Invoice Date`, 360, 580, 9, true);
+  drawText(invoiceDate, 445, 580, 9);
 
-  // Table headers
-  const tableTop = 520;
-  draw("Code", left, tableTop, 9, true);
-  draw("Description", 90, tableTop, 9, true);
-  draw("Qty/Hrs", 360, tableTop, 9, true);
-  draw("Price/Rate", 420, tableTop, 9, true);
-  draw("VAT %", 495, tableTop, 9, true);
-  draw("Net", 540, tableTop, 9, true);
+  drawText(`Due Date`, 360, 566, 9, true);
+  drawText(dueDate, 445, 566, 9);
+
+  drawText(`Invoice Number`, 360, 552, 9, true);
+  drawText(invoiceNumber, 445, 552, 9);
+
+  drawText(`Reference`, 360, 538, 9, true);
+  const refText = `${equip?.name ?? "Booking"}${booking.location ? " - " + booking.location : ""}`;
+  const refLines = wrapText(refText, font, 9, 140);
+  drawWrappedBlock(refLines, 445, 538, 9, 10);
+
+  // ---------- INVOICE TO ----------
+  drawText("Invoice To:", left, 538, 10, true);
+  drawText(client?.contact_name ?? "-", left, 522, 9);
+  drawText(client?.company_name ?? "-", left, 508, 9, true);
+  drawText(client?.email ?? "-", left, 494, 9);
+  drawText(client?.phone ?? "-", left, 480, 9);
+
+  // ---------- TABLE ----------
+  const tableTop = 420;
+  drawText("Code", left, tableTop, 9, true);
+  drawText("Description", 90, tableTop, 9, true);
+  drawText("Qty/Hrs", 360, tableTop, 9, true);
+  drawText("Price/Rate", 430, tableTop, 9, true);
+  drawText("VAT %", 500, tableTop, 9, true);
+  drawText("Net", 540, tableTop, 9, true);
 
   page.drawLine({
     start: { x: left, y: tableTop - 6 },
@@ -198,80 +263,72 @@ export async function GET(
     thickness: 1,
   });
 
-  // Main line item
-  let rowY = 495;
-  draw("CONTRACT", left, rowY, 9);
-  draw(
-    `${equip?.name ?? "CONTRACT LIFT"} ${booking.location ? " - " + booking.location : ""}`,
-    90,
-    rowY,
-    9
-  );
-  draw("1.00", 365, rowY, 9);
-  draw(money(hire), 430, rowY, 9);
-  draw("20.00", 500, rowY, 9);
-  draw(money(hire), 540, rowY, 9);
+  let rowY = 392;
+  drawText("CONTRACT", left, rowY, 9);
 
-  rowY -= 14;
-  draw(
-    `${fmtDate(booking.start_at || booking.start_date)} ${booking.start_at ? booking.start_at.slice(11, 16) : ""} to ${fmtDate(booking.end_at || booking.end_date)} ${booking.end_at ? booking.end_at.slice(11, 16) : ""}`,
-    90,
-    rowY,
-    8
-  );
+  const desc1 = `${equip?.name ?? "Contract Lift"}${booking.location ? " - " + booking.location : ""}`;
+  drawText(desc1, 90, rowY, 9);
 
-  rowY -= 14;
-  draw(
-    `${equip?.type ?? ""}${equip?.capacity ? " / " + equip.capacity : ""}${equip?.asset_number ? " / " + equip.asset_number : ""}`,
-    90,
-    rowY,
-    8
-  );
+  drawText("1.00", 368, rowY, 9);
+  drawText(money(hire), 438, rowY, 9);
+  drawText("20.00", 505, rowY, 9);
+  drawText(money(hire), 540, rowY, 9);
 
-  // Totals
-  const totalsY = 210;
-  draw(`Total Net ${money(hire)}`, 420, totalsY + 36, 10);
-  draw(`Total VAT ${money(vat)}`, 420, totalsY + 22, 10);
-  draw(`TOTAL £${money(total)}`, 420, totalsY, 12, true);
+  rowY -= 18;
+  const timeLine =
+    booking.start_at && booking.end_at
+      ? `${fmtDateTime(booking.start_at)} to ${fmtDateTime(booking.end_at)}`
+      : `${fmtDate(booking.start_date)} to ${fmtDate(booking.end_date)}`;
+  const timeLines = wrapText(timeLine, font, 8, 240);
+  rowY = drawWrappedBlock(timeLines, 90, rowY, 8, 10);
 
-  draw("VAT Rate", 420, totalsY - 28, 9, true);
-  draw("Net", 480, totalsY - 28, 9, true);
-  draw("VAT", 530, totalsY - 28, 9, true);
+  const equipLine = `${equip?.type ?? ""}${equip?.capacity ? " / " + equip.capacity : ""}${equip?.asset_number ? " / " + equip.asset_number : ""}`;
+  rowY -= 6;
+  drawText(equipLine || "-", 90, rowY, 8);
 
-  draw("Standard 20.00%", 420, totalsY - 42, 8);
-  draw(`£${money(hire)}`, 480, totalsY - 42, 8);
-  draw(`£${money(vat)}`, 530, totalsY - 42, 8);
+  // ---------- TOTALS ----------
+  page.drawLine({
+    start: { x: 410, y: 230 },
+    end: { x: right, y: 230 },
+    thickness: 1,
+  });
 
-  // Notes / footer
-  draw("Notes:", left, 170, 10, true);
-  draw(
-    `${equip?.name ?? "Booking"}${booking.location ? " - " + booking.location : ""}`,
-    left,
-    156,
-    9
-  );
+  drawText("Total Net", 430, 205, 10, true);
+  drawText(`£${money(hire)}`, 520, 205, 10);
 
-  draw("Terms and Conditions:", left, 130, 10, true);
-  draw(
-    "We reserve the right to charge interest on late paid invoices at the rate of 8% above bank base rates under the Late",
-    left,
-    116,
-    8
-  );
-  draw(
-    "Payment of Commercial Debts (Interest) Act 1998.",
-    left,
-    106,
-    8
-  );
-  draw(
+  drawText("Total VAT", 430, 190, 10, true);
+  drawText(`£${money(vat)}`, 520, 190, 10);
+
+  drawText("TOTAL", 430, 168, 12, true);
+  drawText(`£${money(total)}`, 510, 168, 12, true);
+
+  drawText("VAT Rate", 430, 138, 9, true);
+  drawText("Net", 490, 138, 9, true);
+  drawText("VAT", 535, 138, 9, true);
+
+  drawText("Standard 20.00%", 430, 124, 8);
+  drawText(`£${money(hire)}`, 490, 124, 8);
+  drawText(`£${money(vat)}`, 535, 124, 8);
+
+  // ---------- NOTES ----------
+  drawText("Notes:", left, 150, 10, true);
+  const notesLine = `${equip?.name ?? "Booking"}${booking.location ? " - " + booking.location : ""}`;
+  drawText(notesLine, left, 136, 9);
+
+  drawText("Terms and Conditions:", left, 112, 10, true);
+  const terms = [
+    "We reserve the right to charge interest on late paid invoices at the rate of 8% above bank base rates under the Late Payment of Commercial Debts (Interest) Act 1998.",
     "Queries raised more than 7 days after the invoice date will not be considered.",
-    left,
-    94,
-    8
-  );
+  ];
 
-  draw("Page 1 of 1", 510, 40, 8);
+  let termsY = 98;
+  for (const term of terms) {
+    const lines = wrapText(term, font, 8, pageWidth - 80);
+    termsY = drawWrappedBlock(lines, left, termsY, 8, 10);
+    termsY -= 4;
+  }
+
+  drawText("Page 1 of 1", 510, 36, 8);
 
   const bytes = await pdf.save();
 
