@@ -4,7 +4,6 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
-
     const body = await req.json();
 
     const { data, error } = await supabase
@@ -14,6 +13,13 @@ export async function POST(req: Request) {
       .single();
 
     if (error) {
+      if ((error as any).code === "23P01") {
+        return NextResponse.json(
+          { error: "That equipment is already booked for the selected time range." },
+          { status: 409 }
+        );
+      }
+
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
