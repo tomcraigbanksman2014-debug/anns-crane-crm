@@ -32,7 +32,7 @@ export default function LoginForm() {
         throw new Error(error.message);
       }
 
-      // Hard navigation so middleware sees fresh cookies
+      // Hard navigation so middleware reads fresh cookies
       window.location.href = "/dashboard";
     } catch (err: any) {
       setMsg(err?.message || "Login failed");
@@ -45,19 +45,31 @@ export default function LoginForm() {
     <div
       style={{
         width: "min(700px, 92vw)",
+        margin: "0 auto",
         background: "rgba(255,255,255,0.18)",
         borderRadius: 14,
-        padding: 24,
+        padding: 28,
         boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
         border: "1px solid rgba(255,255,255,0.4)",
       }}
     >
       <h1 style={{ margin: 0 }}>Login</h1>
+
       <p style={{ marginTop: 6, opacity: 0.8 }}>
         Use your username and password to access AnnS Crane CRM.
       </p>
 
-      <form onSubmit={onSubmit} style={{ marginTop: 14, display: "grid", gap: 10 }}>
+      <form
+        onSubmit={onSubmit}
+        style={{
+          marginTop: 18,
+          display: "grid",
+          gap: 12,
+          maxWidth: 420,
+          marginLeft: "auto",
+          marginRight: "auto",
+        }}
+      >
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -65,6 +77,7 @@ export default function LoginForm() {
           autoComplete="username"
           style={inputStyle}
         />
+
         <input
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -78,7 +91,7 @@ export default function LoginForm() {
           type="submit"
           disabled={loading}
           style={{
-            marginTop: 6,
+            marginTop: 4,
             padding: "14px 14px",
             borderRadius: 12,
             border: "none",
@@ -95,7 +108,7 @@ export default function LoginForm() {
         {msg && (
           <div
             style={{
-              marginTop: 6,
+              marginTop: 4,
               padding: "10px 12px",
               borderRadius: 10,
               background: "rgba(255,0,0,0.10)",
