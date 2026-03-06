@@ -1,28 +1,37 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 
+type EquipmentRow = {
+  id: string;
+  name: string | null;
+  asset_number: string | null;
+  capacity: string | null;
+  status: string | null;
+};
+
 type BookingRow = {
   id: string;
-  start_date: string; // YYYY-MM-DD
-  end_date: string; // YYYY-MM-DD
+  equipment_id: string | null;
+  client_id: string | null;
+  start_at: string | null;
+  end_at: string | null;
+  start_date: string | null;
+  end_date: string | null;
   location: string | null;
   status: string | null;
-  clients: { id: string; company_name: string | null; contact_name: string | null } | null;
-  equipment: { id: string; name: string | null; asset_number: string | null; capacity: string | null } | null;
+  clients:
+    | { id: string; company_name: string | null; contact_name: string | null }
+    | { id: string; company_name: string | null; contact_name: string | null }[]
+    | null;
+  equipment:
+    | { id: string; name: string | null; asset_number: string | null; capacity: string | null }
+    | { id: string; name: string | null; asset_number: string | null; capacity: string | null }[]
+    | null;
 };
 
-// Raw Supabase nested select shape (arrays)
-type BookingRowRaw = Omit<BookingRow, "clients" | "equipment"> & {
-  clients: { id: string; company_name: string | null; contact_name: string | null }[] | null;
-  equipment: { id: string; name: string | null; asset_number: string | null; capacity: string | null }[] | null;
-};
-
-function normalizeBooking(b: BookingRowRaw): BookingRow {
-  return {
-    ...b,
-    clients: Array.isArray(b.clients) ? b.clients[0] ?? null : null,
-    equipment: Array.isArray(b.equipment) ? b.equipment[0] ?? null : null,
-  };
+function first<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
 function pad2(n: number) {
@@ -33,128 +42,192 @@ function ymd(d: Date) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function parseMonthParam(monthParam?: string | null) {
-  if (!monthParam) return null;
-  const m = monthParam.trim();
-  if (!/^\d{4}-\d{2}$/.test(m)) return null;
-  const [y, mm] = m.split("-").map((x) => Number(x));
-  if (!y || !mm || mm < 1 || mm > 12) return null;
-  return { y, m: mm };
-}
-
-function monthStart(y: number, m: number) {
-  return new Date(y, m - 1, 1);
-}
-
-function monthEndExclusive(y: number, m: number) {
-  return new Date(y, m, 1);
-}
-
-function addMonths(d: Date, delta: number) {
-  return new Date(d.getFullYear(), d.getMonth() + delta, 1);
-}
-
-function startOfCalendarGrid(monthFirst: Date) {
-  // Monday-start grid
-  const d = new Date(monthFirst);
-  const day = d.getDay(); // 0 Sun ... 6 Sat
-  const mondayIndex = (day + 6) % 7; // Sun->6, Mon->0, Tue->1...
-  d.setDate(d.getDate() - mondayIndex);
-  d.setHours(0, 0, 0, 0);
+function parseWeekParam(weekParam?: string | null) {
+  if (!weekParam) return null;
+  const s = weekParam.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const d = new Date(s + "T00:00:00");
+  if (Number.isNaN(d.getTime())) return null;
   return d;
 }
 
-function endOfCalendarGrid(monthLast: Date) {
-  // Extend to Sunday end (Monday-start grid)
-  const d = new Date(monthLast);
-  const day = d.getDay(); // 0 Sun ... 6 Sat
-  const toSunday = 6 - ((day + 6) % 7);
-  d.setDate(d.getDate() + toSunday);
-  d.setHours(0, 0, 0, 0);
-
-  const end = new Date(d);
-  end.setDate(end.getDate() + 1);
-  return end;
+function startOfWeek(d: Date) {
+  const copy = new Date(d);
+  const day = copy.getDay(); // 0 Sun ... 6 Sat
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  copy.setDate(copy.getDate() + mondayOffset);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
 }
 
-function eachDay(start: Date, endExclusive: Date) {
-  const days: Date[] = [];
-  const d = new Date(start);
-  while (d < endExclusive) {
-    days.push(new Date(d));
-    d.setDate(d.getDate() + 1);
-  }
-  return days;
+function addDays(d: Date, n: number) {
+  const copy = new Date(d);
+  copy.setDate(copy.getDate() + n);
+  return copy;
 }
 
-function expandBookingDays(b: BookingRow) {
-  const start = new Date(b.start_date + "T00:00:00");
-  const end = new Date(b.end_date + "T00:00:00");
-  const days: string[] = [];
-  const d = new Date(start);
-  while (d <= end) {
-    days.push(ymd(d));
-    d.setDate(d.getDate() + 1);
+function formatDayLabel(d: Date) {
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+  });
+}
+
+function overlapsDay(booking: BookingRow, day: Date) {
+  const dayStart = new Date(day);
+  dayStart.setHours(0, 0, 0, 0);
+
+  const dayEnd = new Date(day);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const start = booking.start_at
+    ? new Date(booking.start_at)
+    : booking.start_date
+    ? new Date(booking.start_date + "T00:00:00")
+    : null;
+
+  const end = booking.end_at
+    ? new Date(booking.end_at)
+    : booking.end_date
+    ? new Date(booking.end_date + "T23:59:59")
+    : null;
+
+  if (!start || !end) return false;
+
+  return start <= dayEnd && end >= dayStart;
+}
+
+function timeLabel(booking: BookingRow, day: Date) {
+  if (!booking.start_at || !booking.end_at) return "All day";
+
+  const start = new Date(booking.start_at);
+  const end = new Date(booking.end_at);
+
+  const sameDayAsStart =
+    start.getFullYear() === day.getFullYear() &&
+    start.getMonth() === day.getMonth() &&
+    start.getDate() === day.getDate();
+
+  const sameDayAsEnd =
+    end.getFullYear() === day.getFullYear() &&
+    end.getMonth() === day.getMonth() &&
+    end.getDate() === day.getDate();
+
+  const startText = sameDayAsStart
+    ? start.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : "00:00";
+
+  const endText = sameDayAsEnd
+    ? end.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    : "23:59";
+
+  return `${startText}–${endText}`;
+}
+
+function statusColors(status: string | null): React.CSSProperties {
+  const s = (status ?? "").toLowerCase();
+
+  if (s === "confirmed") {
+    return {
+      background: "rgba(0,180,120,0.18)",
+      border: "1px solid rgba(0,180,120,0.30)",
+    };
   }
-  return days;
+
+  if (s === "provisional") {
+    return {
+      background: "rgba(255,170,0,0.18)",
+      border: "1px solid rgba(255,170,0,0.30)",
+    };
+  }
+
+  if (s === "inquiry") {
+    return {
+      background: "rgba(0,120,255,0.14)",
+      border: "1px solid rgba(0,120,255,0.25)",
+    };
+  }
+
+  if (s === "completed") {
+    return {
+      background: "rgba(120,120,120,0.18)",
+      border: "1px solid rgba(120,120,120,0.28)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "rgba(255,0,0,0.12)",
+      border: "1px solid rgba(255,0,0,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.38)",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
 }
 
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams?: { month?: string };
+  searchParams?: { week?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
   const now = new Date();
-  const parsed = parseMonthParam(searchParams?.month ?? null);
-  const activeMonthDate = parsed
-    ? monthStart(parsed.y, parsed.m)
-    : monthStart(now.getFullYear(), now.getMonth() + 1);
+  const parsed = parseWeekParam(searchParams?.week ?? null);
+  const weekStart = startOfWeek(parsed ?? now);
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const weekEndExclusive = addDays(weekStart, 7);
 
-  const firstDay = monthStart(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
-  const nextMonthFirst = monthEndExclusive(activeMonthDate.getFullYear(), activeMonthDate.getMonth() + 1);
+  const [{ data: equipmentData, error: equipmentError }, { data: bookingData, error: bookingError }] =
+    await Promise.all([
+      supabase
+        .from("equipment")
+        .select("id, name, asset_number, capacity, status")
+        .order("name", { ascending: true }),
 
-  const { data, error } = await supabase
-    .from("bookings")
-    .select(
-      `
-      id,
-      start_date,
-      end_date,
-      location,
-      status,
-      clients:clients(id, company_name, contact_name),
-      equipment:equipment(id, name, asset_number, capacity)
-    `
-    )
-    .lt("start_date", ymd(nextMonthFirst))
-    .gte("end_date", ymd(firstDay))
-    .order("start_date", { ascending: true });
+      supabase
+        .from("bookings")
+        .select(`
+          id,
+          equipment_id,
+          client_id,
+          start_at,
+          end_at,
+          start_date,
+          end_date,
+          location,
+          status,
+          clients:client_id (
+            id,
+            company_name,
+            contact_name
+          ),
+          equipment:equipment_id (
+            id,
+            name,
+            asset_number,
+            capacity
+          )
+        `)
+        .or(
+          `and(start_at.lt.${weekEndExclusive.toISOString()},end_at.gte.${weekStart.toISOString()}),and(start_date.lte.${ymd(addDays(weekEndExclusive, -1))},end_date.gte.${ymd(weekStart)})`
+        )
+        .order("start_at", { ascending: true }),
+    ]);
 
-  const bookings: BookingRow[] = ((data ?? []) as unknown as BookingRowRaw[]).map(normalizeBooking);
+  const equipment = (equipmentData ?? []) as EquipmentRow[];
+  const bookings = (bookingData ?? []) as BookingRow[];
 
-  const byDay: Record<string, BookingRow[]> = {};
-  for (const b of bookings) {
-    for (const day of expandBookingDays(b)) {
-      (byDay[day] ||= []).push(b);
-    }
-  }
-
-  const monthLast = new Date(nextMonthFirst);
-  monthLast.setDate(monthLast.getDate() - 1);
-
-  const gridStart = startOfCalendarGrid(firstDay);
-  const gridEnd = endOfCalendarGrid(monthLast);
-  const days = eachDay(gridStart, gridEnd);
-
-  const prev = addMonths(activeMonthDate, -1);
-  const next = addMonths(activeMonthDate, +1);
-  const monthLabel = activeMonthDate.toLocaleString(undefined, { month: "long", year: "numeric" });
+  const prevWeek = addDays(weekStart, -7);
+  const nextWeek = addDays(weekStart, 7);
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -165,17 +238,39 @@ export default async function CalendarPage({
           }}
         >
           <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>Calendar</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>See bookings by day (month view).</p>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Weekly Dispatch Board</h1>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              Weekly planner by crane/equipment with timed jobs.
+            </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <a href={`/calendar?month=${prev.getFullYear()}-${pad2(prev.getMonth() + 1)}`} style={btnStyle}>
-              ← Prev
+            <a
+              href={`/calendar?week=${ymd(prevWeek)}`}
+              style={btnStyle}
+            >
+              ← Prev week
             </a>
-            <div style={{ fontWeight: 900, fontSize: 16 }}>{monthLabel}</div>
-            <a href={`/calendar?month=${next.getFullYear()}-${pad2(next.getMonth() + 1)}`} style={btnStyle}>
-              Next →
+
+            <div style={{ fontWeight: 900, fontSize: 16 }}>
+              {weekDays[0].toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}{" "}
+              →{" "}
+              {weekDays[6].toLocaleDateString("en-GB", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+            </div>
+
+            <a
+              href={`/calendar?week=${ymd(nextWeek)}`}
+              style={btnStyle}
+            >
+              Next week →
             </a>
 
             <a href="/bookings/new" style={{ ...btnStyle, fontWeight: 900 }}>
@@ -184,112 +279,121 @@ export default async function CalendarPage({
           </div>
         </div>
 
-        <div
-          style={{
-            marginTop: 14,
-            background: "rgba(255,255,255,0.18)",
-            padding: 14,
-            borderRadius: 14,
-            border: "1px solid rgba(255,255,255,0.4)",
-            boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-          }}
-        >
-          {error && (
-            <div
-              style={{
-                marginBottom: 12,
-                padding: "10px 12px",
-                borderRadius: 10,
-                background: "rgba(255,0,0,0.10)",
-                border: "1px solid rgba(255,0,0,0.25)",
-              }}
-            >
-              {error.message}
+        <div style={legendWrap}>
+          <span style={{ ...legendItem, ...statusColors("Confirmed") }}>Confirmed</span>
+          <span style={{ ...legendItem, ...statusColors("Provisional") }}>Provisional</span>
+          <span style={{ ...legendItem, ...statusColors("Inquiry") }}>Inquiry</span>
+          <span style={{ ...legendItem, ...statusColors("Completed") }}>Completed</span>
+          <span style={{ ...legendItem, ...statusColors("Cancelled") }}>Cancelled</span>
+        </div>
+
+        <div style={boardStyle}>
+          {(equipmentError || bookingError) && (
+            <div style={errorStyle}>
+              {equipmentError?.message || bookingError?.message}
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: 10 }}>
-            {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
-              <div key={d} style={{ fontSize: 12, opacity: 0.75, fontWeight: 800, padding: "0 6px" }}>
-                {d}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "220px repeat(7, minmax(0, 1fr))",
+              gap: 10,
+              alignItems: "stretch",
+            }}
+          >
+            <div />
+            {weekDays.map((day) => (
+              <div key={ymd(day)} style={dayHeaderStyle}>
+                {formatDayLabel(day)}
               </div>
             ))}
 
-            {days.map((d) => {
-              const key = ymd(d);
-              const inMonth = d.getMonth() === activeMonthDate.getMonth();
-              const items = byDay[key] ?? [];
+            {equipment.map((eq) => {
+              const rowBookings = bookings.filter((b) => b.equipment_id === eq.id);
 
               return (
-                <div
-                  key={key}
-                  style={{
-                    minHeight: 110,
-                    borderRadius: 12,
-                    border: "1px solid rgba(0,0,0,0.10)",
-                    background: inMonth ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.14)",
-                    padding: 10,
-                    overflow: "hidden",
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                    <div style={{ fontWeight: 900, opacity: inMonth ? 1 : 0.45 }}>{d.getDate()}</div>
-                    {items.length > 0 && <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 800 }}>{items.length}</div>}
+                <>
+                  <div key={`eq-${eq.id}`} style={equipmentCellStyle}>
+                    <div style={{ fontWeight: 900 }}>{eq.name ?? "Unnamed"}</div>
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                      {eq.asset_number ?? "—"}
+                      {eq.capacity ? ` • ${eq.capacity}` : ""}
+                    </div>
                   </div>
 
-                  {items.length === 0 ? (
-                    <div style={{ fontSize: 12, opacity: 0.45 }}>—</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {items.slice(0, 3).map((b) => {
-                        const company = b.clients?.company_name ?? "Customer";
-                        const equip = b.equipment?.name ?? "Equipment";
-                        const status = b.status ?? "—";
+                  {weekDays.map((day) => {
+                    const items = rowBookings.filter((b) => overlapsDay(b, day));
 
-                        return (
-                          <a
-                            key={b.id}
-                            href={`/bookings/${b.id}`}
-                            style={{
-                              textDecoration: "none",
-                              color: "#111",
-                              borderRadius: 10,
-                              border: "1px solid rgba(0,0,0,0.10)",
-                              background: "rgba(255,255,255,0.55)",
-                              padding: "8px 8px",
-                              fontSize: 12,
-                              lineHeight: 1.2,
-                              fontWeight: 800,
-                            }}
-                            title={`${company} • ${equip} • ${status}`}
-                          >
-                            <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{company}</div>
-                            <div
-                              style={{
-                                fontWeight: 700,
-                                opacity: 0.75,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {equip} • {status}
-                            </div>
-                          </a>
-                        );
-                      })}
+                    return (
+                      <div key={`${eq.id}-${ymd(day)}`} style={dayCellStyle}>
+                        {items.length === 0 ? (
+                          <div style={{ fontSize: 12, opacity: 0.35 }}>Available</div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            {items.map((b) => {
+                              const client = first(b.clients);
+                              const styleTone = statusColors(b.status);
 
-                      {items.length > 3 && <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>+{items.length - 3} more…</div>}
-                    </div>
-                  )}
-                </div>
+                              return (
+                                <a
+                                  key={b.id}
+                                  href={`/bookings/${b.id}`}
+                                  style={{
+                                    ...bookingCardStyle,
+                                    ...styleTone,
+                                  }}
+                                  title={`${client?.company_name ?? "Customer"} • ${b.location ?? "-"} • ${b.status ?? "-"}`}
+                                >
+                                  <div style={{ fontSize: 11, fontWeight: 1000 }}>
+                                    {timeLabel(b, day)}
+                                  </div>
+                                  <div
+                                    style={{
+                                      marginTop: 4,
+                                      fontSize: 12,
+                                      fontWeight: 900,
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {client?.company_name ?? "Customer"}
+                                  </div>
+                                  <div
+                                    style={{
+                                      marginTop: 2,
+                                      fontSize: 11,
+                                      opacity: 0.82,
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                    }}
+                                  >
+                                    {b.location ?? "No location"}
+                                  </div>
+                                  <div style={{ marginTop: 2, fontSize: 11, opacity: 0.75 }}>
+                                    {b.status ?? "—"}
+                                  </div>
+                                </a>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </>
               );
             })}
           </div>
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <a href="/dashboard" style={{ textDecoration: "none", fontWeight: 900, color: "#111" }}>
+          <a
+            href="/dashboard"
+            style={{ textDecoration: "none", fontWeight: 900, color: "#111" }}
+          >
             ← Back to dashboard
           </a>
         </div>
@@ -307,4 +411,70 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
+};
+
+const boardStyle: React.CSSProperties = {
+  marginTop: 14,
+  background: "rgba(255,255,255,0.18)",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  overflowX: "auto",
+};
+
+const dayHeaderStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.40)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const equipmentCellStyle: React.CSSProperties = {
+  padding: "10px 10px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.32)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  minHeight: 92,
+};
+
+const dayCellStyle: React.CSSProperties = {
+  padding: "8px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  minHeight: 92,
+};
+
+const bookingCardStyle: React.CSSProperties = {
+  display: "block",
+  textDecoration: "none",
+  color: "#111",
+  borderRadius: 10,
+  padding: "8px 8px",
+};
+
+const legendWrap: React.CSSProperties = {
+  marginTop: 12,
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+};
+
+const legendItem: React.CSSProperties = {
+  display: "inline-block",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const errorStyle: React.CSSProperties = {
+  marginBottom: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
 };
