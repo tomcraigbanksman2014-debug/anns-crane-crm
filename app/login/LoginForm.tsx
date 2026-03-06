@@ -1,40 +1,41 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 function toAuthEmail(username: string) {
-  return `${username.toLowerCase()}@anns.local`;
+  return `${username.trim().toLowerCase()}@anns.local`;
 }
 
 export default function LoginForm() {
-  const router = useRouter();
   const supabase = createSupabaseBrowserClient();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError(null);
+    setMsg(null);
     setLoading(true);
 
     try {
-      const email = toAuthEmail(username.trim());
+      const email = toAuthEmail(username);
+
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (error) throw new Error(error.message);
+      if (error) {
+        throw new Error(error.message);
+      }
 
-      router.replace("/dashboard");
-      router.refresh();
+      // Hard navigation so middleware sees fresh cookies
+      window.location.href = "/dashboard";
     } catch (err: any) {
-      setError(err?.message || "Login failed");
+      setMsg(err?.message || "Login failed");
     } finally {
       setLoading(false);
     }
@@ -60,7 +61,8 @@ export default function LoginForm() {
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username (e.g. office1)"
+          placeholder="Username (e.g. admin)"
+          autoComplete="username"
           style={inputStyle}
         />
         <input
@@ -68,6 +70,7 @@ export default function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           type="password"
           placeholder="Password"
+          autoComplete="current-password"
           style={inputStyle}
         />
 
@@ -89,7 +92,7 @@ export default function LoginForm() {
           {loading ? "Signing in..." : "Sign in"}
         </button>
 
-        {error && (
+        {msg && (
           <div
             style={{
               marginTop: 6,
@@ -99,7 +102,7 @@ export default function LoginForm() {
               border: "1px solid rgba(255,0,0,0.25)",
             }}
           >
-            {error}
+            {msg}
           </div>
         )}
       </form>
