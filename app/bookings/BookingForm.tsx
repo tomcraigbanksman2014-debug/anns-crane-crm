@@ -56,11 +56,13 @@ export default function BookingForm({
   const [hirePrice, setHirePrice] = useState<string>(
     booking?.hire_price != null ? String(booking.hire_price) : ""
   );
-  const [vatRate, setVatRate] = useState<string>("20"); // percent
+  const [vatRate, setVatRate] = useState<string>("20");
   const [paymentReceived, setPaymentReceived] = useState<string>(
     booking?.payment_received != null ? String(booking.payment_received) : "0"
   );
-  const [invoiceStatus, setInvoiceStatus] = useState<string>(booking?.invoice_status ?? "Not Invoiced");
+  const [invoiceStatus, setInvoiceStatus] = useState<string>(
+    booking?.invoice_status ?? "Not Invoiced"
+  );
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -104,7 +106,9 @@ export default function BookingForm({
       };
 
       const url =
-        mode === "create" ? "/api/bookings" : `/api/bookings/${encodeURIComponent(booking!.id)}`;
+        mode === "create"
+          ? "/api/bookings"
+          : `/api/bookings/${encodeURIComponent(booking!.id)}`;
       const method = mode === "create" ? "POST" : "PUT";
 
       const res = await fetch(url, {
@@ -152,9 +156,11 @@ export default function BookingForm({
 
   return (
     <form onSubmit={onSubmit} style={card}>
-      <h1 style={{ margin: 0, fontSize: 32 }}>{mode === "create" ? "New Booking" : "Edit Booking"}</h1>
+      <h1 style={{ margin: 0, fontSize: 32 }}>
+        {mode === "create" ? "New Booking" : "Edit Booking"}
+      </h1>
       <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Link a customer + equipment + dates. Double bookings are blocked automatically.
+        Link a customer, equipment and booking dates. Multiple same-day jobs are allowed.
       </p>
 
       {msg && <div style={errorBox}>{msg}</div>}
@@ -166,7 +172,8 @@ export default function BookingForm({
             <option value="">Select customer…</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
-                {(c.company_name || "Unnamed")} {c.contact_name ? `— ${c.contact_name}` : ""}
+                {(c.company_name || "Unnamed")}
+                {c.contact_name ? ` — ${c.contact_name}` : ""}
               </option>
             ))}
           </select>
@@ -178,7 +185,7 @@ export default function BookingForm({
             <option value="">Select equipment…</option>
             {equipment.map((eq) => (
               <option key={eq.id} value={eq.id}>
-                {(eq.name || "Unnamed")}
+                {eq.name || "Unnamed"}
                 {eq.asset_number ? ` — ${eq.asset_number}` : ""}
                 {eq.capacity ? ` — ${eq.capacity}` : ""}
               </option>
@@ -190,19 +197,34 @@ export default function BookingForm({
       <div style={grid2}>
         <div>
           <label style={label}>Start date *</label>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={input} />
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={input}
+          />
         </div>
 
         <div>
           <label style={label}>End date *</label>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={input} />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={input}
+          />
         </div>
       </div>
 
       <div style={grid2}>
         <div>
           <label style={label}>Location</label>
-          <input value={location} onChange={(e) => setLocation(e.target.value)} style={input} placeholder="Site / address" />
+          <input
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            style={input}
+            placeholder="Site / address"
+          />
         </div>
 
         <div>
@@ -231,7 +253,12 @@ export default function BookingForm({
 
         <div>
           <label style={label}>VAT %</label>
-          <input value={vatRate} onChange={(e) => setVatRate(e.target.value)} style={input} inputMode="decimal" />
+          <input
+            value={vatRate}
+            onChange={(e) => setVatRate(e.target.value)}
+            style={input}
+            inputMode="decimal"
+          />
         </div>
 
         <div>
@@ -294,7 +321,13 @@ const card: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const label: React.CSSProperties = { display: "block", fontSize: 12, marginBottom: 6, opacity: 0.85 };
+const label: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.85,
+};
+
 const input: React.CSSProperties = {
   width: "100%",
   padding: "12px 14px",
@@ -305,8 +338,19 @@ const input: React.CSSProperties = {
   background: "rgba(255,255,255,0.85)",
 };
 
-const grid2: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 };
-const grid3: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 12 };
+const grid2: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+  marginTop: 12,
+};
+
+const grid3: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 12,
+  marginTop: 12,
+};
 
 const primaryBtn: React.CSSProperties = {
   padding: "12px 14px",
