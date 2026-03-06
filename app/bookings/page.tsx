@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import StatusPill from "../components/StatusPill";
 
 type BookingRow = {
   id: string;
@@ -105,7 +106,7 @@ export default async function BookingsPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -122,7 +123,7 @@ export default async function BookingsPage() {
             </p>
           </div>
 
-          <a href="/bookings/new" style={primaryLink}>
+          <a href="/bookings/new" style={primaryBtn}>
             + New booking
           </a>
         </div>
@@ -164,23 +165,28 @@ export default async function BookingsPage() {
                           {equip?.capacity ? ` — ${equip.capacity}` : ""}
                         </td>
                         <td style={tdStyle}>{b.location ?? "—"}</td>
-                        <td style={tdStyle}>{b.status ?? "—"}</td>
                         <td style={tdStyle}>
-                          {(b.invoice_status ?? "—")} — {fmtMoney(b.total_invoice)}
+                          <StatusPill text={b.status} />
                         </td>
                         <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                            <a href={`/bookings/${b.id}`} style={actionLink}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                            <StatusPill text={b.invoice_status} />
+                            <div style={{ fontWeight: 800 }}>{fmtMoney(b.total_invoice)}</div>
+                          </div>
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <a href={`/bookings/${b.id}`} style={actionBtn}>
                               View
                             </a>
-                            <a href={`/bookings/${b.id}/edit`} style={actionLink}>
+                            <a href={`/bookings/${b.id}/edit`} style={actionBtn}>
                               Edit
                             </a>
                             <a
                               href={`/api/bookings/${b.id}/invoice`}
                               target="_blank"
                               rel="noreferrer"
-                              style={actionLink}
+                              style={actionBtn}
                             >
                               Invoice
                             </a>
@@ -228,23 +234,29 @@ const tdStyle: React.CSSProperties = {
   padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
+  verticalAlign: "top",
 };
 
-const primaryLink: React.CSSProperties = {
+const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "12px 14px",
   borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.45)",
-  color: "#111",
+  background: "#111",
+  color: "#fff",
   fontWeight: 900,
-  border: "1px solid rgba(0,0,0,0.10)",
+  border: "none",
 };
 
-const actionLink: React.CSSProperties = {
+const actionBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 9,
   textDecoration: "none",
+  background: "rgba(255,255,255,0.52)",
+  color: "#111",
   fontWeight: 800,
-  color: "#0b57d0",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const errorBox: React.CSSProperties = {
