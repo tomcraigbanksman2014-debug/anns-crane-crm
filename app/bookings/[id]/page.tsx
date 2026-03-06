@@ -1,10 +1,26 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import StatusPill, { bookingKind, invoiceKind, equipmentKind } from "../../components/StatusPill";
+
+function first<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
 
 function fmtDate(d: string | null | undefined) {
   if (!d) return "-";
-  return new Date(d + "T00:00:00").toLocaleDateString();
+  return new Date(d).toLocaleDateString("en-GB");
+}
+
+function fmtDateTime(d: string | null | undefined) {
+  if (!d) return "-";
+  return new Date(d).toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 }
 
 function money(n: any) {
@@ -12,11 +28,6 @@ function money(n: any) {
   const num = Number(n);
   if (Number.isNaN(num)) return String(n);
   return num.toLocaleString(undefined, { style: "currency", currency: "GBP" });
-}
-
-function first<T>(v: T | T[] | null | undefined): T | null {
-  if (!v) return null;
-  return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
 export default async function BookingViewPage({
@@ -28,25 +39,36 @@ export default async function BookingViewPage({
 
   const { data: booking, error } = await supabase
     .from("bookings")
-    .select(
-      `
+    .select(`
+      id,
+      start_at,
+      end_at,
+      start_date,
+      end_date,
+      location,
+      status,
+      hire_price,
+      vat,
+      total_invoice,
+      payment_received,
+      invoice_status,
+      created_at,
+      clients:client_id (
         id,
-        start_date,
-        end_date,
-        location,
-        status,
-        hire_price,
-        vat,
-        total_invoice,
-        payment_received,
-        invoice_status,
-        created_at,
-        client_id,
-        equipment_id,
-        clients ( id, company_name, contact_name, phone, email ),
-        equipment ( id, name, asset_number, type, capacity, status )
-      `
-    )
+        company_name,
+        contact_name,
+        phone,
+        email
+      ),
+      equipment:equipment_id (
+        id,
+        name,
+        asset_number,
+        type,
+        capacity,
+        status
+      )
+    `)
     .eq("id", params.id)
     .single();
 
@@ -71,26 +93,20 @@ export default async function BookingViewPage({
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {/* ✅ NEW: Invoice PDF download */}
-            <a
-              href={`/api/bookings/${params.id}/invoice`}
-              style={{ ...pillStyle, background: "rgba(0,120,255,0.15)", border: "1px solid rgba(0,120,255,0.25)" }}
-            >
-              Download Invoice PDF
+            <a href={`/api/bookings/${params.id}/invoice`} target="_blank" rel="noreferrer" style={btnStyle}>
+              Invoice
             </a>
-
-            <a href={`/bookings/${params.id}/edit`} style={pillStyle}>
+            <a href={`/bookings/${params.id}/edit`} style={btnStyle}>
               Edit
             </a>
-
-            <a href="/bookings" style={pillStyle}>
+            <a href="/bookings" style={btnStyle}>
               ← Back
             </a>
           </div>
         </div>
 
         <div style={panelStyle}>
-          {error && <div style={errorStyle}>{error.message}</div>}
+          {error && <div style={errorBox}>{error.message}</div>}
 
           {!booking ? (
             <p style={{ margin: 0 }}>Booking not found.</p>
@@ -103,29 +119,11 @@ export default async function BookingViewPage({
               }}
             >
               <Section title="Dates & status">
-                <Row label="Start" value={fmtDate(booking.start_date)} />
-                <Row label="End" value={fmtDate(booking.end_date)} />
+                <Row label="Start" value={booking.start_at ? fmtDateTime(booking.start_at) : fmtDate(booking.start_date)} />
+                <Row label="End" value={booking.end_at ? fmtDateTime(booking.end_at) : fmtDate(booking.end_date)} />
                 <Row label="Location" value={booking.location ?? "-"} />
-
-                <Row
-                  label="Status"
-                  value={
-                    <StatusPill
-                      text={booking.status ?? "-"}
-                      kind={bookingKind(booking.status ?? "") as any}
-                    />
-                  }
-                />
-
-                <Row
-                  label="Invoice status"
-                  value={
-                    <StatusPill
-                      text={booking.invoice_status ?? "-"}
-                      kind={invoiceKind(booking.invoice_status ?? "") as any}
-                    />
-                  }
-                />
+                <Row label="Status" value={booking.status ?? "-"} />
+                <Row label="Invoice status" value={booking.invoice_status ?? "-"} />
               </Section>
 
               <Section title="Customer">
@@ -147,17 +145,7 @@ export default async function BookingViewPage({
                 <Row label="Asset #" value={equip?.asset_number ?? "-"} />
                 <Row label="Type" value={equip?.type ?? "-"} />
                 <Row label="Capacity" value={equip?.capacity ?? "-"} />
-
-                <Row
-                  label="Status"
-                  value={
-                    <StatusPill
-                      text={equip?.status ?? "-"}
-                      kind={equipmentKind(equip?.status ?? "") as any}
-                    />
-                  }
-                />
-
+                <Row label="Status" value={equip?.status ?? "-"} />
                 {equip?.id && (
                   <div style={{ marginTop: 10 }}>
                     <a href={`/equipment/${equip.id}`} style={linkStyle}>
@@ -224,7 +212,7 @@ const panelStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const pillStyle: React.CSSProperties = {
+const btnStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 12px",
   borderRadius: 10,
@@ -232,7 +220,7 @@ const pillStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
   color: "#111",
-  fontWeight: 900,
+  fontWeight: 800,
 };
 
 const linkStyle: React.CSSProperties = {
@@ -241,7 +229,7 @@ const linkStyle: React.CSSProperties = {
   color: "#111",
 };
 
-const errorStyle: React.CSSProperties = {
+const errorBox: React.CSSProperties = {
   marginBottom: 12,
   padding: "10px 12px",
   borderRadius: 10,
