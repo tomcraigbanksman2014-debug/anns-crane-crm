@@ -2,7 +2,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
 export async function middleware(req: NextRequest) {
-  let res = NextResponse.next();
+  let res = NextResponse.next({
+    request: {
+      headers: req.headers,
+    },
+  });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,6 +17,12 @@ export async function middleware(req: NextRequest) {
           return req.cookies.getAll();
         },
         setAll(cookiesToSet) {
+          res = NextResponse.next({
+            request: {
+              headers: req.headers,
+            },
+          });
+
           cookiesToSet.forEach(({ name, value, options }) => {
             res.cookies.set(name, value, options);
           });
@@ -21,33 +31,30 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // IMPORTANT:
-  // This refreshes the session cookie if needed.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   const { pathname } = req.nextUrl;
 
-  // Allow public routes + Next internals
-  if (
+  const isPublic =
     pathname === "/" ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/public")
-  ) {
+    pathname.startsWith("/logo.png") ||
+    pathname.startsWith("/public");
+
+  if (isPublic) {
     return res;
   }
 
-  // Protect everything else
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   if (!user) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
 
-  // Admin-only area
   if (pathname.startsWith("/admin")) {
     const role = (user.user_metadata as any)?.role;
     if (role !== "admin") {
@@ -61,5 +68,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
