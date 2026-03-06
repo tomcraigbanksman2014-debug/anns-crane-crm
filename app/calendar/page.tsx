@@ -53,7 +53,7 @@ function parseWeekParam(weekParam?: string | null) {
 
 function startOfWeek(d: Date) {
   const copy = new Date(d);
-  const day = copy.getDay(); // 0 Sun ... 6 Sat
+  const day = copy.getDay();
   const mondayOffset = day === 0 ? -6 : 1 - day;
   copy.setDate(copy.getDate() + mondayOffset);
   copy.setHours(0, 0, 0, 0);
@@ -94,7 +94,6 @@ function overlapsDay(booking: BookingRow, day: Date) {
     : null;
 
   if (!start || !end) return false;
-
   return start <= dayEnd && end >= dayStart;
 }
 
@@ -172,7 +171,7 @@ function statusColors(status: string | null): React.CSSProperties {
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams?: { week?: string };
+  searchParams?: { week?: string; equipment?: string; status?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
@@ -181,6 +180,9 @@ export default async function CalendarPage({
   const weekStart = startOfWeek(parsed ?? now);
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
   const weekEndExclusive = addDays(weekStart, 7);
+
+  const selectedEquipment = searchParams?.equipment?.trim() || "";
+  const selectedStatus = searchParams?.status?.trim() || "";
 
   const [{ data: equipmentData, error: equipmentError }, { data: bookingData, error: bookingError }] =
     await Promise.all([
@@ -219,11 +221,36 @@ export default async function CalendarPage({
         .order("start_at", { ascending: true }),
     ]);
 
-  const equipment = (equipmentData ?? []) as EquipmentRow[];
-  const bookings = (bookingData ?? []) as BookingRow[];
+  const equipmentAll = (equipmentData ?? []) as EquipmentRow[];
+  const bookingsAll = (bookingData ?? []) as BookingRow[];
+
+  const equipment = selectedEquipment
+    ? equipmentAll.filter((eq) => eq.id === selectedEquipment)
+    : equipmentAll;
+
+  const bookings = bookingsAll.filter((b) => {
+    const equipmentOk = !selectedEquipment || b.equipment_id === selectedEquipment;
+    const statusOk =
+      !selectedStatus || (b.status ?? "").toLowerCase() === selectedStatus.toLowerCase();
+    return equipmentOk && statusOk;
+  });
 
   const prevWeek = addDays(weekStart, -7);
   const nextWeek = addDays(weekStart, 7);
+  const todayWeek = startOfWeek(new Date());
+
+  function calendarUrl(opts: { week?: Date; equipment?: string; status?: string }) {
+    const week = opts.week ? ymd(opts.week) : ymd(weekStart);
+    const params = new URLSearchParams();
+    params.set("week", week);
+    if ((opts.equipment ?? selectedEquipment).trim()) {
+      params.set("equipment", opts.equipment ?? selectedEquipment);
+    }
+    if ((opts.status ?? selectedStatus).trim()) {
+      params.set("status", opts.status ?? selectedStatus);
+    }
+    return `/calendar?${params.toString()}`;
+  }
 
   return (
     <ClientShell>
@@ -245,11 +272,12 @@ export default async function CalendarPage({
           </div>
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <a
-              href={`/calendar?week=${ymd(prevWeek)}`}
-              style={btnStyle}
-            >
+            <a href={calendarUrl({ week: prevWeek })} style={btnStyle}>
               ← Prev week
+            </a>
+
+            <a href={calendarUrl({ week: todayWeek })} style={btnStyle}>
+              Today
             </a>
 
             <div style={{ fontWeight: 900, fontSize: 16 }}>
@@ -266,10 +294,7 @@ export default async function CalendarPage({
               })}
             </div>
 
-            <a
-              href={`/calendar?week=${ymd(nextWeek)}`}
-              style={btnStyle}
-            >
+            <a href={calendarUrl({ week: nextWeek })} style={btnStyle}>
               Next week →
             </a>
 
@@ -285,6 +310,45 @@ export default async function CalendarPage({
           <span style={{ ...legendItem, ...statusColors("Inquiry") }}>Inquiry</span>
           <span style={{ ...legendItem, ...statusColors("Completed") }}>Completed</span>
           <span style={{ ...legendItem, ...statusColors("Cancelled") }}>Cancelled</span>
+        </div>
+
+        <div style={filtersWrap}>
+          <form method="get" style={filtersFormStyle}>
+            <input type="hidden" name="week" value={ymd(weekStart)} />
+
+            <div>
+              <label style={filterLabel}>Equipment</label>
+              <select name="equipment" defaultValue={selectedEquipment} style={filterInput}>
+                <option value="">All equipment</option>
+                {equipmentAll.map((eq) => (
+                  <option key={eq.id} value={eq.id}>
+                    {eq.name ?? "Unnamed"}
+                    {eq.asset_number ? ` — ${eq.asset_number}` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={filterLabel}>Status</label>
+              <select name="status" defaultValue={selectedStatus} style={filterInput}>
+                <option value="">All statuses</option>
+                <option value="Inquiry">Inquiry</option>
+                <option value="Provisional">Provisional</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Completed">Completed</option>
+                <option value="Cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <button type="submit" style={btnStyle}>
+              Apply filters
+            </button>
+
+            <a href={`/calendar?week=${ymd(weekStart)}`} style={btnStyle}>
+              Clear
+            </a>
+          </form>
         </div>
 
         <div style={boardStyle}>
@@ -469,6 +533,33 @@ const legendItem: React.CSSProperties = {
   borderRadius: 999,
   fontSize: 12,
   fontWeight: 900,
+};
+
+const filtersWrap: React.CSSProperties = {
+  marginTop: 12,
+};
+
+const filtersFormStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "flex-end",
+};
+
+const filterLabel: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.8,
+  fontWeight: 800,
+};
+
+const filterInput: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.85)",
+  minWidth: 220,
 };
 
 const errorStyle: React.CSSProperties = {
