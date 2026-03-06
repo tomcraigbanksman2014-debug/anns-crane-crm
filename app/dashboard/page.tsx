@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import ClientShell from "../ClientShell";
-import { createClient } from "@supabase/supabase-js";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
+import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
@@ -18,12 +18,7 @@ function moneyGBP(n: number) {
 
 export default function DashboardPage() {
   const router = useRouter();
-
-  const supabase = useMemo(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-    return createClient(url, anon);
-  }, []);
+  const supabase = createSupabaseBrowserClient();
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
@@ -32,17 +27,16 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase.auth.getUser();
-      const user = data.user;
-      if (!user) {
-        router.replace("/login");
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data.user) {
+        window.location.href = "/login";
         return;
       }
 
-      setUsername(fromAuthEmail(user.email ?? null));
-      setRole((user.user_metadata?.role as any) ?? "");
+      setUsername(fromAuthEmail(data.user.email ?? null));
+      setRole((data.user.user_metadata?.role as any) ?? "");
 
-      // Load stats
       const res = await fetch("/api/dashboard/stats");
       const json = await res.json().catch(() => null);
       setStats(json);
@@ -51,11 +45,11 @@ export default function DashboardPage() {
     }
 
     load();
-  }, [router, supabase]);
+  }, [supabase]);
 
   async function signOut() {
     await supabase.auth.signOut();
-    router.replace("/login");
+    window.location.href = "/login";
   }
 
   const tiles = [
@@ -117,12 +111,10 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {/* Search */}
         <div style={{ marginTop: 14 }}>
           <DashboardSearch />
         </div>
 
-        {/* Stats */}
         <div
           style={{
             marginTop: 14,
@@ -137,7 +129,6 @@ export default function DashboardPage() {
           <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} badge={<StatusPill text="£" kind="warn" />} />
         </div>
 
-        {/* Navigation tiles */}
         <div
           style={{
             marginTop: 14,
