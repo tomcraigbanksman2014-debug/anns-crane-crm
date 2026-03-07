@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -56,11 +57,23 @@ export async function PATCH(
 
     const { error } = await admin.auth.admin.updateUserById(params.id, {
       password,
+      user_metadata: {
+        must_change_password: true,
+        password_changed_at: null,
+      },
     });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeAuditLog({
+      actor_user_id: auth.user.id,
+      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
+      action: "reset_password",
+      entity_type: "staff_user",
+      entity_id: params.id,
+    });
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
@@ -88,6 +101,14 @@ export async function DELETE(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeAuditLog({
+      actor_user_id: auth.user.id,
+      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
+      action: "delete_user",
+      entity_type: "staff_user",
+      entity_id: params.id,
+    });
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
