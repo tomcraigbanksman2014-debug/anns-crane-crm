@@ -23,13 +23,8 @@ export default function LoginForm() {
     try {
       const cleanUsername = username.trim();
 
-      if (!cleanUsername) {
-        throw new Error("Username is required");
-      }
-
-      if (!password) {
-        throw new Error("Password is required");
-      }
+      if (!cleanUsername) throw new Error("Username is required");
+      if (!password) throw new Error("Password is required");
 
       const email = toAuthEmail(cleanUsername);
 
@@ -38,9 +33,13 @@ export default function LoginForm() {
         password,
       });
 
-      if (error) {
-        throw new Error(error.message);
-      }
+      if (error) throw new Error(error.message);
+
+      await supabase.auth.updateUser({
+        data: {
+          last_login_at: new Date().toISOString(),
+        },
+      });
 
       window.location.href = "/dashboard";
     } catch (err: any) {
@@ -65,14 +64,7 @@ export default function LoginForm() {
     >
       <h1 style={{ margin: 0, fontSize: 34 }}>Login</h1>
 
-      <p
-        style={{
-          marginTop: 10,
-          marginBottom: 0,
-          opacity: 0.82,
-          fontSize: 15,
-        }}
-      >
+      <p style={{ marginTop: 10, marginBottom: 0, opacity: 0.82, fontSize: 15 }}>
         Use your username and password to access AnnS Crane CRM.
       </p>
 
