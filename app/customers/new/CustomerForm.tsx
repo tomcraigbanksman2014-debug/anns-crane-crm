@@ -32,7 +32,6 @@ export default function CustomerForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // If customer loads later (edit page), hydrate fields once
   useEffect(() => {
     if (mode === "edit" && customer) {
       setCompanyName(customer.company_name ?? "");
@@ -41,8 +40,7 @@ export default function CustomerForm({
       setEmail(customer.email ?? "");
       setNotes(customer.notes ?? "");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, customer?.id]);
+  }, [mode, customer]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -66,7 +64,6 @@ export default function CustomerForm({
       };
 
       if (mode === "create") {
-        // ✅ IMPORTANT: send the access token to your API route
         const { data: session } = await supabase.auth.getSession();
         const token = session.session?.access_token;
 
@@ -94,12 +91,10 @@ export default function CustomerForm({
         return;
       }
 
-      // mode === "edit"
       if (!customer?.id) {
         throw new Error("Missing customer ID");
       }
 
-      // ✅ Edit uses browser Supabase directly (simpler + works with RLS)
       const { error: updErr } = await supabase
         .from("clients")
         .update(payload)
@@ -117,109 +112,168 @@ export default function CustomerForm({
   }
 
   return (
-    <form onSubmit={onSubmit}>
-      <div style={{ display: "grid", gap: 12 }}>
-        <label style={labelStyle}>
-          Company name <span style={{ color: "#b00020" }}>*</span>
+    <form onSubmit={onSubmit} style={card}>
+      <h1 style={{ margin: 0, fontSize: 32 }}>
+        {mode === "create" ? "Add customer" : "Edit customer"}
+      </h1>
+
+      <p style={{ marginTop: 6, opacity: 0.8 }}>
+        {mode === "create" ? "Create a new customer record." : "Update customer details."}
+      </p>
+
+      {error && <div style={errorBox}>{error}</div>}
+
+      <div style={grid12}>
+        <Field span={12} label="Company name *">
           <input
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
-            style={inputStyle}
+            style={input}
             placeholder="e.g. Ann Crane Hire Ltd"
           />
-        </label>
+        </Field>
 
-        <label style={labelStyle}>
-          Contact name
+        <Field span={12} label="Contact name">
           <input
             value={contactName}
             onChange={(e) => setContactName(e.target.value)}
-            style={inputStyle}
+            style={input}
             placeholder="e.g. Tom Craig"
           />
-        </label>
+        </Field>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <label style={labelStyle}>
-            Phone
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              style={inputStyle}
-              placeholder="e.g. 01792..."
-            />
-          </label>
+        <Field span={6} label="Phone">
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            style={input}
+            placeholder="e.g. 01792..."
+          />
+        </Field>
 
-          <label style={labelStyle}>
-            Email
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={inputStyle}
-              placeholder="e.g. admin@..."
-            />
-          </label>
-        </div>
+        <Field span={6} label="Email">
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={input}
+            placeholder="e.g. admin@..."
+          />
+        </Field>
 
-        <label style={labelStyle}>
-          Notes
+        <Field span={12} label="Notes">
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            style={{ ...inputStyle, minHeight: 120, resize: "vertical" }}
+            style={textarea}
             placeholder="Notes"
           />
-        </label>
+        </Field>
+      </div>
 
-        <button
-          type="submit"
-          disabled={saving}
-          style={{
-            marginTop: 8,
-            padding: "14px 14px",
-            borderRadius: 12,
-            border: "none",
-            background: "#111",
-            color: "#fff",
-            fontWeight: 900,
-            cursor: saving ? "not-allowed" : "pointer",
-            opacity: saving ? 0.7 : 1,
-          }}
-        >
-          {saving ? "Saving..." : "Save customer"}
+      <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+        <button type="submit" disabled={saving} style={primaryBtn}>
+          {saving ? "Saving..." : mode === "edit" ? "Save changes" : "Save customer"}
         </button>
 
-        {error && (
-          <div
-            style={{
-              marginTop: 4,
-              padding: "10px 12px",
-              borderRadius: 10,
-              background: "rgba(255,0,0,0.10)",
-              border: "1px solid rgba(255,0,0,0.25)",
-            }}
-          >
-            {error}
-          </div>
-        )}
+        <a href="/customers" style={secondaryBtn}>
+          Cancel
+        </a>
       </div>
     </form>
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-  fontWeight: 800,
-  fontSize: 13,
+function Field({
+  label,
+  children,
+  span,
+}: {
+  label: string;
+  children: React.ReactNode;
+  span: number;
+}) {
+  return (
+    <div style={{ gridColumn: `span ${span}` }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const card: React.CSSProperties = {
+  width: "min(1150px, 95vw)",
+  margin: "0 auto",
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const inputStyle: React.CSSProperties = {
+const grid12: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.85,
+};
+
+const input: React.CSSProperties = {
   width: "100%",
-  padding: "12px 12px",
+  height: 44,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+};
+
+const textarea: React.CSSProperties = {
+  width: "100%",
+  minHeight: 140,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+  resize: "vertical",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "white",
+  fontSize: 15,
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  padding: "12px 16px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  outline: "none",
-  background: "rgba(240,248,255,0.75)",
-  fontSize: 14,
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
 };
