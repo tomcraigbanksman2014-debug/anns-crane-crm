@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "@vercel/node";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { writeAuditLog } from "../../../lib/audit";
 
 type Payload = {
   company_name: string;
@@ -42,11 +43,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing Supabase env vars" }, { status: 500 });
     }
 
-    // Prefer Bearer token (sent by your CustomerForm). Fallback to cookie-based auth.
     const bearer = getBearer(req);
 
     if (bearer) {
-      // 1) Validate token
       const authClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: `Bearer ${bearer}` } },
       });
@@ -56,19 +55,33 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
       }
 
-      // 2) Use the SAME authed client for the insert (this is the important bit)
       const { data, error } = await authClient
         .from("clients")
         .insert([{ company_name, contact_name, phone, email, notes }])
         .select("id")
         .single();
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      await writeAuditLog({
+        actor_user_id: u.user.id,
+        actor_username: u.user.email ? u.user.email.split("@")[0] : null,
+        action: "create",
+        entity_type: "customer",
+        entity_id: data?.id ?? null,
+        meta: {
+          company_name,
+          contact_name,
+          phone,
+          email,
+        },
+      });
 
       return NextResponse.json({ ok: true, id: data?.id ?? null });
     }
 
-    // Fallback: cookie session (if you ever call this route without Authorization header)
     const supabase = createSupabaseServerClient();
     const { data: userRes, error: userErr } = await supabase.auth.getUser();
     if (userErr || !userRes.user) {
@@ -81,7 +94,23 @@ export async function POST(req: Request) {
       .select("id")
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    await writeAuditLog({
+      actor_user_id: userRes.user.id,
+      actor_username: userRes.user.email ? userRes.user.email.split("@")[0] : null,
+      action: "create",
+      entity_type: "customer",
+      entity_id: data?.id ?? null,
+      meta: {
+        company_name,
+        contact_name,
+        phone,
+        email,
+      },
+    });
 
     return NextResponse.json({ ok: true, id: data?.id ?? null });
   } catch (e: any) {
