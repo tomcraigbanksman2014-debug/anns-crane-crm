@@ -2,13 +2,18 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
+function normalizeUsername(username: string) {
+  return username.trim().toLowerCase();
+}
+
 function toAuthEmail(username: string) {
-  return `${username.toLowerCase()}@anns.local`;
+  return `${normalizeUsername(username)}@anns.local`;
 }
 
 export async function POST(req: Request) {
   try {
     const supabaseSession = createSupabaseServerClient();
+
     const {
       data: { user },
     } = await supabaseSession.auth.getUser();
@@ -23,13 +28,25 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const username = String(body?.username ?? "").trim().toLowerCase();
+    const rawUsername = String(body?.username ?? "");
     const password = String(body?.password ?? "");
     const role = String(body?.role ?? "staff").trim().toLowerCase();
+
+    const username = normalizeUsername(rawUsername);
 
     if (username.length < 3) {
       return NextResponse.json(
         { error: "Username must be at least 3 characters" },
+        { status: 400 }
+      );
+    }
+
+    if (!/^[a-z0-9._-]+$/.test(username)) {
+      return NextResponse.json(
+        {
+          error:
+            "Username can only contain letters, numbers, dots, underscores and hyphens",
+        },
         { status: 400 }
       );
     }
@@ -61,11 +78,50 @@ export async function POST(req: Request) {
     const admin = createClient(supabaseUrl, serviceKey);
     const email = toAuthEmail(username);
 
+    // Duplicate username check
+    let page = 1;
+    const perPage = 200;
+    let existingFound = false;
+
+    while (true) {
+      const { data: listData, error: listError } =
+        await admin.auth.admin.listUsers({
+          page,
+          perPage,
+        });
+
+      if (listError) {
+        return NextResponse.json({ error: listError.message }, { status: 400 });
+      }
+
+      const users = listData?.users ?? [];
+      if (users.some((u) => (u.email ?? "").toLowerCase() === email.toLowerCase())) {
+        existingFound = true;
+        break;
+      }
+
+      if (users.length < perPage) {
+        break;
+      }
+
+      page += 1;
+    }
+
+    if (existingFound) {
+      return NextResponse.json(
+        { error: "That username already exists" },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await admin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
-      user_metadata: { role, username },
+      user_metadata: {
+        role,
+        username,
+      },
     });
 
     if (error) {
