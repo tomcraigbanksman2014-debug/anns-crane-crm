@@ -31,15 +31,15 @@ function fmtDateTime(d: string | null | undefined) {
   });
 }
 
-function dueDateFrom(startAt?: string | null) {
+function dueDateFrom(startAt?: string | null, days = 30) {
   if (!startAt) return "-";
   const d = new Date(startAt);
-  d.setDate(d.getDate() + 30);
+  d.setDate(d.getDate() + days);
   return d.toLocaleDateString("en-GB");
 }
 
-function invoiceNumberFrom(id: string) {
-  return `SI-${id.slice(0, 6).toUpperCase()}`;
+function invoiceNumberFrom(id: string, prefix = "SI") {
+  return `${prefix}-${id.slice(0, 6).toUpperCase()}`;
 }
 
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
@@ -111,32 +111,51 @@ export async function GET(
     return NextResponse.json({ error: "Booking not found" }, { status: 404 });
   }
 
+  const { data: settings } = await supabase
+    .from("app_settings")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+
   const client = first<any>(booking.clients);
   const equip = first<any>(booking.equipment);
 
+  const businessName = settings?.business_name || "ANNS CRANE HIRE LTD";
+  const businessAddress =
+    settings?.business_address || "6 Bay Street\nSwansea, SA1 8LB\nUnited Kingdom";
+  const businessPhone = settings?.business_phone || "01792 641 653";
+  const businessEmail = settings?.business_email || "info@annscranehire.co.uk";
+  const vatNumber = settings?.vat_number || "GB 475188652";
+  const companyNumber = settings?.company_number || "15895379";
+
+  const invoicePrefix = settings?.invoice_prefix || "SI";
+  const paymentTermsDays = Number(settings?.payment_terms_days ?? 30);
+  const bankName = settings?.bank_name || "Ultimate Finance Ltd";
+  const bankSortCode = settings?.bank_sort_code || "30-15-99";
+  const bankAccountNumber = settings?.bank_account_number || "13622760";
+  const bankIban = settings?.bank_iban || "GB87 LOYD 3015 9913 6227 60";
+  const bankSwift = settings?.bank_swift || "LOYDGB21021";
+  const invoiceFooter =
+    settings?.invoice_footer ||
+    "We reserve the right to charge interest on late paid invoices at the rate of 8% above bank base rates under the Late Payment of Commercial Debts (Interest) Act 1998.\nQueries raised more than 7 days after the invoice date will not be considered.";
+
   const invoiceDate = fmtDate(booking.created_at || booking.start_at || booking.start_date);
-  const dueDate = dueDateFrom(booking.start_at || booking.created_at);
-  const invoiceNumber = invoiceNumberFrom(booking.id);
+  const dueDate = dueDateFrom(booking.start_at || booking.created_at, paymentTermsDays);
+  const invoiceNumber = invoiceNumberFrom(booking.id, invoicePrefix);
 
   const hire = Number(booking.hire_price ?? 0);
   const vat = Number(booking.vat ?? 0);
   const total = Number(booking.total_invoice ?? hire + vat);
 
   const pdf = await PDFDocument.create();
-  const page = pdf.addPage([595.28, 841.89]); // A4
+  const page = pdf.addPage([595.28, 841.89]);
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
   const left = 30;
   const right = 560;
 
-  function drawText(
-    text: string,
-    x: number,
-    y: number,
-    size = 10,
-    isBold = false
-  ) {
+  function drawText(text: string, x: number, y: number, size = 10, isBold = false) {
     page.drawText(text, {
       x,
       y,
@@ -163,31 +182,22 @@ export async function GET(
     return yy;
   }
 
-  // -------------------------
-  // TOP LEFT HEADER BLOCK
-  // -------------------------
   let yLeft = 805;
-  drawText("ANNS CRANE HIRE LTD", left, yLeft, 12, true);
+  drawText(businessName, left, yLeft, 12, true);
   yLeft -= 18;
 
-  const leftLines = [
-    "6 Bay Street",
-    "Swansea, SA1 8LB",
-    "United Kingdom",
-    "Telephone: 01792 641 653",
-    "Mobile 07442158882",
-    "Email info@annscranehire.co.uk",
-  ];
-
-  for (const line of leftLines) {
+  for (const line of String(businessAddress).split("\n")) {
     drawText(line, left, yLeft, 9);
     yLeft -= 14;
   }
 
-  yLeft -= 2;
+  drawText(`Telephone: ${businessPhone}`, left, yLeft, 9);
+  yLeft -= 14;
+  drawText(`Email ${businessEmail}`, left, yLeft, 9);
+  yLeft -= 16;
 
   yLeft = drawWrapped(
-    "Registered in England and Wales No. 15895379, VAT Registration Number GB 475188652",
+    `Registered in England and Wales No. ${companyNumber}, VAT Registration Number ${vatNumber}`,
     left,
     yLeft,
     250,
@@ -196,25 +206,9 @@ export async function GET(
     9
   );
 
-  yLeft -= 3;
-
-  drawWrapped(
-    "Registered Address 6 Bay Street, Swansea, SA1 8LB",
-    left,
-    yLeft,
-    250,
-    7.5,
-    false,
-    9
-  );
-
-  // -------------------------
-  // TOP RIGHT FINANCE BLOCK
-  // -------------------------
   let yRight = 805;
-
   yRight = drawWrapped(
-    "The debt represented by this invoice has been purchased by, and assigned to, Ultimate Finance Ltd and is to be paid to: Ultimate Finance Ltd",
+    `Please make payment to ${bankName}`,
     300,
     yRight,
     255,
@@ -222,56 +216,15 @@ export async function GET(
     false,
     10
   );
-  yRight -= 4;
-
-  yRight = drawWrapped(
-    "First Floor, Equinox North, Great Park Road, Bradley Stoke, Bristol, BS32 4QL T: 01454 207 050",
-    300,
-    yRight,
-    255,
-    8,
-    false,
-    10
-  );
-  yRight -= 4;
-
-  yRight = drawWrapped(
-    "They alone can give you a valid discharge of this debt.",
-    300,
-    yRight,
-    255,
-    8,
-    false,
-    10
-  );
-  yRight -= 6;
-
-  yRight = drawWrapped(
-    "PLEASE DO NOT SEND ANY PAYMENTS",
-    300,
-    yRight,
-    255,
-    8,
-    true,
-    10
-  );
-  yRight = drawWrapped(
-    "DIRECTLY TO ANNS CRANE HIRE LIMITED",
-    300,
-    yRight,
-    255,
-    8,
-    true,
-    10
-  );
-  yRight -= 6;
+  yRight -= 8;
 
   const bankLines = [
-    "BANK DETAILS: Sort Code - 30-15-99",
-    "Account Number - 13622760",
-    "IBAN - GB87 LOYD 3015 9913 6227 60",
-    "Swift - LOYDGB21021",
-    "Vat No - 475188652",
+    `BANK NAME: ${bankName}`,
+    `SORT CODE: ${bankSortCode}`,
+    `ACCOUNT NUMBER: ${bankAccountNumber}`,
+    `IBAN: ${bankIban}`,
+    `SWIFT: ${bankSwift}`,
+    `VAT NO: ${vatNumber}`,
   ];
 
   for (const line of bankLines) {
@@ -279,16 +232,12 @@ export async function GET(
     yRight -= 14;
   }
 
-  // Divider
   page.drawLine({
     start: { x: left, y: 575 },
     end: { x: right, y: 575 },
     thickness: 1,
   });
 
-  // -------------------------
-  // TITLE + META
-  // -------------------------
   drawText("SALES INVOICE", left, 545, 16, true);
 
   drawText("Invoice Date", 360, 538, 9, true);
@@ -311,18 +260,12 @@ export async function GET(
     10
   );
 
-  // -------------------------
-  // INVOICE TO
-  // -------------------------
   drawText("Invoice To:", left, 485, 10, true);
   drawText(client?.contact_name ?? "-", left, 468, 9);
   drawText(client?.company_name ?? "-", left, 452, 9, true);
   drawText(client?.email ?? "-", left, 436, 9);
   drawText(client?.phone ?? "-", left, 420, 9);
 
-  // -------------------------
-  // TABLE
-  // -------------------------
   const tableTop = 360;
   drawText("Code", left, tableTop, 9, true);
   drawText("Description", 85, tableTop, 9, true);
@@ -366,9 +309,6 @@ export async function GET(
     8
   );
 
-  // -------------------------
-  // TOTALS
-  // -------------------------
   page.drawLine({
     start: { x: 400, y: 130 },
     end: { x: right, y: 130 },
@@ -383,6 +323,12 @@ export async function GET(
 
   drawText("TOTAL", 430, 58, 12, true);
   drawText(`£${money(total)}`, 505, 58, 12, true);
+
+  let footerY = 105;
+  for (const para of String(invoiceFooter).split("\n")) {
+    footerY = drawWrapped(para, left, footerY, 330, 8, false, 10);
+    footerY -= 4;
+  }
 
   const bytes = await pdf.save();
 
