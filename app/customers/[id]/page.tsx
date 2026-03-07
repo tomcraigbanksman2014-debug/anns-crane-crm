@@ -1,8 +1,8 @@
 import ClientShell from "../../ClientShell";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
 import CustomerForm from "../new/CustomerForm";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-export default async function CustomerEditPage({
+export default async function CustomerPage({
   params,
 }: {
   params: { id: string };
@@ -11,13 +11,13 @@ export default async function CustomerEditPage({
 
   const { data: customer, error } = await supabase
     .from("clients")
-    .select("id, company_name, contact_name, phone, email, notes, created_at")
+    .select("id, company_name, contact_name, phone, email, notes")
     .eq("id", params.id)
     .single();
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -32,37 +32,28 @@ export default async function CustomerEditPage({
             <p style={{ marginTop: 6, opacity: 0.8 }}>Edit customer details.</p>
           </div>
 
-          <a href="/customers" style={pillStyle}>
+          <a href="/customers" style={btnStyle}>
             ← Back
           </a>
         </div>
 
-        <div style={panelStyle}>
-          {error && <div style={errorStyle}>{error.message}</div>}
-
-          {!customer ? (
-            <p style={{ margin: 0 }}>Customer not found.</p>
-          ) : (
-            <CustomerForm mode="edit" customer={customer as any} />
-          )}
-        </div>
+        {error ? (
+          <div style={errorBox}>{error.message}</div>
+        ) : !customer ? (
+          <div style={errorBox}>Customer not found.</div>
+        ) : (
+          <div style={{ marginTop: 16 }}>
+            <CustomerForm mode="edit" customer={customer} />
+          </div>
+        )}
       </div>
     </ClientShell>
   );
 }
 
-const panelStyle: React.CSSProperties = {
-  marginTop: 16,
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
-const pillStyle: React.CSSProperties = {
+const btnStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 12px",
+  padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.45)",
@@ -71,8 +62,8 @@ const pillStyle: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const errorStyle: React.CSSProperties = {
-  marginBottom: 12,
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
