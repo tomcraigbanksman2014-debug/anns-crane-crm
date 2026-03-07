@@ -67,6 +67,9 @@ export default async function EquipmentPage() {
                           <a href={`/equipment/${eq.id}`} style={actionBtn}>
                             View
                           </a>
+                          <a href={`/equipment/${eq.id}/edit`} style={actionBtn}>
+                            Edit
+                          </a>
                         </div>
                       </td>
                     </tr>
