@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import ClientShell from "../ClientShell";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
@@ -16,14 +15,27 @@ function moneyGBP(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "GBP" });
 }
 
+function daysUntilPasswordExpiry(passwordChangedAt?: string | null) {
+  if (!passwordChangedAt) return null;
+  const changed = new Date(passwordChangedAt);
+  if (Number.isNaN(changed.getTime())) return null;
+
+  const expiry = new Date(changed);
+  expiry.setDate(expiry.getDate() + 183);
+
+  const now = new Date();
+  const diffMs = expiry.getTime() - now.getTime();
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
 export default function DashboardPage() {
-  const router = useRouter();
   const supabase = createSupabaseBrowserClient();
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "">("");
   const [stats, setStats] = useState<any>(null);
+  const [passwordDaysLeft, setPasswordDaysLeft] = useState<number | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -34,8 +46,14 @@ export default function DashboardPage() {
         return;
       }
 
-      setUsername(fromAuthEmail(data.user.email ?? null));
-      setRole((data.user.user_metadata?.role as any) ?? "");
+      const user = data.user;
+      setUsername(fromAuthEmail(user.email ?? null));
+      setRole((user.user_metadata?.role as any) ?? "");
+
+      const daysLeft = daysUntilPasswordExpiry(
+        (user.user_metadata as any)?.password_changed_at ?? null
+      );
+      setPasswordDaysLeft(daysLeft);
 
       const res = await fetch("/api/dashboard/stats");
       const json = await res.json().catch(() => null);
@@ -52,13 +70,16 @@ export default function DashboardPage() {
     window.location.href = "/login";
   }
 
-  const tiles = [
-    { label: "Bookings", href: "/bookings", tone: "warn" as const },
-    { label: "Customers", href: "/customers", tone: "good" as const },
-    { label: "Equipment", href: "/equipment", tone: "good" as const },
-    { label: "Calendar", href: "/calendar", tone: "neutral" as const },
-    { label: "Settings", href: "/settings", tone: "neutral" as const },
-  ];
+  const tiles = useMemo(
+    () => [
+      { label: "Bookings", href: "/bookings", tone: "warn" as const },
+      { label: "Customers", href: "/customers", tone: "good" as const },
+      { label: "Equipment", href: "/equipment", tone: "good" as const },
+      { label: "Calendar", href: "/calendar", tone: "neutral" as const },
+      { label: "Settings", href: "/settings", tone: "neutral" as const },
+    ],
+    []
+  );
 
   const adminTiles =
     role === "admin"
@@ -72,7 +93,7 @@ export default function DashboardPage() {
     <ClientShell>
       <div
         style={{
-          width: "min(1020px, 95vw)",
+          width: "min(1100px, 95vw)",
           background: "rgba(255,255,255,0.18)",
           borderRadius: 14,
           padding: 24,
@@ -111,6 +132,21 @@ export default function DashboardPage() {
           </button>
         </div>
 
+        {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(255,170,0,0.14)",
+              border: "1px solid rgba(255,170,0,0.24)",
+              fontWeight: 800,
+            }}
+          >
+            Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
+          </div>
+        )}
+
         <div style={{ marginTop: 14 }}>
           <DashboardSearch />
         </div>
@@ -123,10 +159,10 @@ export default function DashboardPage() {
             gap: 12,
           }}
         >
-          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} badge={<StatusPill text="TODAY" kind="info" />} />
-          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} badge={<StatusPill text="LIVE" kind="good" />} />
-          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} badge={<StatusPill text="AVAIL" kind="good" />} />
-          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} badge={<StatusPill text="£" kind="warn" />} />
+          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} badge={<StatusPill text="Today" />} />
+          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} badge={<StatusPill text="Live" />} />
+          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} badge={<StatusPill text="Avail" />} />
+          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} badge={<StatusPill text="£" />} />
         </div>
 
         <div
