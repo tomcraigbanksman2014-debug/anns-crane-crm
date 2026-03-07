@@ -10,21 +10,93 @@ function toAuthEmail(username: string) {
   return `${normalizeUsername(username)}@anns.local`;
 }
 
-export async function POST(req: Request) {
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey);
+}
+
+async function requireAdmin() {
+  const supabaseSession = createSupabaseServerClient();
+
+  const {
+    data: { user },
+  } = await supabaseSession.auth.getUser();
+
+  if (!user) {
+    return { error: "Not signed in", status: 401 as const };
+  }
+
+  const myRole = (user.user_metadata as any)?.role ?? "";
+  if (myRole !== "admin") {
+    return { error: "Admin only", status: 403 as const };
+  }
+
+  return { user };
+}
+
+export async function GET() {
   try {
-    const supabaseSession = createSupabaseServerClient();
-
-    const {
-      data: { user },
-    } = await supabaseSession.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const auth = await requireAdmin();
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
-    const myRole = (user.user_metadata as any)?.role ?? "";
-    if (myRole !== "admin") {
-      return NextResponse.json({ error: "Admin only" }, { status: 403 });
+    const admin = getAdminClient();
+
+    let page = 1;
+    const perPage = 200;
+    const allUsers: any[] = [];
+
+    while (true) {
+      const { data, error } = await admin.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+      if (error) {
+        return NextResponse.json({ error: error.message }, { status: 400 });
+      }
+
+      const users = data?.users ?? [];
+      allUsers.push(...users);
+
+      if (users.length < perPage) break;
+      page += 1;
+    }
+
+    const filtered = allUsers
+      .filter((u) => (u.email ?? "").endsWith("@anns.local"))
+      .map((u) => ({
+        id: u.id,
+        email: u.email ?? null,
+        username:
+          u.user_metadata?.username ||
+          (u.email ? String(u.email).split("@")[0] : ""),
+        role: u.user_metadata?.role || "staff",
+        created_at: u.created_at ?? null,
+      }))
+      .sort((a, b) => a.username.localeCompare(b.username));
+
+    return NextResponse.json({ users: filtered });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Server error" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: Request) {
+  try {
+    const auth = await requireAdmin();
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -65,20 +137,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceKey) {
-      return NextResponse.json(
-        { error: "Server missing Supabase env vars" },
-        { status: 500 }
-      );
-    }
-
-    const admin = createClient(supabaseUrl, serviceKey);
+    const admin = getAdminClient();
     const email = toAuthEmail(username);
 
-    // Duplicate username check
     let page = 1;
     const perPage = 200;
     let existingFound = false;
@@ -100,10 +161,7 @@ export async function POST(req: Request) {
         break;
       }
 
-      if (users.length < perPage) {
-        break;
-      }
-
+      if (users.length < perPage) break;
       page += 1;
     }
 
