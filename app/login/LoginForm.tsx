@@ -21,7 +21,17 @@ export default function LoginForm() {
     setLoading(true);
 
     try {
-      const email = toAuthEmail(username);
+      const cleanUsername = username.trim();
+
+      if (!cleanUsername) {
+        throw new Error("Username is required");
+      }
+
+      if (!password) {
+        throw new Error("Password is required");
+      }
+
+      const email = toAuthEmail(cleanUsername);
 
       const { error } = await supabase.auth.signInWithPassword({
         email,
@@ -95,24 +105,24 @@ export default function LoginForm() {
           style={inputStyle}
         />
 
-<button
-  type="submit"
-  disabled={loading}
-  style={{
-    marginTop: 4,
-    padding: "14px 20px",
-    borderRadius: 12,
-    border: "none",
-    background: "#111",
-    color: "#fff",
-    fontWeight: 900,
-    fontSize: 16,
-    cursor: loading ? "not-allowed" : "pointer",
-    opacity: loading ? 0.7 : 1,
-    width: 220,
-    marginLeft: "auto",
-    marginRight: "auto",
-  }}
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            marginTop: 4,
+            padding: "14px 20px",
+            borderRadius: 12,
+            border: "none",
+            background: "#111",
+            color: "#fff",
+            fontWeight: 900,
+            fontSize: 16,
+            cursor: loading ? "not-allowed" : "pointer",
+            opacity: loading ? 0.7 : 1,
+            width: 220,
+            marginLeft: "auto",
+            marginRight: "auto",
+          }}
         >
           {loading ? "Signing in..." : "Sign in"}
         </button>
