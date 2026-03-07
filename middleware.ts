@@ -1,6 +1,18 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
+function isPasswordExpired(passwordChangedAt?: string | null) {
+  if (!passwordChangedAt) return false;
+  const changed = new Date(passwordChangedAt);
+  if (Number.isNaN(changed.getTime())) return false;
+
+  const now = new Date();
+  const msInDay = 1000 * 60 * 60 * 24;
+  const ageDays = (now.getTime() - changed.getTime()) / msInDay;
+
+  return ageDays >= 183; // approx 6 months
+}
+
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({
     request: {
@@ -52,6 +64,24 @@ export async function middleware(req: NextRequest) {
   if (!user) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
+  const mustChangePassword = !!(user.user_metadata as any)?.must_change_password;
+  const passwordChangedAt = (user.user_metadata as any)?.password_changed_at ?? null;
+  const passwordExpired = isPasswordExpired(passwordChangedAt);
+
+  // Force password change except when already on change-password page
+  if ((mustChangePassword || passwordExpired) && !pathname.startsWith("/change-password")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/change-password";
+    return NextResponse.redirect(url);
+  }
+
+  // If already compliant, don't let them sit on change-password unnecessarily
+  if (!mustChangePassword && !passwordExpired && pathname.startsWith("/change-password")) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
