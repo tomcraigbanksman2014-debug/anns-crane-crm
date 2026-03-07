@@ -24,6 +24,8 @@ type BookingRow = {
   equipment_id: string | null;
   start_at?: string | null;
   end_at?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   location: string | null;
   status: string | null;
   hire_price: number | null;
@@ -63,11 +65,19 @@ export default function BookingForm({
   const [clientId, setClientId] = useState<string>(booking?.client_id ?? "");
   const [equipmentId, setEquipmentId] = useState<string>(booking?.equipment_id ?? "");
 
-  const [startDate, setStartDate] = useState<string>(toDateInputValue(booking?.start_at));
-  const [startTime, setStartTime] = useState<string>(toTimeInputValue(booking?.start_at) || "08:00");
+  const [startDate, setStartDate] = useState<string>(
+    booking?.start_at ? toDateInputValue(booking.start_at) : booking?.start_date ?? ""
+  );
+  const [startTime, setStartTime] = useState<string>(
+    booking?.start_at ? toTimeInputValue(booking.start_at) || "08:00" : "08:00"
+  );
 
-  const [endDate, setEndDate] = useState<string>(toDateInputValue(booking?.end_at));
-  const [endTime, setEndTime] = useState<string>(toTimeInputValue(booking?.end_at) || "17:00");
+  const [endDate, setEndDate] = useState<string>(
+    booking?.end_at ? toDateInputValue(booking.end_at) : booking?.end_date ?? ""
+  );
+  const [endTime, setEndTime] = useState<string>(
+    booking?.end_at ? toTimeInputValue(booking.end_at) || "17:00" : "17:00"
+  );
 
   const [location, setLocation] = useState<string>(booking?.location ?? "");
   const [status, setStatus] = useState<string>(booking?.status ?? "Inquiry");
@@ -118,7 +128,6 @@ export default function BookingForm({
         equipment_id: equipmentId,
         start_at: startAt,
         end_at: endAt,
-        // keep old date fields too if other pages still read them
         start_date: startDate,
         end_date: endDate,
         location: location || null,
@@ -185,15 +194,15 @@ export default function BookingForm({
       <h1 style={{ margin: 0, fontSize: 32 }}>
         {mode === "create" ? "New Booking" : "Edit Booking"}
       </h1>
+
       <p style={{ marginTop: 6, opacity: 0.8 }}>
         Same equipment can be used for multiple jobs on the same day as long as times do not overlap.
       </p>
 
       {msg && <div style={errorBox}>{msg}</div>}
 
-      <div style={grid2}>
-        <div>
-          <label style={label}>Customer *</label>
+      <div style={grid12}>
+        <Field span={6} label="Customer *">
           <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={input}>
             <option value="">Select customer…</option>
             {clients.map((c) => (
@@ -203,10 +212,9 @@ export default function BookingForm({
               </option>
             ))}
           </select>
-        </div>
+        </Field>
 
-        <div>
-          <label style={label}>Equipment *</label>
+        <Field span={6} label="Equipment *">
           <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)} style={input}>
             <option value="">Select equipment…</option>
             {equipment.map((eq) => (
@@ -217,44 +225,54 @@ export default function BookingForm({
               </option>
             ))}
           </select>
-        </div>
-      </div>
+        </Field>
 
-      <div style={grid4}>
-        <div>
-          <label style={label}>Start date *</label>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={input} />
-        </div>
+        <Field span={3} label="Start date *">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            style={input}
+          />
+        </Field>
 
-        <div>
-          <label style={label}>Start time *</label>
-          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={input} />
-        </div>
+        <Field span={3} label="Start time *">
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            style={input}
+          />
+        </Field>
 
-        <div>
-          <label style={label}>End date *</label>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={input} />
-        </div>
+        <Field span={3} label="End date *">
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={input}
+          />
+        </Field>
 
-        <div>
-          <label style={label}>End time *</label>
-          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={input} />
-        </div>
-      </div>
+        <Field span={3} label="End time *">
+          <input
+            type="time"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            style={input}
+          />
+        </Field>
 
-      <div style={grid2}>
-        <div>
-          <label style={label}>Location</label>
+        <Field span={6} label="Location">
           <input
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             style={input}
             placeholder="Site / address"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label style={label}>Status</label>
+        <Field span={6} label="Status">
           <select value={status} onChange={(e) => setStatus(e.target.value)} style={input}>
             <option>Inquiry</option>
             <option>Provisional</option>
@@ -262,12 +280,9 @@ export default function BookingForm({
             <option>Completed</option>
             <option>Cancelled</option>
           </select>
-        </div>
-      </div>
+        </Field>
 
-      <div style={grid3}>
-        <div>
-          <label style={label}>Hire price</label>
+        <Field span={4} label="Hire price">
           <input
             value={hirePrice}
             onChange={(e) => setHirePrice(e.target.value)}
@@ -275,15 +290,18 @@ export default function BookingForm({
             inputMode="decimal"
             placeholder="e.g. 1200"
           />
-        </div>
+        </Field>
 
-        <div>
-          <label style={label}>VAT %</label>
-          <input value={vatRate} onChange={(e) => setVatRate(e.target.value)} style={input} inputMode="decimal" />
-        </div>
+        <Field span={4} label="VAT %">
+          <input
+            value={vatRate}
+            onChange={(e) => setVatRate(e.target.value)}
+            style={input}
+            inputMode="decimal"
+          />
+        </Field>
 
-        <div>
-          <label style={label}>Payment received</label>
+        <Field span={4} label="Payment received">
           <input
             value={paymentReceived}
             onChange={(e) => setPaymentReceived(e.target.value)}
@@ -291,29 +309,25 @@ export default function BookingForm({
             inputMode="decimal"
             placeholder="0"
           />
-        </div>
-      </div>
+        </Field>
 
-      <div style={grid2}>
-        <div>
-          <label style={label}>Invoice status</label>
+        <Field span={6} label="Invoice status">
           <select value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value)} style={input}>
             <option>Not Invoiced</option>
             <option>Invoiced</option>
             <option>Part Paid</option>
             <option>Paid</option>
           </select>
-        </div>
+        </Field>
 
-        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", justifyContent: "flex-end" }}>
-          <div style={{ opacity: 0.85, fontSize: 13, paddingBottom: 8 }}>
-            VAT: <b>{hirePrice ? computed.vat.toFixed(2) : "—"}</b> &nbsp;|&nbsp; Total:{" "}
-            <b>{hirePrice ? computed.total.toFixed(2) : "—"}</b>
+        <div style={{ ...span6, display: "flex", alignItems: "flex-end", justifyContent: "flex-end" }}>
+          <div style={{ opacity: 0.85, fontSize: 15, paddingBottom: 8, fontWeight: 800 }}>
+            VAT: {hirePrice ? computed.vat.toFixed(2) : "—"} &nbsp;|&nbsp; Total: {hirePrice ? computed.total.toFixed(2) : "—"}
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
         <button type="submit" disabled={loading} style={primaryBtn}>
           {loading ? "Saving..." : "Save booking"}
         </button>
@@ -332,8 +346,25 @@ export default function BookingForm({
   );
 }
 
+function Field({
+  label,
+  children,
+  span,
+}: {
+  label: string;
+  children: React.ReactNode;
+  span: number;
+}) {
+  return (
+    <div style={{ gridColumn: `span ${span}` }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
 const card: React.CSSProperties = {
-  width: "min(1100px, 95vw)",
+  width: "min(1150px, 95vw)",
   margin: "0 auto",
   background: "rgba(255,255,255,0.18)",
   padding: 18,
@@ -342,7 +373,18 @@ const card: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const label: React.CSSProperties = {
+const grid12: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const span6: React.CSSProperties = {
+  gridColumn: "span 6",
+};
+
+const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
@@ -351,37 +393,18 @@ const label: React.CSSProperties = {
 
 const input: React.CSSProperties = {
   width: "100%",
-  padding: "12px 14px",
+  height: 44,
+  padding: "0 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.15)",
   outline: "none",
   fontSize: 15,
   background: "rgba(255,255,255,0.85)",
-};
-
-const grid2: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-  marginTop: 12,
-};
-
-const grid3: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
-  gap: 12,
-  marginTop: 12,
-};
-
-const grid4: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr 1fr",
-  gap: 12,
-  marginTop: 12,
+  boxSizing: "border-box",
 };
 
 const primaryBtn: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "12px 16px",
   borderRadius: 10,
   border: "none",
   background: "#111",
@@ -392,7 +415,7 @@ const primaryBtn: React.CSSProperties = {
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "12px 16px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.45)",
@@ -402,7 +425,7 @@ const secondaryBtn: React.CSSProperties = {
 };
 
 const dangerBtn: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "12px 16px",
   borderRadius: 10,
   border: "1px solid rgba(255,0,0,0.25)",
   background: "rgba(255,0,0,0.10)",
