@@ -9,7 +9,28 @@ type StaffUser = {
   username: string;
   role: string;
   created_at?: string | null;
+  last_login_at?: string | null;
+  must_change_password?: boolean;
+  password_changed_at?: string | null;
 };
+
+function passwordStatus(user: StaffUser) {
+  if (user.must_change_password) return "Must change now";
+  if (!user.password_changed_at) return "Unknown";
+
+  const changed = new Date(user.password_changed_at);
+  if (Number.isNaN(changed.getTime())) return "Unknown";
+
+  const expiry = new Date(changed);
+  expiry.setDate(expiry.getDate() + 183);
+
+  const now = new Date();
+  const diff = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diff <= 0) return "Expired";
+  if (diff <= 14) return `Expires in ${diff}d`;
+  return "OK";
+}
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<StaffUser[]>([]);
@@ -138,6 +159,7 @@ export default function AdminUsersPage() {
       }
 
       setMsg(`Password reset for "${username}".`);
+      await loadUsers();
     } catch {
       setMsg("Something went wrong. Try again.");
     }
@@ -235,7 +257,7 @@ export default function AdminUsersPage() {
         <div style={card}>
           <h2 style={{ margin: 0, fontSize: 20 }}>Existing users</h2>
           <p style={{ marginTop: 6, opacity: 0.8 }}>
-            Reset passwords or delete unused accounts.
+            Reset passwords, view last login and delete unused accounts.
           </p>
 
           {loadingUsers ? (
@@ -248,9 +270,9 @@ export default function AdminUsersPage() {
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Username</th>
-                    <th align="left" style={thStyle}>Email</th>
                     <th align="left" style={thStyle}>Role</th>
-                    <th align="left" style={thStyle}>Created</th>
+                    <th align="left" style={thStyle}>Last login</th>
+                    <th align="left" style={thStyle}>Password status</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -258,13 +280,13 @@ export default function AdminUsersPage() {
                   {users.map((u) => (
                     <tr key={u.id}>
                       <td style={tdStyle}>{u.username}</td>
-                      <td style={tdStyle}>{u.email ?? "—"}</td>
                       <td style={tdStyle}>{u.role}</td>
                       <td style={tdStyle}>
-                        {u.created_at
-                          ? new Date(u.created_at).toLocaleDateString("en-GB")
-                          : "—"}
+                        {u.last_login_at
+                          ? new Date(u.last_login_at).toLocaleString("en-GB")
+                          : "Never"}
                       </td>
+                      <td style={tdStyle}>{passwordStatus(u)}</td>
                       <td style={tdStyle}>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <button
