@@ -19,6 +19,10 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
+    const payload = {
+      ...body,
+      updated_at: new Date().toISOString(),
+    };
 
     const { data: existing } = await supabase
       .from("app_settings")
@@ -29,7 +33,7 @@ export async function POST(req: Request) {
     if (existing?.id) {
       const { error } = await supabase
         .from("app_settings")
-        .update(body)
+        .update(payload)
         .eq("id", existing.id);
 
       if (error) {
@@ -41,7 +45,7 @@ export async function POST(req: Request) {
 
     const { data, error } = await supabase
       .from("app_settings")
-      .insert([body])
+      .insert([payload])
       .select("id")
       .single();
 
