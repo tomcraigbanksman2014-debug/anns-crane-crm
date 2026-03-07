@@ -80,6 +80,8 @@ export async function GET() {
           (u.email ? String(u.email).split("@")[0] : ""),
         role: u.user_metadata?.role || "staff",
         created_at: u.created_at ?? null,
+        must_change_password: !!u.user_metadata?.must_change_password,
+        password_changed_at: u.user_metadata?.password_changed_at ?? null,
       }))
       .sort((a, b) => a.username.localeCompare(b.username));
 
@@ -179,6 +181,8 @@ export async function POST(req: Request) {
       user_metadata: {
         role,
         username,
+        must_change_password: true,
+        password_changed_at: null,
       },
     });
 
