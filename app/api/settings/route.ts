@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 
 export async function POST(req: Request) {
   try {
@@ -40,6 +41,17 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
+      await writeAuditLog({
+        actor_user_id: user.id,
+        actor_username: user.email ? user.email.split("@")[0] : null,
+        action: "update",
+        entity_type: "settings",
+        entity_id: existing.id,
+        meta: {
+          changed_fields: Object.keys(body ?? {}),
+        },
+      });
+
       return NextResponse.json({ success: true, id: existing.id });
     }
 
@@ -52,6 +64,17 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeAuditLog({
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
+      action: "create",
+      entity_type: "settings",
+      entity_id: data?.id ?? null,
+      meta: {
+        changed_fields: Object.keys(body ?? {}),
+      },
+    });
 
     return NextResponse.json({ success: true, id: data?.id });
   } catch (e: any) {
