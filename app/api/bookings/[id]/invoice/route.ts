@@ -38,10 +38,6 @@ function dueDateFrom(startAt?: string | null, days = 30) {
   return d.toLocaleDateString("en-GB");
 }
 
-function invoiceNumberFrom(id: string, prefix = "SI") {
-  return `${prefix}-${id.slice(0, 6).toUpperCase()}`;
-}
-
 function wrapText(text: string, font: PDFFont, size: number, maxWidth: number) {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
@@ -77,6 +73,7 @@ export async function GET(
     .from("bookings")
     .select(`
       id,
+      invoice_number,
       start_at,
       end_at,
       start_date,
@@ -117,6 +114,31 @@ export async function GET(
     .limit(1)
     .maybeSingle();
 
+  let invoiceNumber = booking.invoice_number ?? null;
+
+  if (!invoiceNumber) {
+    const { data: issued, error: issueError } = await supabase.rpc(
+      "issue_next_invoice_number",
+      { p_booking_id: booking.id }
+    );
+
+    if (issueError) {
+      return NextResponse.json(
+        { error: issueError.message || "Could not issue invoice number" },
+        { status: 400 }
+      );
+    }
+
+    invoiceNumber = issued ?? null;
+  }
+
+  if (!invoiceNumber) {
+    return NextResponse.json(
+      { error: "Could not generate invoice number" },
+      { status: 400 }
+    );
+  }
+
   const client = first<any>(booking.clients);
   const equip = first<any>(booking.equipment);
 
@@ -128,7 +150,6 @@ export async function GET(
   const vatNumber = settings?.vat_number || "GB 475188652";
   const companyNumber = settings?.company_number || "15895379";
 
-  const invoicePrefix = settings?.invoice_prefix || "SI";
   const paymentTermsDays = Number(settings?.payment_terms_days ?? 30);
   const bankName = settings?.bank_name || "Ultimate Finance Ltd";
   const bankSortCode = settings?.bank_sort_code || "30-15-99";
@@ -141,7 +162,6 @@ export async function GET(
 
   const invoiceDate = fmtDate(booking.created_at || booking.start_at || booking.start_date);
   const dueDate = dueDateFrom(booking.start_at || booking.created_at, paymentTermsDays);
-  const invoiceNumber = invoiceNumberFrom(booking.id, invoicePrefix);
 
   const hire = Number(booking.hire_price ?? 0);
   const vat = Number(booking.vat ?? 0);
