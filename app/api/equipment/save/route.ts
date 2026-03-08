@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey);
+}
 
 export async function POST(req: Request) {
   try {
@@ -16,16 +28,29 @@ export async function POST(req: Request) {
 
     const body = await req.json();
 
-    const { data, error } = await supabase
+    const name = String(body?.name ?? "").trim();
+    const assetNumber = String(body?.asset_number ?? "").trim();
+    const type = String(body?.type ?? "").trim();
+    const capacity = String(body?.capacity ?? "").trim();
+    const status = String(body?.status ?? "available").trim();
+    const notes = String(body?.notes ?? "").trim();
+
+    if (!name) {
+      return NextResponse.json({ error: "Equipment name is required" }, { status: 400 });
+    }
+
+    const admin = getAdminClient();
+
+    const { data, error } = await admin
       .from("equipment")
       .insert([
         {
-          name: body.name ?? null,
-          asset_number: body.asset_number ?? null,
-          type: body.type ?? null,
-          capacity: body.capacity ?? null,
-          status: body.status ?? "available",
-          notes: body.notes ?? null,
+          name,
+          asset_number: assetNumber || null,
+          type: type || null,
+          capacity: capacity || null,
+          status: status || "available",
+          notes: notes || null,
         },
       ])
       .select("id")
@@ -42,18 +67,18 @@ export async function POST(req: Request) {
       entity_type: "equipment",
       entity_id: data?.id ?? null,
       meta: {
-        name: body?.name ?? null,
-        asset_number: body?.asset_number ?? null,
-        type: body?.type ?? null,
-        capacity: body?.capacity ?? null,
-        status: body?.status ?? "available",
+        name,
+        asset_number: assetNumber || null,
+        type: type || null,
+        capacity: capacity || null,
+        status: status || "available",
       },
     });
 
     return NextResponse.json({ success: true, id: data?.id });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message || "Bad request" },
+      { error: e?.message || "Could not save equipment." },
       { status: 400 }
     );
   }
