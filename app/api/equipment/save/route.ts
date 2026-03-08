@@ -20,7 +20,12 @@ export async function POST(req: Request) {
 
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
+
+    if (userError) {
+      return NextResponse.json({ error: userError.message }, { status: 401 });
+    }
 
     if (!user) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
@@ -32,7 +37,7 @@ export async function POST(req: Request) {
     const assetNumber = String(body?.asset_number ?? "").trim();
     const type = String(body?.type ?? "").trim();
     const capacity = String(body?.capacity ?? "").trim();
-    const status = String(body?.status ?? "available").trim();
+    const status = String(body?.status ?? "available").trim().toLowerCase();
     const notes = String(body?.notes ?? "").trim();
 
     if (!name) {
@@ -60,20 +65,31 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    await writeAuditLog({
-      actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "create",
-      entity_type: "equipment",
-      entity_id: data?.id ?? null,
-      meta: {
-        name,
-        asset_number: assetNumber || null,
-        type: type || null,
-        capacity: capacity || null,
-        status: status || "available",
-      },
-    });
+    try {
+      await writeAuditLog({
+        actor_user_id: user.id,
+        actor_username: user.email ? user.email.split("@")[0] : null,
+        action: "create",
+        entity_type: "equipment",
+        entity_id: data?.id ?? null,
+        meta: {
+          name,
+          asset_number: assetNumber || null,
+          type: type || null,
+          capacity: capacity || null,
+          status: status || "available",
+        },
+      });
+    } catch (auditError: any) {
+      return NextResponse.json(
+        {
+          success: true,
+          id: data?.id,
+          warning: auditError?.message || "Equipment saved, but audit log failed.",
+        },
+        { status: 200 }
+      );
+    }
 
     return NextResponse.json({ success: true, id: data?.id });
   } catch (e: any) {
