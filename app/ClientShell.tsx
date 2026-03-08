@@ -52,7 +52,16 @@ export default function ClientShell({
       const user = data.user;
       if (!mounted || !user) return;
 
-      setRole((user.user_metadata as any)?.role ?? "");
+      const email = String(user.email ?? "").toLowerCase();
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+
+      setRole(isMaster ? "admin" : ((user.user_metadata as any)?.role ?? ""));
       setUsername(user.email ? user.email.split("@")[0] : "");
     }
 
