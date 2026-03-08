@@ -28,13 +28,72 @@ function daysUntilPasswordExpiry(passwordChangedAt?: string | null) {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+}
+
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB");
+}
+
+type DashboardStats = {
+  bookingsToday?: number;
+  activeHires?: number;
+  availableEquipment?: number;
+  totalEquipment?: number;
+  outstandingInvoices?: number;
+  upcomingBookings?: Array<{
+    id: string;
+    start_at?: string | null;
+    start_date?: string | null;
+    location?: string | null;
+    status?: string | null;
+    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
+    equipment?: { name?: string | null } | { name?: string | null }[] | null;
+  }>;
+  overdueInvoices?: Array<{
+    id: string;
+    total_invoice?: number | null;
+    invoice_status?: string | null;
+    start_at?: string | null;
+    start_date?: string | null;
+    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
+  }>;
+  utilisationPct?: number | null;
+  recentAudit?: Array<{
+    id: string;
+    actor_username?: string | null;
+    action?: string | null;
+    entity_type?: string | null;
+    created_at?: string | null;
+  }>;
+};
+
+function first<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
 export default function DashboardPage() {
   const supabase = createSupabaseBrowserClient();
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "">("");
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [passwordDaysLeft, setPasswordDaysLeft] = useState<number | null>(null);
 
   useEffect(() => {
@@ -93,7 +152,7 @@ export default function DashboardPage() {
     <ClientShell>
       <div
         style={{
-          width: "min(1100px, 95vw)",
+          width: "min(1250px, 96vw)",
           background: "rgba(255,255,255,0.18)",
           borderRadius: 14,
           padding: 24,
@@ -113,7 +172,13 @@ export default function DashboardPage() {
           <div>
             <h1 style={{ margin: 0 }}>Dashboard</h1>
             <p style={{ marginTop: 8, opacity: 0.85 }}>
-              {loading ? "Loading session..." : <>Signed in as <b>{username}</b> {role ? `(${role})` : ""}</>}
+              {loading ? (
+                "Loading session..."
+              ) : (
+                <>
+                  Signed in as <b>{username}</b> {role ? `(${role})` : ""}
+                </>
+              )}
             </p>
           </div>
 
@@ -159,10 +224,40 @@ export default function DashboardPage() {
             gap: 12,
           }}
         >
-          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} badge={<StatusPill text="Today" />} />
-          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} badge={<StatusPill text="Live" />} />
-          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} badge={<StatusPill text="Avail" />} />
-          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} badge={<StatusPill text="£" />} />
+          <StatCard
+            title="Bookings today"
+            value={stats?.bookingsToday ?? "-"}
+            subtext="Jobs starting today"
+            badge={<StatusPill text="Today" />}
+          />
+          <StatCard
+            title="Active hires"
+            value={stats?.activeHires ?? "-"}
+            subtext="Currently live bookings"
+            badge={<StatusPill text="Live" />}
+          />
+          <StatCard
+            title="Equipment available"
+            value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`}
+            subtext="Available vs total fleet"
+            badge={<StatusPill text="Avail" />}
+          />
+          <StatCard
+            title="Invoices outstanding"
+            value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
+            subtext="Unpaid or part-paid"
+            badge={<StatusPill text="£" />}
+          />
+          <StatCard
+            title="Utilisation"
+            value={
+              typeof stats?.utilisationPct === "number"
+                ? `${stats.utilisationPct}%`
+                : "-"
+            }
+            subtext="Fleet utilisation"
+            badge={<StatusPill text="Use" />}
+          />
         </div>
 
         <div
@@ -184,12 +279,132 @@ export default function DashboardPage() {
             </a>
           ))}
         </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            display: "grid",
+            gridTemplateColumns: "1.4fr 1fr",
+            gap: 14,
+          }}
+        >
+          <Panel
+            title="Upcoming bookings"
+            subtitle="Next jobs coming up"
+          >
+            {!stats?.upcomingBookings || stats.upcomingBookings.length === 0 ? (
+              <EmptyState text="No upcoming bookings." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.upcomingBookings.slice(0, 6).map((b) => {
+                  const client = first(b.clients);
+                  const equipment = first(b.equipment);
+
+                  return (
+                    <a
+                      key={b.id}
+                      href={`/bookings/${b.id}`}
+                      style={rowLink}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 900 }}>
+                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
+                        </div>
+                      </div>
+                      <StatusPill text={b.status ?? "—"} />
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
+
+          <Panel
+            title="Overdue / unpaid invoices"
+            subtitle="Jobs needing payment attention"
+          >
+            {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
+              <EmptyState text="No overdue or unpaid invoices." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.overdueInvoices.slice(0, 6).map((b) => {
+                  const client = first(b.clients);
+
+                  return (
+                    <a
+                      key={b.id}
+                      href={`/bookings/${b.id}`}
+                      style={rowLink}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 900 }}>
+                          {client?.company_name ?? "Customer"}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                          {b.start_at ? fmtDate(b.start_at) : fmtDate(b.start_date)}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontWeight: 900 }}>
+                          {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
+                        </div>
+                        <div style={{ marginTop: 4 }}>
+                          <StatusPill text={b.invoice_status ?? "—"} />
+                        </div>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <Panel
+            title="Recent activity"
+            subtitle="Latest recorded audit events"
+          >
+            {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
+              <EmptyState text="No recent activity yet." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.recentAudit.slice(0, 8).map((a) => (
+                  <div key={a.id} style={activityRow}>
+                    <div>
+                      <div style={{ fontWeight: 900 }}>
+                        {(a.actor_username ?? "user")} • {a.action ?? "action"} • {a.entity_type ?? "entity"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                        {fmtDateTime(a.created_at)}
+                      </div>
+                    </div>
+                    <StatusPill text={a.action ?? "—"} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Panel>
+        </div>
       </div>
     </ClientShell>
   );
 }
 
-function StatCard({ title, value, badge }: { title: string; value: any; badge?: React.ReactNode }) {
+function StatCard({
+  title,
+  value,
+  subtext,
+  badge,
+}: {
+  title: string;
+  value: any;
+  subtext?: string;
+  badge?: React.ReactNode;
+}) {
   return (
     <div
       style={{
@@ -204,9 +419,71 @@ function StatCard({ title, value, badge }: { title: string; value: any; badge?: 
         {badge}
       </div>
       <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
+      {subtext && (
+        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>
+          {subtext}
+        </div>
+      )}
     </div>
   );
 }
+
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        background: "rgba(255,255,255,0.28)",
+        border: "1px solid rgba(0,0,0,0.10)",
+        borderRadius: 14,
+        padding: 16,
+      }}
+    >
+      <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
+      {subtitle && (
+        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+          {subtitle}
+        </div>
+      )}
+      <div style={{ marginTop: 14 }}>{children}</div>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div style={{ fontSize: 14, opacity: 0.58 }}>{text}</div>;
+}
+
+const rowLink: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  textDecoration: "none",
+  color: "#111",
+  padding: "12px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const activityRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  padding: "12px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
 
 function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperties {
   const tones: Record<string, React.CSSProperties> = {
