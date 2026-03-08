@@ -39,6 +39,8 @@ export async function GET() {
     upcomingDated,
     overdueInvoices,
     recentAudit,
+    todayJobs,
+    reservedJobs,
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -52,7 +54,7 @@ export async function GET() {
       .gte("end_date", today)
       .neq("status", "Cancelled"),
 
-    supabase.from("equipment").select("id,status", { count: "exact" }),
+    supabase.from("equipment").select("id,status,name", { count: "exact" }),
 
     supabase
       .from("bookings")
@@ -115,6 +117,29 @@ export async function GET() {
       .select("id, actor_username, action, entity_type, created_at")
       .order("created_at", { ascending: false })
       .limit(8),
+
+    supabase
+      .from("bookings")
+      .select(`
+        id,
+        start_at,
+        start_date,
+        location,
+        status,
+        clients:client_id ( company_name ),
+        equipment:equipment_id ( name )
+      `)
+      .lte("start_date", today)
+      .gte("end_date", today)
+      .neq("status", "Cancelled")
+      .order("start_at", { ascending: true })
+      .limit(10),
+
+    supabase
+      .from("bookings")
+      .select("equipment_id")
+      .gt("start_date", today)
+      .neq("status", "Cancelled"),
   ]);
 
   const activeCount = activeHires.count ?? 0;
@@ -122,13 +147,27 @@ export async function GET() {
     (activeHires.data ?? []).map((b: any) => b.equipment_id).filter(Boolean)
   );
 
+  const reservedEquipmentIds = new Set(
+    (reservedJobs.data ?? []).map((b: any) => b.equipment_id).filter(Boolean)
+  );
+
   const totalEquipment = equipmentAll.count ?? 0;
 
   let availableNow = 0;
+  let onHireEquipment = 0;
+  let reservedEquipment = 0;
+
   for (const e of equipmentAll.data ?? []) {
-    const isAvailable = (e.status ?? "").toLowerCase() === "available";
-    const isBookedNow = activeEquipmentIds.has(e.id);
-    if (isAvailable && !isBookedNow) availableNow++;
+    const isActive = activeEquipmentIds.has(e.id);
+    const isReserved = reservedEquipmentIds.has(e.id);
+
+    if (isActive) {
+      onHireEquipment++;
+    } else if (isReserved) {
+      reservedEquipment++;
+    } else {
+      availableNow++;
+    }
   }
 
   const outstandingTotal =
@@ -159,10 +198,13 @@ export async function GET() {
     activeHires: activeCount,
     availableEquipment: availableNow,
     totalEquipment,
+    onHireEquipment,
+    reservedEquipment,
     outstandingInvoices: outstandingTotal,
     upcomingBookings,
     overdueInvoices: overdueInvoices.data ?? [],
     utilisationPct,
     recentAudit: recentAudit.data ?? [],
+    todayJobs: todayJobs.data ?? [],
   });
 }
