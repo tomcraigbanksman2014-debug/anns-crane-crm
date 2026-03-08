@@ -58,6 +58,9 @@ type DashboardStats = {
   utilisationPct?: number | null;
   onHireEquipment?: number;
   reservedEquipment?: number;
+  certExpiringSoon?: number;
+  certExpired?: number;
+  maintenanceEquipment?: number;
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -227,6 +230,51 @@ export default function DashboardPage() {
             }}
           >
             Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
+          </div>
+        )}
+
+        {(stats?.certExpired ?? 0) > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(255,0,0,0.12)",
+              border: "1px solid rgba(255,0,0,0.22)",
+              fontWeight: 900,
+            }}
+          >
+            ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
+          </div>
+        )}
+
+        {(stats?.certExpiringSoon ?? 0) > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(255,170,0,0.14)",
+              border: "1px solid rgba(255,170,0,0.24)",
+              fontWeight: 800,
+            }}
+          >
+            ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
+          </div>
+        )}
+
+        {(stats?.maintenanceEquipment ?? 0) > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(0,120,255,0.10)",
+              border: "1px solid rgba(0,120,255,0.18)",
+              fontWeight: 800,
+            }}
+          >
+            ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
           </div>
         )}
 
