@@ -18,7 +18,27 @@ export async function POST(req: Request) {
 
     const { data, error } = await supabase
       .from("bookings")
-      .insert([body])
+      .insert([
+        {
+          client_id: body.client_id ?? null,
+          equipment_id: body.equipment_id ?? null,
+          start_at: body.start_at ?? null,
+          end_at: body.end_at ?? null,
+          start_date: body.start_date ?? null,
+          end_date: body.end_date ?? null,
+          location: body.location ?? null,
+          status: body.status ?? null,
+          po_number: body.po_number ?? null,
+          job_reference: body.job_reference ?? null,
+          operator_name: body.operator_name ?? null,
+          driver_notes: body.driver_notes ?? null,
+          hire_price: body.hire_price ?? null,
+          vat: body.vat ?? null,
+          total_invoice: body.total_invoice ?? null,
+          payment_received: body.payment_received ?? null,
+          invoice_status: body.invoice_status ?? null,
+        },
+      ])
       .select("id")
       .single();
 
@@ -46,6 +66,9 @@ export async function POST(req: Request) {
         end_at: body?.end_at ?? null,
         location: body?.location ?? null,
         status: body?.status ?? null,
+        po_number: body?.po_number ?? null,
+        job_reference: body?.job_reference ?? null,
+        operator_name: body?.operator_name ?? null,
         total_invoice: body?.total_invoice ?? null,
       },
     });
