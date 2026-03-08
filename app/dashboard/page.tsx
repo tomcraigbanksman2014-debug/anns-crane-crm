@@ -55,6 +55,9 @@ type DashboardStats = {
   availableEquipment?: number;
   totalEquipment?: number;
   outstandingInvoices?: number;
+  utilisationPct?: number | null;
+  onHireEquipment?: number;
+  reservedEquipment?: number;
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -72,13 +75,21 @@ type DashboardStats = {
     start_date?: string | null;
     clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
   }>;
-  utilisationPct?: number | null;
   recentAudit?: Array<{
     id: string;
     actor_username?: string | null;
     action?: string | null;
     entity_type?: string | null;
     created_at?: string | null;
+  }>;
+  todayJobs?: Array<{
+    id: string;
+    start_at?: string | null;
+    start_date?: string | null;
+    location?: string | null;
+    status?: string | null;
+    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
+    equipment?: { name?: string | null } | { name?: string | null }[] | null;
   }>;
 };
 
@@ -224,40 +235,11 @@ export default function DashboardPage() {
             gap: 12,
           }}
         >
-          <StatCard
-            title="Bookings today"
-            value={stats?.bookingsToday ?? "-"}
-            subtext="Jobs starting today"
-            badge={<StatusPill text="Today" />}
-          />
-          <StatCard
-            title="Active hires"
-            value={stats?.activeHires ?? "-"}
-            subtext="Currently live bookings"
-            badge={<StatusPill text="Live" />}
-          />
-          <StatCard
-            title="Equipment available"
-            value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`}
-            subtext="Available vs total fleet"
-            badge={<StatusPill text="Avail" />}
-          />
-          <StatCard
-            title="Invoices outstanding"
-            value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
-            subtext="Unpaid or part-paid"
-            badge={<StatusPill text="£" />}
-          />
-          <StatCard
-            title="Utilisation"
-            value={
-              typeof stats?.utilisationPct === "number"
-                ? `${stats.utilisationPct}%`
-                : "-"
-            }
-            subtext="Fleet utilisation"
-            badge={<StatusPill text="Use" />}
-          />
+          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} subtext="Jobs starting today" badge={<StatusPill text="Today" />} />
+          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} subtext="Currently live bookings" badge={<StatusPill text="Live" />} />
+          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} subtext="Available vs total fleet" badge={<StatusPill text="Avail" />} />
+          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} subtext="Unpaid or part-paid" badge={<StatusPill text="£" />} />
+          <StatCard title="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"} subtext="Fleet utilisation" badge={<StatusPill text="Use" />} />
         </div>
 
         <div
@@ -284,28 +266,21 @@ export default function DashboardPage() {
           style={{
             marginTop: 18,
             display: "grid",
-            gridTemplateColumns: "1.4fr 1fr",
+            gridTemplateColumns: "1.2fr 1fr 1fr",
             gap: 14,
           }}
         >
-          <Panel
-            title="Upcoming bookings"
-            subtitle="Next jobs coming up"
-          >
-            {!stats?.upcomingBookings || stats.upcomingBookings.length === 0 ? (
-              <EmptyState text="No upcoming bookings." />
+          <Panel title="Today's jobs" subtitle="Work scheduled for today">
+            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
+              <EmptyState text="No jobs scheduled for today." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.upcomingBookings.slice(0, 6).map((b) => {
+                {stats.todayJobs.slice(0, 6).map((b) => {
                   const client = first(b.clients);
                   const equipment = first(b.equipment);
 
                   return (
-                    <a
-                      key={b.id}
-                      href={`/bookings/${b.id}`}
-                      style={rowLink}
-                    >
+                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
                       <div>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
@@ -322,10 +297,15 @@ export default function DashboardPage() {
             )}
           </Panel>
 
-          <Panel
-            title="Overdue / unpaid invoices"
-            subtitle="Jobs needing payment attention"
-          >
+          <Panel title="Fleet status" subtitle="Derived from live and future bookings">
+            <div style={{ display: "grid", gap: 10 }}>
+              <MiniStat label="On hire now" value={stats?.onHireEquipment ?? 0} />
+              <MiniStat label="Reserved later" value={stats?.reservedEquipment ?? 0} />
+              <MiniStat label="Available now" value={stats?.availableEquipment ?? 0} />
+            </div>
+          </Panel>
+
+          <Panel title="Overdue / unpaid invoices" subtitle="Jobs needing payment attention">
             {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
               <EmptyState text="No overdue or unpaid invoices." />
             ) : (
@@ -334,11 +314,7 @@ export default function DashboardPage() {
                   const client = first(b.clients);
 
                   return (
-                    <a
-                      key={b.id}
-                      href={`/bookings/${b.id}`}
-                      style={rowLink}
-                    >
+                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
                       <div>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"}
@@ -363,11 +339,42 @@ export default function DashboardPage() {
           </Panel>
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          <Panel
-            title="Recent activity"
-            subtitle="Latest recorded audit events"
-          >
+        <div
+          style={{
+            marginTop: 14,
+            display: "grid",
+            gridTemplateColumns: "1.4fr 1fr",
+            gap: 14,
+          }}
+        >
+          <Panel title="Upcoming bookings" subtitle="Next jobs coming up">
+            {!stats?.upcomingBookings || stats.upcomingBookings.length === 0 ? (
+              <EmptyState text="No upcoming bookings." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.upcomingBookings.slice(0, 6).map((b) => {
+                  const client = first(b.clients);
+                  const equipment = first(b.equipment);
+
+                  return (
+                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
+                      <div>
+                        <div style={{ fontWeight: 900 }}>
+                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
+                        </div>
+                      </div>
+                      <StatusPill text={b.status ?? "—"} />
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Recent activity" subtitle="Latest recorded audit events">
             {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
               <EmptyState text="No recent activity yet." />
             ) : (
@@ -419,11 +426,7 @@ function StatCard({
         {badge}
       </div>
       <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
-      {subtext && (
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>
-          {subtext}
-        </div>
-      )}
+      {subtext && <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div>}
     </div>
   );
 }
@@ -447,11 +450,7 @@ function Panel({
       }}
     >
       <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
-      {subtitle && (
-        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-          {subtitle}
-        </div>
-      )}
+      {subtitle && <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{subtitle}</div>}
       <div style={{ marginTop: 14 }}>{children}</div>
     </div>
   );
@@ -459,6 +458,22 @@ function Panel({
 
 function EmptyState({ text }: { text: string }) {
   return <div style={{ fontSize: 14, opacity: 0.58 }}>{text}</div>;
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div
+      style={{
+        padding: "12px 12px",
+        borderRadius: 12,
+        background: "rgba(255,255,255,0.42)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>{value}</div>
+    </div>
+  );
 }
 
 const rowLink: React.CSSProperties = {
