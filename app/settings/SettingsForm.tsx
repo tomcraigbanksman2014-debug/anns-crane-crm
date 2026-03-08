@@ -12,6 +12,7 @@ type AppSettings = {
   company_number?: string | null;
 
   invoice_prefix?: string | null;
+  invoice_next_number?: number | null;
   payment_terms_days?: number | null;
   bank_name?: string | null;
   bank_sort_code?: string | null;
@@ -40,6 +41,9 @@ export default function SettingsForm({
   const [companyNumber, setCompanyNumber] = useState(settings?.company_number ?? "15895379");
 
   const [invoicePrefix, setInvoicePrefix] = useState(settings?.invoice_prefix ?? "SI");
+  const [invoiceNextNumber, setInvoiceNextNumber] = useState(
+    settings?.invoice_next_number != null ? String(settings.invoice_next_number) : "1"
+  );
   const [paymentTermsDays, setPaymentTermsDays] = useState(
     settings?.payment_terms_days != null ? String(settings.payment_terms_days) : "30"
   );
@@ -81,6 +85,7 @@ export default function SettingsForm({
         company_number: companyNumber.trim() || null,
 
         invoice_prefix: invoicePrefix.trim() || "SI",
+        invoice_next_number: Math.max(1, Number(invoiceNextNumber || 1)),
         payment_terms_days: Number(paymentTermsDays || 30),
         bank_name: bankName.trim() || null,
         bank_sort_code: bankSortCode.trim() || null,
@@ -168,11 +173,15 @@ export default function SettingsForm({
             <input value={invoicePrefix} onChange={(e) => setInvoicePrefix(e.target.value)} style={input} />
           </Field>
 
+          <Field span={3} label="Next invoice number">
+            <input value={invoiceNextNumber} onChange={(e) => setInvoiceNextNumber(e.target.value)} style={input} />
+          </Field>
+
           <Field span={3} label="Payment terms (days)">
             <input value={paymentTermsDays} onChange={(e) => setPaymentTermsDays(e.target.value)} style={input} />
           </Field>
 
-          <Field span={6} label="Bank name">
+          <Field span={3} label="Bank name">
             <input value={bankName} onChange={(e) => setBankName(e.target.value)} style={input} />
           </Field>
 
