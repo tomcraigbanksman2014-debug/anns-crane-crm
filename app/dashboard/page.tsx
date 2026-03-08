@@ -117,12 +117,19 @@ export default function DashboardPage() {
       }
 
       const user = data.user;
-      setUsername(fromAuthEmail(user.email ?? null));
-      setRole((user.user_metadata?.role as any) ?? "");
+      const email = String(user.email ?? "").toLowerCase();
+      const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+        .trim()
+        .toLowerCase();
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
 
-      const daysLeft = daysUntilPasswordExpiry(
-        (user.user_metadata as any)?.password_changed_at ?? null
-      );
+      setUsername(fromAuthEmail(user.email ?? null));
+      setRole(isMaster ? "admin" : ((user.user_metadata?.role as any) ?? ""));
+
+      const daysLeft = isMaster
+        ? null
+        : daysUntilPasswordExpiry((user.user_metadata as any)?.password_changed_at ?? null);
+
       setPasswordDaysLeft(daysLeft);
 
       const res = await fetch("/api/dashboard/stats");
