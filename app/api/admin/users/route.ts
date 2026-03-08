@@ -21,6 +21,14 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceKey);
 }
 
+function getMasterAdminEmail() {
+  return String(process.env.MASTER_ADMIN_EMAIL ?? "").trim().toLowerCase();
+}
+
+function getMasterAdminUsername() {
+  return String(process.env.MASTER_ADMIN_USERNAME ?? "").trim().toLowerCase();
+}
+
 async function requireAdmin() {
   const supabaseSession = createSupabaseServerClient();
 
@@ -32,8 +40,11 @@ async function requireAdmin() {
     return { error: "Not signed in", status: 401 as const };
   }
 
+  const myEmail = String(user.email ?? "").toLowerCase();
   const myRole = (user.user_metadata as any)?.role ?? "";
-  if (myRole !== "admin") {
+  const masterAdminEmail = getMasterAdminEmail();
+
+  if (myRole !== "admin" && myEmail !== masterAdminEmail) {
     return { error: "Admin only", status: 403 as const };
   }
 
@@ -48,6 +59,7 @@ export async function GET() {
     }
 
     const admin = getAdminClient();
+    const masterAdminEmail = getMasterAdminEmail();
 
     let page = 1;
     const perPage = 200;
@@ -72,6 +84,7 @@ export async function GET() {
 
     const filtered = allUsers
       .filter((u) => (u.email ?? "").endsWith("@anns.local"))
+      .filter((u) => String(u.email ?? "").toLowerCase() !== masterAdminEmail)
       .map((u) => ({
         id: u.id,
         email: u.email ?? null,
@@ -80,6 +93,7 @@ export async function GET() {
           (u.email ? String(u.email).split("@")[0] : ""),
         role: u.user_metadata?.role || "staff",
         created_at: u.created_at ?? null,
+        last_login_at: u.last_sign_in_at ?? null,
         must_change_password: !!u.user_metadata?.must_change_password,
         password_changed_at: u.user_metadata?.password_changed_at ?? null,
       }))
@@ -107,6 +121,8 @@ export async function POST(req: Request) {
     const role = String(body?.role ?? "staff").trim().toLowerCase();
 
     const username = normalizeUsername(rawUsername);
+    const masterAdminUsername = getMasterAdminUsername();
+    const masterAdminEmail = getMasterAdminEmail();
 
     if (username.length < 3) {
       return NextResponse.json(
@@ -139,8 +155,22 @@ export async function POST(req: Request) {
       );
     }
 
+    if (username === masterAdminUsername) {
+      return NextResponse.json(
+        { error: "That username is reserved" },
+        { status: 400 }
+      );
+    }
+
     const admin = getAdminClient();
     const email = toAuthEmail(username);
+
+    if (email === masterAdminEmail) {
+      return NextResponse.json(
+        { error: "That username is reserved" },
+        { status: 400 }
+      );
+    }
 
     let page = 1;
     const perPage = 200;
