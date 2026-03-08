@@ -80,6 +80,10 @@ export async function GET(
       end_date,
       location,
       status,
+      po_number,
+      job_reference,
+      operator_name,
+      driver_notes,
       hire_price,
       vat,
       total_invoice,
@@ -329,6 +333,23 @@ export async function GET(
     8
   );
 
+  let infoY = 245;
+  drawText("PO Number:", left, infoY, 9, true);
+  drawText(booking.po_number ?? "-", 110, infoY, 9);
+  infoY -= 14;
+
+  drawText("Job Ref:", left, infoY, 9, true);
+  drawText(booking.job_reference ?? "-", 110, infoY, 9);
+  infoY -= 14;
+
+  drawText("Operator:", left, infoY, 9, true);
+  drawText(booking.operator_name ?? "-", 110, infoY, 9);
+  infoY -= 18;
+
+  drawText("Driver Notes:", left, infoY, 9, true);
+  infoY -= 12;
+  infoY = drawWrapped(booking.driver_notes ?? "-", left, infoY, 300, 8, false, 10);
+
   page.drawLine({
     start: { x: 400, y: 130 },
     end: { x: right, y: 130 },
@@ -342,7 +363,7 @@ export async function GET(
   drawText(`£${money(vat)}`, 515, 84, 10);
 
   drawText("TOTAL", 430, 58, 12, true);
-  drawText(`£${money(total)}`, 505, 58, 12, true);
+  drawText(`£${money(total)}`, 505, 58, 12);
 
   let footerY = 105;
   for (const para of String(invoiceFooter).split("\n")) {
