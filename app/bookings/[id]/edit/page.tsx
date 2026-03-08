@@ -12,6 +12,10 @@ type BookingRow = {
   end_date: string | null;
   location: string | null;
   status: string | null;
+  po_number: string | null;
+  job_reference: string | null;
+  operator_name: string | null;
+  driver_notes: string | null;
   hire_price: number | null;
   vat: number | null;
   total_invoice: number | null;
@@ -43,6 +47,10 @@ export default async function EditBookingPage({
         end_date,
         location,
         status,
+        po_number,
+        job_reference,
+        operator_name,
+        driver_notes,
         hire_price,
         vat,
         total_invoice,
