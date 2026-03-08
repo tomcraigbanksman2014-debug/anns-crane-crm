@@ -18,6 +18,12 @@ function endOfNext7DaysIso() {
   return d.toISOString();
 }
 
+function plusDaysDate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return isoDate(d);
+}
+
 export async function GET() {
   const supabase = createSupabaseServerClient();
 
@@ -29,6 +35,7 @@ export async function GET() {
   const today = isoDate();
   const todayStartIso = startOfTodayIso();
   const next7DaysIso = endOfNext7DaysIso();
+  const in30Days = plusDaysDate(30);
 
   const [
     bookingsToday,
@@ -40,7 +47,9 @@ export async function GET() {
     overdueInvoices,
     recentAudit,
     todayJobs,
-    reservedJobs,
+    certExpiringSoon,
+    certExpired,
+    maintenanceEquipment,
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -54,7 +63,9 @@ export async function GET() {
       .gte("end_date", today)
       .neq("status", "Cancelled"),
 
-    supabase.from("equipment").select("id,status,name", { count: "exact" }),
+    supabase
+      .from("equipment")
+      .select("id,status,certification_expires_on", { count: "exact" }),
 
     supabase
       .from("bookings")
@@ -92,7 +103,7 @@ export async function GET() {
       `)
       .is("start_at", null)
       .gte("start_date", today)
-      .lte("start_date", isoDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)))
+      .lte("start_date", plusDaysDate(7))
       .neq("status", "Cancelled")
       .order("start_date", { ascending: true })
       .limit(10),
@@ -129,17 +140,26 @@ export async function GET() {
         clients:client_id ( company_name ),
         equipment:equipment_id ( name )
       `)
-      .lte("start_date", today)
-      .gte("end_date", today)
+      .eq("start_date", today)
       .neq("status", "Cancelled")
       .order("start_at", { ascending: true })
       .limit(10),
 
     supabase
-      .from("bookings")
-      .select("equipment_id")
-      .gt("start_date", today)
-      .neq("status", "Cancelled"),
+      .from("equipment")
+      .select("id")
+      .gte("certification_expires_on", today)
+      .lte("certification_expires_on", in30Days),
+
+    supabase
+      .from("equipment")
+      .select("id")
+      .lt("certification_expires_on", today),
+
+    supabase
+      .from("equipment")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "maintenance"),
   ]);
 
   const activeCount = activeHires.count ?? 0;
@@ -147,26 +167,40 @@ export async function GET() {
     (activeHires.data ?? []).map((b: any) => b.equipment_id).filter(Boolean)
   );
 
-  const reservedEquipmentIds = new Set(
-    (reservedJobs.data ?? []).map((b: any) => b.equipment_id).filter(Boolean)
-  );
-
   const totalEquipment = equipmentAll.count ?? 0;
 
   let availableNow = 0;
-  let onHireEquipment = 0;
-  let reservedEquipment = 0;
+  let reservedLater = 0;
 
-  for (const e of equipmentAll.data ?? []) {
-    const isActive = activeEquipmentIds.has(e.id);
-    const isReserved = reservedEquipmentIds.has(e.id);
+  const equipmentIds = new Set((equipmentAll.data ?? []).map((e: any) => e.id));
 
-    if (isActive) {
-      onHireEquipment++;
-    } else if (isReserved) {
-      reservedEquipment++;
-    } else {
+  const { data: futureBookings } = await supabase
+    .from("bookings")
+    .select("equipment_id")
+    .gt("start_date", today)
+    .neq("status", "Cancelled");
+
+  const futureEquipmentIds = new Set(
+    (futureBookings ?? []).map((b: any) => b.equipment_id).filter(Boolean)
+  );
+
+  for (const id of equipmentIds) {
+    const row = (equipmentAll.data ?? []).find((e: any) => e.id === id);
+    const status = String(row?.status ?? "").toLowerCase();
+
+    if (status === "maintenance" || status === "out_of_service") {
+      continue;
+    }
+
+    const isBookedNow = activeEquipmentIds.has(id);
+    const isReservedLater = futureEquipmentIds.has(id);
+
+    if (!isBookedNow) {
       availableNow++;
+    }
+
+    if (!isBookedNow && isReservedLater) {
+      reservedLater++;
     }
   }
 
@@ -198,13 +232,16 @@ export async function GET() {
     activeHires: activeCount,
     availableEquipment: availableNow,
     totalEquipment,
-    onHireEquipment,
-    reservedEquipment,
     outstandingInvoices: outstandingTotal,
     upcomingBookings,
     overdueInvoices: overdueInvoices.data ?? [],
     utilisationPct,
     recentAudit: recentAudit.data ?? [],
     todayJobs: todayJobs.data ?? [],
+    onHireEquipment: activeEquipmentIds.size,
+    reservedEquipment: reservedLater,
+    certExpiringSoon: certExpiringSoon.data?.length ?? 0,
+    certExpired: certExpired.data?.length ?? 0,
+    maintenanceEquipment: maintenanceEquipment.count ?? 0,
   });
 }
