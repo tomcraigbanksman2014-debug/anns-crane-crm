@@ -10,7 +10,15 @@ function isPasswordExpired(passwordChangedAt?: string | null) {
   const msInDay = 1000 * 60 * 60 * 24;
   const ageDays = (now.getTime() - changed.getTime()) / msInDay;
 
-  return ageDays >= 183; // approx 6 months
+  return ageDays >= 183;
+}
+
+function isMasterAdminEmail(email?: string | null) {
+  const masterAdminEmail = String(process.env.MASTER_ADMIN_EMAIL ?? "")
+    .trim()
+    .toLowerCase();
+
+  return !!email && !!masterAdminEmail && email.toLowerCase() === masterAdminEmail;
 }
 
 export async function middleware(req: NextRequest) {
@@ -67,18 +75,19 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  const mustChangePassword = !!(user.user_metadata as any)?.must_change_password;
-  const passwordChangedAt = (user.user_metadata as any)?.password_changed_at ?? null;
-  const passwordExpired = isPasswordExpired(passwordChangedAt);
+  const isMaster = isMasterAdminEmail(user.email ?? null);
+  const mustChangePassword =
+    !isMaster && !!(user.user_metadata as any)?.must_change_password;
 
-  // Force password change except when already on change-password page
+  const passwordChangedAt = (user.user_metadata as any)?.password_changed_at ?? null;
+  const passwordExpired = !isMaster && isPasswordExpired(passwordChangedAt);
+
   if ((mustChangePassword || passwordExpired) && !pathname.startsWith("/change-password")) {
     const url = req.nextUrl.clone();
     url.pathname = "/change-password";
     return NextResponse.redirect(url);
   }
 
-  // If already compliant, don't let them sit on change-password unnecessarily
   if (!mustChangePassword && !passwordExpired && pathname.startsWith("/change-password")) {
     const url = req.nextUrl.clone();
     url.pathname = "/dashboard";
@@ -87,7 +96,7 @@ export async function middleware(req: NextRequest) {
 
   if (pathname.startsWith("/admin")) {
     const role = (user.user_metadata as any)?.role;
-    if (role !== "admin") {
+    if (role !== "admin" && !isMaster) {
       const url = req.nextUrl.clone();
       url.pathname = "/dashboard";
       return NextResponse.redirect(url);
