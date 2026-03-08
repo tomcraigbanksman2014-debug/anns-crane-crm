@@ -68,7 +68,8 @@ export default function ClientShell({
     window.location.href = "/login";
   }
 
-  const isLogin = pathname?.startsWith("/login") || pathname?.startsWith("/change-password");
+  const isLogin =
+    pathname?.startsWith("/login") || pathname?.startsWith("/change-password");
 
   if (isLogin) {
     return (
@@ -155,11 +156,20 @@ export default function ClientShell({
             <NavItem href="/customers" label="Customers" active={pathname?.startsWith("/customers") ?? false} />
             <NavItem href="/equipment" label="Equipment" active={pathname?.startsWith("/equipment") ?? false} />
             <NavItem href="/calendar" label="Calendar" active={pathname?.startsWith("/calendar") ?? false} />
+            <NavItem href="/planner" label="Planner" active={pathname?.startsWith("/planner") ?? false} />
             <NavItem href="/settings" label="Settings" active={pathname?.startsWith("/settings") ?? false} />
             {role === "admin" && (
               <>
-                <NavItem href="/admin/users" label="Staff Accounts" active={pathname?.startsWith("/admin/users") ?? false} />
-                <NavItem href="/admin/audit" label="Audit Log" active={pathname?.startsWith("/admin/audit") ?? false} />
+                <NavItem
+                  href="/admin/users"
+                  label="Staff Accounts"
+                  active={pathname?.startsWith("/admin/users") ?? false}
+                />
+                <NavItem
+                  href="/admin/audit"
+                  label="Audit Log"
+                  active={pathname?.startsWith("/admin/audit") ?? false}
+                />
               </>
             )}
           </nav>
