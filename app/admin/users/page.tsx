@@ -180,7 +180,7 @@ export default function AdminUsersPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Admin: Staff accounts</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Create, manage and reset staff/admin logins.
+              Create, manage and reset staff/admin logins. The hidden master admin is not shown here.
             </p>
           </div>
 
