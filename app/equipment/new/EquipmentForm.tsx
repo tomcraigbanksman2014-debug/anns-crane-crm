@@ -51,7 +51,7 @@ export default function EquipmentForm({
     try {
       const endpoint =
         mode === "create"
-          ? "/api/equipment/save"
+          ? "/api/equipment"
           : `/api/equipment/${encodeURIComponent(equipment!.id)}`;
 
       const method = mode === "create" ? "POST" : "PATCH";
@@ -61,7 +61,7 @@ export default function EquipmentForm({
         asset_number: assetNumber.trim() || null,
         type: type.trim() || null,
         capacity: capacity.trim() || null,
-        status: status.trim() || "available",
+        status: status.trim().toLowerCase() || "available",
         certification_expires_on: certExpiry || null,
         notes: notes.trim() || null,
       };
@@ -99,17 +99,17 @@ export default function EquipmentForm({
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. 60T Liebherr / Jekko / HIAB etc"
+        placeholder="e.g. 60t test crane"
         style={inputStyle}
       />
 
       <div style={grid2}>
         <div>
-          <label style={labelStyle}>Asset number / Reg</label>
+          <label style={labelStyle}>Asset number</label>
           <input
             value={assetNumber}
             onChange={(e) => setAssetNumber(e.target.value)}
-            placeholder="e.g. SN25 XXG"
+            placeholder="e.g. db455sg"
             style={inputStyle}
           />
         </div>
@@ -121,21 +121,21 @@ export default function EquipmentForm({
             onChange={(e) => setStatus(e.target.value)}
             style={inputStyle}
           >
-            <option value="available">available</option>
-            <option value="on_hire">on_hire</option>
-            <option value="maintenance">maintenance</option>
-            <option value="out_of_service">out_of_service</option>
+            <option value="available">Available</option>
+            <option value="on_hire">On Hire</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="out_of_service">Out of Service</option>
           </select>
         </div>
       </div>
 
-      <div style={grid2}>
+      <div style={grid3}>
         <div>
           <label style={labelStyle}>Type</label>
           <input
             value={type}
             onChange={(e) => setType(e.target.value)}
-            placeholder="e.g. Crane / HIAB / Trailer / Basket"
+            placeholder="e.g. Crane"
             style={inputStyle}
           />
         </div>
@@ -145,40 +145,48 @@ export default function EquipmentForm({
           <input
             value={capacity}
             onChange={(e) => setCapacity(e.target.value)}
-            placeholder="e.g. 60T"
+            placeholder="e.g. 40t"
+            style={inputStyle}
+          />
+        </div>
+
+        <div>
+          <label style={labelStyle}>Certification expiry</label>
+          <input
+            type="date"
+            value={certExpiry}
+            onChange={(e) => setCertExpiry(e.target.value)}
             style={inputStyle}
           />
         </div>
       </div>
 
-      <label style={labelStyle}>Certification expiry</label>
-      <input
-        type="date"
-        value={certExpiry}
-        onChange={(e) => setCertExpiry(e.target.value)}
-        style={inputStyle}
-      />
-
       <label style={labelStyle}>Notes</label>
       <textarea
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
-        placeholder="Maintenance notes, man riding expiry, etc"
+        placeholder="Notes"
         rows={5}
         style={textareaStyle}
       />
 
-      <button
-        type="submit"
-        disabled={loading || !name.trim()}
-        style={submitBtn}
-      >
-        {loading
-          ? "Saving..."
-          : mode === "create"
-          ? "Save equipment"
-          : "Update equipment"}
-      </button>
+      <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+        <button
+          type="submit"
+          disabled={loading || !name.trim()}
+          style={submitBtn}
+        >
+          {loading
+            ? "Saving..."
+            : mode === "create"
+            ? "Save equipment"
+            : "Update equipment"}
+        </button>
+
+        <a href="/equipment" style={cancelBtn}>
+          Cancel
+        </a>
+      </div>
 
       {msg && (
         <div
@@ -209,6 +217,12 @@ const grid2: React.CSSProperties = {
   gap: 12,
 };
 
+const grid3: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
+  gap: 12,
+};
+
 const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 12,
@@ -236,9 +250,7 @@ const textareaStyle: React.CSSProperties = {
 };
 
 const submitBtn: React.CSSProperties = {
-  width: "100%",
-  marginTop: 14,
-  padding: "12px 14px",
+  padding: "12px 16px",
   borderRadius: 10,
   border: "none",
   background: "#111",
@@ -246,4 +258,14 @@ const submitBtn: React.CSSProperties = {
   fontSize: 15,
   cursor: "pointer",
   fontWeight: 900,
+};
+
+const cancelBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
 };
