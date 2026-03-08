@@ -10,7 +10,7 @@ type Equipment = {
   type: string | null;
   capacity: string | null;
   status: string | null;
-  certification_expires_on: string | null; // ISO date string
+  certification_expires_on: string | null;
   notes: string | null;
 };
 
@@ -35,43 +35,58 @@ export default function EquipmentForm({
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgType, setMsgType] = useState<"error" | "success">("error");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
 
     if (!name.trim()) {
+      setMsgType("error");
       setMsg("Name is required");
       return;
     }
 
     setLoading(true);
     try {
-      const res = await fetch("/api/equipment/save", {
-        method: "POST",
+      const endpoint =
+        mode === "create"
+          ? "/api/equipment/save"
+          : `/api/equipment/${encodeURIComponent(equipment!.id)}`;
+
+      const method = mode === "create" ? "POST" : "PATCH";
+
+      const payload = {
+        name: name.trim(),
+        asset_number: assetNumber.trim() || null,
+        type: type.trim() || null,
+        capacity: capacity.trim() || null,
+        status: status.trim() || "available",
+        certification_expires_on: certExpiry || null,
+        notes: notes.trim() || null,
+      };
+
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode,
-          id: equipment?.id ?? null,
-          name: name.trim(),
-          asset_number: assetNumber.trim() || null,
-          type: type.trim() || null,
-          capacity: capacity.trim() || null,
-          status,
-          certification_expires_on: certExpiry || null,
-          notes: notes.trim() || null,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
-        setMsg(data?.error || "Save failed");
+        setMsgType("error");
+        setMsg(data?.error || "Could not save equipment.");
         return;
       }
+
+      setMsgType("success");
+      setMsg(mode === "create" ? "Equipment saved." : "Equipment updated.");
 
       router.replace("/equipment");
       router.refresh();
     } catch {
+      setMsgType("error");
       setMsg("Something went wrong. Try again.");
     } finally {
       setLoading(false);
@@ -88,7 +103,7 @@ export default function EquipmentForm({
         style={inputStyle}
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={grid2}>
         <div>
           <label style={labelStyle}>Asset number / Reg</label>
           <input
@@ -114,7 +129,7 @@ export default function EquipmentForm({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+      <div style={grid2}>
         <div>
           <label style={labelStyle}>Type</label>
           <input
@@ -150,27 +165,19 @@ export default function EquipmentForm({
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Maintenance notes, man riding expiry, etc"
         rows={5}
-        style={{ ...inputStyle, resize: "vertical" }}
+        style={textareaStyle}
       />
 
       <button
         type="submit"
         disabled={loading || !name.trim()}
-        style={{
-          width: "100%",
-          marginTop: 14,
-          padding: "12px 14px",
-          borderRadius: 10,
-          border: "none",
-          background: "#111",
-          color: "white",
-          fontSize: 15,
-          cursor: loading || !name.trim() ? "not-allowed" : "pointer",
-          opacity: loading || !name.trim() ? 0.7 : 1,
-          fontWeight: 900,
-        }}
+        style={submitBtn}
       >
-        {loading ? "Saving..." : mode === "create" ? "Save equipment" : "Update equipment"}
+        {loading
+          ? "Saving..."
+          : mode === "create"
+          ? "Save equipment"
+          : "Update equipment"}
       </button>
 
       {msg && (
@@ -179,8 +186,14 @@ export default function EquipmentForm({
             marginTop: 12,
             padding: "10px 12px",
             borderRadius: 10,
-            background: "rgba(255,0,0,0.10)",
-            border: "1px solid rgba(255,0,0,0.25)",
+            background:
+              msgType === "success"
+                ? "rgba(0,180,120,0.10)"
+                : "rgba(255,0,0,0.10)",
+            border:
+              msgType === "success"
+                ? "1px solid rgba(0,180,120,0.25)"
+                : "1px solid rgba(255,0,0,0.25)",
           }}
         >
           {msg}
@@ -189,6 +202,12 @@ export default function EquipmentForm({
     </form>
   );
 }
+
+const grid2: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
 
 const labelStyle: React.CSSProperties = {
   display: "block",
@@ -207,4 +226,24 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   fontSize: 16,
   background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+};
+
+const textareaStyle: React.CSSProperties = {
+  ...inputStyle,
+  resize: "vertical",
+  minHeight: 120,
+};
+
+const submitBtn: React.CSSProperties = {
+  width: "100%",
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "white",
+  fontSize: 15,
+  cursor: "pointer",
+  fontWeight: 900,
 };
