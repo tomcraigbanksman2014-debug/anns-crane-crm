@@ -41,12 +41,17 @@ export default async function BookingViewPage({
     .from("bookings")
     .select(`
       id,
+      invoice_number,
       start_at,
       end_at,
       start_date,
       end_date,
       location,
       status,
+      po_number,
+      job_reference,
+      operator_name,
+      driver_notes,
       hire_price,
       vat,
       total_invoice,
@@ -124,6 +129,7 @@ export default async function BookingViewPage({
                 <Row label="Location" value={booking.location ?? "-"} />
                 <Row label="Status" value={booking.status ?? "-"} />
                 <Row label="Invoice status" value={booking.invoice_status ?? "-"} />
+                <Row label="Invoice number" value={booking.invoice_number ?? "-"} />
               </Section>
 
               <Section title="Customer">
@@ -153,6 +159,25 @@ export default async function BookingViewPage({
                     </a>
                   </div>
                 )}
+              </Section>
+
+              <Section title="Job details">
+                <Row label="PO number" value={booking.po_number ?? "-"} />
+                <Row label="Job reference" value={booking.job_reference ?? "-"} />
+                <Row label="Operator name" value={booking.operator_name ?? "-"} />
+                <div style={{ paddingTop: 8 }}>
+                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Driver notes</div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 800,
+                      lineHeight: 1.4,
+                      whiteSpace: "pre-wrap",
+                    }}
+                  >
+                    {booking.driver_notes ?? "-"}
+                  </div>
+                </div>
               </Section>
 
               <Section title="Money">
