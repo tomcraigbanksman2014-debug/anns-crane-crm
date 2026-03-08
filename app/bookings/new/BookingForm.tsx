@@ -33,6 +33,10 @@ type BookingRow = {
   total_invoice: number | null;
   payment_received: number | null;
   invoice_status: string | null;
+  po_number?: string | null;
+  job_reference?: string | null;
+  operator_name?: string | null;
+  driver_notes?: string | null;
 };
 
 function toDateInputValue(iso?: string | null) {
@@ -81,6 +85,11 @@ export default function BookingForm({
 
   const [location, setLocation] = useState<string>(booking?.location ?? "");
   const [status, setStatus] = useState<string>(booking?.status ?? "Inquiry");
+
+  const [poNumber, setPoNumber] = useState<string>(booking?.po_number ?? "");
+  const [jobReference, setJobReference] = useState<string>(booking?.job_reference ?? "");
+  const [operatorName, setOperatorName] = useState<string>(booking?.operator_name ?? "");
+  const [driverNotes, setDriverNotes] = useState<string>(booking?.driver_notes ?? "");
 
   const [hirePrice, setHirePrice] = useState<string>(
     booking?.hire_price != null ? String(booking.hire_price) : ""
@@ -132,6 +141,10 @@ export default function BookingForm({
         end_date: endDate,
         location: location || null,
         status,
+        po_number: poNumber.trim() || null,
+        job_reference: jobReference.trim() || null,
+        operator_name: operatorName.trim() || null,
+        driver_notes: driverNotes.trim() || null,
         hire_price: hirePrice ? Number(hirePrice) : null,
         vat: hirePrice ? computed.vat : null,
         total_invoice: hirePrice ? computed.total : null,
@@ -154,7 +167,10 @@ export default function BookingForm({
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setMsg(data?.error || "Could not save booking.");
+        setMsg(
+          data?.error ||
+            "Could not save booking. If this equipment is already booked in that time range, choose a different time."
+        );
         return;
       }
 
@@ -228,39 +244,19 @@ export default function BookingForm({
         </Field>
 
         <Field span={3} label="Start date *">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            style={input}
-          />
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={input} />
         </Field>
 
         <Field span={3} label="Start time *">
-          <input
-            type="time"
-            value={startTime}
-            onChange={(e) => setStartTime(e.target.value)}
-            style={input}
-          />
+          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={input} />
         </Field>
 
         <Field span={3} label="End date *">
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            style={input}
-          />
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={input} />
         </Field>
 
         <Field span={3} label="End time *">
-          <input
-            type="time"
-            value={endTime}
-            onChange={(e) => setEndTime(e.target.value)}
-            style={input}
-          />
+          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={input} />
         </Field>
 
         <Field span={6} label="Location">
@@ -279,6 +275,42 @@ export default function BookingForm({
             <option>Confirmed</option>
             <option>Completed</option>
             <option>Cancelled</option>
+          </select>
+        </Field>
+
+        <Field span={3} label="PO number">
+          <input
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
+            style={input}
+            placeholder="Customer PO"
+          />
+        </Field>
+
+        <Field span={3} label="Job reference">
+          <input
+            value={jobReference}
+            onChange={(e) => setJobReference(e.target.value)}
+            style={input}
+            placeholder="Internal / site ref"
+          />
+        </Field>
+
+        <Field span={3} label="Operator name">
+          <input
+            value={operatorName}
+            onChange={(e) => setOperatorName(e.target.value)}
+            style={input}
+            placeholder="Crane operator"
+          />
+        </Field>
+
+        <Field span={3} label="Invoice status">
+          <select value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value)} style={input}>
+            <option>Not Invoiced</option>
+            <option>Invoiced</option>
+            <option>Part Paid</option>
+            <option>Paid</option>
           </select>
         </Field>
 
@@ -311,14 +343,20 @@ export default function BookingForm({
           />
         </Field>
 
-        <Field span={6} label="Invoice status">
-          <select value={invoiceStatus} onChange={(e) => setInvoiceStatus(e.target.value)} style={input}>
-            <option>Not Invoiced</option>
-            <option>Invoiced</option>
-            <option>Part Paid</option>
-            <option>Paid</option>
-          </select>
+        <Field span={12} label="Driver notes">
+          <textarea
+            value={driverNotes}
+            onChange={(e) => setDriverNotes(e.target.value)}
+            style={textarea}
+            placeholder="Lift notes / site notes / driver notes"
+          />
         </Field>
+
+        <div style={{ ...span6, display: "flex", alignItems: "flex-end" }}>
+          <div style={{ opacity: 0.72, fontSize: 13 }}>
+            Overlap protection is active. Bookings for the same equipment are allowed on the same day only when time ranges do not overlap.
+          </div>
+        </div>
 
         <div style={{ ...span6, display: "flex", alignItems: "flex-end", justifyContent: "flex-end" }}>
           <div style={{ opacity: 0.85, fontSize: 15, paddingBottom: 8, fontWeight: 800 }}>
@@ -401,6 +439,19 @@ const input: React.CSSProperties = {
   fontSize: 15,
   background: "rgba(255,255,255,0.85)",
   boxSizing: "border-box",
+};
+
+const textarea: React.CSSProperties = {
+  width: "100%",
+  minHeight: 120,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+  resize: "vertical",
 };
 
 const primaryBtn: React.CSSProperties = {
