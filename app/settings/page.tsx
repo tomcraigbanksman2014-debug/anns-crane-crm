@@ -2,11 +2,23 @@ import ClientShell from "../ClientShell";
 import SettingsForm from "./SettingsForm";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 
+function isMasterAdminEmail(email?: string | null) {
+  const masterAdminEmail = String(process.env.MASTER_ADMIN_EMAIL ?? "")
+    .trim()
+    .toLowerCase();
+
+  return !!email && !!masterAdminEmail && email.toLowerCase() === masterAdminEmail;
+}
+
 export default async function SettingsPage() {
   const supabase = createSupabaseServerClient();
 
   const { data: auth } = await supabase.auth.getUser();
-  const role = (auth.user?.user_metadata as any)?.role ?? "";
+  const user = auth.user;
+
+  const email = String(user?.email ?? "").toLowerCase();
+  const metadataRole = (user?.user_metadata as any)?.role ?? "";
+  const role = isMasterAdminEmail(email) ? "admin" : metadataRole;
 
   const { data: settingsRow } = await supabase
     .from("app_settings")
@@ -39,9 +51,7 @@ export default async function SettingsPage() {
         </div>
 
         {role !== "admin" ? (
-          <div style={errorBox}>
-            Admin access only.
-          </div>
+          <div style={errorBox}>Admin access only.</div>
         ) : (
           <div style={{ marginTop: 16 }}>
             <SettingsForm settings={settingsRow ?? null} />
