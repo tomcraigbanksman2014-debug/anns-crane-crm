@@ -1,6 +1,18 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey);
+}
 
 export async function POST(req: Request) {
   try {
@@ -26,14 +38,20 @@ export async function POST(req: Request) {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: existing } = await supabase
+    const admin = getAdminClient();
+
+    const { data: existing, error: existingError } = await admin
       .from("app_settings")
       .select("id")
       .limit(1)
       .maybeSingle();
 
+    if (existingError) {
+      return NextResponse.json({ error: existingError.message }, { status: 400 });
+    }
+
     if (existing?.id) {
-      const { error } = await supabase
+      const { error } = await admin
         .from("app_settings")
         .update(payload)
         .eq("id", existing.id);
@@ -56,7 +74,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, id: existing.id });
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("app_settings")
       .insert([payload])
       .select("id")
