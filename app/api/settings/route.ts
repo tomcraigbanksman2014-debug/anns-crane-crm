@@ -22,6 +22,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const payload = {
       ...body,
+      invoice_next_number: Math.max(1, Number(body?.invoice_next_number ?? 1)),
       updated_at: new Date().toISOString(),
     };
 
