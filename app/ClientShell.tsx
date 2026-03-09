@@ -162,6 +162,7 @@ export default function ClientShell({
           <nav style={{ display: "grid", gap: 8 }}>
             <NavItem href="/dashboard" label="Dashboard" active={pathname === "/dashboard"} />
             <NavItem href="/bookings" label="Bookings" active={pathname?.startsWith("/bookings") ?? false} />
+            <NavItem href="/quotes" label="Quotes" active={pathname?.startsWith("/quotes") ?? false} />
             <NavItem href="/customers" label="Customers" active={pathname?.startsWith("/customers") ?? false} />
             <NavItem href="/equipment" label="Equipment" active={pathname?.startsWith("/equipment") ?? false} />
             <NavItem href="/calendar" label="Calendar" active={pathname?.startsWith("/calendar") ?? false} />
