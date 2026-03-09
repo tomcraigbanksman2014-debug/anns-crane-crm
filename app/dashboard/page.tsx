@@ -61,6 +61,8 @@ type DashboardStats = {
   certExpiringSoon?: number;
   certExpired?: number;
   maintenanceEquipment?: number;
+  equipmentWithServiceHistory?: number;
+  equipmentWithoutServiceHistory?: number;
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -92,6 +94,15 @@ type DashboardStats = {
     location?: string | null;
     status?: string | null;
     clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
+    equipment?: { name?: string | null } | { name?: string | null }[] | null;
+  }>;
+  recentServiceLog?: Array<{
+    id: string;
+    entry_type?: string | null;
+    service_date?: string | null;
+    engineer?: string | null;
+    notes?: string | null;
+    created_at?: string | null;
     equipment?: { name?: string | null } | { name?: string | null }[] | null;
   }>;
 };
@@ -365,6 +376,81 @@ export default function DashboardPage() {
                   See full certification status list
                 </div>
               </a>
+            </div>
+          </Panel>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <Panel
+            title="Service & maintenance"
+            subtitle="Monitor service history coverage and recent workshop activity"
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr)",
+                gap: 14,
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                <a href="/equipment" style={certCard("neutral")}>
+                  <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                    With service history
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                    {stats?.equipmentWithServiceHistory ?? 0}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                    Equipment with at least one recorded service entry
+                  </div>
+                </a>
+
+                <a href="/equipment" style={certCard("warn")}>
+                  <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                    No service history
+                  </div>
+                  <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                    {stats?.equipmentWithoutServiceHistory ?? 0}
+                  </div>
+                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                    Equipment with no recorded service entries yet
+                  </div>
+                </a>
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 900, marginBottom: 10 }}>Recent service activity</div>
+
+                {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
+                  <EmptyState text="No service activity recorded yet." />
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {stats.recentServiceLog.map((entry) => {
+                      const equipment = first(entry.equipment);
+
+                      return (
+                        <div key={entry.id} style={activityRow}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>
+                              {equipment?.name ?? "Equipment"} • {String(entry.entry_type ?? "note").toUpperCase()}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                              {fmtDate(entry.service_date)} • {entry.engineer ?? "No engineer"}
+                            </div>
+                          </div>
+                          <StatusPill text={entry.entry_type ?? "—"} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </Panel>
         </div>
