@@ -11,7 +11,8 @@ export default function NewEquipmentPage() {
   const [assetNumber, setAssetNumber] = useState("");
   const [type, setType] = useState("");
   const [capacity, setCapacity] = useState("");
-  const [status, setStatus] = useState("Available");
+  const [status, setStatus] = useState("available");
+  const [certExpiry, setCertExpiry] = useState("");
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -36,7 +37,8 @@ export default function NewEquipmentPage() {
           asset_number: assetNumber.trim() || null,
           type: type.trim() || null,
           capacity: capacity.trim() || null,
-          status: status || "Available",
+          status: status.trim().toLowerCase() || "available",
+          certification_expires_on: certExpiry || null,
           notes: notes.trim() || null,
         }),
       });
@@ -49,6 +51,7 @@ export default function NewEquipmentPage() {
       }
 
       router.replace("/equipment");
+      router.refresh();
     } catch {
       setMsg("Something went wrong. Try again.");
     } finally {
@@ -82,7 +85,7 @@ export default function NewEquipmentPage() {
                 value={assetNumber}
                 onChange={(e) => setAssetNumber(e.target.value)}
                 style={input}
-                placeholder="e.g. db455sg"
+                placeholder="e.g. DB455SG"
               />
             </Field>
 
@@ -106,11 +109,20 @@ export default function NewEquipmentPage() {
 
             <Field span={4} label="Status">
               <select value={status} onChange={(e) => setStatus(e.target.value)} style={input}>
-                <option>Available</option>
-                <option>Booked later today</option>
-                <option>Unavailable</option>
-                <option>In Service</option>
+                <option value="available">Available</option>
+                <option value="on_hire">On Hire</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="out_of_service">Out of Service</option>
               </select>
+            </Field>
+
+            <Field span={6} label="Certification expiry">
+              <input
+                type="date"
+                value={certExpiry}
+                onChange={(e) => setCertExpiry(e.target.value)}
+                style={input}
+              />
             </Field>
 
             <Field span={12} label="Notes">
