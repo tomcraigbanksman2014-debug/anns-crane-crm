@@ -42,6 +42,10 @@ export default async function QuotePage({
         .single(),
     ]);
 
+  const clientRow = Array.isArray((quote as any)?.clients)
+    ? (quote as any).clients[0] ?? null
+    : (quote as any)?.clients ?? null;
+
   return (
     <ClientShell>
       <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
@@ -55,19 +59,32 @@ export default async function QuotePage({
           <>
             <div style={{ ...summaryCardStyle, marginBottom: 16 }}>
               <div style={{ display: "grid", gap: 8, fontSize: 14 }}>
-                <div><strong>Customer:</strong> {quote.clients?.company_name ?? "-"}</div>
-                <div><strong>Status:</strong> {quote.status ?? "-"}</div>
-                <div><strong>Amount:</strong> {fmtMoney(quote.amount)}</div>
+                <div>
+                  <strong>Customer:</strong> {clientRow?.company_name ?? "-"}
+                </div>
+                <div>
+                  <strong>Status:</strong> {(quote as any).status ?? "-"}
+                </div>
+                <div>
+                  <strong>Amount:</strong> {fmtMoney((quote as any).amount)}
+                </div>
                 <div>
                   <strong>Created:</strong>{" "}
-                  {quote.created_at ? new Date(quote.created_at).toLocaleString() : "-"}
+                  {(quote as any).created_at
+                    ? new Date((quote as any).created_at).toLocaleString()
+                    : "-"}
                 </div>
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <a href="/quotes" style={btnStyle}>← Back to quotes</a>
-                {quote.client_id ? (
-                  <a href={`/customers/${quote.client_id}`} style={{ ...btnStyle, marginLeft: 10 }}>
+                <a href="/quotes" style={btnStyle}>
+                  ← Back to quotes
+                </a>
+                {(quote as any).client_id ? (
+                  <a
+                    href={`/customers/${(quote as any).client_id}`}
+                    style={{ ...btnStyle, marginLeft: 10 }}
+                  >
                     Open customer
                   </a>
                 ) : null}
