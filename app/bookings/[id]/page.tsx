@@ -35,7 +35,6 @@ export default async function BookingPage({
       end_at,
       status,
       location,
-      notes,
       total_invoice,
       invoice_status,
       client_id,
@@ -157,11 +156,6 @@ export default async function BookingPage({
                     <div>{booking.invoice_status ?? "-"}</div>
                   </div>
                 </div>
-
-                <div style={{ marginTop: 16 }}>
-                  <strong>Notes:</strong>
-                  <div style={notesBoxStyle}>{booking.notes ?? "-"}</div>
-                </div>
               </section>
             </div>
 
@@ -279,14 +273,4 @@ const gridStyle: React.CSSProperties = {
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 14,
   fontSize: 14,
-};
-
-const notesBoxStyle: React.CSSProperties = {
-  marginTop: 8,
-  padding: 12,
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.35)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  whiteSpace: "pre-wrap",
-  minHeight: 80,
 };
