@@ -1,21 +1,25 @@
-import type { MetadataRoute } from "next";
+import { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "AnnS Crane CRM",
     short_name: "AnnS CRM",
-    description: "Enterprise CRM System",
+    description: "AnnS Crane Hire Management System",
     start_url: "/login",
     display: "standalone",
-    background_color: "#e9f3ff",
-    theme_color: "#e9f3ff",
-    orientation: "portrait-primary",
+    background_color: "#f3f7ff",
+    theme_color: "#f3f7ff",
     icons: [
       {
-        src: "/logo.png",
-        sizes: "any",
-        type: "image/png",
+        src: "/icon-192.png",
+        sizes: "192x192",
+        type: "image/png"
       },
-    ],
+      {
+        src: "/icon-512.png",
+        sizes: "512x512",
+        type: "image/png"
+      }
+    ]
   };
 }
