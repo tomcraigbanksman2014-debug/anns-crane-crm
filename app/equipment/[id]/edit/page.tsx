@@ -29,7 +29,9 @@ export default async function EditEquipmentPage({
         >
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit equipment</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>Update equipment details.</p>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              Update equipment details and certification expiry.
+            </p>
           </div>
 
           <a href="/equipment" style={btnStyle}>
