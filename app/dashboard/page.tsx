@@ -63,6 +63,8 @@ type DashboardStats = {
   maintenanceEquipment?: number;
   equipmentWithServiceHistory?: number;
   equipmentWithoutServiceHistory?: number;
+  lolerDueSoon?: number;
+  lolerOverdue?: number;
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -295,6 +297,56 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {(stats?.lolerOverdue ?? 0) > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(255,0,0,0.12)",
+              border: "1px solid rgba(255,0,0,0.22)",
+              fontWeight: 900,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span>
+              ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
+            </span>
+            <a href="/equipment?loler=overdue" style={warningLinkStyle}>
+              View overdue LOLER →
+            </a>
+          </div>
+        )}
+
+        {(stats?.lolerDueSoon ?? 0) > 0 && (
+          <div
+            style={{
+              marginTop: 14,
+              padding: "12px 14px",
+              borderRadius: 12,
+              background: "rgba(255,170,0,0.14)",
+              border: "1px solid rgba(255,170,0,0.24)",
+              fontWeight: 800,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
+            <span>
+              ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
+            </span>
+            <a href="/equipment?loler=due" style={warningLinkStyle}>
+              View LOLER due soon →
+            </a>
+          </div>
+        )}
+
         {(stats?.maintenanceEquipment ?? 0) > 0 && (
           <div
             style={{
@@ -374,6 +426,57 @@ export default function DashboardPage() {
                 </div>
                 <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
                   See full certification status list
+                </div>
+              </a>
+            </div>
+          </Panel>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <Panel
+            title="LOLER"
+            subtitle="Track overdue and upcoming LOLER dates"
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <a href="/equipment?loler=overdue" style={certCard("bad")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  Overdue
+                </div>
+                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                  {stats?.lolerOverdue ?? 0}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  Immediate compliance attention needed
+                </div>
+              </a>
+
+              <a href="/equipment?loler=due" style={certCard("warn")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  Due in 30 days
+                </div>
+                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                  {stats?.lolerDueSoon ?? 0}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  Book upcoming LOLER inspections
+                </div>
+              </a>
+
+              <a href="/equipment?loler=indate" style={certCard("neutral")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  In date view
+                </div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>
+                  Open compliant fleet
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  See equipment with LOLER in date
                 </div>
               </a>
             </div>
