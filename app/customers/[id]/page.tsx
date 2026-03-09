@@ -1,6 +1,6 @@
 import ClientShell from "../../ClientShell";
 import CustomerForm from "../new/CustomerForm";
-import AddCorrespondenceForm from "./AddCorrespondenceForm";
+import CustomerQuickActions from "./CustomerQuickActions";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type TimelineItem =
@@ -283,7 +283,11 @@ export default async function CustomerPage({
                   </div>
                 </section>
 
-                <AddCorrespondenceForm customerId={params.id} />
+                <CustomerQuickActions
+                  customerId={params.id}
+                  phone={customer.phone}
+                  email={customer.email}
+                />
               </div>
             </div>
           </>
