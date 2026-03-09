@@ -20,8 +20,8 @@ export async function POST(
   try {
     const supabase = createSupabaseServerClient();
 
-    const { data: userRes, error: userErr } = await supabase.auth.getUser();
-    if (userErr || !userRes.user) {
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth.user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
@@ -32,7 +32,10 @@ export async function POST(
     const message = norm(body.message);
 
     if (!["call", "email", "note"].includes(entry_type)) {
-      return NextResponse.json({ error: "Invalid correspondence type" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid correspondence type" },
+        { status: 400 }
+      );
     }
 
     if (!message) {
@@ -47,7 +50,7 @@ export async function POST(
           entry_type,
           subject,
           message,
-          created_by: userRes.user.id,
+          created_by: auth.user.id,
         },
       ])
       .select("id")
@@ -58,8 +61,8 @@ export async function POST(
     }
 
     await writeAuditLog({
-      actor_user_id: userRes.user.id,
-      actor_username: userRes.user.email ? userRes.user.email.split("@")[0] : null,
+      actor_user_id: auth.user.id,
+      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
       action: "create",
       entity_type: "customer_correspondence",
       entity_id: data?.id ?? null,
