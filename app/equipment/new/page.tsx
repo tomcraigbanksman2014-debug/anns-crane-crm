@@ -13,6 +13,7 @@ export default function NewEquipmentPage() {
   const [capacity, setCapacity] = useState("");
   const [status, setStatus] = useState("available");
   const [certExpiry, setCertExpiry] = useState("");
+  const [lolerDueOn, setLolerDueOn] = useState("");
   const [notes, setNotes] = useState("");
 
   const [saving, setSaving] = useState(false);
@@ -39,6 +40,7 @@ export default function NewEquipmentPage() {
           capacity: capacity.trim() || null,
           status: status.trim().toLowerCase() || "available",
           certification_expires_on: certExpiry || null,
+          loler_due_on: lolerDueOn || null,
           notes: notes.trim() || null,
         }),
       });
@@ -108,7 +110,11 @@ export default function NewEquipmentPage() {
             </Field>
 
             <Field span={4} label="Status">
-              <select value={status} onChange={(e) => setStatus(e.target.value)} style={input}>
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                style={input}
+              >
                 <option value="available">Available</option>
                 <option value="on_hire">On Hire</option>
                 <option value="maintenance">Maintenance</option>
@@ -121,6 +127,15 @@ export default function NewEquipmentPage() {
                 type="date"
                 value={certExpiry}
                 onChange={(e) => setCertExpiry(e.target.value)}
+                style={input}
+              />
+            </Field>
+
+            <Field span={6} label="LOLER due date">
+              <input
+                type="date"
+                value={lolerDueOn}
+                onChange={(e) => setLolerDueOn(e.target.value)}
                 style={input}
               />
             </Field>
