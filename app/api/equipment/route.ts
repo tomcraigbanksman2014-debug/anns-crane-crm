@@ -14,6 +14,11 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceKey);
 }
 
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
@@ -34,14 +39,19 @@ export async function POST(req: Request) {
     const body = await req.json();
 
     const name = String(body?.name ?? "").trim();
-    const assetNumber = String(body?.asset_number ?? "").trim();
-    const type = String(body?.type ?? "").trim();
-    const capacity = String(body?.capacity ?? "").trim();
+    const assetNumber = norm(body?.asset_number);
+    const type = norm(body?.type);
+    const capacity = norm(body?.capacity);
     const status = String(body?.status ?? "available").trim().toLowerCase();
-    const notes = String(body?.notes ?? "").trim();
+    const certificationExpiresOn = norm(body?.certification_expires_on);
+    const lolerDueOn = norm(body?.loler_due_on);
+    const notes = norm(body?.notes);
 
     if (!name) {
-      return NextResponse.json({ error: "Equipment name is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Equipment name is required" },
+        { status: 400 }
+      );
     }
 
     const admin = getAdminClient();
@@ -51,11 +61,13 @@ export async function POST(req: Request) {
       .insert([
         {
           name,
-          asset_number: assetNumber || null,
-          type: type || null,
-          capacity: capacity || null,
+          asset_number: assetNumber,
+          type,
+          capacity,
           status: status || "available",
-          notes: notes || null,
+          certification_expires_on: certificationExpiresOn,
+          loler_due_on: lolerDueOn,
+          notes,
         },
       ])
       .select("id")
@@ -74,10 +86,12 @@ export async function POST(req: Request) {
         entity_id: data?.id ?? null,
         meta: {
           name,
-          asset_number: assetNumber || null,
-          type: type || null,
-          capacity: capacity || null,
+          asset_number: assetNumber,
+          type,
+          capacity,
           status: status || "available",
+          certification_expires_on: certificationExpiresOn,
+          loler_due_on: lolerDueOn,
         },
       });
     } catch (auditError: any) {
