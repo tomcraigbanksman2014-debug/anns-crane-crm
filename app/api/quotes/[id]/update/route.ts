@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
 type Payload = {
   status?: "Draft" | "Sent" | "Accepted" | "Rejected";
@@ -44,7 +44,7 @@ export async function POST(
         ? null
         : Number(amountRaw);
 
-    if (amountRaw !== undefined && amountNum !== null && !Number.isFinite(amountNum)) {
+    if (body.amount !== undefined && amountNum !== null && !Number.isFinite(amountNum)) {
       return NextResponse.json({ error: "Amount must be a valid number" }, { status: 400 });
     }
 
