@@ -50,7 +50,6 @@ export async function POST(
           entry_type,
           subject,
           message,
-          created_by: auth.user.id,
         },
       ])
       .select("id")
