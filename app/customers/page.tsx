@@ -111,7 +111,7 @@ export default async function CustomersPage() {
                           href={`/customers/${c.id}`}
                           style={{ marginRight: 12, textDecoration: "none" }}
                         >
-                          Edit
+                          Open
                         </a>
                         <a
                           href={`/customers/${c.id}/delete`}
