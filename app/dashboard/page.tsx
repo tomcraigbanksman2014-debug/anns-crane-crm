@@ -153,6 +153,7 @@ export default function DashboardPage() {
   const tiles = useMemo(
     () => [
       { label: "Bookings", href: "/bookings", tone: "warn" as const },
+      { label: "Quotes", href: "/quotes", tone: "neutral" as const },
       { label: "Customers", href: "/customers", tone: "good" as const },
       { label: "Equipment", href: "/equipment", tone: "good" as const },
       { label: "Calendar", href: "/calendar", tone: "neutral" as const },
@@ -242,9 +243,19 @@ export default function DashboardPage() {
               background: "rgba(255,0,0,0.12)",
               border: "1px solid rgba(255,0,0,0.22)",
               fontWeight: 900,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
             }}
           >
-            ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
+            <span>
+              ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
+            </span>
+            <a href="/equipment?cert=expired" style={warningLinkStyle}>
+              View expired equipment →
+            </a>
           </div>
         )}
 
@@ -257,9 +268,19 @@ export default function DashboardPage() {
               background: "rgba(255,170,0,0.14)",
               border: "1px solid rgba(255,170,0,0.24)",
               fontWeight: 800,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 12,
+              alignItems: "center",
+              flexWrap: "wrap",
             }}
           >
-            ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
+            <span>
+              ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
+            </span>
+            <a href="/equipment?cert=expiring" style={warningLinkStyle}>
+              View expiring equipment →
+            </a>
           </div>
         )}
 
@@ -552,6 +573,17 @@ const activityRow: React.CSSProperties = {
   padding: "12px 12px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const warningLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 900,
+  padding: "6px 10px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
