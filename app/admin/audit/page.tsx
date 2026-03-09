@@ -47,7 +47,7 @@ function actionTone(action: string | null): React.CSSProperties {
     };
   }
 
-  if (a === "update" || a === "reset_password") {
+  if (a === "update" || a === "reset_password" || a === "convert") {
     return {
       background: "rgba(0,120,255,0.12)",
       border: "1px solid rgba(0,120,255,0.24)",
@@ -94,15 +94,33 @@ export default async function AuditPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const role = (user?.user_metadata as any)?.role ?? "";
+  const email = String(user?.email ?? "").toLowerCase();
+  const masterAdminEmail = String(
+    process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+  )
+    .trim()
+    .toLowerCase();
 
-  const { data, error } = await supabase
-    .from("audit_log")
-    .select("id, actor_user_id, actor_username, action, entity_type, entity_id, meta, created_at")
-    .order("created_at", { ascending: false })
-    .limit(200);
+  const role = String((user?.user_metadata as any)?.role ?? "");
+  const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+  const isAdmin = role === "admin" || isMaster;
 
-  const rows = ((data ?? []) as AuditRow[]) || [];
+  let rows: AuditRow[] = [];
+  let errorMessage: string | null = null;
+
+  if (isAdmin) {
+    const { data, error } = await supabase
+      .from("audit_log")
+      .select("id, actor_user_id, actor_username, action, entity_type, entity_id, meta, created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+
+    if (error) {
+      errorMessage = error.message;
+    } else {
+      rows = ((data ?? []) as AuditRow[]) || [];
+    }
+  }
 
   return (
     <ClientShell>
@@ -128,13 +146,13 @@ export default async function AuditPage() {
           </a>
         </div>
 
-        {role !== "admin" ? (
+        {!isAdmin ? (
           <div style={errorBox}>Admin access only.</div>
         ) : (
           <div style={panelStyle}>
-            {error && <div style={errorBox}>{error.message}</div>}
+            {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
-            {!error && rows.length === 0 ? (
+            {!errorMessage && rows.length === 0 ? (
               <p style={{ margin: 0 }}>No audit entries yet.</p>
             ) : (
               <div style={{ overflowX: "auto" }}>
