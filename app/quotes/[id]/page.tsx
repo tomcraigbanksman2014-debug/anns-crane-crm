@@ -69,6 +69,18 @@ export default async function QuotePage({
                   <strong>Amount:</strong> {fmtMoney((quote as any).amount)}
                 </div>
                 <div>
+                  <strong>Quote date:</strong>{" "}
+                  {(quote as any).quote_date
+                    ? new Date((quote as any).quote_date).toLocaleDateString()
+                    : "-"}
+                </div>
+                <div>
+                  <strong>Valid until:</strong>{" "}
+                  {(quote as any).valid_until
+                    ? new Date((quote as any).valid_until).toLocaleDateString()
+                    : "-"}
+                </div>
+                <div>
                   <strong>Created:</strong>{" "}
                   {(quote as any).created_at
                     ? new Date((quote as any).created_at).toLocaleString()
@@ -76,17 +88,37 @@ export default async function QuotePage({
                 </div>
               </div>
 
-              <div style={{ marginTop: 12 }}>
+              <div
+                style={{
+                  marginTop: 12,
+                  display: "flex",
+                  gap: 10,
+                  flexWrap: "wrap",
+                }}
+              >
                 <a href="/quotes" style={btnStyle}>
                   ← Back to quotes
                 </a>
+
                 {(quote as any).client_id ? (
                   <a
                     href={`/customers/${(quote as any).client_id}`}
-                    style={{ ...btnStyle, marginLeft: 10 }}
+                    style={btnStyle}
                   >
                     Open customer
                   </a>
+                ) : null}
+
+                {(quote as any).status === "Accepted" ? (
+                  <form
+                    action={`/api/quotes/${(quote as any).id}/convert`}
+                    method="post"
+                    style={{ margin: 0 }}
+                  >
+                    <button type="submit" style={buttonStyle}>
+                      Convert to booking
+                    </button>
+                  </form>
                 ) : null}
               </div>
             </div>
@@ -116,6 +148,17 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
+};
+
+const buttonStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const errorBox: React.CSSProperties = {
