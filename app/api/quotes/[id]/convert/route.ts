@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
 export async function POST(
   req: Request,
@@ -16,7 +16,7 @@ export async function POST(
 
     const { data: quote, error: quoteError } = await supabase
       .from("quotes")
-      .select("*")
+      .select("id, client_id, status, quote_date, amount, subject, notes")
       .eq("id", params.id)
       .single();
 
@@ -31,16 +31,18 @@ export async function POST(
       );
     }
 
+    const startDate =
+      quote.quote_date ?? new Date().toISOString().slice(0, 10);
+
     const { data: booking, error: bookingError } = await supabase
       .from("bookings")
       .insert([
         {
           client_id: quote.client_id,
-          start_date: new Date().toISOString().slice(0, 10),
+          start_date: startDate,
           status: "Pending",
-          location: quote.subject,
-          notes: quote.notes,
-          total_invoice: quote.amount,
+          location: quote.subject ?? null,
+          total_invoice: quote.amount ?? null,
         },
       ])
       .select("id")
@@ -52,19 +54,17 @@ export async function POST(
 
     await writeAuditLog({
       actor_user_id: auth.user.id,
-      actor_username: auth.user.email?.split("@")[0] ?? null,
+      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
       action: "convert",
       entity_type: "quote",
       entity_id: params.id,
       meta: {
-        booking_id: booking?.id,
+        booking_id: booking?.id ?? null,
+        client_id: quote.client_id,
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      booking_id: booking?.id,
-    });
+    return NextResponse.redirect(new URL(`/bookings/${booking?.id}`, req.url));
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Conversion failed" },
