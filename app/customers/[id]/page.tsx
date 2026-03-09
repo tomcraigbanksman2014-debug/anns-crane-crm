@@ -35,6 +35,10 @@ function formatDateOnly(value: string | null | undefined) {
   return new Date(value).toLocaleDateString();
 }
 
+function formatMoney(value: number) {
+  return `£${value.toFixed(2)}`;
+}
+
 function buildTimeline(
   bookings: any[] = [],
   correspondence: any[] = []
@@ -88,6 +92,48 @@ function buildTimeline(
   );
 }
 
+function buildCustomerStats(bookings: any[] = []) {
+  const totalBookings = bookings.length;
+
+  const totalInvoiced = bookings.reduce((sum: number, b: any) => {
+    const n = Number(b.total_invoice ?? 0);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+
+  const outstanding = bookings.reduce((sum: number, b: any) => {
+    const status = String(b.invoice_status ?? "").toLowerCase();
+    if (status === "paid") return sum;
+
+    const n = Number(b.total_invoice ?? 0);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+
+  const sortedByDate = [...bookings].sort((a: any, b: any) => {
+    const av = String(a.start_at || a.start_date || a.created_at || "");
+    const bv = String(b.start_at || b.start_date || b.created_at || "");
+    return av.localeCompare(bv);
+  });
+
+  const firstBooking = sortedByDate[0] ?? null;
+  const lastBooking = sortedByDate[sortedByDate.length - 1] ?? null;
+
+  return {
+    totalBookings,
+    totalInvoiced,
+    outstanding,
+    firstBookingDate:
+      firstBooking?.start_at ||
+      firstBooking?.start_date ||
+      firstBooking?.created_at ||
+      null,
+    lastBookingDate:
+      lastBooking?.start_at ||
+      lastBooking?.start_date ||
+      lastBooking?.created_at ||
+      null,
+  };
+}
+
 export default async function CustomerPage({
   params,
 }: {
@@ -104,7 +150,7 @@ export default async function CustomerPage({
   const { data: bookings, error: bookingsError } = await supabase
     .from("bookings")
     .select(
-      "id, start_date, end_date, start_at, end_at, status, location, total_invoice, created_at"
+      "id, start_date, end_date, start_at, end_at, status, location, total_invoice, invoice_status, created_at"
     )
     .eq("client_id", params.id)
     .order("start_date", { ascending: false })
@@ -116,7 +162,11 @@ export default async function CustomerPage({
     .eq("client_id", params.id)
     .order("created_at", { ascending: false });
 
-  const timeline = buildTimeline(bookings ?? [], correspondence ?? []);
+  const safeBookings = bookings ?? [];
+  const safeCorrespondence = correspondence ?? [];
+
+  const timeline = buildTimeline(safeBookings, safeCorrespondence);
+  const stats = buildCustomerStats(safeBookings);
 
   return (
     <ClientShell>
@@ -153,6 +203,45 @@ export default async function CustomerPage({
             <div style={{ marginTop: 16 }}>
               <CustomerForm mode="edit" customer={customer} />
             </div>
+
+            <section style={{ ...cardStyle, marginTop: 18 }}>
+              <h2 style={sectionTitle}>Customer statistics</h2>
+
+              <div style={statsGridStyle}>
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Total bookings</div>
+                  <div style={statValueStyle}>{stats.totalBookings}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Total invoiced</div>
+                  <div style={statValueStyle}>{formatMoney(stats.totalInvoiced)}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Outstanding</div>
+                  <div style={statValueStyle}>{formatMoney(stats.outstanding)}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>First booking</div>
+                  <div style={statValueStyleSmall}>
+                    {stats.firstBookingDate
+                      ? formatDateOnly(stats.firstBookingDate)
+                      : "-"}
+                  </div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Last booking</div>
+                  <div style={statValueStyleSmall}>
+                    {stats.lastBookingDate
+                      ? formatDateOnly(stats.lastBookingDate)
+                      : "-"}
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <div
               style={{
@@ -328,6 +417,36 @@ const sectionTitle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
   fontSize: 22,
+};
+
+const statsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gap: 12,
+};
+
+const statCardStyle: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const statLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.75,
+  marginBottom: 8,
+  fontWeight: 700,
+};
+
+const statValueStyle: React.CSSProperties = {
+  fontSize: 24,
+  fontWeight: 800,
+};
+
+const statValueStyleSmall: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 800,
 };
 
 const timelineCardStyle: React.CSSProperties = {
