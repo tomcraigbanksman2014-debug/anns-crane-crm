@@ -18,7 +18,9 @@ export default async function CustomerPage({
 
   const { data: bookings, error: bookingsError } = await supabase
     .from("bookings")
-    .select("id, start_date, end_date, start_at, end_at, status, location, total_charge")
+    .select(
+      "id, start_date, end_date, start_at, end_at, status, location, total_invoice, created_at"
+    )
     .eq("client_id", params.id)
     .order("start_date", { ascending: false })
     .order("created_at", { ascending: false });
@@ -90,7 +92,7 @@ export default async function CustomerPage({
                             <th align="left" style={thStyle}>Date</th>
                             <th align="left" style={thStyle}>Status</th>
                             <th align="left" style={thStyle}>Location</th>
-                            <th align="left" style={thStyle}>Charge</th>
+                            <th align="left" style={thStyle}>Invoice total</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -106,7 +108,9 @@ export default async function CustomerPage({
                               <td style={tdStyle}>{b.status ?? "-"}</td>
                               <td style={tdStyle}>{b.location ?? "-"}</td>
                               <td style={tdStyle}>
-                                {b.total_charge != null ? `£${Number(b.total_charge).toFixed(2)}` : "-"}
+                                {b.total_invoice != null
+                                  ? `£${Number(b.total_invoice).toFixed(2)}`
+                                  : "-"}
                               </td>
                             </tr>
                           ))}
@@ -137,7 +141,14 @@ export default async function CustomerPage({
                               marginBottom: 8,
                             }}
                           >
-                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 8,
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                              }}
+                            >
                               <span style={badgeStyle}>
                                 {String(entry.entry_type ?? "note").toUpperCase()}
                               </span>
