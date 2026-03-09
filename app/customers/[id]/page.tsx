@@ -18,9 +18,9 @@ export default async function CustomerPage({
 
   const { data: bookings, error: bookingsError } = await supabase
     .from("bookings")
-    .select("id, created_at, booking_date, status, reference")
+    .select("id, start_date, end_date, start_at, end_at, status, location, total_charge")
     .eq("client_id", params.id)
-    .order("booking_date", { ascending: false })
+    .order("start_date", { ascending: false })
     .order("created_at", { ascending: false });
 
   const { data: correspondence, error: correspondenceError } = await supabase
@@ -46,7 +46,7 @@ export default async function CustomerPage({
               {customer?.company_name ?? "Customer"}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View customer details, booking history, and correspondence.
+              View customer details, booking history and correspondence.
             </p>
           </div>
 
@@ -69,7 +69,7 @@ export default async function CustomerPage({
               style={{
                 marginTop: 18,
                 display: "grid",
-                gridTemplateColumns: "1.2fr 1fr",
+                gridTemplateColumns: "1.35fr 0.9fr",
                 gap: 18,
                 alignItems: "start",
               }}
@@ -87,26 +87,26 @@ export default async function CustomerPage({
                       <table style={{ width: "100%", borderCollapse: "collapse" }}>
                         <thead>
                           <tr>
-                            <th align="left" style={thStyle}>Reference</th>
-                            <th align="left" style={thStyle}>Booking date</th>
+                            <th align="left" style={thStyle}>Date</th>
                             <th align="left" style={thStyle}>Status</th>
-                            <th align="left" style={thStyle}>Created</th>
+                            <th align="left" style={thStyle}>Location</th>
+                            <th align="left" style={thStyle}>Charge</th>
                           </tr>
                         </thead>
                         <tbody>
                           {bookings.map((b: any) => (
                             <tr key={b.id}>
-                              <td style={tdStyle}>{b.reference ?? b.id}</td>
                               <td style={tdStyle}>
-                                {b.booking_date
-                                  ? new Date(b.booking_date).toLocaleString()
+                                {b.start_at
+                                  ? new Date(b.start_at).toLocaleString()
+                                  : b.start_date
+                                  ? new Date(b.start_date).toLocaleDateString()
                                   : "-"}
                               </td>
                               <td style={tdStyle}>{b.status ?? "-"}</td>
+                              <td style={tdStyle}>{b.location ?? "-"}</td>
                               <td style={tdStyle}>
-                                {b.created_at
-                                  ? new Date(b.created_at).toLocaleString()
-                                  : "-"}
+                                {b.total_charge != null ? `£${Number(b.total_charge).toFixed(2)}` : "-"}
                               </td>
                             </tr>
                           ))}
@@ -137,7 +137,7 @@ export default async function CustomerPage({
                               marginBottom: 8,
                             }}
                           >
-                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <span style={badgeStyle}>
                                 {String(entry.entry_type ?? "note").toUpperCase()}
                               </span>
