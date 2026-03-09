@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
 
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -19,16 +24,27 @@ export async function PATCH(
 
     const body = await req.json();
 
+    const payload = {
+      name: norm(body?.name),
+      asset_number: norm(body?.asset_number),
+      type: norm(body?.type),
+      capacity: norm(body?.capacity),
+      status: norm(body?.status),
+      certification_expires_on: norm(body?.certification_expires_on),
+      loler_due_on: norm(body?.loler_due_on),
+      notes: norm(body?.notes),
+    };
+
+    if (!payload.name) {
+      return NextResponse.json(
+        { error: "Equipment name is required" },
+        { status: 400 }
+      );
+    }
+
     const { error } = await supabase
       .from("equipment")
-      .update({
-        name: body.name ?? null,
-        asset_number: body.asset_number ?? null,
-        type: body.type ?? null,
-        capacity: body.capacity ?? null,
-        status: body.status ?? null,
-        notes: body.notes ?? null,
-      })
+      .update(payload)
       .eq("id", params.id);
 
     if (error) {
@@ -41,17 +57,14 @@ export async function PATCH(
       action: "update",
       entity_type: "equipment",
       entity_id: params.id,
-      meta: {
-        name: body?.name ?? null,
-        asset_number: body?.asset_number ?? null,
-        type: body?.type ?? null,
-        capacity: body?.capacity ?? null,
-        status: body?.status ?? null,
-      },
+      meta: payload,
     });
 
     return NextResponse.json({ success: true });
-  } catch {
-    return NextResponse.json({ error: "Bad request" }, { status: 400 });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Bad request" },
+      { status: 400 }
+    );
   }
 }
