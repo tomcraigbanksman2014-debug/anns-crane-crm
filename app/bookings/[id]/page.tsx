@@ -1,36 +1,23 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-function first<T>(v: T | T[] | null | undefined): T | null {
-  if (!v) return null;
-  return Array.isArray(v) ? (v[0] ?? null) : v;
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
 }
 
-function fmtDate(d: string | null | undefined) {
-  if (!d) return "-";
-  return new Date(d).toLocaleDateString("en-GB");
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
 }
 
-function fmtDateTime(d: string | null | undefined) {
-  if (!d) return "-";
-  return new Date(d).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
+function fmtMoney(value: any) {
+  const n = Number(value ?? null);
+  if (!Number.isFinite(n)) return "-";
+  return `£${n.toFixed(2)}`;
 }
 
-function money(n: any) {
-  if (n === null || n === undefined || n === "") return "-";
-  const num = Number(n);
-  if (Number.isNaN(num)) return String(n);
-  return num.toLocaleString(undefined, { style: "currency", currency: "GBP" });
-}
-
-export default async function BookingViewPage({
+export default async function BookingPage({
   params,
 }: {
   params: { id: string };
@@ -41,23 +28,20 @@ export default async function BookingViewPage({
     .from("bookings")
     .select(`
       id,
-      invoice_number,
-      start_at,
-      end_at,
+      created_at,
       start_date,
       end_date,
-      location,
+      start_at,
+      end_at,
       status,
-      po_number,
-      job_reference,
-      operator_name,
-      driver_notes,
-      hire_price,
-      vat,
+      location,
+      site_contact,
+      site_phone,
+      notes,
       total_invoice,
-      payment_received,
       invoice_status,
-      created_at,
+      client_id,
+      equipment_id,
       clients:client_id (
         id,
         company_name,
@@ -68,178 +52,190 @@ export default async function BookingViewPage({
       equipment:equipment_id (
         id,
         name,
-        asset_number,
-        type,
-        capacity,
+        registration,
         status
       )
     `)
     .eq("id", params.id)
     .single();
 
-  const client = first<any>(booking?.clients);
-  const equip = first<any>(booking?.equipment);
-
   return (
     <ClientShell>
-      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
             justifyContent: "space-between",
-            gap: 12,
             alignItems: "center",
+            gap: 12,
             flexWrap: "wrap",
           }}
         >
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Booking</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>View booking details.</p>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              View booking details and linked records.
+            </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            <a href={`/api/bookings/${params.id}/invoice`} target="_blank" rel="noreferrer" style={btnStyle}>
-              Invoice
-            </a>
-            <a href={`/bookings/${params.id}/edit`} style={btnStyle}>
-              Edit
-            </a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/bookings" style={btnStyle}>
-              ← Back
+              ← Back to bookings
             </a>
+
+            {booking?.client_id ? (
+              <a href={`/customers/${booking.client_id}`} style={btnStyle}>
+                Open customer
+              </a>
+            ) : null}
           </div>
         </div>
 
-        <div style={panelStyle}>
-          {error && <div style={errorBox}>{error.message}</div>}
+        {error ? (
+          <div style={errorBox}>{error.message}</div>
+        ) : !booking ? (
+          <div style={errorBox}>Booking not found.</div>
+        ) : (
+          <div
+            style={{
+              marginTop: 18,
+              display: "grid",
+              gridTemplateColumns: "1.2fr 0.9fr",
+              gap: 18,
+              alignItems: "start",
+            }}
+          >
+            <div style={{ display: "grid", gap: 18 }}>
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Booking details</h2>
 
-          {!booking ? (
-            <p style={{ margin: 0 }}>Booking not found.</p>
-          ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-                gap: 14,
-              }}
-            >
-              <Section title="Dates & status">
-                <Row label="Start" value={booking.start_at ? fmtDateTime(booking.start_at) : fmtDate(booking.start_date)} />
-                <Row label="End" value={booking.end_at ? fmtDateTime(booking.end_at) : fmtDate(booking.end_date)} />
-                <Row label="Location" value={booking.location ?? "-"} />
-                <Row label="Status" value={booking.status ?? "-"} />
-                <Row label="Invoice status" value={booking.invoice_status ?? "-"} />
-                <Row label="Invoice number" value={booking.invoice_number ?? "-"} />
-              </Section>
-
-              <Section title="Customer">
-                <Row label="Company" value={client?.company_name ?? "-"} />
-                <Row label="Contact" value={client?.contact_name ?? "-"} />
-                <Row label="Phone" value={client?.phone ?? "-"} />
-                <Row label="Email" value={client?.email ?? "-"} />
-                {client?.id && (
-                  <div style={{ marginTop: 10 }}>
-                    <a href={`/customers/${client.id}`} style={linkStyle}>
-                      View customer →
-                    </a>
+                <div style={gridStyle}>
+                  <div>
+                    <strong>Booking ID:</strong>
+                    <div>{booking.id}</div>
                   </div>
-                )}
-              </Section>
 
-              <Section title="Equipment">
-                <Row label="Name" value={equip?.name ?? "-"} />
-                <Row label="Asset #" value={equip?.asset_number ?? "-"} />
-                <Row label="Type" value={equip?.type ?? "-"} />
-                <Row label="Capacity" value={equip?.capacity ?? "-"} />
-                <Row label="Status" value={equip?.status ?? "-"} />
-                {equip?.id && (
-                  <div style={{ marginTop: 10 }}>
-                    <a href={`/equipment/${equip.id}`} style={linkStyle}>
-                      View equipment →
-                    </a>
+                  <div>
+                    <strong>Status:</strong>
+                    <div>{booking.status ?? "-"}</div>
                   </div>
-                )}
-              </Section>
 
-              <Section title="Job details">
-                <Row label="PO number" value={booking.po_number ?? "-"} />
-                <Row label="Job reference" value={booking.job_reference ?? "-"} />
-                <Row label="Operator name" value={booking.operator_name ?? "-"} />
-                <div style={{ paddingTop: 8 }}>
-                  <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 6 }}>Driver notes</div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 800,
-                      lineHeight: 1.4,
-                      whiteSpace: "pre-wrap",
-                    }}
-                  >
-                    {booking.driver_notes ?? "-"}
+                  <div>
+                    <strong>Start date:</strong>
+                    <div>{fmtDate(booking.start_date)}</div>
+                  </div>
+
+                  <div>
+                    <strong>End date:</strong>
+                    <div>{fmtDate(booking.end_date)}</div>
+                  </div>
+
+                  <div>
+                    <strong>Start time:</strong>
+                    <div>{fmtDateTime(booking.start_at)}</div>
+                  </div>
+
+                  <div>
+                    <strong>End time:</strong>
+                    <div>{fmtDateTime(booking.end_at)}</div>
+                  </div>
+
+                  <div>
+                    <strong>Location:</strong>
+                    <div>{booking.location ?? "-"}</div>
+                  </div>
+
+                  <div>
+                    <strong>Created:</strong>
+                    <div>{fmtDateTime(booking.created_at)}</div>
+                  </div>
+
+                  <div>
+                    <strong>Site contact:</strong>
+                    <div>{booking.site_contact ?? "-"}</div>
+                  </div>
+
+                  <div>
+                    <strong>Site phone:</strong>
+                    <div>{booking.site_phone ?? "-"}</div>
+                  </div>
+
+                  <div>
+                    <strong>Invoice total:</strong>
+                    <div>{fmtMoney(booking.total_invoice)}</div>
+                  </div>
+
+                  <div>
+                    <strong>Invoice status:</strong>
+                    <div>{booking.invoice_status ?? "-"}</div>
                   </div>
                 </div>
-              </Section>
 
-              <Section title="Money">
-                <Row label="Hire price" value={money(booking.hire_price)} />
-                <Row label="VAT" value={money(booking.vat)} />
-                <Row label="Total invoice" value={money(booking.total_invoice)} />
-                <Row label="Payment received" value={money(booking.payment_received)} />
-              </Section>
+                <div style={{ marginTop: 16 }}>
+                  <strong>Notes:</strong>
+                  <div style={notesBoxStyle}>{booking.notes ?? "-"}</div>
+                </div>
+              </section>
             </div>
-          )}
-        </div>
 
-        <div style={{ marginTop: 14 }}>
-          <a
-            href="/dashboard"
-            style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}
-          >
-            ← Dashboard
-          </a>
-        </div>
+            <div style={{ display: "grid", gap: 18 }}>
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Customer</h2>
+
+                {booking.clients ? (
+                  <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
+                    <div>
+                      <strong>Company:</strong> {(booking.clients as any).company_name ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Contact:</strong> {(booking.clients as any).contact_name ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Phone:</strong> {(booking.clients as any).phone ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Email:</strong> {(booking.clients as any).email ?? "-"}
+                    </div>
+
+                    <a href={`/customers/${(booking.clients as any).id}`} style={linkBtnStyle}>
+                      Open customer record
+                    </a>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0 }}>No customer linked.</p>
+                )}
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Equipment</h2>
+
+                {booking.equipment ? (
+                  <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
+                    <div>
+                      <strong>Name:</strong> {(booking.equipment as any).name ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Registration:</strong> {(booking.equipment as any).registration ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Status:</strong> {(booking.equipment as any).status ?? "-"}
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0 }}>No equipment linked.</p>
+                )}
+              </section>
+            </div>
+          </div>
+        )}
       </div>
     </ClientShell>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.22)",
-        border: "1px solid rgba(255,255,255,0.35)",
-        borderRadius: 14,
-        padding: 14,
-      }}
-    >
-      <div style={{ fontWeight: 900, marginBottom: 10 }}>{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function Row({ label, value }: { label: string; value: any }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0" }}>
-      <div style={{ fontSize: 12, opacity: 0.75 }}>{label}</div>
-      <div style={{ fontSize: 14, fontWeight: 800, textAlign: "right" }}>{value}</div>
-    </div>
-  );
-}
-
-const panelStyle: React.CSSProperties = {
-  marginTop: 16,
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
 const btnStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 12px",
+  padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.45)",
@@ -248,16 +244,53 @@ const btnStyle: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const linkStyle: React.CSSProperties = {
+const linkBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
-  fontWeight: 900,
   color: "#111",
+  fontWeight: 800,
+  marginTop: 6,
 };
 
 const errorBox: React.CSSProperties = {
-  marginBottom: 12,
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const sectionTitle: React.CSSProperties = {
+  marginTop: 0,
+  marginBottom: 14,
+  fontSize: 22,
+};
+
+const gridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 14,
+  fontSize: 14,
+};
+
+const notesBoxStyle: React.CSSProperties = {
+  marginTop: 8,
+  padding: 12,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.35)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  whiteSpace: "pre-wrap",
+  minHeight: 80,
 };
