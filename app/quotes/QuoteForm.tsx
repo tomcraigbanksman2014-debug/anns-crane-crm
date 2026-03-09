@@ -194,7 +194,7 @@ export default function QuoteForm(props: Props) {
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           rows={8}
-          style={{ ...inputStyle, resize: "vertical" }}
+          style={{ ...inputStyle, resize: "vertical", minHeight: 180 }}
           placeholder="Quote details, scope, terms, notes"
         />
       </div>
@@ -222,13 +222,15 @@ const cardStyle: React.CSSProperties = {
 
 const gridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: 12,
+  alignItems: "start",
 };
 
 const fieldWrap: React.CSSProperties = {
   display: "grid",
   gap: 6,
+  minWidth: 0,
 };
 
 const labelStyle: React.CSSProperties = {
@@ -238,7 +240,10 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
   padding: "10px 12px",
+  minHeight: 44,
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.75)",
