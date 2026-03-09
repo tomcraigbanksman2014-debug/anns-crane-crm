@@ -318,6 +318,57 @@ export default function DashboardPage() {
           <StatCard title="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"} subtext="Fleet utilisation" badge={<StatusPill text="Use" />} />
         </div>
 
+        <div style={{ marginTop: 14 }}>
+          <Panel
+            title="Certification"
+            subtitle="Monitor expired and expiring equipment certificates"
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <a href="/equipment?cert=expired" style={certCard("bad")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  Expired
+                </div>
+                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                  {stats?.certExpired ?? 0}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  Equipment needing immediate action
+                </div>
+              </a>
+
+              <a href="/equipment?cert=expiring" style={certCard("warn")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  Expiring in 30 days
+                </div>
+                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
+                  {stats?.certExpiringSoon ?? 0}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  Review and schedule renewals
+                </div>
+              </a>
+
+              <a href="/equipment" style={certCard("neutral")}>
+                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
+                  Open equipment register
+                </div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>
+                  View all equipment
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+                  See full certification status list
+                </div>
+              </a>
+            </div>
+          </Panel>
+        </div>
+
         <div
           style={{
             marginTop: 14,
@@ -603,6 +654,32 @@ function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperti
     color: "#111",
     fontWeight: 900,
     textAlign: "center",
+    ...tones[tone],
+  };
+}
+
+function certCard(tone: "warn" | "bad" | "neutral"): React.CSSProperties {
+  const tones: Record<string, React.CSSProperties> = {
+    warn: {
+      background: "rgba(255,170,0,0.14)",
+      border: "1px solid rgba(255,170,0,0.24)",
+    },
+    bad: {
+      background: "rgba(255,0,0,0.12)",
+      border: "1px solid rgba(255,0,0,0.22)",
+    },
+    neutral: {
+      background: "rgba(255,255,255,0.35)",
+      border: "1px solid rgba(0,0,0,0.12)",
+    },
+  };
+
+  return {
+    display: "block",
+    padding: 16,
+    borderRadius: 14,
+    textDecoration: "none",
+    color: "#111",
     ...tones[tone],
   };
 }
