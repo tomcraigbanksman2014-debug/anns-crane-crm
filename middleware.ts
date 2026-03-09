@@ -21,7 +21,53 @@ function isMasterAdminEmail(email?: string | null) {
   return !!email && !!masterAdminEmail && email.toLowerCase() === masterAdminEmail;
 }
 
+function isPublicAsset(pathname: string) {
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/change-password") ||
+    pathname.startsWith("/_next") ||
+    pathname === "/favicon.ico" ||
+    pathname === "/site.webmanifest" ||
+    pathname === "/manifest.webmanifest" ||
+    pathname === "/sw.js" ||
+    pathname === "/robots.txt" ||
+    pathname === "/sitemap.xml" ||
+    pathname === "/logo.png" ||
+    pathname === "/apple-touch-icon.png" ||
+    pathname === "/icon.png"
+  ) {
+    return true;
+  }
+
+  if (
+    pathname.startsWith("/icon-") ||
+    pathname.startsWith("/favicon-") ||
+    pathname.startsWith("/web-app-manifest-")
+  ) {
+    return true;
+  }
+
+  if (
+    pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js|txt|webmanifest)$/i)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
+
+  if (isPublicAsset(pathname)) {
+    return NextResponse.next({
+      request: {
+        headers: req.headers,
+      },
+    });
+  }
+
   let res = NextResponse.next({
     request: {
       headers: req.headers,
@@ -50,20 +96,6 @@ export async function middleware(req: NextRequest) {
       },
     }
   );
-
-  const { pathname } = req.nextUrl;
-
-  const isPublic =
-    pathname === "/" ||
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon.ico") ||
-    pathname.startsWith("/logo.png") ||
-    pathname.startsWith("/public");
-
-  if (isPublic) {
-    return res;
-  }
 
   const {
     data: { user },
@@ -107,5 +139,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api|_next/static|_next/image).*)"],
 };
