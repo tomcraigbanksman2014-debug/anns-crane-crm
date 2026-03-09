@@ -52,6 +52,8 @@ export async function GET() {
     maintenanceEquipment,
     serviceLogAll,
     recentServiceLog,
+    lolerDueSoon,
+    lolerOverdue,
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -67,7 +69,7 @@ export async function GET() {
 
     supabase
       .from("equipment")
-      .select("id,status,certification_expires_on", { count: "exact" }),
+      .select("id,status,certification_expires_on,loler_due_on", { count: "exact" }),
 
     supabase
       .from("bookings")
@@ -182,6 +184,17 @@ export async function GET() {
       .order("service_date", { ascending: false })
       .order("created_at", { ascending: false })
       .limit(8),
+
+    supabase
+      .from("equipment")
+      .select("id")
+      .gte("loler_due_on", today)
+      .lte("loler_due_on", in30Days),
+
+    supabase
+      .from("equipment")
+      .select("id")
+      .lt("loler_due_on", today),
   ]);
 
   const activeCount = activeHires.count ?? 0;
@@ -287,5 +300,7 @@ export async function GET() {
     equipmentWithServiceHistory,
     equipmentWithoutServiceHistory,
     recentServiceLog: recentServiceLog.data ?? [],
+    lolerDueSoon: lolerDueSoon.data?.length ?? 0,
+    lolerOverdue: lolerOverdue.data?.length ?? 0,
   });
 }
