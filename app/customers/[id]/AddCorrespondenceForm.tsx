@@ -47,9 +47,9 @@ export default function AddCorrespondenceForm({ customerId }: Props) {
         return;
       }
 
+      setEntryType("note");
       setSubject("");
       setMessage("");
-      setEntryType("note");
       router.refresh();
     } catch (err: any) {
       setError(err?.message ?? "Failed to save correspondence");
@@ -60,7 +60,9 @@ export default function AddCorrespondenceForm({ customerId }: Props) {
 
   return (
     <form onSubmit={onSubmit} style={cardStyle}>
-      <h3 style={{ marginTop: 0, marginBottom: 12 }}>Add correspondence</h3>
+      <h2 style={{ marginTop: 0, marginBottom: 14, fontSize: 22 }}>
+        Add correspondence
+      </h2>
 
       {error && <div style={errorBox}>{error}</div>}
 
@@ -92,8 +94,8 @@ export default function AddCorrespondenceForm({ customerId }: Props) {
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Enter note, email summary, or call details"
-          rows={5}
+          placeholder="Enter note, call summary, or email details"
+          rows={6}
           style={{ ...inputStyle, resize: "vertical" }}
         />
       </div>
@@ -137,9 +139,10 @@ const buttonStyle: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.55)",
-  cursor: "pointer",
+  background: "rgba(255,255,255,0.45)",
+  color: "#111",
   fontWeight: 800,
+  cursor: "pointer",
 };
 
 const errorBox: React.CSSProperties = {
