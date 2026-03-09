@@ -33,37 +33,41 @@ function addDays(base: Date, days: number) {
 function certMeta(value: string | null | undefined) {
   const d = toDate(value);
   if (!d) {
-    return {
-      label: "No date",
-      bg: "rgba(0,0,0,0.08)",
-      color: "#111",
-    };
+    return { label: "No date", bg: "rgba(0,0,0,0.08)", color: "#111" };
   }
 
   const today = startOfToday();
   const soon = addDays(today, 30);
 
   if (d < today) {
-    return {
-      label: "Expired",
-      bg: "rgba(255,0,0,0.12)",
-      color: "#8a1f1f",
-    };
+    return { label: "Expired", bg: "rgba(255,0,0,0.12)", color: "#8a1f1f" };
   }
 
   if (d <= soon) {
-    return {
-      label: "Expiring soon",
-      bg: "rgba(255,170,0,0.16)",
-      color: "#8a6200",
-    };
+    return { label: "Expiring soon", bg: "rgba(255,170,0,0.16)", color: "#8a6200" };
   }
 
-  return {
-    label: "Valid",
-    bg: "rgba(0,160,80,0.14)",
-    color: "#0b6b34",
-  };
+  return { label: "Valid", bg: "rgba(0,160,80,0.14)", color: "#0b6b34" };
+}
+
+function lolerMeta(value: string | null | undefined) {
+  const d = toDate(value);
+  if (!d) {
+    return { label: "No date", bg: "rgba(0,0,0,0.08)", color: "#111" };
+  }
+
+  const today = startOfToday();
+  const soon = addDays(today, 30);
+
+  if (d < today) {
+    return { label: "Overdue", bg: "rgba(255,0,0,0.12)", color: "#8a1f1f" };
+  }
+
+  if (d <= soon) {
+    return { label: "Due soon", bg: "rgba(255,170,0,0.16)", color: "#8a6200" };
+  }
+
+  return { label: "In date", bg: "rgba(0,160,80,0.14)", color: "#0b6b34" };
 }
 
 function serviceTypeMeta(type: string | null | undefined) {
@@ -97,6 +101,7 @@ export default async function EquipmentPage({
     ]);
 
   const certification = certMeta(equipment?.certification_expires_on);
+  const loler = lolerMeta(equipment?.loler_due_on);
 
   return (
     <ClientShell>
@@ -147,30 +152,9 @@ export default async function EquipmentPage({
                   label="Certification expires"
                   value={fmtDate(equipment.certification_expires_on)}
                 />
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    padding: "8px 0",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <div style={{ opacity: 0.7 }}>Certification status</div>
-                  <span
-                    style={{
-                      display: "inline-block",
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      fontSize: 12,
-                      fontWeight: 800,
-                      background: certification.bg,
-                      color: certification.color,
-                    }}
-                  >
-                    {certification.label}
-                  </span>
-                </div>
+                <BadgeRow label="Certification status" meta={certification} />
+                <Row label="LOLER due" value={fmtDate(equipment.loler_due_on)} />
+                <BadgeRow label="LOLER status" meta={loler} />
               </div>
 
               <div style={card}>
@@ -269,6 +253,41 @@ function Row({ label, value }: any) {
     >
       <div style={{ opacity: 0.7 }}>{label}</div>
       <div style={{ fontWeight: 800, textAlign: "right" }}>{value || "-"}</div>
+    </div>
+  );
+}
+
+function BadgeRow({
+  label,
+  meta,
+}: {
+  label: string;
+  meta: { label: string; bg: string; color: string };
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        padding: "8px 0",
+        alignItems: "center",
+        gap: 12,
+      }}
+    >
+      <div style={{ opacity: 0.7 }}>{label}</div>
+      <span
+        style={{
+          display: "inline-block",
+          padding: "4px 8px",
+          borderRadius: 999,
+          fontSize: 12,
+          fontWeight: 800,
+          background: meta.bg,
+          color: meta.color,
+        }}
+      >
+        {meta.label}
+      </span>
     </div>
   );
 }
