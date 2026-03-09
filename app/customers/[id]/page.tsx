@@ -3,27 +3,16 @@ import CustomerForm from "../new/CustomerForm";
 import CustomerQuickActions from "./CustomerQuickActions";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-type TimelineItem =
-  | {
-      id: string;
-      kind: "booking";
-      sortDate: string;
-      title: string;
-      subtitle: string;
-      body?: string | null;
-      href?: string | null;
-      badge: string;
-    }
-  | {
-      id: string;
-      kind: "correspondence";
-      sortDate: string;
-      title: string;
-      subtitle: string;
-      body?: string | null;
-      href?: string | null;
-      badge: string;
-    };
+type TimelineItem = {
+  id: string;
+  kind: "booking" | "correspondence" | "quote";
+  sortDate: string;
+  title: string;
+  subtitle: string;
+  body?: string | null;
+  href?: string | null;
+  badge: string;
+};
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -41,7 +30,8 @@ function formatMoney(value: number) {
 
 function buildTimeline(
   bookings: any[] = [],
-  correspondence: any[] = []
+  correspondence: any[] = [],
+  quotes: any[] = []
 ): TimelineItem[] {
   const bookingItems: TimelineItem[] = bookings.map((b: any) => {
     const when = b.start_at || b.start_date || b.created_at || "";
@@ -87,7 +77,31 @@ function buildTimeline(
     };
   });
 
-  return [...bookingItems, ...correspondenceItems].sort((a, b) =>
+  const quoteItems: TimelineItem[] = quotes.map((q: any) => {
+    const amount =
+      q.amount != null && Number.isFinite(Number(q.amount))
+        ? `£${Number(q.amount).toFixed(2)}`
+        : "-";
+
+    return {
+      id: `quote-${q.id}`,
+      kind: "quote",
+      sortDate: String(q.created_at || q.quote_date || ""),
+      title: q.subject || "Quote",
+      subtitle: [
+        q.quote_date ? formatDateOnly(q.quote_date) : "-",
+        q.status ? `Status: ${q.status}` : null,
+        `Amount: ${amount}`,
+      ]
+        .filter(Boolean)
+        .join(" • "),
+      body: q.notes ?? "",
+      href: `/quotes/${q.id}`,
+      badge: "QUOTE",
+    };
+  });
+
+  return [...bookingItems, ...correspondenceItems, ...quoteItems].sort((a, b) =>
     String(b.sortDate).localeCompare(String(a.sortDate))
   );
 }
@@ -141,31 +155,42 @@ export default async function CustomerPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const { data: customer, error } = await supabase
-    .from("clients")
-    .select("id, company_name, contact_name, phone, email, notes, created_at")
-    .eq("id", params.id)
-    .single();
-
-  const { data: bookings, error: bookingsError } = await supabase
-    .from("bookings")
-    .select(
-      "id, start_date, end_date, start_at, end_at, status, location, total_invoice, invoice_status, created_at"
-    )
-    .eq("client_id", params.id)
-    .order("start_date", { ascending: false })
-    .order("created_at", { ascending: false });
-
-  const { data: correspondence, error: correspondenceError } = await supabase
-    .from("customer_correspondence")
-    .select("id, entry_type, subject, message, created_at")
-    .eq("client_id", params.id)
-    .order("created_at", { ascending: false });
+  const [
+    { data: customer, error },
+    { data: bookings, error: bookingsError },
+    { data: correspondence, error: correspondenceError },
+    { data: quotes, error: quotesError },
+  ] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, company_name, contact_name, phone, email, notes, created_at")
+      .eq("id", params.id)
+      .single(),
+    supabase
+      .from("bookings")
+      .select(
+        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, invoice_status, created_at"
+      )
+      .eq("client_id", params.id)
+      .order("start_date", { ascending: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("customer_correspondence")
+      .select("id, entry_type, subject, message, created_at")
+      .eq("client_id", params.id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("quotes")
+      .select("id, status, quote_date, amount, subject, notes, created_at")
+      .eq("client_id", params.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   const safeBookings = bookings ?? [];
   const safeCorrespondence = correspondence ?? [];
+  const safeQuotes = quotes ?? [];
 
-  const timeline = buildTimeline(safeBookings, safeCorrespondence);
+  const timeline = buildTimeline(safeBookings, safeCorrespondence, safeQuotes);
   const stats = buildCustomerStats(safeBookings);
 
   return (
@@ -189,9 +214,14 @@ export default async function CustomerPage({
             </p>
           </div>
 
-          <a href="/customers" style={btnStyle}>
-            ← Back
-          </a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/customers" style={btnStyle}>
+              ← Back
+            </a>
+            <a href="/quotes/new" style={btnStyle}>
+              + New quote
+            </a>
+          </div>
         </div>
 
         {error ? (
@@ -260,6 +290,8 @@ export default async function CustomerPage({
                     <div style={errorBox}>{bookingsError.message}</div>
                   ) : correspondenceError ? (
                     <div style={errorBox}>{correspondenceError.message}</div>
+                  ) : quotesError ? (
+                    <div style={errorBox}>{quotesError.message}</div>
                   ) : timeline.length === 0 ? (
                     <p style={{ margin: 0 }}>No customer activity yet.</p>
                   ) : (
@@ -291,6 +323,8 @@ export default async function CustomerPage({
                                     background:
                                       item.kind === "booking"
                                         ? "rgba(0,120,255,0.10)"
+                                        : item.kind === "quote"
+                                        ? "rgba(140,0,255,0.10)"
                                         : "rgba(0,0,0,0.08)",
                                   }}
                                 >
