@@ -11,6 +11,7 @@ type Equipment = {
   capacity: string | null;
   status: string | null;
   certification_expires_on: string | null;
+  loler_due_on: string | null;
   notes: string | null;
 };
 
@@ -28,6 +29,9 @@ export default function EquipmentEditForm({
   const [status, setStatus] = useState(equipment?.status ?? "available");
   const [certExpiry, setCertExpiry] = useState(
     equipment?.certification_expires_on ?? ""
+  );
+  const [lolerDueOn, setLolerDueOn] = useState(
+    equipment?.loler_due_on ?? ""
   );
   const [notes, setNotes] = useState(equipment?.notes ?? "");
 
@@ -54,6 +58,7 @@ export default function EquipmentEditForm({
         capacity: capacity.trim() || null,
         status: status.trim().toLowerCase() || "available",
         certification_expires_on: certExpiry || null,
+        loler_due_on: lolerDueOn || null,
         notes: notes.trim() || null,
       };
 
@@ -141,6 +146,15 @@ export default function EquipmentEditForm({
             type="date"
             value={certExpiry}
             onChange={(e) => setCertExpiry(e.target.value)}
+            style={input}
+          />
+        </Field>
+
+        <Field span={6} label="LOLER due date">
+          <input
+            type="date"
+            value={lolerDueOn}
+            onChange={(e) => setLolerDueOn(e.target.value)}
             style={input}
           />
         </Field>
