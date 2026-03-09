@@ -1,6 +1,53 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 
+function daysBetween(from: string | null | undefined, to = new Date()) {
+  if (!from) return null;
+  const d = new Date(from);
+  if (Number.isNaN(d.getTime())) return null;
+  const diff = to.getTime() - d.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+function activityMeta(lastBookingDate: string | null | undefined) {
+  const days = daysBetween(lastBookingDate);
+
+  if (days == null) {
+    return {
+      label: "No bookings",
+      bg: "rgba(0,0,0,0.08)",
+      color: "#111",
+    };
+  }
+
+  if (days <= 30) {
+    return {
+      label: "Active",
+      bg: "rgba(0,160,80,0.14)",
+      color: "#0b6b34",
+    };
+  }
+
+  if (days <= 90) {
+    return {
+      label: "Recent",
+      bg: "rgba(255,180,0,0.16)",
+      color: "#8a6200",
+    };
+  }
+
+  return {
+    label: "Dormant",
+    bg: "rgba(180,0,0,0.12)",
+    color: "#8a1f1f",
+  };
+}
+
+function formatLastBooking(value: string | null | undefined) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString();
+}
+
 export default async function CustomersPage({
   searchParams,
 }: {
@@ -24,9 +71,38 @@ export default async function CustomersPage({
 
   const { data: customers, error } = await query;
 
+  const clientIds = (customers ?? []).map((c: any) => c.id).filter(Boolean);
+
+  let lastBookingByClientId: Record<string, string | null> = {};
+
+  if (clientIds.length > 0) {
+    const { data: bookings } = await supabase
+      .from("bookings")
+      .select("client_id, start_date, start_at, created_at")
+      .in("client_id", clientIds)
+      .order("start_at", { ascending: false })
+      .order("start_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    for (const b of bookings ?? []) {
+      const clientId = String((b as any).client_id ?? "");
+      if (!clientId) continue;
+
+      const when =
+        (b as any).start_at ||
+        (b as any).start_date ||
+        (b as any).created_at ||
+        null;
+
+      if (!lastBookingByClientId[clientId] && when) {
+        lastBookingByClientId[clientId] = String(when);
+      }
+    }
+  }
+
   return (
     <ClientShell>
-      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -112,6 +188,12 @@ export default async function CustomersPage({
                       Email
                     </th>
                     <th align="left" style={thStyle}>
+                      Last booking
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Activity
+                    </th>
+                    <th align="left" style={thStyle}>
                       Created
                     </th>
                     <th align="left" style={thStyle}>
@@ -120,33 +202,54 @@ export default async function CustomersPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {customers.map((c: any) => (
-                    <tr key={c.id}>
-                      <td style={tdStyle}>{c.company_name ?? "-"}</td>
-                      <td style={tdStyle}>{c.contact_name ?? "-"}</td>
-                      <td style={tdStyle}>{c.phone ?? "-"}</td>
-                      <td style={tdStyle}>{c.email ?? "-"}</td>
-                      <td style={tdStyle}>
-                        {c.created_at
-                          ? new Date(c.created_at).toLocaleString()
-                          : "-"}
-                      </td>
-                      <td style={tdStyle}>
-                        <a
-                          href={`/customers/${c.id}`}
-                          style={{ marginRight: 12, textDecoration: "none" }}
-                        >
-                          Open
-                        </a>
-                        <a
-                          href={`/customers/${c.id}/delete`}
-                          style={{ color: "red", textDecoration: "none" }}
-                        >
-                          Delete
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
+                  {customers.map((c: any) => {
+                    const lastBooking = lastBookingByClientId[c.id] ?? null;
+                    const activity = activityMeta(lastBooking);
+
+                    return (
+                      <tr key={c.id}>
+                        <td style={tdStyle}>{c.company_name ?? "-"}</td>
+                        <td style={tdStyle}>{c.contact_name ?? "-"}</td>
+                        <td style={tdStyle}>{c.phone ?? "-"}</td>
+                        <td style={tdStyle}>{c.email ?? "-"}</td>
+                        <td style={tdStyle}>{formatLastBooking(lastBooking)}</td>
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 800,
+                              background: activity.bg,
+                              color: activity.color,
+                            }}
+                          >
+                            {activity.label}
+                          </span>
+                        </td>
+                        <td style={tdStyle}>
+                          {c.created_at
+                            ? new Date(c.created_at).toLocaleString()
+                            : "-"}
+                        </td>
+                        <td style={tdStyle}>
+                          <a
+                            href={`/customers/${c.id}`}
+                            style={{ marginRight: 12, textDecoration: "none" }}
+                          >
+                            Open
+                          </a>
+                          <a
+                            href={`/customers/${c.id}/delete`}
+                            style={{ color: "red", textDecoration: "none" }}
+                          >
+                            Delete
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
