@@ -35,8 +35,6 @@ export default async function BookingPage({
       end_at,
       status,
       location,
-      site_contact,
-      site_phone,
       notes,
       total_invoice,
       invoice_status,
@@ -52,7 +50,6 @@ export default async function BookingPage({
       equipment:equipment_id (
         id,
         name,
-        registration,
         status
       )
     `)
@@ -151,16 +148,6 @@ export default async function BookingPage({
                   </div>
 
                   <div>
-                    <strong>Site contact:</strong>
-                    <div>{booking.site_contact ?? "-"}</div>
-                  </div>
-
-                  <div>
-                    <strong>Site phone:</strong>
-                    <div>{booking.site_phone ?? "-"}</div>
-                  </div>
-
-                  <div>
                     <strong>Invoice total:</strong>
                     <div>{fmtMoney(booking.total_invoice)}</div>
                   </div>
@@ -185,19 +172,26 @@ export default async function BookingPage({
                 {booking.clients ? (
                   <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
                     <div>
-                      <strong>Company:</strong> {(booking.clients as any).company_name ?? "-"}
+                      <strong>Company:</strong>{" "}
+                      {(booking.clients as any).company_name ?? "-"}
                     </div>
                     <div>
-                      <strong>Contact:</strong> {(booking.clients as any).contact_name ?? "-"}
+                      <strong>Contact:</strong>{" "}
+                      {(booking.clients as any).contact_name ?? "-"}
                     </div>
                     <div>
-                      <strong>Phone:</strong> {(booking.clients as any).phone ?? "-"}
+                      <strong>Phone:</strong>{" "}
+                      {(booking.clients as any).phone ?? "-"}
                     </div>
                     <div>
-                      <strong>Email:</strong> {(booking.clients as any).email ?? "-"}
+                      <strong>Email:</strong>{" "}
+                      {(booking.clients as any).email ?? "-"}
                     </div>
 
-                    <a href={`/customers/${(booking.clients as any).id}`} style={linkBtnStyle}>
+                    <a
+                      href={`/customers/${(booking.clients as any).id}`}
+                      style={linkBtnStyle}
+                    >
                       Open customer record
                     </a>
                   </div>
@@ -215,10 +209,12 @@ export default async function BookingPage({
                       <strong>Name:</strong> {(booking.equipment as any).name ?? "-"}
                     </div>
                     <div>
-                      <strong>Registration:</strong> {(booking.equipment as any).registration ?? "-"}
+                      <strong>Status:</strong>{" "}
+                      {(booking.equipment as any).status ?? "-"}
                     </div>
                     <div>
-                      <strong>Status:</strong> {(booking.equipment as any).status ?? "-"}
+                      <strong>Equipment ID:</strong>{" "}
+                      {(booking.equipment as any).id ?? "-"}
                     </div>
                   </div>
                 ) : (
