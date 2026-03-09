@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "AnnS Crane CRM",
@@ -32,6 +33,7 @@ export default function RootLayout({
             "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
         }}
       >
+        <ServiceWorkerRegister />
         {children}
       </body>
     </html>
