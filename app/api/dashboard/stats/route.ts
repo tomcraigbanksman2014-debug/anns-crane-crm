@@ -163,8 +163,11 @@ export async function GET() {
   ]);
 
   const activeCount = activeHires.count ?? 0;
+
   const activeEquipmentIds = new Set(
-    (activeHires.data ?? []).map((b: any) => b.equipment_id).filter(Boolean)
+    (activeHires.data ?? [])
+      .map((b: any) => b.equipment_id)
+      .filter(Boolean)
   );
 
   const totalEquipment = equipmentAll.count ?? 0;
@@ -172,7 +175,9 @@ export async function GET() {
   let availableNow = 0;
   let reservedLater = 0;
 
-  const equipmentIds = new Set((equipmentAll.data ?? []).map((e: any) => e.id));
+  const equipmentIds = Array.from(
+    new Set((equipmentAll.data ?? []).map((e: any) => e.id).filter(Boolean))
+  );
 
   const { data: futureBookings } = await supabase
     .from("bookings")
@@ -181,7 +186,9 @@ export async function GET() {
     .neq("status", "Cancelled");
 
   const futureEquipmentIds = new Set(
-    (futureBookings ?? []).map((b: any) => b.equipment_id).filter(Boolean)
+    (futureBookings ?? [])
+      .map((b: any) => b.equipment_id)
+      .filter(Boolean)
   );
 
   for (const id of equipmentIds) {
