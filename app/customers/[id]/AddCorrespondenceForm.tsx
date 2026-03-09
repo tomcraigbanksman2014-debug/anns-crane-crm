@@ -1,20 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+type EntryType = "call" | "email" | "note";
 
 type Props = {
   customerId: string;
+  initialType?: EntryType;
+  initialSubject?: string;
 };
 
-export default function AddCorrespondenceForm({ customerId }: Props) {
+export default function AddCorrespondenceForm({
+  customerId,
+  initialType = "note",
+  initialSubject = "",
+}: Props) {
   const router = useRouter();
 
-  const [entryType, setEntryType] = useState<"call" | "email" | "note">("note");
-  const [subject, setSubject] = useState("");
+  const [entryType, setEntryType] = useState<EntryType>(initialType);
+  const [subject, setSubject] = useState(initialSubject);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEntryType(initialType);
+  }, [initialType]);
+
+  useEffect(() => {
+    setSubject(initialSubject);
+  }, [initialSubject]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,8 +63,8 @@ export default function AddCorrespondenceForm({ customerId }: Props) {
         return;
       }
 
-      setEntryType("note");
-      setSubject("");
+      setEntryType(initialType);
+      setSubject(initialSubject);
       setMessage("");
       router.refresh();
     } catch (err: any) {
@@ -70,7 +86,7 @@ export default function AddCorrespondenceForm({ customerId }: Props) {
         <label style={labelStyle}>Type</label>
         <select
           value={entryType}
-          onChange={(e) => setEntryType(e.target.value as "call" | "email" | "note")}
+          onChange={(e) => setEntryType(e.target.value as EntryType)}
           style={inputStyle}
         >
           <option value="note">Note</option>
