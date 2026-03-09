@@ -50,6 +50,8 @@ export async function GET() {
     certExpiringSoon,
     certExpired,
     maintenanceEquipment,
+    serviceLogAll,
+    recentServiceLog,
   ] = await Promise.all([
     supabase
       .from("bookings")
@@ -160,6 +162,26 @@ export async function GET() {
       .from("equipment")
       .select("id", { count: "exact", head: true })
       .eq("status", "maintenance"),
+
+    supabase
+      .from("equipment_service_log")
+      .select("id, equipment_id"),
+
+    supabase
+      .from("equipment_service_log")
+      .select(`
+        id,
+        equipment_id,
+        entry_type,
+        service_date,
+        engineer,
+        notes,
+        created_at,
+        equipment:equipment_id ( name )
+      `)
+      .order("service_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(8),
   ]);
 
   const activeCount = activeHires.count ?? 0;
@@ -233,6 +255,18 @@ export async function GET() {
       ? Math.round((activeEquipmentIds.size / totalEquipment) * 100)
       : 0;
 
+  const servicedEquipmentIds = new Set(
+    (serviceLogAll.data ?? [])
+      .map((r: any) => r.equipment_id)
+      .filter(Boolean)
+  );
+
+  const equipmentWithServiceHistory = servicedEquipmentIds.size;
+  const equipmentWithoutServiceHistory = Math.max(
+    0,
+    totalEquipment - equipmentWithServiceHistory
+  );
+
   return NextResponse.json({
     today,
     bookingsToday: bookingsToday.count ?? 0,
@@ -250,5 +284,8 @@ export async function GET() {
     certExpiringSoon: certExpiringSoon.data?.length ?? 0,
     certExpired: certExpired.data?.length ?? 0,
     maintenanceEquipment: maintenanceEquipment.count ?? 0,
+    equipmentWithServiceHistory,
+    equipmentWithoutServiceHistory,
+    recentServiceLog: recentServiceLog.data ?? [],
   });
 }
