@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import PrintTimesheetsButton from "./PrintTimesheetsButton";
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -106,151 +107,144 @@ export default async function TimesheetsPrintPage() {
   const operatorIds = Object.keys(grouped);
 
   return (
-    <html>
-      <head>
-        <title>AnnS Crane Hire - Timesheets</title>
-      </head>
-      <body
-        style={{
-          margin: 0,
-          fontFamily:
-            "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
-          background: "#fff",
-          color: "#111",
-        }}
-      >
-        <div style={{ width: "100%", maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: 32 }}>AnnS Crane Hire Timesheets</h1>
-              <p style={{ marginTop: 8, opacity: 0.8 }}>
-                Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
-              </p>
-            </div>
-
-            <button
-              onClick={() => window.print()}
-              style={{
-                padding: "12px 16px",
-                borderRadius: 10,
-                border: "1px solid rgba(0,0,0,0.15)",
-                background: "#111",
-                color: "#fff",
-                fontWeight: 800,
-                cursor: "pointer",
-              }}
-            >
-              Print / Save as PDF
-            </button>
+    <div
+      style={{
+        margin: 0,
+        fontFamily:
+          "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
+        background: "#fff",
+        color: "#111",
+        minHeight: "100vh",
+      }}
+    >
+      <div style={{ width: "100%", maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: 32 }}>AnnS Crane Hire Timesheets</h1>
+            <p style={{ marginTop: 8, opacity: 0.8 }}>
+              Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+            </p>
           </div>
 
-          {error ? (
-            <div
-              style={{
-                marginTop: 16,
-                padding: "12px 14px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,0,0,0.22)",
-                background: "rgba(255,0,0,0.08)",
-              }}
-            >
-              {error.message}
-            </div>
-          ) : operatorIds.length === 0 ? (
-            <div
-              style={{
-                marginTop: 16,
-                padding: "12px 14px",
-                borderRadius: 10,
-                border: "1px solid rgba(0,0,0,0.10)",
-                background: "#fafafa",
-              }}
-            >
-              No operator activity recorded for this week yet.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 20, marginTop: 20 }}>
-              {operatorIds.map((operatorId) => {
-                const group = grouped[operatorId];
-
-                return (
-                  <section
-                    key={operatorId}
-                    style={{
-                      border: "1px solid rgba(0,0,0,0.12)",
-                      borderRadius: 12,
-                      padding: 16,
-                      breakInside: "avoid",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: 12,
-                        alignItems: "center",
-                        flexWrap: "wrap",
-                        marginBottom: 12,
-                      }}
-                    >
-                      <h2 style={{ margin: 0, fontSize: 24 }}>{group.operatorName}</h2>
-                      <div
-                        style={{
-                          padding: "8px 12px",
-                          borderRadius: 999,
-                          background: "rgba(0,180,120,0.10)",
-                          border: "1px solid rgba(0,180,120,0.18)",
-                          fontWeight: 800,
-                        }}
-                      >
-                        Total: {group.totalHours.toFixed(2)} hrs
-                      </div>
-                    </div>
-
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                      <thead>
-                        <tr>
-                          <th align="left" style={thStyle}>Job #</th>
-                          <th align="left" style={thStyle}>Date</th>
-                          <th align="left" style={thStyle}>Customer</th>
-                          <th align="left" style={thStyle}>Started</th>
-                          <th align="left" style={thStyle}>Completed</th>
-                          <th align="left" style={thStyle}>Hours</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.rows.map((row: any, idx: number) => (
-                          <tr key={idx}>
-                            <td style={tdStyle}>{row.jobNumber ?? "—"}</td>
-                            <td style={tdStyle}>{fmtDate(row.jobDate)}</td>
-                            <td style={tdStyle}>{row.clientName}</td>
-                            <td style={tdStyle}>{fmtDateTime(row.startedAt)}</td>
-                            <td style={tdStyle}>{fmtDateTime(row.completedAt)}</td>
-                            <td style={tdStyle}>{row.hours.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </section>
-                );
-              })}
-            </div>
-          )}
+          <div className="print-hide">
+            <PrintTimesheetsButton />
+          </div>
         </div>
 
-        <style>{`
-          @media print {
-            button {
-              display: none !important;
-            }
+        {error ? (
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid rgba(255,0,0,0.22)",
+              background: "rgba(255,0,0,0.08)",
+            }}
+          >
+            {error.message}
+          </div>
+        ) : operatorIds.length === 0 ? (
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 14px",
+              borderRadius: 10,
+              border: "1px solid rgba(0,0,0,0.10)",
+              background: "#fafafa",
+            }}
+          >
+            No operator activity recorded for this week yet.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 20, marginTop: 20 }}>
+            {operatorIds.map((operatorId) => {
+              const group = grouped[operatorId];
 
-            body {
-              background: #fff !important;
-            }
+              return (
+                <section
+                  key={operatorId}
+                  style={{
+                    border: "1px solid rgba(0,0,0,0.12)",
+                    borderRadius: 12,
+                    padding: 16,
+                    breakInside: "avoid",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <h2 style={{ margin: 0, fontSize: 24 }}>{group.operatorName}</h2>
+                    <div
+                      style={{
+                        padding: "8px 12px",
+                        borderRadius: 999,
+                        background: "rgba(0,180,120,0.10)",
+                        border: "1px solid rgba(0,180,120,0.18)",
+                        fontWeight: 800,
+                      }}
+                    >
+                      Total: {group.totalHours.toFixed(2)} hrs
+                    </div>
+                  </div>
+
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr>
+                        <th align="left" style={thStyle}>Job #</th>
+                        <th align="left" style={thStyle}>Date</th>
+                        <th align="left" style={thStyle}>Customer</th>
+                        <th align="left" style={thStyle}>Started</th>
+                        <th align="left" style={thStyle}>Completed</th>
+                        <th align="left" style={thStyle}>Hours</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.rows.map((row: any, idx: number) => (
+                        <tr key={idx}>
+                          <td style={tdStyle}>{row.jobNumber ?? "—"}</td>
+                          <td style={tdStyle}>{fmtDate(row.jobDate)}</td>
+                          <td style={tdStyle}>{row.clientName}</td>
+                          <td style={tdStyle}>{fmtDateTime(row.startedAt)}</td>
+                          <td style={tdStyle}>{fmtDateTime(row.completedAt)}</td>
+                          <td style={tdStyle}>{row.hours.toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <style>{`
+        @media print {
+          .print-hide {
+            display: none !important;
           }
-        `}</style>
-      </body>
-    </html>
+
+          body {
+            background: #fff !important;
+          }
+        }
+      `}</style>
+    </div>
   );
 }
 
