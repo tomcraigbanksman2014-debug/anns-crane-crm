@@ -17,6 +17,11 @@ function fmtMoney(value: any) {
   return `£${n.toFixed(2)}`;
 }
 
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
 export default async function BookingPage({
   params,
 }: {
@@ -24,36 +29,47 @@ export default async function BookingPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const { data: booking, error } = await supabase
-    .from("bookings")
-    .select(`
-      id,
-      created_at,
-      start_date,
-      end_date,
-      start_at,
-      end_at,
-      status,
-      location,
-      total_invoice,
-      invoice_status,
-      client_id,
-      equipment_id,
-      clients:client_id (
+  const [{ data: booking, error }, { data: linkedJob }] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select(`
         id,
-        company_name,
-        contact_name,
-        phone,
-        email
-      ),
-      equipment:equipment_id (
-        id,
-        name,
-        status
-      )
-    `)
-    .eq("id", params.id)
-    .single();
+        created_at,
+        start_date,
+        end_date,
+        start_at,
+        end_at,
+        status,
+        location,
+        total_invoice,
+        invoice_status,
+        client_id,
+        equipment_id,
+        clients:client_id (
+          id,
+          company_name,
+          contact_name,
+          phone,
+          email
+        ),
+        equipment:equipment_id (
+          id,
+          name,
+          status
+        )
+      `)
+      .eq("id", params.id)
+      .single(),
+    supabase
+      .from("jobs")
+      .select("id, job_number, status")
+      .eq("booking_id", params.id)
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const client = first((booking as any)?.clients);
+  const equipment = first((booking as any)?.equipment);
 
   return (
     <ClientShell>
@@ -79,8 +95,24 @@ export default async function BookingPage({
               ← Back to bookings
             </a>
 
-            {booking?.client_id ? (
-              <a href={`/customers/${booking.client_id}`} style={btnStyle}>
+            {linkedJob?.id ? (
+              <a href={`/jobs/${linkedJob.id}`} style={btnStyle}>
+                Open job #{linkedJob.job_number ?? ""}
+              </a>
+            ) : (
+              <form
+                action={`/api/bookings/${params.id}/convert-to-job`}
+                method="post"
+                style={{ margin: 0 }}
+              >
+                <button type="submit" style={primaryBtnStyle}>
+                  Convert to job
+                </button>
+              </form>
+            )}
+
+            {(booking as any)?.client_id ? (
+              <a href={`/customers/${(booking as any).client_id}`} style={btnStyle}>
                 Open customer
               </a>
             ) : null}
@@ -108,54 +140,85 @@ export default async function BookingPage({
                 <div style={gridStyle}>
                   <div>
                     <strong>Booking ID:</strong>
-                    <div>{booking.id}</div>
+                    <div>{(booking as any).id}</div>
                   </div>
 
                   <div>
                     <strong>Status:</strong>
-                    <div>{booking.status ?? "-"}</div>
+                    <div>{(booking as any).status ?? "-"}</div>
                   </div>
 
                   <div>
                     <strong>Start date:</strong>
-                    <div>{fmtDate(booking.start_date)}</div>
+                    <div>{fmtDate((booking as any).start_date)}</div>
                   </div>
 
                   <div>
                     <strong>End date:</strong>
-                    <div>{fmtDate(booking.end_date)}</div>
+                    <div>{fmtDate((booking as any).end_date)}</div>
                   </div>
 
                   <div>
                     <strong>Start time:</strong>
-                    <div>{fmtDateTime(booking.start_at)}</div>
+                    <div>{fmtDateTime((booking as any).start_at)}</div>
                   </div>
 
                   <div>
                     <strong>End time:</strong>
-                    <div>{fmtDateTime(booking.end_at)}</div>
+                    <div>{fmtDateTime((booking as any).end_at)}</div>
                   </div>
 
                   <div>
                     <strong>Location:</strong>
-                    <div>{booking.location ?? "-"}</div>
+                    <div>{(booking as any).location ?? "-"}</div>
                   </div>
 
                   <div>
                     <strong>Created:</strong>
-                    <div>{fmtDateTime(booking.created_at)}</div>
+                    <div>{fmtDateTime((booking as any).created_at)}</div>
                   </div>
 
                   <div>
                     <strong>Invoice total:</strong>
-                    <div>{fmtMoney(booking.total_invoice)}</div>
+                    <div>{fmtMoney((booking as any).total_invoice)}</div>
                   </div>
 
                   <div>
                     <strong>Invoice status:</strong>
-                    <div>{booking.invoice_status ?? "-"}</div>
+                    <div>{(booking as any).invoice_status ?? "-"}</div>
                   </div>
                 </div>
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Linked job</h2>
+
+                {linkedJob ? (
+                  <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
+                    <div>
+                      <strong>Job number:</strong> {linkedJob.job_number ?? "-"}
+                    </div>
+                    <div>
+                      <strong>Status:</strong> {linkedJob.status ?? "-"}
+                    </div>
+                    <a href={`/jobs/${linkedJob.id}`} style={linkBtnStyle}>
+                      Open job record
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <p style={{ margin: 0 }}>No job linked yet.</p>
+                    <form
+                      action={`/api/bookings/${params.id}/convert-to-job`}
+                      method="post"
+                      style={{ margin: 0 }}
+                    >
+                      <button type="submit" style={primaryBtnStyle}>
+                        Convert this booking to a job
+                      </button>
+                    </form>
+                  </div>
+                )}
               </section>
             </div>
 
@@ -163,29 +226,22 @@ export default async function BookingPage({
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Customer</h2>
 
-                {booking.clients ? (
+                {client ? (
                   <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
                     <div>
-                      <strong>Company:</strong>{" "}
-                      {(booking.clients as any).company_name ?? "-"}
+                      <strong>Company:</strong> {client.company_name ?? "-"}
                     </div>
                     <div>
-                      <strong>Contact:</strong>{" "}
-                      {(booking.clients as any).contact_name ?? "-"}
+                      <strong>Contact:</strong> {client.contact_name ?? "-"}
                     </div>
                     <div>
-                      <strong>Phone:</strong>{" "}
-                      {(booking.clients as any).phone ?? "-"}
+                      <strong>Phone:</strong> {client.phone ?? "-"}
                     </div>
                     <div>
-                      <strong>Email:</strong>{" "}
-                      {(booking.clients as any).email ?? "-"}
+                      <strong>Email:</strong> {client.email ?? "-"}
                     </div>
 
-                    <a
-                      href={`/customers/${(booking.clients as any).id}`}
-                      style={linkBtnStyle}
-                    >
+                    <a href={`/customers/${client.id}`} style={linkBtnStyle}>
                       Open customer record
                     </a>
                   </div>
@@ -197,19 +253,21 @@ export default async function BookingPage({
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Equipment</h2>
 
-                {booking.equipment ? (
+                {equipment ? (
                   <div style={{ display: "grid", gap: 10, fontSize: 14 }}>
                     <div>
-                      <strong>Name:</strong> {(booking.equipment as any).name ?? "-"}
+                      <strong>Name:</strong> {equipment.name ?? "-"}
                     </div>
                     <div>
-                      <strong>Status:</strong>{" "}
-                      {(booking.equipment as any).status ?? "-"}
+                      <strong>Status:</strong> {equipment.status ?? "-"}
                     </div>
                     <div>
-                      <strong>Equipment ID:</strong>{" "}
-                      {(booking.equipment as any).id ?? "-"}
+                      <strong>Equipment ID:</strong> {equipment.id ?? "-"}
                     </div>
+
+                    <a href={`/equipment/${equipment.id}`} style={linkBtnStyle}>
+                      Open equipment
+                    </a>
                   </div>
                 ) : (
                   <p style={{ margin: 0 }}>No equipment linked.</p>
@@ -232,6 +290,18 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  textDecoration: "none",
+  color: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const linkBtnStyle: React.CSSProperties = {
