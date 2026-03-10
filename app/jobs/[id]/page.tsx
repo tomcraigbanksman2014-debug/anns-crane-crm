@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import DocumentUploadForm from "./DocumentUploadForm";
+import DocumentDeleteButton from "./DocumentDeleteButton";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -14,6 +15,69 @@ function fmtDateTime(value: string | null | undefined) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-GB");
+}
+
+function prettyDocumentType(value: string | null | undefined) {
+  const map: Record<string, string> = {
+    rams: "RAMS",
+    lift_plan: "Lift Plan",
+    site_drawing: "Site Drawing",
+    photo: "Photo",
+    delivery_note: "Delivery Note",
+    other: "Other",
+  };
+
+  return map[String(value ?? "").toLowerCase()] ?? "Other";
+}
+
+function documentTypeStyle(value: string | null | undefined): React.CSSProperties {
+  const v = String(value ?? "").toLowerCase();
+
+  if (v === "rams") {
+    return {
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  if (v === "lift_plan") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (v === "site_drawing") {
+    return {
+      background: "rgba(255,140,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,140,0,0.22)",
+    };
+  }
+
+  if (v === "photo") {
+    return {
+      background: "rgba(170,0,255,0.10)",
+      color: "#6a1b9a",
+      border: "1px solid rgba(170,0,255,0.18)",
+    };
+  }
+
+  if (v === "delivery_note") {
+    return {
+      background: "rgba(255,0,0,0.08)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.35)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
 }
 
 async function updateJobStatus(formData: FormData) {
@@ -90,7 +154,7 @@ export default async function JobPage({
 
     supabase
       .from("job_documents")
-      .select("id, file_name, file_path, file_type, created_at")
+      .select("id, file_name, file_path, file_type, document_type, created_at")
       .eq("job_id", params.id)
       .order("created_at", { ascending: false }),
   ]);
@@ -227,8 +291,11 @@ export default async function JobPage({
                       docs.map((doc: any) => (
                         <DocumentRow
                           key={doc.id}
+                          jobId={(job as any).id}
+                          documentId={doc.id}
                           fileName={doc.file_name}
                           filePath={doc.file_path}
+                          documentType={doc.document_type}
                           createdAt={doc.created_at}
                         />
                       ))
@@ -351,12 +418,18 @@ function Block({
 }
 
 function DocumentRow({
+  jobId,
+  documentId,
   fileName,
   filePath,
+  documentType,
   createdAt,
 }: {
+  jobId: string;
+  documentId: string;
   fileName: string;
   filePath: string;
+  documentType: string | null;
   createdAt: string | null;
 }) {
   const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
@@ -370,14 +443,45 @@ function DocumentRow({
         border: "1px solid rgba(0,0,0,0.08)",
       }}
     >
-      <div style={{ fontWeight: 800 }}>{fileName}</div>
-      <div style={{ fontSize: 13, opacity: 0.72, marginTop: 4 }}>
-        Uploaded: {fmtDateTime(createdAt)}
-      </div>
-      <div style={{ marginTop: 8 }}>
-        <a href={href} target="_blank" style={actionBtn}>
-          Open document
-        </a>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          alignItems: "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <div style={{ fontWeight: 800 }}>{fileName}</div>
+          <div style={{ marginTop: 6 }}>
+            <span
+              style={{
+                display: "inline-block",
+                padding: "4px 9px",
+                borderRadius: 999,
+                fontSize: 12,
+                fontWeight: 900,
+                ...documentTypeStyle(documentType),
+              }}
+            >
+              {prettyDocumentType(documentType)}
+            </span>
+          </div>
+          <div style={{ fontSize: 13, opacity: 0.72, marginTop: 6 }}>
+            Uploaded: {fmtDateTime(createdAt)}
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <a href={href} target="_blank" style={actionBtn}>
+            Open
+          </a>
+          <DocumentDeleteButton
+            jobId={jobId}
+            documentId={documentId}
+          />
+        </div>
       </div>
     </div>
   );
