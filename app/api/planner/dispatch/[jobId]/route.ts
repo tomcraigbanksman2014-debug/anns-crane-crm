@@ -1,122 +1,82 @@
-"use client";
+import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-
-type OptionItem = {
-  id: string;
-  name?: string | null;
-  full_name?: string | null;
-  status: string | null;
+type Payload = {
+  equipment_id?: string | null;
+  operator_id?: string | null;
 };
 
-export default function PlannerAssignSelect({
-  jobId,
-  currentValue,
-  options,
-  label,
-  field,
-  placeholder,
-}: {
-  jobId: string;
-  currentValue?: string | null;
-  options: OptionItem[];
-  label: string;
-  field: "equipment_id" | "operator_id";
-  placeholder: string;
-}) {
-  const router = useRouter();
-  const [value, setValue] = useState(currentValue ?? "");
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  async function onChange(nextValue: string) {
-    setValue(nextValue);
-    setMsg(null);
-    setSaving(true);
-
-    try {
-      const res = await fetch(`/api/planner/dispatch/${jobId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          [field]: nextValue || null,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setMsg(data?.error || `Could not assign ${label.toLowerCase()}.`);
-        return;
-      }
-
-      router.refresh();
-    } catch {
-      setMsg(`Could not assign ${label.toLowerCase()}.`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ marginTop: 10 }}>
-      <label style={labelStyle}>{label}</label>
-
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={saving}
-        style={selectStyle}
-      >
-        <option value="">{placeholder}</option>
-        {options.map((item) => (
-          <option key={item.id} value={item.id}>
-            {item.name ?? item.full_name ?? "Unnamed"}
-            {item.status ? ` (${item.status})` : ""}
-          </option>
-        ))}
-      </select>
-
-      {saving ? (
-        <div style={helperStyle}>Saving…</div>
-      ) : msg ? (
-        <div style={errorStyle}>{msg}</div>
-      ) : null}
-    </div>
-  );
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.78,
-  marginBottom: 6,
-};
+export async function PATCH(
+  req: Request,
+  { params }: { params: { jobId: string } }
+) {
+  try {
+    const supabase = createSupabaseServerClient();
 
-const selectStyle: React.CSSProperties = {
-  width: "100%",
-  height: 40,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.88)",
-  fontSize: 14,
-  outline: "none",
-  boxSizing: "border-box",
-};
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-const helperStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 12,
-  opacity: 0.7,
-};
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
 
-const errorStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 12,
-  color: "#b00020",
-};
+    const body = (await req.json().catch(() => ({}))) as Payload;
+
+    const payload = {
+      equipment_id:
+        body.equipment_id !== undefined ? norm(body.equipment_id) : undefined,
+      operator_id:
+        body.operator_id !== undefined ? norm(body.operator_id) : undefined,
+    };
+
+    const updateData: Record<string, string | null> = {};
+
+    if (payload.equipment_id !== undefined) {
+      updateData.equipment_id = payload.equipment_id;
+    }
+
+    if (payload.operator_id !== undefined) {
+      updateData.operator_id = payload.operator_id;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+    }
+
+    const { error } = await supabase
+      .from("jobs")
+      .update(updateData)
+      .eq("id", params.jobId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    await writeAuditLog({
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
+      action: "update",
+      entity_type: "planner_dispatch",
+      entity_id: params.jobId,
+      meta: {
+        job_id: params.jobId,
+        ...updateData,
+      },
+    });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Could not update dispatch." },
+      { status: 400 }
+    );
+  }
+}
