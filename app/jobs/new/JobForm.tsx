@@ -17,6 +17,7 @@ type Job = {
   id: string;
   client_id: string | null;
   equipment_id: string | null;
+  booking_id?: string | null;
   site_name: string | null;
   site_address: string | null;
   contact_name: string | null;
@@ -36,7 +37,7 @@ export default function JobForm({
   equipment,
   job,
 }: {
-  mode: "create";
+  mode: "create" | "edit";
   customers: Customer[];
   equipment: Equipment[];
   job?: Job;
@@ -73,12 +74,20 @@ export default function JobForm({
 
     setSaving(true);
     try {
-      const res = await fetch("/api/jobs/create", {
-        method: "POST",
+      const endpoint =
+        mode === "create"
+          ? "/api/jobs/create"
+          : `/api/jobs/${encodeURIComponent(job!.id)}/update`;
+
+      const method = mode === "create" ? "POST" : "PATCH";
+
+      const res = await fetch(endpoint, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: clientId || null,
           equipment_id: equipmentId || null,
+          booking_id: job?.booking_id ?? null,
           site_name: siteName.trim() || null,
           site_address: siteAddress.trim() || null,
           contact_name: contactName.trim() || null,
@@ -100,8 +109,10 @@ export default function JobForm({
         return;
       }
 
-      if (data?.id) {
-        router.replace(`/jobs/${data.id}`);
+      const targetId = mode === "edit" ? job?.id : data?.id;
+
+      if (targetId) {
+        router.replace(`/jobs/${targetId}`);
       } else {
         router.replace("/jobs");
       }
@@ -254,10 +265,14 @@ export default function JobForm({
 
       <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
         <button type="submit" disabled={saving} style={primaryBtn}>
-          {saving ? "Saving..." : "Save job"}
+          {saving
+            ? "Saving..."
+            : mode === "create"
+            ? "Save job"
+            : "Update job"}
         </button>
 
-        <a href="/jobs" style={secondaryBtn}>
+        <a href={job?.id ? `/jobs/${job.id}` : "/jobs"} style={secondaryBtn}>
           Cancel
         </a>
       </div>
