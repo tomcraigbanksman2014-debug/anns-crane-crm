@@ -49,7 +49,9 @@ export default function JobForm({
   const [siteAddress, setSiteAddress] = useState(job?.site_address ?? "");
   const [contactName, setContactName] = useState(job?.contact_name ?? "");
   const [contactPhone, setContactPhone] = useState(job?.contact_phone ?? "");
-  const [jobDate, setJobDate] = useState(job?.job_date ?? new Date().toISOString().slice(0, 10));
+  const [jobDate, setJobDate] = useState(
+    job?.job_date ?? new Date().toISOString().slice(0, 10)
+  );
   const [startTime, setStartTime] = useState(job?.start_time ?? "");
   const [endTime, setEndTime] = useState(job?.end_time ?? "");
   const [status, setStatus] = useState(job?.status ?? "draft");
@@ -98,7 +100,12 @@ export default function JobForm({
         return;
       }
 
-      router.replace("/jobs");
+      if (data?.id) {
+        router.replace(`/jobs/${data.id}`);
+      } else {
+        router.replace("/jobs");
+      }
+
       router.refresh();
     } catch {
       setMsg("Something went wrong. Try again.");
@@ -113,7 +120,11 @@ export default function JobForm({
 
       <div style={grid12}>
         <Field span={6} label="Customer">
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={input}>
+          <select
+            value={clientId}
+            onChange={(e) => setClientId(e.target.value)}
+            style={input}
+          >
             <option value="">Select customer</option>
             {customers.map((c) => (
               <option key={c.id} value={c.id}>
@@ -124,7 +135,11 @@ export default function JobForm({
         </Field>
 
         <Field span={6} label="Crane / equipment">
-          <select value={equipmentId} onChange={(e) => setEquipmentId(e.target.value)} style={input}>
+          <select
+            value={equipmentId}
+            onChange={(e) => setEquipmentId(e.target.value)}
+            style={input}
+          >
             <option value="">Select equipment</option>
             {equipment.map((e) => (
               <option key={e.id} value={e.id}>
@@ -135,23 +150,47 @@ export default function JobForm({
         </Field>
 
         <Field span={4} label="Job date *">
-          <input type="date" value={jobDate} onChange={(e) => setJobDate(e.target.value)} style={input} />
+          <input
+            type="date"
+            value={jobDate}
+            onChange={(e) => setJobDate(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={4} label="Start time">
-          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={input} />
+          <input
+            type="time"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={4} label="End time">
-          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={input} />
+          <input
+            type="time"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={6} label="Site name">
-          <input value={siteName} onChange={(e) => setSiteName(e.target.value)} style={input} placeholder="e.g. Trafford Park Lift" />
+          <input
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+            style={input}
+            placeholder="e.g. Trafford Park Lift"
+          />
         </Field>
 
         <Field span={6} label="Status">
-          <select value={status} onChange={(e) => setStatus(e.target.value)} style={input}>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            style={input}
+          >
             <option value="draft">Draft</option>
             <option value="confirmed">Confirmed</option>
             <option value="in_progress">In Progress</option>
@@ -170,19 +209,37 @@ export default function JobForm({
         </Field>
 
         <Field span={6} label="Site contact name">
-          <input value={contactName} onChange={(e) => setContactName(e.target.value)} style={input} />
+          <input
+            value={contactName}
+            onChange={(e) => setContactName(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={6} label="Site contact phone">
-          <input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} style={input} />
+          <input
+            value={contactPhone}
+            onChange={(e) => setContactPhone(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={6} label="Hire type">
-          <input value={hireType} onChange={(e) => setHireType(e.target.value)} style={input} placeholder="e.g. CPA / Contract Lift" />
+          <input
+            value={hireType}
+            onChange={(e) => setHireType(e.target.value)}
+            style={input}
+            placeholder="e.g. CPA / Contract Lift"
+          />
         </Field>
 
         <Field span={6} label="Lift type">
-          <input value={liftType} onChange={(e) => setLiftType(e.target.value)} style={input} placeholder="e.g. Steel lift / Machinery move" />
+          <input
+            value={liftType}
+            onChange={(e) => setLiftType(e.target.value)}
+            style={input}
+            placeholder="e.g. Steel lift / Machinery move"
+          />
         </Field>
 
         <Field span={12} label="Notes">
