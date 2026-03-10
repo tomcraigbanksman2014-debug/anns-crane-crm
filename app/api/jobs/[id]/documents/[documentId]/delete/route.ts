@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../../../lib/audit";
 
 export async function POST(
   req: Request,
