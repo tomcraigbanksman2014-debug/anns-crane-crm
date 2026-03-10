@@ -10,6 +10,7 @@ export default function DocumentUploadForm({
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
+  const [documentType, setDocumentType] = useState("other");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -27,6 +28,7 @@ export default function DocumentUploadForm({
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("document_type", documentType);
 
       const res = await fetch(`/api/jobs/${jobId}/documents/upload`, {
         method: "POST",
@@ -41,6 +43,8 @@ export default function DocumentUploadForm({
       }
 
       setFile(null);
+      setDocumentType("other");
+
       const input = document.getElementById("job-doc-upload") as HTMLInputElement | null;
       if (input) input.value = "";
 
@@ -55,6 +59,19 @@ export default function DocumentUploadForm({
   return (
     <form onSubmit={onSubmit}>
       <div style={{ display: "grid", gap: 10 }}>
+        <select
+          value={documentType}
+          onChange={(e) => setDocumentType(e.target.value)}
+          style={selectStyle}
+        >
+          <option value="rams">RAMS</option>
+          <option value="lift_plan">Lift Plan</option>
+          <option value="site_drawing">Site Drawing</option>
+          <option value="photo">Photo</option>
+          <option value="delivery_note">Delivery Note</option>
+          <option value="other">Other</option>
+        </select>
+
         <input
           id="job-doc-upload"
           type="file"
@@ -81,6 +98,17 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.82)",
   boxSizing: "border-box",
+};
+
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.88)",
+  boxSizing: "border-box",
+  fontSize: 14,
 };
 
 const primaryBtn: React.CSSProperties = {
