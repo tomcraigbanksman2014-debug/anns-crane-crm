@@ -3,23 +3,30 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-type EquipmentItem = {
+type OptionItem = {
   id: string;
-  name: string | null;
+  name?: string | null;
+  full_name?: string | null;
   status: string | null;
 };
 
 export default function PlannerAssignSelect({
   jobId,
-  currentEquipmentId,
-  equipment,
+  currentValue,
+  options,
+  label,
+  field,
+  placeholder,
 }: {
   jobId: string;
-  currentEquipmentId?: string | null;
-  equipment: EquipmentItem[];
+  currentValue?: string | null;
+  options: OptionItem[];
+  label: string;
+  field: "equipment_id" | "operator_id";
+  placeholder: string;
 }) {
   const router = useRouter();
-  const [value, setValue] = useState(currentEquipmentId ?? "");
+  const [value, setValue] = useState(currentValue ?? "");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -29,27 +36,26 @@ export default function PlannerAssignSelect({
     setSaving(true);
 
     try {
-      const res = await fetch("/api/planner/dispatch", {
-        method: "POST",
+      const res = await fetch(`/api/planner/dispatch/${jobId}`, {
+        method: "PATCH",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          job_id: jobId,
-          equipment_id: nextValue || null,
+          [field]: nextValue || null,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMsg(data?.error || "Could not assign crane.");
+        setMsg(data?.error || `Could not assign ${label.toLowerCase()}.`);
         return;
       }
 
       router.refresh();
     } catch {
-      setMsg("Could not assign crane.");
+      setMsg(`Could not assign ${label.toLowerCase()}.`);
     } finally {
       setSaving(false);
     }
@@ -57,7 +63,7 @@ export default function PlannerAssignSelect({
 
   return (
     <div style={{ marginTop: 10 }}>
-      <label style={labelStyle}>Assign crane</label>
+      <label style={labelStyle}>{label}</label>
 
       <select
         value={value}
@@ -65,10 +71,11 @@ export default function PlannerAssignSelect({
         disabled={saving}
         style={selectStyle}
       >
-        <option value="">Not assigned</option>
-        {equipment.map((eq) => (
-          <option key={eq.id} value={eq.id}>
-            {eq.name ?? "Unnamed crane"}{eq.status ? ` (${eq.status})` : ""}
+        <option value="">{placeholder}</option>
+        {options.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.name ?? item.full_name ?? "Unnamed"}
+            {item.status ? ` (${item.status})` : ""}
           </option>
         ))}
       </select>
