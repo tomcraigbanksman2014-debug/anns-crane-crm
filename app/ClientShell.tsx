@@ -43,6 +43,7 @@ export default function ClientShell({
 
   const [role, setRole] = useState<string>("");
   const [username, setUsername] = useState<string>("");
+  const [isOperatorLinked, setIsOperatorLinked] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -52,7 +53,9 @@ export default function ClientShell({
       const user = data.user;
       if (!mounted || !user) return;
 
-      const email = String(user.email ?? "").toLowerCase();
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const authUsername = email.includes("@") ? email.split("@")[0] : email;
+
       const masterAdminEmail = String(
         process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
       )
@@ -62,8 +65,34 @@ export default function ClientShell({
       const isMaster =
         !!email && !!masterAdminEmail && email === masterAdminEmail;
 
-      setRole(isMaster ? "admin" : ((user.user_metadata as any)?.role ?? ""));
-      setUsername(user.email ? user.email.split("@")[0] : "");
+      const nextRole = isMaster ? "admin" : ((user.user_metadata as any)?.role ?? "");
+      setRole(nextRole);
+      setUsername(authUsername || "user");
+
+      if (isMaster || nextRole === "admin") {
+        setIsOperatorLinked(false);
+        return;
+      }
+
+      const { data: operators } = await supabase
+        .from("operators")
+        .select("id, full_name, email, status")
+        .eq("status", "active");
+
+      const match =
+        (operators ?? []).find((op: any) => {
+          const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+          const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+          return (
+            operatorEmail === email ||
+            operatorName === authUsername ||
+            (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
+          );
+        }) ?? null;
+
+      if (!mounted) return;
+      setIsOperatorLinked(!!match);
     }
 
     loadUser();
@@ -118,6 +147,8 @@ export default function ClientShell({
       </div>
     );
   }
+
+  const operatorOnly = isOperatorLinked && role !== "admin";
 
   return (
     <div
@@ -176,73 +207,83 @@ export default function ClientShell({
               {username || "User"}
             </div>
             <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>
-              {role || "staff"}
+              {operatorOnly ? "operator" : role || "staff"}
             </div>
           </div>
 
           <nav style={{ display: "grid", gap: 8 }}>
-            <NavItem
-              href="/dashboard"
-              label="Dashboard"
-              active={pathname === "/dashboard"}
-            />
-            <NavItem
-              href="/bookings"
-              label="Bookings"
-              active={pathname?.startsWith("/bookings") ?? false}
-            />
-            <NavItem
-              href="/jobs"
-              label="Jobs"
-              active={pathname?.startsWith("/jobs") ?? false}
-            />
-            <NavItem
-              href="/operator/jobs"
-              label="My Jobs"
-              active={pathname?.startsWith("/operator/jobs") ?? false}
-            />
-            <NavItem
-              href="/quotes"
-              label="Quotes"
-              active={pathname?.startsWith("/quotes") ?? false}
-            />
-            <NavItem
-              href="/customers"
-              label="Customers"
-              active={pathname?.startsWith("/customers") ?? false}
-            />
-            <NavItem
-              href="/equipment"
-              label="Equipment"
-              active={pathname?.startsWith("/equipment") ?? false}
-            />
-            <NavItem
-              href="/calendar"
-              label="Calendar"
-              active={pathname?.startsWith("/calendar") ?? false}
-            />
-            <NavItem
-              href="/planner"
-              label="Planner"
-              active={pathname?.startsWith("/planner") ?? false}
-            />
-            <NavItem
-              href="/settings"
-              label="Settings"
-              active={pathname?.startsWith("/settings") ?? false}
-            />
-            {role === "admin" && (
+            {operatorOnly ? (
+              <NavItem
+                href="/operator/jobs"
+                label="My Jobs"
+                active={pathname?.startsWith("/operator/jobs") ?? false}
+              />
+            ) : (
               <>
                 <NavItem
-                  href="/admin/users"
-                  label="Staff Accounts"
-                  active={pathname?.startsWith("/admin/users") ?? false}
+                  href="/dashboard"
+                  label="Dashboard"
+                  active={pathname === "/dashboard"}
                 />
                 <NavItem
-                  href="/admin/audit"
-                  label="Audit Log"
-                  active={pathname?.startsWith("/admin/audit") ?? false}
+                  href="/bookings"
+                  label="Bookings"
+                  active={pathname?.startsWith("/bookings") ?? false}
                 />
+                <NavItem
+                  href="/jobs"
+                  label="Jobs"
+                  active={pathname?.startsWith("/jobs") ?? false}
+                />
+                <NavItem
+                  href="/operator/jobs"
+                  label="My Jobs"
+                  active={pathname?.startsWith("/operator/jobs") ?? false}
+                />
+                <NavItem
+                  href="/quotes"
+                  label="Quotes"
+                  active={pathname?.startsWith("/quotes") ?? false}
+                />
+                <NavItem
+                  href="/customers"
+                  label="Customers"
+                  active={pathname?.startsWith("/customers") ?? false}
+                />
+                <NavItem
+                  href="/equipment"
+                  label="Equipment"
+                  active={pathname?.startsWith("/equipment") ?? false}
+                />
+                <NavItem
+                  href="/calendar"
+                  label="Calendar"
+                  active={pathname?.startsWith("/calendar") ?? false}
+                />
+                <NavItem
+                  href="/planner"
+                  label="Planner"
+                  active={pathname?.startsWith("/planner") ?? false}
+                />
+                <NavItem
+                  href="/settings"
+                  label="Settings"
+                  active={pathname?.startsWith("/settings") ?? false}
+                />
+                {role === "admin" && (
+                  <>
+                    <NavItem
+                      href="/admin/users"
+                      label="Staff Accounts"
+                      active={pathname?.startsWith("/admin/users") ?? false}
+                    />
+                    <NavItem
+                      href="/admin/audit"
+                      label="Audit Log"
+                      active={pathname?.startsWith("/admin/audit") ?? false}
+                    />
+                  </>
+                )}
               </>
             )}
           </nav>
