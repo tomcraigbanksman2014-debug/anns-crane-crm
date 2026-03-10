@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../lib/audit";
 
+const allowedTypes = new Set([
+  "rams",
+  "lift_plan",
+  "site_drawing",
+  "photo",
+  "delivery_note",
+  "other",
+]);
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -20,6 +29,8 @@ export async function POST(
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const rawDocumentType = String(formData.get("document_type") ?? "other").trim();
+    const documentType = allowedTypes.has(rawDocumentType) ? rawDocumentType : "other";
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
@@ -48,6 +59,7 @@ export async function POST(
         file_name: file.name,
         file_path: filePath,
         file_type: file.type || null,
+        document_type: documentType,
         uploaded_by: user.id,
       },
     ]);
@@ -66,6 +78,7 @@ export async function POST(
         job_id: params.id,
         file_name: file.name,
         file_path: filePath,
+        document_type: documentType,
       },
     });
 
