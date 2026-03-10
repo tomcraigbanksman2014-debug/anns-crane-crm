@@ -72,40 +72,56 @@ function first<T>(value: T | T[] | null | undefined): T | null {
 export default async function PlannerPage() {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: jobs, error: jobsError }, { data: equipment, error: equipmentError }] =
-    await Promise.all([
-      supabase
-        .from("jobs")
-        .select(`
+  const [
+    { data: jobs, error: jobsError },
+    { data: equipment, error: equipmentError },
+    { data: operators, error: operatorsError },
+  ] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select(`
+        id,
+        job_number,
+        job_date,
+        start_time,
+        end_time,
+        status,
+        site_name,
+        site_address,
+        equipment_id,
+        operator_id,
+        clients:client_id (
+          company_name
+        ),
+        equipment:equipment_id (
           id,
-          job_number,
-          job_date,
-          start_time,
-          end_time,
-          status,
-          site_name,
-          site_address,
-          equipment_id,
-          clients:client_id (
-            company_name
-          ),
-          equipment:equipment_id (
-            id,
-            name
-          )
-        `)
-        .in("status", ["draft", "confirmed", "in_progress"])
-        .order("job_date", { ascending: true })
-        .order("start_time", { ascending: true }),
+          name
+        ),
+        operators:operator_id (
+          id,
+          full_name,
+          status
+        )
+      `)
+      .in("status", ["draft", "confirmed", "in_progress"])
+      .order("job_date", { ascending: true })
+      .order("start_time", { ascending: true }),
 
-      supabase
-        .from("equipment")
-        .select("id, name, status")
-        .order("name", { ascending: true }),
-    ]);
+    supabase
+      .from("equipment")
+      .select("id, name, status")
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("operators")
+      .select("id, full_name, status")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
+  ]);
 
   const jobsList = jobs ?? [];
   const equipmentList = equipment ?? [];
+  const operatorsList = operators ?? [];
 
   const groupedJobs = jobsList.reduce((acc: Record<string, any[]>, job: any) => {
     const key = String(job.job_date ?? "No date");
@@ -116,7 +132,6 @@ export default async function PlannerPage() {
 
   const sortedDates = Object.keys(groupedJobs).sort((a, b) => a.localeCompare(b));
 
-  // Build a map of duplicate crane assignments by date + equipment
   const assignmentCounts: Record<string, number> = {};
   for (const job of jobsList) {
     const date = String(job.job_date ?? "");
@@ -151,7 +166,7 @@ export default async function PlannerPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Planner</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Dispatch cranes to live jobs.
+              Dispatch cranes and operators to live jobs.
             </p>
           </div>
 
@@ -160,9 +175,9 @@ export default async function PlannerPage() {
           </a>
         </div>
 
-        {(jobsError || equipmentError) && (
+        {(jobsError || equipmentError || operatorsError) && (
           <div style={errorBox}>
-            {jobsError?.message || equipmentError?.message}
+            {jobsError?.message || equipmentError?.message || operatorsError?.message}
           </div>
         )}
 
@@ -190,6 +205,7 @@ export default async function PlannerPage() {
                       {groupedJobs[dateKey].map((job: any) => {
                         const client = first(job.clients);
                         const assignedEquipment = first(job.equipment);
+                        const assignedOperator = first(job.operators);
                         const duplicate = hasDoubleBooking(job);
 
                         return (
@@ -235,6 +251,11 @@ export default async function PlannerPage() {
                                   {assignedEquipment?.name ?? "Not assigned"}
                                 </div>
 
+                                <div style={{ marginTop: 6 }}>
+                                  <strong>Current operator:</strong>{" "}
+                                  {assignedOperator?.full_name ?? "Not assigned"}
+                                </div>
+
                                 {duplicate ? (
                                   <div style={warningBox}>
                                     ⚠ This crane is assigned to more than one job on{" "}
@@ -259,8 +280,20 @@ export default async function PlannerPage() {
 
                             <PlannerAssignSelect
                               jobId={job.id}
-                              currentEquipmentId={job.equipment_id}
-                              equipment={equipmentList}
+                              currentValue={job.equipment_id}
+                              options={equipmentList}
+                              label="Assign crane"
+                              field="equipment_id"
+                              placeholder="Not assigned"
+                            />
+
+                            <PlannerAssignSelect
+                              jobId={job.id}
+                              currentValue={job.operator_id}
+                              options={operatorsList}
+                              label="Assign operator"
+                              field="operator_id"
+                              placeholder="Not assigned"
                             />
 
                             <div
@@ -350,6 +383,34 @@ export default async function PlannerPage() {
                 })}
               </div>
             )}
+
+            <div style={{ marginTop: 18 }}>
+              <h2 style={sectionTitle}>Operators</h2>
+
+              {operatorsList.length === 0 ? (
+                <p style={{ margin: 0 }}>No active operators found.</p>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {operatorsList.map((op: any) => {
+                    const assignedJobs = jobsList.filter(
+                      (job: any) => job.operator_id === op.id
+                    );
+
+                    return (
+                      <div key={op.id} style={fleetRowStyle}>
+                        <div style={{ fontWeight: 900 }}>
+                          {op.full_name ?? "Unnamed operator"}
+                        </div>
+                        <div style={mutedText}>Status: {op.status ?? "—"}</div>
+                        <div style={{ marginTop: 6, fontSize: 13 }}>
+                          <strong>Assigned jobs:</strong> {assignedJobs.length}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </section>
         </div>
       </div>
