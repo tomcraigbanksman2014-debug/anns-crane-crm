@@ -25,10 +25,7 @@ async function updateJobStatus(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  await supabase
-    .from("jobs")
-    .update({ status })
-    .eq("id", id);
+  await supabase.from("jobs").update({ status }).eq("id", id);
 }
 
 export default async function JobPage({
