@@ -15,6 +15,22 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
+async function updateJobStatus(formData: FormData) {
+  "use server";
+
+  const id = String(formData.get("id") ?? "");
+  const status = String(formData.get("status") ?? "");
+
+  if (!id || !status) return;
+
+  const supabase = createSupabaseServerClient();
+
+  await supabase
+    .from("jobs")
+    .update({ status })
+    .eq("id", id);
+}
+
 export default async function JobPage({
   params,
 }: {
@@ -95,9 +111,16 @@ export default async function JobPage({
             </p>
           </div>
 
-          <a href="/jobs" style={btnStyle}>
-            ← Back
-          </a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {job?.id ? (
+              <a href={`/jobs/${job.id}/edit`} style={actionBtn}>
+                Edit job
+              </a>
+            ) : null}
+            <a href="/jobs" style={btnStyle}>
+              ← Back
+            </a>
+          </div>
         </div>
 
         {error ? (
@@ -105,88 +128,118 @@ export default async function JobPage({
         ) : !job ? (
           <div style={errorBox}>Job not found.</div>
         ) : (
-          <div
-            style={{
-              marginTop: 16,
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 16,
-              alignItems: "start",
-            }}
-          >
-            <div style={card}>
-              <h2 style={sectionTitle}>Job details</h2>
-              <Row label="Job #" value={(job as any).job_number} />
-              <Row label="Status" value={(job as any).status} />
-              <Row label="Job date" value={fmtDate((job as any).job_date)} />
-              <Row
-                label="Time"
-                value={
-                  (job as any).start_time || (job as any).end_time
-                    ? `${(job as any).start_time ?? "—"} - ${(job as any).end_time ?? "—"}`
-                    : "—"
-                }
-              />
-              <Row label="Site name" value={(job as any).site_name} />
-              <Row label="Site address" value={(job as any).site_address} />
-              <Row label="Site contact" value={(job as any).contact_name} />
-              <Row label="Site phone" value={(job as any).contact_phone} />
-              <Row label="Hire type" value={(job as any).hire_type} />
-              <Row label="Lift type" value={(job as any).lift_type} />
-              <Row label="Created" value={fmtDateTime((job as any).created_at)} />
-              <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
-
-              <Block label="Notes" value={(job as any).notes} />
-            </div>
-
-            <div style={{ display: "grid", gap: 16 }}>
-              <div style={card}>
-                <h2 style={sectionTitle}>Customer</h2>
-                <Row label="Company" value={client?.company_name} />
-                <Row label="Contact" value={client?.contact_name} />
-                <Row label="Phone" value={client?.phone} />
-                <Row label="Email" value={client?.email} />
-
-                {client?.id ? (
-                  <div style={{ marginTop: 12 }}>
-                    <a href={`/customers/${client.id}`} style={actionBtn}>
-                      Open customer
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={card}>
-                <h2 style={sectionTitle}>Equipment</h2>
-                <Row label="Crane" value={equipment?.name} />
-                <Row label="Asset #" value={equipment?.asset_number} />
-                <Row label="Type" value={equipment?.type} />
-                <Row label="Capacity" value={equipment?.capacity} />
-                <Row label="Status" value={equipment?.status} />
-
-                {equipment?.id ? (
-                  <div style={{ marginTop: 12 }}>
-                    <a href={`/equipment/${equipment.id}`} style={actionBtn}>
-                      Open equipment
-                    </a>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={card}>
-                <h2 style={sectionTitle}>Linked records</h2>
-                <Row label="Booking linked" value={booking?.id ? "Yes" : "No"} />
-
-                {booking?.id ? (
-                  <div style={{ marginTop: 12 }}>
-                    <a href={`/bookings/${booking.id}`} style={actionBtn}>
-                      Open booking
-                    </a>
-                  </div>
-                ) : null}
+          <>
+            <div style={{ ...card, marginTop: 16 }}>
+              <h2 style={sectionTitle}>Quick status update</h2>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                {[
+                  ["draft", "Draft"],
+                  ["confirmed", "Confirmed"],
+                  ["in_progress", "In Progress"],
+                  ["completed", "Completed"],
+                  ["cancelled", "Cancelled"],
+                ].map(([value, label]) => (
+                  <form action={updateJobStatus} key={value}>
+                    <input type="hidden" name="id" value={(job as any).id} />
+                    <input type="hidden" name="status" value={value} />
+                    <button
+                      type="submit"
+                      style={
+                        (job as any).status === value
+                          ? activeStatusBtn
+                          : statusBtn
+                      }
+                    >
+                      {label}
+                    </button>
+                  </form>
+                ))}
               </div>
             </div>
-          </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 16,
+                alignItems: "start",
+              }}
+            >
+              <div style={card}>
+                <h2 style={sectionTitle}>Job details</h2>
+                <Row label="Job #" value={(job as any).job_number} />
+                <Row label="Status" value={(job as any).status} />
+                <Row label="Job date" value={fmtDate((job as any).job_date)} />
+                <Row
+                  label="Time"
+                  value={
+                    (job as any).start_time || (job as any).end_time
+                      ? `${(job as any).start_time ?? "—"} - ${(job as any).end_time ?? "—"}`
+                      : "—"
+                  }
+                />
+                <Row label="Site name" value={(job as any).site_name} />
+                <Row label="Site address" value={(job as any).site_address} />
+                <Row label="Site contact" value={(job as any).contact_name} />
+                <Row label="Site phone" value={(job as any).contact_phone} />
+                <Row label="Hire type" value={(job as any).hire_type} />
+                <Row label="Lift type" value={(job as any).lift_type} />
+                <Row label="Created" value={fmtDateTime((job as any).created_at)} />
+                <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
+
+                <Block label="Notes" value={(job as any).notes} />
+              </div>
+
+              <div style={{ display: "grid", gap: 16 }}>
+                <div style={card}>
+                  <h2 style={sectionTitle}>Customer</h2>
+                  <Row label="Company" value={client?.company_name} />
+                  <Row label="Contact" value={client?.contact_name} />
+                  <Row label="Phone" value={client?.phone} />
+                  <Row label="Email" value={client?.email} />
+
+                  {client?.id ? (
+                    <div style={{ marginTop: 12 }}>
+                      <a href={`/customers/${client.id}`} style={actionBtn}>
+                        Open customer
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={card}>
+                  <h2 style={sectionTitle}>Equipment</h2>
+                  <Row label="Crane" value={equipment?.name} />
+                  <Row label="Asset #" value={equipment?.asset_number} />
+                  <Row label="Type" value={equipment?.type} />
+                  <Row label="Capacity" value={equipment?.capacity} />
+                  <Row label="Status" value={equipment?.status} />
+
+                  {equipment?.id ? (
+                    <div style={{ marginTop: 12 }}>
+                      <a href={`/equipment/${equipment.id}`} style={actionBtn}>
+                        Open equipment
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={card}>
+                  <h2 style={sectionTitle}>Linked records</h2>
+                  <Row label="Booking linked" value={booking?.id ? "Yes" : "No"} />
+
+                  {booking?.id ? (
+                    <div style={{ marginTop: 12 }}>
+                      <a href={`/bookings/${booking.id}`} style={actionBtn}>
+                        Open booking
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </ClientShell>
@@ -277,6 +330,23 @@ const actionBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const statusBtn: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.45)",
+  cursor: "pointer",
+  fontWeight: 800,
+  color: "#111",
+};
+
+const activeStatusBtn: React.CSSProperties = {
+  ...statusBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
 };
 
 const errorBox: React.CSSProperties = {
