@@ -98,23 +98,38 @@ export default async function OperatorJobsPage() {
     );
   }
 
-  const email = String(user.email ?? "").trim().toLowerCase();
+  const authEmail = String(user.email ?? "").trim().toLowerCase();
+  const authUsername = authEmail.includes("@")
+    ? authEmail.split("@")[0]
+    : authEmail;
 
-  const { data: operator, error: operatorError } = await supabase
+  const { data: operators, error: operatorsError } = await supabase
     .from("operators")
     .select("id, full_name, email, status")
-    .ilike("email", email)
-    .maybeSingle();
+    .eq("status", "active")
+    .order("full_name", { ascending: true });
 
-  if (operatorError) {
+  if (operatorsError) {
     return (
       <ClientShell>
         <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
-          <div style={errorBox}>{operatorError.message}</div>
+          <div style={errorBox}>{operatorsError.message}</div>
         </div>
       </ClientShell>
     );
   }
+
+  const operator =
+    (operators ?? []).find((op: any) => {
+      const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+      const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+      return (
+        operatorEmail === authEmail ||
+        operatorName === authUsername ||
+        (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
+      );
+    }) ?? null;
 
   if (!operator) {
     return (
@@ -126,7 +141,17 @@ export default async function OperatorJobsPage() {
               No operator record is linked to your login yet.
             </p>
             <div style={infoBox}>
-              Ask an admin to add your login email address to your operator record.
+              Ask an admin to make the operator full name match your username, or
+              make the operator email start with your login name.
+            </div>
+
+            <div style={debugBox}>
+              <div>
+                <strong>Detected login email:</strong> {authEmail || "—"}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <strong>Detected login username:</strong> {authUsername || "—"}
+              </div>
             </div>
           </div>
         </div>
@@ -340,6 +365,15 @@ const infoBox: React.CSSProperties = {
   background: "rgba(0,120,255,0.10)",
   border: "1px solid rgba(0,120,255,0.18)",
   fontWeight: 700,
+};
+
+const debugBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
 };
 
 const errorBox: React.CSSProperties = {
