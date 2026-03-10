@@ -331,8 +331,8 @@ export default async function OperatorJobsPage() {
                     <OperatorJobActions jobId={job.id} />
 
                     <div style={{ marginTop: 12 }}>
-                      <a href={`/jobs/${job.id}`} style={openBtn}>
-                        Open full job
+                      <a href={`/operator/jobs/${job.id}`} style={openBtn}>
+                        Open job sheet
                       </a>
                     </div>
                   </div>
