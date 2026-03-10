@@ -1,13 +1,6 @@
-import type { Metadata, Viewport } from "next";
-
-export const metadata: Metadata = {
+export const metadata = {
   title: "AnnS Crane CRM",
   description: "Enterprise CRM System",
-  applicationName: "AnnS Crane CRM",
-};
-
-export const viewport: Viewport = {
-  themeColor: "#2c6fa3",
 };
 
 export default function RootLayout({
@@ -18,13 +11,17 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
-        <link rel="manifest" href="/manifest.webmanifest" />
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
       </head>
       <body
         style={{
           margin: 0,
+          minHeight: "100dvh",
+          background:
+            "linear-gradient(135deg, rgba(235,245,255,1) 0%, rgba(225,238,255,1) 45%, rgba(243,247,255,1) 100%)",
           fontFamily:
             "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
         }}
