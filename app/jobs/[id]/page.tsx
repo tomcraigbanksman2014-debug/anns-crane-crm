@@ -80,6 +80,17 @@ function documentTypeStyle(value: string | null | undefined): React.CSSPropertie
   };
 }
 
+function calcWorkedHours(startedAt: string | null | undefined, completedAt: string | null | undefined) {
+  if (!startedAt || !completedAt) return "—";
+  const start = new Date(startedAt);
+  const end = new Date(completedAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "—";
+  const diffMs = end.getTime() - start.getTime();
+  if (diffMs < 0) return "—";
+  const hours = diffMs / (1000 * 60 * 60);
+  return `${hours.toFixed(2)} hrs`;
+}
+
 async function updateJobStatus(formData: FormData) {
   "use server";
 
@@ -123,6 +134,10 @@ export default async function JobPage({
         created_at,
         updated_at,
         operator_id,
+        started_at,
+        arrived_on_site_at,
+        lift_completed_at,
+        completed_at,
         clients:client_id (
           id,
           company_name,
@@ -176,10 +191,11 @@ export default async function JobPage({
     : (job as any)?.bookings ?? null;
 
   const docs = documents ?? [];
+  const photos = docs.filter((doc: any) => String(doc.document_type ?? "") === "photo");
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -347,6 +363,36 @@ export default async function JobPage({
                 </div>
 
                 <div style={card}>
+                  <h2 style={sectionTitle}>Operator Activity</h2>
+                  <Row label="Started" value={fmtDateTime((job as any).started_at)} />
+                  <Row label="Arrived on site" value={fmtDateTime((job as any).arrived_on_site_at)} />
+                  <Row label="Lift completed" value={fmtDateTime((job as any).lift_completed_at)} />
+                  <Row label="Job completed" value={fmtDateTime((job as any).completed_at)} />
+                  <Row
+                    label="Worked time"
+                    value={calcWorkedHours((job as any).started_at, (job as any).completed_at)}
+                  />
+                </div>
+
+                <div style={card}>
+                  <h2 style={sectionTitle}>Site Photos</h2>
+                  {photos.length === 0 ? (
+                    <p style={{ margin: 0 }}>No site photos uploaded yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {photos.map((doc: any) => (
+                        <PhotoRow
+                          key={doc.id}
+                          fileName={doc.file_name}
+                          filePath={doc.file_path}
+                          createdAt={doc.created_at}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={card}>
                   <h2 style={sectionTitle}>Linked records</h2>
                   <Row label="Booking linked" value={booking?.id ? "Yes" : "No"} />
 
@@ -484,6 +530,39 @@ function DocumentRow({
         </div>
       </div>
     </div>
+  );
+}
+
+function PhotoRow({
+  fileName,
+  filePath,
+  createdAt,
+}: {
+  fileName: string;
+  filePath: string;
+  createdAt: string | null;
+}) {
+  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      style={{
+        display: "block",
+        padding: 12,
+        borderRadius: 10,
+        textDecoration: "none",
+        color: "#111",
+        background: "rgba(255,255,255,0.42)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <div style={{ fontWeight: 800 }}>{fileName}</div>
+      <div style={{ fontSize: 13, opacity: 0.72, marginTop: 4 }}>
+        Uploaded: {fmtDateTime(createdAt)}
+      </div>
+    </a>
   );
 }
 
