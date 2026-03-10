@@ -125,8 +125,17 @@ export default async function TimesheetsPage() {
             </p>
           </div>
 
-          <div style={rangeBox}>
-            Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={rangeBox}>
+              Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+            </div>
+            <a
+              href="/timesheets/print"
+              target="_blank"
+              style={printBtn}
+            >
+              Open printable version
+            </a>
           </div>
         </div>
 
@@ -208,6 +217,17 @@ const rangeBox: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
+};
+
+const printBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  border: "none",
 };
 
 const hoursPill: React.CSSProperties = {
