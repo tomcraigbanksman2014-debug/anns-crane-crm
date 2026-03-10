@@ -132,23 +132,44 @@ export default async function PlannerPage() {
 
   const sortedDates = Object.keys(groupedJobs).sort((a, b) => a.localeCompare(b));
 
-  const assignmentCounts: Record<string, number> = {};
+  // Crane assignment counts by date + equipment
+  const equipmentAssignmentCounts: Record<string, number> = {};
   for (const job of jobsList) {
     const date = String(job.job_date ?? "");
     const equipmentId = String(job.equipment_id ?? "");
     if (!date || !equipmentId) continue;
 
     const key = `${date}__${equipmentId}`;
-    assignmentCounts[key] = (assignmentCounts[key] ?? 0) + 1;
+    equipmentAssignmentCounts[key] = (equipmentAssignmentCounts[key] ?? 0) + 1;
   }
 
-  function hasDoubleBooking(job: any) {
+  // Operator assignment counts by date + operator
+  const operatorAssignmentCounts: Record<string, number> = {};
+  for (const job of jobsList) {
+    const date = String(job.job_date ?? "");
+    const operatorId = String(job.operator_id ?? "");
+    if (!date || !operatorId) continue;
+
+    const key = `${date}__${operatorId}`;
+    operatorAssignmentCounts[key] = (operatorAssignmentCounts[key] ?? 0) + 1;
+  }
+
+  function hasEquipmentDoubleBooking(job: any) {
     const date = String(job.job_date ?? "");
     const equipmentId = String(job.equipment_id ?? "");
     if (!date || !equipmentId) return false;
 
     const key = `${date}__${equipmentId}`;
-    return (assignmentCounts[key] ?? 0) > 1;
+    return (equipmentAssignmentCounts[key] ?? 0) > 1;
+  }
+
+  function hasOperatorDoubleBooking(job: any) {
+    const date = String(job.job_date ?? "");
+    const operatorId = String(job.operator_id ?? "");
+    if (!date || !operatorId) return false;
+
+    const key = `${date}__${operatorId}`;
+    return (operatorAssignmentCounts[key] ?? 0) > 1;
   }
 
   return (
@@ -206,19 +227,23 @@ export default async function PlannerPage() {
                         const client = first(job.clients);
                         const assignedEquipment = first(job.equipment);
                         const assignedOperator = first(job.operators);
-                        const duplicate = hasDoubleBooking(job);
+
+                        const equipmentConflict = hasEquipmentDoubleBooking(job);
+                        const operatorConflict = hasOperatorDoubleBooking(job);
 
                         return (
                           <div
                             key={job.id}
                             style={{
                               ...jobCardStyle,
-                              border: duplicate
-                                ? "1px solid rgba(255,0,0,0.25)"
-                                : jobCardStyle.border,
-                              background: duplicate
-                                ? "rgba(255,0,0,0.05)"
-                                : jobCardStyle.background,
+                              border:
+                                equipmentConflict || operatorConflict
+                                  ? "1px solid rgba(255,0,0,0.25)"
+                                  : jobCardStyle.border,
+                              background:
+                                equipmentConflict || operatorConflict
+                                  ? "rgba(255,0,0,0.05)"
+                                  : jobCardStyle.background,
                             }}
                           >
                             <div
@@ -256,9 +281,16 @@ export default async function PlannerPage() {
                                   {assignedOperator?.full_name ?? "Not assigned"}
                                 </div>
 
-                                {duplicate ? (
+                                {equipmentConflict ? (
                                   <div style={warningBox}>
                                     ⚠ This crane is assigned to more than one job on{" "}
+                                    {fmtDate(job.job_date)}.
+                                  </div>
+                                ) : null}
+
+                                {operatorConflict ? (
+                                  <div style={warningBox}>
+                                    ⚠ This operator is assigned to more than one job on{" "}
                                     {fmtDate(job.job_date)}.
                                   </div>
                                 ) : null}
@@ -396,8 +428,28 @@ export default async function PlannerPage() {
                       (job: any) => job.operator_id === op.id
                     );
 
+                    const duplicateDates = assignedJobs.reduce((acc: Record<string, number>, job: any) => {
+                      const key = String(job.job_date ?? "");
+                      if (!key) return acc;
+                      acc[key] = (acc[key] ?? 0) + 1;
+                      return acc;
+                    }, {});
+
+                    const hasConflict = Object.values(duplicateDates).some((count) => count > 1);
+
                     return (
-                      <div key={op.id} style={fleetRowStyle}>
+                      <div
+                        key={op.id}
+                        style={{
+                          ...fleetRowStyle,
+                          border: hasConflict
+                            ? "1px solid rgba(255,0,0,0.25)"
+                            : fleetRowStyle.border,
+                          background: hasConflict
+                            ? "rgba(255,0,0,0.05)"
+                            : fleetRowStyle.background,
+                        }}
+                      >
                         <div style={{ fontWeight: 900 }}>
                           {op.full_name ?? "Unnamed operator"}
                         </div>
@@ -405,6 +457,12 @@ export default async function PlannerPage() {
                         <div style={{ marginTop: 6, fontSize: 13 }}>
                           <strong>Assigned jobs:</strong> {assignedJobs.length}
                         </div>
+
+                        {hasConflict ? (
+                          <div style={warningBox}>
+                            ⚠ Double-booked on at least one date.
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
