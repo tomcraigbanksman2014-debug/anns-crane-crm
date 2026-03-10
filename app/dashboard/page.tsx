@@ -185,17 +185,50 @@ export default function DashboardPage() {
 
   return (
     <ClientShell>
+      <style>{`
+        @media (max-width: 900px) {
+          .dash-shell {
+            width: 100% !important;
+            padding: 16px !important;
+            border-radius: 18px !important;
+          }
+
+          .dash-header {
+            align-items: flex-start !important;
+          }
+
+          .dash-signout {
+            width: 100%;
+          }
+
+          .dash-service-grid,
+          .dash-three-col,
+          .dash-two-col {
+            grid-template-columns: 1fr !important;
+          }
+
+          .dash-row-link,
+          .dash-activity-row {
+            align-items: flex-start !important;
+          }
+        }
+      `}</style>
+
       <div
+        className="dash-shell"
         style={{
-          width: "min(1250px, 96vw)",
+          width: "100%",
+          maxWidth: 1250,
           background: "rgba(255,255,255,0.18)",
           borderRadius: 14,
           padding: 24,
           boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
           border: "1px solid rgba(255,255,255,0.4)",
+          overflowX: "hidden",
         }}
       >
         <div
+          className="dash-header"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -204,8 +237,8 @@ export default function DashboardPage() {
             alignItems: "center",
           }}
         >
-          <div>
-            <h1 style={{ margin: 0 }}>Dashboard</h1>
+          <div style={{ minWidth: 0 }}>
+            <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.1 }}>Dashboard</h1>
             <p style={{ marginTop: 8, opacity: 0.85 }}>
               {loading ? (
                 "Loading session..."
@@ -218,6 +251,7 @@ export default function DashboardPage() {
           </div>
 
           <button
+            className="dash-signout"
             onClick={signOut}
             style={{
               padding: "10px 12px",
@@ -226,6 +260,7 @@ export default function DashboardPage() {
               background: "rgba(255,255,255,0.45)",
               cursor: "pointer",
               fontWeight: 900,
+              flexShrink: 0,
             }}
           >
             Sign out
@@ -233,36 +268,13 @@ export default function DashboardPage() {
         </div>
 
         {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(255,170,0,0.14)",
-              border: "1px solid rgba(255,170,0,0.24)",
-              fontWeight: 800,
-            }}
-          >
+          <div style={alertBox("warn", false)}>
             Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
           </div>
         )}
 
         {(stats?.certExpired ?? 0) > 0 && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(255,0,0,0.12)",
-              border: "1px solid rgba(255,0,0,0.22)",
-              fontWeight: 900,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={alertBox("bad", true)}>
             <span>
               ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
             </span>
@@ -273,21 +285,7 @@ export default function DashboardPage() {
         )}
 
         {(stats?.certExpiringSoon ?? 0) > 0 && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(255,170,0,0.14)",
-              border: "1px solid rgba(255,170,0,0.24)",
-              fontWeight: 800,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={alertBox("warn", true)}>
             <span>
               ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
             </span>
@@ -298,21 +296,7 @@ export default function DashboardPage() {
         )}
 
         {(stats?.lolerOverdue ?? 0) > 0 && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(255,0,0,0.12)",
-              border: "1px solid rgba(255,0,0,0.22)",
-              fontWeight: 900,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={alertBox("bad", true)}>
             <span>
               ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
             </span>
@@ -323,21 +307,7 @@ export default function DashboardPage() {
         )}
 
         {(stats?.lolerDueSoon ?? 0) > 0 && (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(255,170,0,0.14)",
-              border: "1px solid rgba(255,170,0,0.24)",
-              fontWeight: 800,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+          <div style={alertBox("warn", true)}>
             <span>
               ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
             </span>
@@ -382,10 +352,7 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <Panel
-            title="Certification"
-            subtitle="Monitor expired and expiring equipment certificates"
-          >
+          <Panel title="Certification" subtitle="Monitor expired and expiring equipment certificates">
             <div
               style={{
                 display: "grid",
@@ -394,49 +361,28 @@ export default function DashboardPage() {
               }}
             >
               <a href="/equipment?cert=expired" style={certCard("bad")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  Expired
-                </div>
-                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                  {stats?.certExpired ?? 0}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  Equipment needing immediate action
-                </div>
+                <div style={smallTitle}>Expired</div>
+                <div style={bigValue}>{stats?.certExpired ?? 0}</div>
+                <div style={smallHelp}>Equipment needing immediate action</div>
               </a>
 
               <a href="/equipment?cert=expiring" style={certCard("warn")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  Expiring in 30 days
-                </div>
-                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                  {stats?.certExpiringSoon ?? 0}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  Review and schedule renewals
-                </div>
+                <div style={smallTitle}>Expiring in 30 days</div>
+                <div style={bigValue}>{stats?.certExpiringSoon ?? 0}</div>
+                <div style={smallHelp}>Review and schedule renewals</div>
               </a>
 
               <a href="/equipment" style={certCard("neutral")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  Open equipment register
-                </div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>
-                  View all equipment
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  See full certification status list
-                </div>
+                <div style={smallTitle}>Open equipment register</div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>View all equipment</div>
+                <div style={smallHelp}>See full certification status list</div>
               </a>
             </div>
           </Panel>
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <Panel
-            title="LOLER"
-            subtitle="Track overdue and upcoming LOLER dates"
-          >
+          <Panel title="LOLER" subtitle="Track overdue and upcoming LOLER dates">
             <div
               style={{
                 display: "grid",
@@ -445,50 +391,30 @@ export default function DashboardPage() {
               }}
             >
               <a href="/equipment?loler=overdue" style={certCard("bad")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  Overdue
-                </div>
-                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                  {stats?.lolerOverdue ?? 0}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  Immediate compliance attention needed
-                </div>
+                <div style={smallTitle}>Overdue</div>
+                <div style={bigValue}>{stats?.lolerOverdue ?? 0}</div>
+                <div style={smallHelp}>Immediate compliance attention needed</div>
               </a>
 
               <a href="/equipment?loler=due" style={certCard("warn")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  Due in 30 days
-                </div>
-                <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                  {stats?.lolerDueSoon ?? 0}
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  Book upcoming LOLER inspections
-                </div>
+                <div style={smallTitle}>Due in 30 days</div>
+                <div style={bigValue}>{stats?.lolerDueSoon ?? 0}</div>
+                <div style={smallHelp}>Book upcoming LOLER inspections</div>
               </a>
 
               <a href="/equipment?loler=indate" style={certCard("neutral")}>
-                <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                  In date view
-                </div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>
-                  Open compliant fleet
-                </div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                  See equipment with LOLER in date
-                </div>
+                <div style={smallTitle}>In date view</div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>Open compliant fleet</div>
+                <div style={smallHelp}>See equipment with LOLER in date</div>
               </a>
             </div>
           </Panel>
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <Panel
-            title="Service & maintenance"
-            subtitle="Monitor service history coverage and recent workshop activity"
-          >
+          <Panel title="Service & maintenance" subtitle="Monitor service history coverage and recent workshop activity">
             <div
+              className="dash-service-grid"
               style={{
                 display: "grid",
                 gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr)",
@@ -503,31 +429,19 @@ export default function DashboardPage() {
                 }}
               >
                 <a href="/equipment" style={certCard("neutral")}>
-                  <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                    With service history
-                  </div>
-                  <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                    {stats?.equipmentWithServiceHistory ?? 0}
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                    Equipment with at least one recorded service entry
-                  </div>
+                  <div style={smallTitle}>With service history</div>
+                  <div style={bigValue}>{stats?.equipmentWithServiceHistory ?? 0}</div>
+                  <div style={smallHelp}>Equipment with at least one recorded service entry</div>
                 </a>
 
                 <a href="/equipment" style={certCard("warn")}>
-                  <div style={{ fontSize: 12, opacity: 0.75, fontWeight: 900 }}>
-                    No service history
-                  </div>
-                  <div style={{ marginTop: 8, fontSize: 30, fontWeight: 1000 }}>
-                    {stats?.equipmentWithoutServiceHistory ?? 0}
-                  </div>
-                  <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
-                    Equipment with no recorded service entries yet
-                  </div>
+                  <div style={smallTitle}>No service history</div>
+                  <div style={bigValue}>{stats?.equipmentWithoutServiceHistory ?? 0}</div>
+                  <div style={smallHelp}>Equipment with no recorded service entries yet</div>
                 </a>
               </div>
 
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 900, marginBottom: 10 }}>Recent service activity</div>
 
                 {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
@@ -538,8 +452,8 @@ export default function DashboardPage() {
                       const equipment = first(entry.equipment);
 
                       return (
-                        <div key={entry.id} style={activityRow}>
-                          <div>
+                        <div key={entry.id} className="dash-activity-row" style={activityRow}>
+                          <div style={{ minWidth: 0 }}>
                             <div style={{ fontWeight: 900 }}>
                               {equipment?.name ?? "Equipment"} • {String(entry.entry_type ?? "note").toUpperCase()}
                             </div>
@@ -547,7 +461,9 @@ export default function DashboardPage() {
                               {fmtDate(entry.service_date)} • {entry.engineer ?? "No engineer"}
                             </div>
                           </div>
-                          <StatusPill text={entry.entry_type ?? "—"} />
+                          <div style={{ flexShrink: 0 }}>
+                            <StatusPill text={entry.entry_type ?? "—"} />
+                          </div>
                         </div>
                       );
                     })}
@@ -562,7 +478,7 @@ export default function DashboardPage() {
           style={{
             marginTop: 14,
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
             gap: 12,
           }}
         >
@@ -579,6 +495,7 @@ export default function DashboardPage() {
         </div>
 
         <div
+          className="dash-three-col"
           style={{
             marginTop: 18,
             display: "grid",
@@ -596,8 +513,8 @@ export default function DashboardPage() {
                   const equipment = first(b.equipment);
 
                   return (
-                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
-                      <div>
+                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
+                      <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
                         </div>
@@ -605,7 +522,9 @@ export default function DashboardPage() {
                           {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
                         </div>
                       </div>
-                      <StatusPill text={b.status ?? "—"} />
+                      <div style={{ flexShrink: 0 }}>
+                        <StatusPill text={b.status ?? "—"} />
+                      </div>
                     </a>
                   );
                 })}
@@ -630,8 +549,8 @@ export default function DashboardPage() {
                   const client = first(b.clients);
 
                   return (
-                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
-                      <div>
+                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
+                      <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"}
                         </div>
@@ -639,7 +558,7 @@ export default function DashboardPage() {
                           {b.start_at ? fmtDate(b.start_at) : fmtDate(b.start_date)}
                         </div>
                       </div>
-                      <div style={{ textAlign: "right" }}>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
                         </div>
@@ -656,6 +575,7 @@ export default function DashboardPage() {
         </div>
 
         <div
+          className="dash-two-col"
           style={{
             marginTop: 14,
             display: "grid",
@@ -673,8 +593,8 @@ export default function DashboardPage() {
                   const equipment = first(b.equipment);
 
                   return (
-                    <a key={b.id} href={`/bookings/${b.id}`} style={rowLink}>
-                      <div>
+                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
+                      <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
                         </div>
@@ -682,7 +602,9 @@ export default function DashboardPage() {
                           {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
                         </div>
                       </div>
-                      <StatusPill text={b.status ?? "—"} />
+                      <div style={{ flexShrink: 0 }}>
+                        <StatusPill text={b.status ?? "—"} />
+                      </div>
                     </a>
                   );
                 })}
@@ -696,8 +618,8 @@ export default function DashboardPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {stats.recentAudit.slice(0, 8).map((a) => (
-                  <div key={a.id} style={activityRow}>
-                    <div>
+                  <div key={a.id} className="dash-activity-row" style={activityRow}>
+                    <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 900 }}>
                         {(a.actor_username ?? "user")} • {a.action ?? "action"} • {a.entity_type ?? "entity"}
                       </div>
@@ -705,7 +627,9 @@ export default function DashboardPage() {
                         {fmtDateTime(a.created_at)}
                       </div>
                     </div>
-                    <StatusPill text={a.action ?? "—"} />
+                    <div style={{ flexShrink: 0 }}>
+                      <StatusPill text={a.action ?? "—"} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -735,13 +659,16 @@ function StatCard({
         borderRadius: 14,
         background: "rgba(255,255,255,0.35)",
         border: "1px solid rgba(0,0,0,0.12)",
+        minWidth: 0,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
         <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>{title}</div>
-        {badge}
+        <div style={{ flexShrink: 0 }}>{badge}</div>
       </div>
-      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>
+        {value}
+      </div>
       {subtext && <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div>}
     </div>
   );
@@ -763,6 +690,7 @@ function Panel({
         border: "1px solid rgba(0,0,0,0.10)",
         borderRadius: 14,
         padding: 16,
+        minWidth: 0,
       }}
     >
       <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
@@ -784,6 +712,7 @@ function MiniStat({ label, value }: { label: string; value: number }) {
         borderRadius: 12,
         background: "rgba(255,255,255,0.42)",
         border: "1px solid rgba(0,0,0,0.08)",
+        minWidth: 0,
       }}
     >
       <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
@@ -803,6 +732,7 @@ const rowLink: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
+  minWidth: 0,
 };
 
 const activityRow: React.CSSProperties = {
@@ -814,6 +744,7 @@ const activityRow: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
+  minWidth: 0,
 };
 
 const warningLinkStyle: React.CSSProperties = {
@@ -821,10 +752,29 @@ const warningLinkStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 900,
-  padding: "6px 10px",
+  padding: "10px 12px",
   borderRadius: 999,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
+  whiteSpace: "nowrap",
+};
+
+const smallTitle: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.75,
+  fontWeight: 900,
+};
+
+const bigValue: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 30,
+  fontWeight: 1000,
+};
+
+const smallHelp: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 13,
+  opacity: 0.8,
 };
 
 function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperties {
@@ -843,6 +793,7 @@ function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperti
     color: "#111",
     fontWeight: 900,
     textAlign: "center",
+    minWidth: 0,
     ...tones[tone],
   };
 }
@@ -869,6 +820,30 @@ function certCard(tone: "warn" | "bad" | "neutral"): React.CSSProperties {
     borderRadius: 14,
     textDecoration: "none",
     color: "#111",
+    minWidth: 0,
     ...tones[tone],
+  };
+}
+
+function alertBox(
+  tone: "warn" | "bad",
+  withLink: boolean
+): React.CSSProperties {
+  return {
+    marginTop: 14,
+    padding: "12px 14px",
+    borderRadius: 12,
+    background:
+      tone === "bad" ? "rgba(255,0,0,0.12)" : "rgba(255,170,0,0.14)",
+    border:
+      tone === "bad"
+        ? "1px solid rgba(255,0,0,0.22)"
+        : "1px solid rgba(255,170,0,0.24)",
+    fontWeight: tone === "bad" ? 900 : 800,
+    display: withLink ? "flex" : "block",
+    justifyContent: withLink ? "space-between" : undefined,
+    gap: withLink ? 12 : undefined,
+    alignItems: withLink ? "center" : undefined,
+    flexWrap: withLink ? "wrap" : undefined,
   };
 }
