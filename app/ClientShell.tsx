@@ -95,11 +95,22 @@ export default function ClientShell({
         }}
       >
         <div style={{ width: "100%", maxWidth: 1280 }}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              marginBottom: 20,
+            }}
+          >
             <img
               src="/logo.png"
               alt="AnnS Crane Hire"
-              style={{ maxWidth: 260, width: "100%", height: "auto", objectFit: "contain" }}
+              style={{
+                maxWidth: 260,
+                width: "100%",
+                height: "auto",
+                objectFit: "contain",
+              }}
             />
           </div>
           {children}
@@ -142,7 +153,12 @@ export default function ClientShell({
             <img
               src="/logo.png"
               alt="AnnS Crane Hire"
-              style={{ width: "100%", maxWidth: 180, height: "auto", objectFit: "contain" }}
+              style={{
+                width: "100%",
+                maxWidth: 180,
+                height: "auto",
+                objectFit: "contain",
+              }}
             />
           </div>
 
@@ -156,20 +172,65 @@ export default function ClientShell({
             }}
           >
             <div style={{ fontSize: 12, opacity: 0.72 }}>Signed in as</div>
-            <div style={{ fontWeight: 900, marginTop: 4 }}>{username || "User"}</div>
-            <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>{role || "staff"}</div>
+            <div style={{ fontWeight: 900, marginTop: 4 }}>
+              {username || "User"}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>
+              {role || "staff"}
+            </div>
           </div>
 
           <nav style={{ display: "grid", gap: 8 }}>
-            <NavItem href="/dashboard" label="Dashboard" active={pathname === "/dashboard"} />
-            <NavItem href="/bookings" label="Bookings" active={pathname?.startsWith("/bookings") ?? false} />
-            <NavItem href="/jobs" label="Jobs" active={pathname?.startsWith("/jobs") ?? false} />
-            <NavItem href="/quotes" label="Quotes" active={pathname?.startsWith("/quotes") ?? false} />
-            <NavItem href="/customers" label="Customers" active={pathname?.startsWith("/customers") ?? false} />
-            <NavItem href="/equipment" label="Equipment" active={pathname?.startsWith("/equipment") ?? false} />
-            <NavItem href="/calendar" label="Calendar" active={pathname?.startsWith("/calendar") ?? false} />
-            <NavItem href="/planner" label="Planner" active={pathname?.startsWith("/planner") ?? false} />
-            <NavItem href="/settings" label="Settings" active={pathname?.startsWith("/settings") ?? false} />
+            <NavItem
+              href="/dashboard"
+              label="Dashboard"
+              active={pathname === "/dashboard"}
+            />
+            <NavItem
+              href="/bookings"
+              label="Bookings"
+              active={pathname?.startsWith("/bookings") ?? false}
+            />
+            <NavItem
+              href="/jobs"
+              label="Jobs"
+              active={pathname?.startsWith("/jobs") ?? false}
+            />
+            <NavItem
+              href="/operator/jobs"
+              label="My Jobs"
+              active={pathname?.startsWith("/operator/jobs") ?? false}
+            />
+            <NavItem
+              href="/quotes"
+              label="Quotes"
+              active={pathname?.startsWith("/quotes") ?? false}
+            />
+            <NavItem
+              href="/customers"
+              label="Customers"
+              active={pathname?.startsWith("/customers") ?? false}
+            />
+            <NavItem
+              href="/equipment"
+              label="Equipment"
+              active={pathname?.startsWith("/equipment") ?? false}
+            />
+            <NavItem
+              href="/calendar"
+              label="Calendar"
+              active={pathname?.startsWith("/calendar") ?? false}
+            />
+            <NavItem
+              href="/planner"
+              label="Planner"
+              active={pathname?.startsWith("/planner") ?? false}
+            />
+            <NavItem
+              href="/settings"
+              label="Settings"
+              active={pathname?.startsWith("/settings") ?? false}
+            />
             {role === "admin" && (
               <>
                 <NavItem
