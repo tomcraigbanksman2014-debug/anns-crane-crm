@@ -21,53 +21,7 @@ function isMasterAdminEmail(email?: string | null) {
   return !!email && !!masterAdminEmail && email.toLowerCase() === masterAdminEmail;
 }
 
-function isPublicAsset(pathname: string) {
-  if (
-    pathname === "/" ||
-    pathname.startsWith("/login") ||
-    pathname.startsWith("/change-password") ||
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico" ||
-    pathname === "/site.webmanifest" ||
-    pathname === "/manifest.webmanifest" ||
-    pathname === "/sw.js" ||
-    pathname === "/robots.txt" ||
-    pathname === "/sitemap.xml" ||
-    pathname === "/logo.png" ||
-    pathname === "/apple-touch-icon.png" ||
-    pathname === "/icon.png"
-  ) {
-    return true;
-  }
-
-  if (
-    pathname.startsWith("/icon-") ||
-    pathname.startsWith("/favicon-") ||
-    pathname.startsWith("/web-app-manifest-")
-  ) {
-    return true;
-  }
-
-  if (
-    pathname.match(/\.(png|jpg|jpeg|gif|webp|svg|ico|css|js|txt|webmanifest)$/i)
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  if (isPublicAsset(pathname)) {
-    return NextResponse.next({
-      request: {
-        headers: req.headers,
-      },
-    });
-  }
-
   let res = NextResponse.next({
     request: {
       headers: req.headers,
@@ -97,6 +51,20 @@ export async function middleware(req: NextRequest) {
     }
   );
 
+  const { pathname } = req.nextUrl;
+
+  const isPublic =
+    pathname === "/" ||
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/favicon.ico") ||
+    pathname.startsWith("/logo.png") ||
+    pathname.startsWith("/public");
+
+  if (isPublic) {
+    return res;
+  }
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -108,6 +76,8 @@ export async function middleware(req: NextRequest) {
   }
 
   const isMaster = isMasterAdminEmail(user.email ?? null);
+  const role = isMaster ? "admin" : ((user.user_metadata as any)?.role ?? "");
+
   const mustChangePassword =
     !isMaster && !!(user.user_metadata as any)?.must_change_password;
 
@@ -127,7 +97,6 @@ export async function middleware(req: NextRequest) {
   }
 
   if (pathname.startsWith("/admin")) {
-    const role = (user.user_metadata as any)?.role;
     if (role !== "admin" && !isMaster) {
       const url = req.nextUrl.clone();
       url.pathname = "/dashboard";
@@ -135,9 +104,46 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  if (!isMaster && role !== "admin") {
+    const email = String(user.email ?? "").trim().toLowerCase();
+    const authUsername = email.includes("@") ? email.split("@")[0] : email;
+
+    const { data: operators } = await supabase
+      .from("operators")
+      .select("id, full_name, email, status")
+      .eq("status", "active");
+
+    const operator =
+      (operators ?? []).find((op: any) => {
+        const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+        const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+        return (
+          operatorEmail === email ||
+          operatorName === authUsername ||
+          (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
+        );
+      }) ?? null;
+
+    const isOperatorLinked = !!operator;
+
+    if (isOperatorLinked) {
+      const allowedOperatorPath =
+        pathname.startsWith("/operator/jobs") ||
+        pathname.startsWith("/api/operator/") ||
+        pathname.startsWith("/change-password");
+
+      if (!allowedOperatorPath) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/operator/jobs";
+        return NextResponse.redirect(url);
+      }
+    }
+  }
+
   return res;
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
 };
