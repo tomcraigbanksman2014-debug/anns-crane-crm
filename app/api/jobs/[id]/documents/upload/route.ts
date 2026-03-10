@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../../lib/audit";
 
 export async function POST(
   req: Request,
@@ -42,17 +42,15 @@ export async function POST(
       return NextResponse.json({ error: uploadError.message }, { status: 400 });
     }
 
-    const { error: insertError } = await supabase
-      .from("job_documents")
-      .insert([
-        {
-          job_id: params.id,
-          file_name: file.name,
-          file_path: filePath,
-          file_type: file.type || null,
-          uploaded_by: user.id,
-        },
-      ]);
+    const { error: insertError } = await supabase.from("job_documents").insert([
+      {
+        job_id: params.id,
+        file_name: file.name,
+        file_path: filePath,
+        file_type: file.type || null,
+        uploaded_by: user.id,
+      },
+    ]);
 
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 400 });
