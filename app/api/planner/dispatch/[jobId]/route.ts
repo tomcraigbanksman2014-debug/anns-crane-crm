@@ -1,65 +1,61 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { logAuditEvent } from "@/lib/audit/logAuditEvent";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
-interface RouteContext {
-  params: {
-    jobId: string;
-  };
+type Payload = {
+  equipment_id?: string | null;
+};
+
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
 }
 
-export async function DELETE(_: Request, { params }: RouteContext) {
+export async function PATCH(
+  req: Request,
+  { params }: { params: { jobId: string } }
+) {
   try {
-    const supabase = await createClient();
+    const supabase = createSupabaseServerClient();
 
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const { data: existing, error: existingError } = await supabase
-      .from("job_dispatches")
-      .select("id, job_id, equipment_id, dispatch_date")
-      .eq("job_id", params.jobId)
-      .maybeSingle();
-
-    if (existingError) {
-      return NextResponse.json({ error: existingError.message }, { status: 400 });
-    }
-
-    if (!existing) {
-      return NextResponse.json({ success: true });
-    }
+    const body = (await req.json().catch(() => ({}))) as Payload;
+    const equipmentId = norm(body.equipment_id);
 
     const { error } = await supabase
-      .from("job_dispatches")
-      .delete()
-      .eq("id", existing.id);
+      .from("jobs")
+      .update({ equipment_id: equipmentId })
+      .eq("id", params.jobId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    await logAuditEvent({
-      action: "planner.dispatch.deleted",
-      entityType: "job_dispatch",
-      entityId: existing.id,
+    await writeAuditLog({
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
+      action: "update",
+      entity_type: "planner_dispatch",
+      entity_id: params.jobId,
       meta: {
-        jobId: existing.job_id,
-        equipmentId: existing.equipment_id,
-        dispatchDate: existing.dispatch_date,
+        job_id: params.jobId,
+        equipment_id: equipmentId,
       },
     });
 
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Planner dispatch DELETE failed", error);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Failed to remove dispatch" },
-      { status: 500 }
+      { error: e?.message ?? "Could not update dispatch." },
+      { status: 400 }
     );
   }
 }
