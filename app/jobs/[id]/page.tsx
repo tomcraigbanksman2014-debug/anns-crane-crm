@@ -25,7 +25,10 @@ async function updateJobStatus(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  await supabase.from("jobs").update({ status }).eq("id", id);
+  await supabase
+    .from("jobs")
+    .update({ status })
+    .eq("id", id);
 }
 
 export default async function JobPage({
@@ -53,6 +56,7 @@ export default async function JobPage({
       notes,
       created_at,
       updated_at,
+      operator_id,
       clients:client_id (
         id,
         company_name,
@@ -66,6 +70,13 @@ export default async function JobPage({
         asset_number,
         type,
         capacity,
+        status
+      ),
+      operators:operator_id (
+        id,
+        full_name,
+        phone,
+        email,
         status
       ),
       bookings:booking_id (
@@ -82,6 +93,10 @@ export default async function JobPage({
   const equipment = Array.isArray((job as any)?.equipment)
     ? (job as any).equipment[0] ?? null
     : (job as any)?.equipment ?? null;
+
+  const operator = Array.isArray((job as any)?.operators)
+    ? (job as any).operators[0] ?? null
+    : (job as any)?.operators ?? null;
 
   const booking = Array.isArray((job as any)?.bookings)
     ? (job as any).bookings[0] ?? null
@@ -220,6 +235,14 @@ export default async function JobPage({
                       </a>
                     </div>
                   ) : null}
+                </div>
+
+                <div style={card}>
+                  <h2 style={sectionTitle}>Operator</h2>
+                  <Row label="Operator" value={operator?.full_name} />
+                  <Row label="Phone" value={operator?.phone} />
+                  <Row label="Email" value={operator?.email} />
+                  <Row label="Status" value={operator?.status} />
                 </div>
 
                 <div style={card}>
