@@ -48,6 +48,17 @@ export default function ClientShell({
   const [username, setUsername] = useState<string>("");
   const [isOperatorLinked, setIsOperatorLinked] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function handleResize() {
+      setIsMobile(window.innerWidth <= 900);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -172,75 +183,23 @@ export default function ClientShell({
     }
 
     const items = [
-      {
-        href: "/dashboard",
-        label: "Dashboard",
-        active: pathname === "/dashboard",
-      },
-      {
-        href: "/bookings",
-        label: "Bookings",
-        active: pathname?.startsWith("/bookings") ?? false,
-      },
-      {
-        href: "/jobs",
-        label: "Jobs",
-        active: pathname?.startsWith("/jobs") ?? false,
-      },
-      {
-        href: "/timesheets",
-        label: "Timesheets",
-        active: pathname?.startsWith("/timesheets") ?? false,
-      },
-      {
-        href: "/operator/jobs",
-        label: "My Jobs",
-        active: pathname?.startsWith("/operator/jobs") ?? false,
-      },
-      {
-        href: "/quotes",
-        label: "Quotes",
-        active: pathname?.startsWith("/quotes") ?? false,
-      },
-      {
-        href: "/customers",
-        label: "Customers",
-        active: pathname?.startsWith("/customers") ?? false,
-      },
-      {
-        href: "/equipment",
-        label: "Equipment",
-        active: pathname?.startsWith("/equipment") ?? false,
-      },
-      {
-        href: "/calendar",
-        label: "Calendar",
-        active: pathname?.startsWith("/calendar") ?? false,
-      },
-      {
-        href: "/planner",
-        label: "Planner",
-        active: pathname?.startsWith("/planner") ?? false,
-      },
-      {
-        href: "/settings",
-        label: "Settings",
-        active: pathname?.startsWith("/settings") ?? false,
-      },
+      { href: "/dashboard", label: "Dashboard", active: pathname === "/dashboard" },
+      { href: "/bookings", label: "Bookings", active: pathname?.startsWith("/bookings") ?? false },
+      { href: "/jobs", label: "Jobs", active: pathname?.startsWith("/jobs") ?? false },
+      { href: "/timesheets", label: "Timesheets", active: pathname?.startsWith("/timesheets") ?? false },
+      { href: "/operator/jobs", label: "My Jobs", active: pathname?.startsWith("/operator/jobs") ?? false },
+      { href: "/quotes", label: "Quotes", active: pathname?.startsWith("/quotes") ?? false },
+      { href: "/customers", label: "Customers", active: pathname?.startsWith("/customers") ?? false },
+      { href: "/equipment", label: "Equipment", active: pathname?.startsWith("/equipment") ?? false },
+      { href: "/calendar", label: "Calendar", active: pathname?.startsWith("/calendar") ?? false },
+      { href: "/planner", label: "Planner", active: pathname?.startsWith("/planner") ?? false },
+      { href: "/settings", label: "Settings", active: pathname?.startsWith("/settings") ?? false },
     ];
 
     if (role === "admin") {
       items.push(
-        {
-          href: "/admin/users",
-          label: "Staff Accounts",
-          active: pathname?.startsWith("/admin/users") ?? false,
-        },
-        {
-          href: "/admin/audit",
-          label: "Audit Log",
-          active: pathname?.startsWith("/admin/audit") ?? false,
-        }
+        { href: "/admin/users", label: "Staff Accounts", active: pathname?.startsWith("/admin/users") ?? false },
+        { href: "/admin/audit", label: "Audit Log", active: pathname?.startsWith("/admin/audit") ?? false }
       );
     }
 
@@ -254,128 +213,169 @@ export default function ClientShell({
         width: "100%",
         background:
           "linear-gradient(135deg, rgba(235,245,255,1) 0%, rgba(225,238,255,1) 45%, rgba(243,247,255,1) 100%)",
+        overflowX: "hidden",
       }}
     >
-      <style>{`
-        html, body {
-          margin: 0;
-          padding: 0;
-          min-height: 100%;
-          background: linear-gradient(135deg, rgba(235,245,255,1) 0%, rgba(225,238,255,1) 45%, rgba(243,247,255,1) 100%);
-          overflow-x: hidden;
-        }
-
-        * {
-          box-sizing: border-box;
-        }
-
-        @media (max-width: 900px) {
-          .anns-shell-grid {
-            display: block !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            padding: 12px !important;
-          }
-
-          .anns-sidebar-desktop {
-            display: none !important;
-          }
-
-          .anns-mobile-topbar {
-            display: flex !important;
-          }
-
-          .anns-main {
-            width: 100% !important;
-            min-width: 0 !important;
-          }
-        }
-
-        @media (min-width: 901px) {
-          .anns-mobile-topbar,
-          .anns-mobile-menu-overlay,
-          .anns-mobile-menu-panel {
-            display: none !important;
-          }
-        }
-      `}</style>
-
-      <div
-        className="anns-mobile-topbar"
-        style={{
-          display: "none",
-          position: "sticky",
-          top: 0,
-          zIndex: 50,
-          padding: 12,
-          gap: 10,
-          alignItems: "center",
-          justifyContent: "space-between",
-          background: "rgba(235,245,255,0.96)",
-          backdropFilter: "blur(10px)",
-          borderBottom: "1px solid rgba(0,0,0,0.06)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <img
-            src="/logo.png"
-            alt="AnnS Crane Hire"
-            style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }}
-          />
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontWeight: 900, fontSize: 15, lineHeight: 1.1 }}>
-              AnnS Crane CRM
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.72 }}>
-              {operatorOnly ? "operator" : role || "staff"}
-            </div>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => setMobileMenuOpen(true)}
-          style={{
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(0,0,0,0.10)",
-            background: "rgba(255,255,255,0.75)",
-            fontWeight: 900,
-            cursor: "pointer",
-          }}
-        >
-          Menu
-        </button>
-      </div>
-
-      {mobileMenuOpen && (
+      {isMobile ? (
         <>
           <div
-            className="anns-mobile-menu-overlay"
-            onClick={() => setMobileMenuOpen(false)}
             style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 80,
-              background: "rgba(0,0,0,0.28)",
-            }}
-          />
-          <div
-            className="anns-mobile-menu-panel"
-            style={{
-              position: "fixed",
+              position: "sticky",
               top: 0,
-              left: 0,
-              bottom: 0,
-              width: "86vw",
-              maxWidth: 320,
-              zIndex: 90,
-              background: "rgba(240,247,255,0.98)",
+              zIndex: 50,
+              padding: 12,
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+              justifyContent: "space-between",
+              background: "rgba(235,245,255,0.96)",
               backdropFilter: "blur(10px)",
-              borderRight: "1px solid rgba(0,0,0,0.08)",
-              boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
-              padding: 16,
-              overflowY: "auto",
+              borderBottom: "1px solid rgba(0,0,0,0.06)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+              <img
+                src="/logo.png"
+                alt="AnnS Crane Hire"
+                style={{ width: 40, height: 40, objectFit: "contain", flexShrink: 0 }}
+              />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 900, fontSize: 15, lineHeight: 1.1 }}>
+                  AnnS Crane CRM
+                </div>
+                <div style={{ fontSize: 12, opacity: 0.72 }}>
+                  {operatorOnly ? "operator" : role || "staff"}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileMenuOpen(true)}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid rgba(0,0,0,0.10)",
+                background: "rgba(255,255,255,0.75)",
+                fontWeight: 900,
+                cursor: "pointer",
+              }}
+            >
+              Menu
+            </button>
+          </div>
+
+          {mobileMenuOpen && (
+            <>
+              <div
+                onClick={() => setMobileMenuOpen(false)}
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 80,
+                  background: "rgba(0,0,0,0.28)",
+                }}
+              />
+              <div
+                style={{
+                  position: "fixed",
+                  top: 0,
+                  left: 0,
+                  bottom: 0,
+                  width: "86vw",
+                  maxWidth: 320,
+                  zIndex: 90,
+                  background: "rgba(240,247,255,0.98)",
+                  backdropFilter: "blur(10px)",
+                  borderRight: "1px solid rgba(0,0,0,0.08)",
+                  boxShadow: "0 10px 30px rgba(0,0,0,0.12)",
+                  padding: 16,
+                  overflowY: "auto",
+                }}
+              >
+                <div style={{ textAlign: "center", marginBottom: 16 }}>
+                  <img
+                    src="/logo.png"
+                    alt="AnnS Crane Hire"
+                    style={{
+                      width: "100%",
+                      maxWidth: 140,
+                      height: "auto",
+                      objectFit: "contain",
+                    }}
+                  />
+                </div>
+
+                <div
+                  style={{
+                    padding: "12px 14px",
+                    borderRadius: 14,
+                    background: "rgba(255,255,255,0.7)",
+                    border: "1px solid rgba(0,0,0,0.08)",
+                    marginBottom: 14,
+                  }}
+                >
+                  <div style={{ fontSize: 12, opacity: 0.72 }}>Signed in as</div>
+                  <div style={{ fontWeight: 900, marginTop: 4 }}>{username || "User"}</div>
+                  <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>
+                    {operatorOnly ? "operator" : role || "staff"}
+                  </div>
+                </div>
+
+                <nav style={{ display: "grid", gap: 8 }}>
+                  {navItems.map((item) => (
+                    <NavItem
+                      key={item.href}
+                      href={item.href}
+                      label={item.label}
+                      active={item.active}
+                      onClick={() => setMobileMenuOpen(false)}
+                    />
+                  ))}
+                </nav>
+
+                <button
+                  onClick={signOut}
+                  style={{
+                    marginTop: 16,
+                    width: "100%",
+                    padding: "12px 14px",
+                    borderRadius: 12,
+                    border: "1px solid rgba(0,0,0,0.10)",
+                    background: "rgba(255,255,255,0.85)",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
+
+          <main style={{ width: "100%", minWidth: 0, padding: 12 }}>{children}</main>
+        </>
+      ) : (
+        <div
+          style={{
+            width: "min(1440px, 98vw)",
+            margin: "0 auto",
+            display: "grid",
+            gridTemplateColumns: "280px minmax(0, 1fr)",
+            gap: 18,
+            padding: 18,
+          }}
+        >
+          <aside
+            style={{
+              background: "rgba(255,255,255,0.22)",
+              border: "1px solid rgba(255,255,255,0.45)",
+              borderRadius: 18,
+              boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+              padding: 18,
+              alignSelf: "start",
+              position: "sticky",
+              top: 18,
             }}
           >
             <div style={{ textAlign: "center", marginBottom: 16 }}>
@@ -384,7 +384,7 @@ export default function ClientShell({
                 alt="AnnS Crane Hire"
                 style={{
                   width: "100%",
-                  maxWidth: 140,
+                  maxWidth: 180,
                   height: "auto",
                   objectFit: "contain",
                 }}
@@ -395,15 +395,13 @@ export default function ClientShell({
               style={{
                 padding: "12px 14px",
                 borderRadius: 14,
-                background: "rgba(255,255,255,0.7)",
+                background: "rgba(255,255,255,0.45)",
                 border: "1px solid rgba(0,0,0,0.08)",
                 marginBottom: 14,
               }}
             >
               <div style={{ fontSize: 12, opacity: 0.72 }}>Signed in as</div>
-              <div style={{ fontWeight: 900, marginTop: 4 }}>
-                {username || "User"}
-              </div>
+              <div style={{ fontWeight: 900, marginTop: 4 }}>{username || "User"}</div>
               <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>
                 {operatorOnly ? "operator" : role || "staff"}
               </div>
@@ -416,7 +414,6 @@ export default function ClientShell({
                   href={item.href}
                   label={item.label}
                   active={item.active}
-                  onClick={() => setMobileMenuOpen(false)}
                 />
               ))}
             </nav>
@@ -429,104 +426,18 @@ export default function ClientShell({
                 padding: "12px 14px",
                 borderRadius: 12,
                 border: "1px solid rgba(0,0,0,0.10)",
-                background: "rgba(255,255,255,0.85)",
+                background: "rgba(255,255,255,0.55)",
                 fontWeight: 900,
                 cursor: "pointer",
               }}
             >
               Sign out
             </button>
-          </div>
-        </>
+          </aside>
+
+          <main style={{ minWidth: 0 }}>{children}</main>
+        </div>
       )}
-
-      <div
-        className="anns-shell-grid"
-        style={{
-          width: "min(1440px, 98vw)",
-          margin: "0 auto",
-          display: "grid",
-          gridTemplateColumns: "280px minmax(0, 1fr)",
-          gap: 18,
-          padding: 18,
-        }}
-      >
-        <aside
-          className="anns-sidebar-desktop"
-          style={{
-            background: "rgba(255,255,255,0.22)",
-            border: "1px solid rgba(255,255,255,0.45)",
-            borderRadius: 18,
-            boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
-            padding: 18,
-            alignSelf: "start",
-            position: "sticky",
-            top: 18,
-          }}
-        >
-          <div style={{ textAlign: "center", marginBottom: 16 }}>
-            <img
-              src="/logo.png"
-              alt="AnnS Crane Hire"
-              style={{
-                width: "100%",
-                maxWidth: 180,
-                height: "auto",
-                objectFit: "contain",
-              }}
-            />
-          </div>
-
-          <div
-            style={{
-              padding: "12px 14px",
-              borderRadius: 14,
-              background: "rgba(255,255,255,0.45)",
-              border: "1px solid rgba(0,0,0,0.08)",
-              marginBottom: 14,
-            }}
-          >
-            <div style={{ fontSize: 12, opacity: 0.72 }}>Signed in as</div>
-            <div style={{ fontWeight: 900, marginTop: 4 }}>
-              {username || "User"}
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.72, marginTop: 2 }}>
-              {operatorOnly ? "operator" : role || "staff"}
-            </div>
-          </div>
-
-          <nav style={{ display: "grid", gap: 8 }}>
-            {navItems.map((item) => (
-              <NavItem
-                key={item.href}
-                href={item.href}
-                label={item.label}
-                active={item.active}
-              />
-            ))}
-          </nav>
-
-          <button
-            onClick={signOut}
-            style={{
-              marginTop: 16,
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "1px solid rgba(0,0,0,0.10)",
-              background: "rgba(255,255,255,0.55)",
-              fontWeight: 900,
-              cursor: "pointer",
-            }}
-          >
-            Sign out
-          </button>
-        </aside>
-
-        <main className="anns-main" style={{ minWidth: 0 }}>
-          {children}
-        </main>
-      </div>
     </div>
   );
 }
