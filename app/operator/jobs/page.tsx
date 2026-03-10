@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import OperatorJobActions from "./OperatorJobActions";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -11,6 +12,13 @@ function fmtDate(value: string | null | undefined) {
     month: "2-digit",
     year: "numeric",
   });
+}
+
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB");
 }
 
 function prettyStatus(value: string | null | undefined) {
@@ -176,6 +184,10 @@ export default async function OperatorJobsPage() {
       contact_name,
       contact_phone,
       notes,
+      started_at,
+      arrived_on_site_at,
+      lift_completed_at,
+      completed_at,
       clients:client_id (
         company_name,
         contact_name,
@@ -300,6 +312,24 @@ export default async function OperatorJobsPage() {
                       <div style={rowValue}>{job.notes ?? "—"}</div>
                     </div>
 
+                    <div style={timelineBox}>
+                      <div style={timelineTitle}>Job activity</div>
+                      <div style={timelineRow}>
+                        <strong>Started:</strong> {fmtDateTime(job.started_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Arrived on site:</strong> {fmtDateTime(job.arrived_on_site_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Lift completed:</strong> {fmtDateTime(job.lift_completed_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Job completed:</strong> {fmtDateTime(job.completed_at)}
+                      </div>
+                    </div>
+
+                    <OperatorJobActions jobId={job.id} />
+
                     <div style={{ marginTop: 12 }}>
                       <a href={`/jobs/${job.id}`} style={openBtn}>
                         Open full job
@@ -345,6 +375,24 @@ const rowValue: React.CSSProperties = {
   marginTop: 4,
   fontSize: 15,
   fontWeight: 700,
+};
+
+const timelineBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const timelineTitle: React.CSSProperties = {
+  fontWeight: 900,
+  marginBottom: 8,
+};
+
+const timelineRow: React.CSSProperties = {
+  fontSize: 14,
+  marginTop: 6,
 };
 
 const openBtn: React.CSSProperties = {
