@@ -116,6 +116,26 @@ export default async function PlannerPage() {
 
   const sortedDates = Object.keys(groupedJobs).sort((a, b) => a.localeCompare(b));
 
+  // Build a map of duplicate crane assignments by date + equipment
+  const assignmentCounts: Record<string, number> = {};
+  for (const job of jobsList) {
+    const date = String(job.job_date ?? "");
+    const equipmentId = String(job.equipment_id ?? "");
+    if (!date || !equipmentId) continue;
+
+    const key = `${date}__${equipmentId}`;
+    assignmentCounts[key] = (assignmentCounts[key] ?? 0) + 1;
+  }
+
+  function hasDoubleBooking(job: any) {
+    const date = String(job.job_date ?? "");
+    const equipmentId = String(job.equipment_id ?? "");
+    if (!date || !equipmentId) return false;
+
+    const key = `${date}__${equipmentId}`;
+    return (assignmentCounts[key] ?? 0) > 1;
+  }
+
   return (
     <ClientShell>
       <div style={{ width: "min(1320px, 96vw)", margin: "0 auto" }}>
@@ -170,9 +190,21 @@ export default async function PlannerPage() {
                       {groupedJobs[dateKey].map((job: any) => {
                         const client = first(job.clients);
                         const assignedEquipment = first(job.equipment);
+                        const duplicate = hasDoubleBooking(job);
 
                         return (
-                          <div key={job.id} style={jobCardStyle}>
+                          <div
+                            key={job.id}
+                            style={{
+                              ...jobCardStyle,
+                              border: duplicate
+                                ? "1px solid rgba(255,0,0,0.25)"
+                                : jobCardStyle.border,
+                              background: duplicate
+                                ? "rgba(255,0,0,0.05)"
+                                : jobCardStyle.background,
+                            }}
+                          >
                             <div
                               style={{
                                 display: "flex",
@@ -202,6 +234,13 @@ export default async function PlannerPage() {
                                   <strong>Current crane:</strong>{" "}
                                   {assignedEquipment?.name ?? "Not assigned"}
                                 </div>
+
+                                {duplicate ? (
+                                  <div style={warningBox}>
+                                    ⚠ This crane is assigned to more than one job on{" "}
+                                    {fmtDate(job.job_date)}.
+                                  </div>
+                                ) : null}
                               </div>
 
                               <span
@@ -261,8 +300,28 @@ export default async function PlannerPage() {
                     (job: any) => job.equipment_id === eq.id
                   );
 
+                  const duplicateDates = assignedJobs.reduce((acc: Record<string, number>, job: any) => {
+                    const key = String(job.job_date ?? "");
+                    if (!key) return acc;
+                    acc[key] = (acc[key] ?? 0) + 1;
+                    return acc;
+                  }, {});
+
+                  const hasConflict = Object.values(duplicateDates).some((count) => count > 1);
+
                   return (
-                    <div key={eq.id} style={fleetRowStyle}>
+                    <div
+                      key={eq.id}
+                      style={{
+                        ...fleetRowStyle,
+                        border: hasConflict
+                          ? "1px solid rgba(255,0,0,0.25)"
+                          : fleetRowStyle.border,
+                        background: hasConflict
+                          ? "rgba(255,0,0,0.05)"
+                          : fleetRowStyle.background,
+                      }}
+                    >
                       <div style={{ fontWeight: 900 }}>
                         {eq.name ?? "Unnamed crane"}
                       </div>
@@ -274,6 +333,12 @@ export default async function PlannerPage() {
                       <div style={{ marginTop: 6, fontSize: 13 }}>
                         <strong>Assigned jobs:</strong> {assignedJobs.length}
                       </div>
+
+                      {hasConflict ? (
+                        <div style={warningBox}>
+                          ⚠ Double-booked on at least one date.
+                        </div>
+                      ) : null}
 
                       <div style={{ marginTop: 8 }}>
                         <a href={`/equipment/${eq.id}`} style={smallBtn}>
@@ -329,6 +394,17 @@ const mutedText: React.CSSProperties = {
   fontSize: 13,
   opacity: 0.78,
   marginTop: 4,
+};
+
+const warningBox: React.CSSProperties = {
+  marginTop: 10,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.18)",
+  color: "#b00020",
+  fontSize: 13,
+  fontWeight: 700,
 };
 
 const btnStyle: React.CSSProperties = {
