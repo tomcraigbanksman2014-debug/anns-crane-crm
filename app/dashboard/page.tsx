@@ -189,7 +189,9 @@ export default function DashboardPage() {
         @media (max-width: 900px) {
           .dash-shell {
             width: 100% !important;
-            padding: 16px !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
+            padding: 14px !important;
             border-radius: 18px !important;
           }
 
@@ -211,6 +213,12 @@ export default function DashboardPage() {
           .dash-activity-row {
             align-items: flex-start !important;
           }
+
+          .dash-warning-link {
+            white-space: normal !important;
+            width: 100%;
+            text-align: center;
+          }
         }
       `}</style>
 
@@ -219,6 +227,7 @@ export default function DashboardPage() {
         style={{
           width: "100%",
           maxWidth: 1250,
+          boxSizing: "border-box",
           background: "rgba(255,255,255,0.18)",
           borderRadius: 14,
           padding: 24,
@@ -278,7 +287,7 @@ export default function DashboardPage() {
             <span>
               ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
             </span>
-            <a href="/equipment?cert=expired" style={warningLinkStyle}>
+            <a href="/equipment?cert=expired" className="dash-warning-link" style={warningLinkStyle}>
               View expired equipment →
             </a>
           </div>
@@ -289,7 +298,7 @@ export default function DashboardPage() {
             <span>
               ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
             </span>
-            <a href="/equipment?cert=expiring" style={warningLinkStyle}>
+            <a href="/equipment?cert=expiring" className="dash-warning-link" style={warningLinkStyle}>
               View expiring equipment →
             </a>
           </div>
@@ -300,7 +309,7 @@ export default function DashboardPage() {
             <span>
               ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
             </span>
-            <a href="/equipment?loler=overdue" style={warningLinkStyle}>
+            <a href="/equipment?loler=overdue" className="dash-warning-link" style={warningLinkStyle}>
               View overdue LOLER →
             </a>
           </div>
@@ -311,7 +320,7 @@ export default function DashboardPage() {
             <span>
               ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
             </span>
-            <a href="/equipment?loler=due" style={warningLinkStyle}>
+            <a href="/equipment?loler=due" className="dash-warning-link" style={warningLinkStyle}>
               View LOLER due soon →
             </a>
           </div>
