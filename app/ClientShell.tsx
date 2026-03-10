@@ -236,6 +236,11 @@ export default function ClientShell({
                   active={pathname?.startsWith("/jobs") ?? false}
                 />
                 <NavItem
+                  href="/timesheets"
+                  label="Timesheets"
+                  active={pathname?.startsWith("/timesheets") ?? false}
+                />
+                <NavItem
                   href="/operator/jobs"
                   label="My Jobs"
                   active={pathname?.startsWith("/operator/jobs") ?? false}
