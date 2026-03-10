@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import DocumentUploadForm from "./DocumentUploadForm";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -38,53 +39,61 @@ export default async function JobPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const { data: job, error } = await supabase
-    .from("jobs")
-    .select(`
-      id,
-      job_number,
-      site_name,
-      site_address,
-      contact_name,
-      contact_phone,
-      job_date,
-      start_time,
-      end_time,
-      status,
-      hire_type,
-      lift_type,
-      notes,
-      created_at,
-      updated_at,
-      operator_id,
-      clients:client_id (
+  const [{ data: job, error }, { data: documents }] = await Promise.all([
+    supabase
+      .from("jobs")
+      .select(`
         id,
-        company_name,
+        job_number,
+        site_name,
+        site_address,
         contact_name,
-        phone,
-        email
-      ),
-      equipment:equipment_id (
-        id,
-        name,
-        asset_number,
-        type,
-        capacity,
-        status
-      ),
-      operators:operator_id (
-        id,
-        full_name,
-        phone,
-        email,
-        status
-      ),
-      bookings:booking_id (
-        id
-      )
-    `)
-    .eq("id", params.id)
-    .single();
+        contact_phone,
+        job_date,
+        start_time,
+        end_time,
+        status,
+        hire_type,
+        lift_type,
+        notes,
+        created_at,
+        updated_at,
+        operator_id,
+        clients:client_id (
+          id,
+          company_name,
+          contact_name,
+          phone,
+          email
+        ),
+        equipment:equipment_id (
+          id,
+          name,
+          asset_number,
+          type,
+          capacity,
+          status
+        ),
+        operators:operator_id (
+          id,
+          full_name,
+          phone,
+          email,
+          status
+        ),
+        bookings:booking_id (
+          id
+        )
+      `)
+      .eq("id", params.id)
+      .single(),
+
+    supabase
+      .from("job_documents")
+      .select("id, file_name, file_path, file_type, created_at")
+      .eq("job_id", params.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   const client = Array.isArray((job as any)?.clients)
     ? (job as any).clients[0] ?? null
@@ -101,6 +110,8 @@ export default async function JobPage({
   const booking = Array.isArray((job as any)?.bookings)
     ? (job as any).bookings[0] ?? null
     : (job as any)?.bookings ?? null;
+
+  const docs = documents ?? [];
 
   return (
     <ClientShell>
@@ -178,29 +189,52 @@ export default async function JobPage({
                 alignItems: "start",
               }}
             >
-              <div style={card}>
-                <h2 style={sectionTitle}>Job details</h2>
-                <Row label="Job #" value={(job as any).job_number} />
-                <Row label="Status" value={(job as any).status} />
-                <Row label="Job date" value={fmtDate((job as any).job_date)} />
-                <Row
-                  label="Time"
-                  value={
-                    (job as any).start_time || (job as any).end_time
-                      ? `${(job as any).start_time ?? "—"} - ${(job as any).end_time ?? "—"}`
-                      : "—"
-                  }
-                />
-                <Row label="Site name" value={(job as any).site_name} />
-                <Row label="Site address" value={(job as any).site_address} />
-                <Row label="Site contact" value={(job as any).contact_name} />
-                <Row label="Site phone" value={(job as any).contact_phone} />
-                <Row label="Hire type" value={(job as any).hire_type} />
-                <Row label="Lift type" value={(job as any).lift_type} />
-                <Row label="Created" value={fmtDateTime((job as any).created_at)} />
-                <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
+              <div style={{ display: "grid", gap: 16 }}>
+                <div style={card}>
+                  <h2 style={sectionTitle}>Job details</h2>
+                  <Row label="Job #" value={(job as any).job_number} />
+                  <Row label="Status" value={(job as any).status} />
+                  <Row label="Job date" value={fmtDate((job as any).job_date)} />
+                  <Row
+                    label="Time"
+                    value={
+                      (job as any).start_time || (job as any).end_time
+                        ? `${(job as any).start_time ?? "—"} - ${(job as any).end_time ?? "—"}`
+                        : "—"
+                    }
+                  />
+                  <Row label="Site name" value={(job as any).site_name} />
+                  <Row label="Site address" value={(job as any).site_address} />
+                  <Row label="Site contact" value={(job as any).contact_name} />
+                  <Row label="Site phone" value={(job as any).contact_phone} />
+                  <Row label="Hire type" value={(job as any).hire_type} />
+                  <Row label="Lift type" value={(job as any).lift_type} />
+                  <Row label="Created" value={fmtDateTime((job as any).created_at)} />
+                  <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
 
-                <Block label="Notes" value={(job as any).notes} />
+                  <Block label="Notes" value={(job as any).notes} />
+                </div>
+
+                <div style={card}>
+                  <h2 style={sectionTitle}>Documents</h2>
+
+                  <DocumentUploadForm jobId={(job as any).id} />
+
+                  <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                    {docs.length === 0 ? (
+                      <p style={{ margin: 0 }}>No documents uploaded yet.</p>
+                    ) : (
+                      docs.map((doc: any) => (
+                        <DocumentRow
+                          key={doc.id}
+                          fileName={doc.file_name}
+                          filePath={doc.file_path}
+                          createdAt={doc.created_at}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
@@ -311,6 +345,39 @@ function Block({
         }}
       >
         {value || "—"}
+      </div>
+    </div>
+  );
+}
+
+function DocumentRow({
+  fileName,
+  filePath,
+  createdAt,
+}: {
+  fileName: string;
+  filePath: string;
+  createdAt: string | null;
+}) {
+  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
+
+  return (
+    <div
+      style={{
+        padding: 12,
+        borderRadius: 10,
+        background: "rgba(255,255,255,0.42)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <div style={{ fontWeight: 800 }}>{fileName}</div>
+      <div style={{ fontSize: 13, opacity: 0.72, marginTop: 4 }}>
+        Uploaded: {fmtDateTime(createdAt)}
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <a href={href} target="_blank" style={actionBtn}>
+          Open document
+        </a>
       </div>
     </div>
   );
