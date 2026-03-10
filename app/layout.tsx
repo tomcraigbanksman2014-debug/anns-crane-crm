@@ -1,22 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import ServiceWorkerRegister from "./components/ServiceWorkerRegister";
 
 export const metadata: Metadata = {
   title: "AnnS Crane CRM",
   description: "Enterprise CRM System",
   applicationName: "AnnS Crane CRM",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "AnnS Crane CRM",
-  },
-  formatDetection: {
-    telephone: false,
-  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#e9f3ff",
+  themeColor: "#2c6fa3",
 };
 
 export default function RootLayout({
@@ -26,6 +17,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/favicon.ico" sizes="any" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      </head>
       <body
         style={{
           margin: 0,
@@ -33,7 +29,6 @@ export default function RootLayout({
             "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
         }}
       >
-        <ServiceWorkerRegister />
         {children}
       </body>
     </html>
