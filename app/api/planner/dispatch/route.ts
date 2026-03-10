@@ -1,103 +1,65 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
-import { logAuditEvent } from "@/lib/audit/logAuditEvent";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { writeAuditLog } from "../../../lib/audit";
 
-interface DispatchPayload {
-  jobId: string;
-  equipmentId: string;
-  dispatchDate: string;
-  startTime?: string | null;
-  endTime?: string | null;
-  operatorName?: string | null;
-  notes?: string | null;
+type Payload = {
+  job_id?: string | null;
+  equipment_id?: string | null;
+};
+
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
 }
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const supabase = await createClient();
+    const supabase = createSupabaseServerClient();
 
     const {
       data: { user },
+      error: userError,
     } = await supabase.auth.getUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const body = (await request.json()) as DispatchPayload;
+    const body = (await req.json().catch(() => ({}))) as Payload;
 
-    if (!body.jobId || !body.equipmentId || !body.dispatchDate) {
-      return NextResponse.json(
-        { error: "jobId, equipmentId and dispatchDate are required" },
-        { status: 400 }
-      );
+    const jobId = norm(body.job_id);
+    const equipmentId = norm(body.equipment_id);
+
+    if (!jobId) {
+      return NextResponse.json({ error: "Job is required" }, { status: 400 });
     }
 
-    const { data: existingDispatch } = await supabase
-      .from("job_dispatches")
-      .select("id")
-      .eq("job_id", body.jobId)
-      .maybeSingle();
+    const { error } = await supabase
+      .from("jobs")
+      .update({ equipment_id: equipmentId })
+      .eq("id", jobId);
 
-    let result;
-
-    if (existingDispatch) {
-      result = await supabase
-        .from("job_dispatches")
-        .update({
-          equipment_id: body.equipmentId,
-          dispatch_date: body.dispatchDate,
-          start_time: body.startTime ?? null,
-          end_time: body.endTime ?? null,
-          operator_name: body.operatorName ?? null,
-          notes: body.notes ?? null,
-          updated_by: user.id,
-        })
-        .eq("id", existingDispatch.id)
-        .select()
-        .single();
-    } else {
-      result = await supabase
-        .from("job_dispatches")
-        .insert({
-          job_id: body.jobId,
-          equipment_id: body.equipmentId,
-          dispatch_date: body.dispatchDate,
-          start_time: body.startTime ?? null,
-          end_time: body.endTime ?? null,
-          operator_name: body.operatorName ?? null,
-          notes: body.notes ?? null,
-          created_by: user.id,
-          updated_by: user.id,
-        })
-        .select()
-        .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    if (result.error) {
-      return NextResponse.json(
-        { error: result.error.message },
-        { status: 400 }
-      );
-    }
-
-    await logAuditEvent({
-      action: existingDispatch ? "planner.dispatch.updated" : "planner.dispatch.created",
-      entityType: "job_dispatch",
-      entityId: result.data.id,
+    await writeAuditLog({
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
+      action: "update",
+      entity_type: "planner_dispatch",
+      entity_id: jobId,
       meta: {
-        jobId: body.jobId,
-        equipmentId: body.equipmentId,
-        dispatchDate: body.dispatchDate,
+        job_id: jobId,
+        equipment_id: equipmentId,
       },
     });
 
-    return NextResponse.json({ success: true, dispatch: result.data });
-  } catch (error) {
-    console.error("Planner dispatch POST failed", error);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
     return NextResponse.json(
-      { error: "Failed to save dispatch" },
-      { status: 500 }
+      { error: e?.message ?? "Could not dispatch job." },
+      { status: 400 }
     );
   }
 }
