@@ -59,7 +59,8 @@ export default function ClientShell({
         .trim()
         .toLowerCase();
 
-      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+      const isMaster =
+        !!email && !!masterAdminEmail && email === masterAdminEmail;
 
       setRole(isMaster ? "admin" : ((user.user_metadata as any)?.role ?? ""));
       setUsername(user.email ? user.email.split("@")[0] : "");
@@ -162,6 +163,7 @@ export default function ClientShell({
           <nav style={{ display: "grid", gap: 8 }}>
             <NavItem href="/dashboard" label="Dashboard" active={pathname === "/dashboard"} />
             <NavItem href="/bookings" label="Bookings" active={pathname?.startsWith("/bookings") ?? false} />
+            <NavItem href="/jobs" label="Jobs" active={pathname?.startsWith("/jobs") ?? false} />
             <NavItem href="/quotes" label="Quotes" active={pathname?.startsWith("/quotes") ?? false} />
             <NavItem href="/customers" label="Customers" active={pathname?.startsWith("/customers") ?? false} />
             <NavItem href="/equipment" label="Equipment" active={pathname?.startsWith("/equipment") ?? false} />
