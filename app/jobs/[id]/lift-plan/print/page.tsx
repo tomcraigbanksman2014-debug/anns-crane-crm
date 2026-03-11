@@ -1,4 +1,5 @@
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import PrintLiftPlanButton from "./PrintLiftPlanButton";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -84,24 +85,12 @@ export default async function LiftPlanPrintPage({
           gap: 12,
           flexWrap: "wrap",
           marginBottom: 20,
+          alignItems: "center",
         }}
       >
         <h1 style={{ margin: 0 }}>AnnS Crane Hire Lift Plan</h1>
 
-        <button
-          onClick={() => window.print()}
-          style={{
-            padding: "10px 14px",
-            borderRadius: 10,
-            border: "1px solid rgba(0,0,0,0.15)",
-            background: "#111",
-            color: "#fff",
-            fontWeight: 800,
-            cursor: "pointer",
-          }}
-        >
-          Print / Save as PDF
-        </button>
+        <PrintLiftPlanButton />
       </div>
 
       <section style={printCard}>
@@ -175,11 +164,16 @@ function PrintGrid({
         gap: 10,
       }}
     >
-      {rows.map(([label, value]) => (
-        <>
+      {rows.map(([label, value], index) => (
+        <div
+          key={`${label}-${index}`}
+          style={{
+            display: "contents",
+          }}
+        >
           <div style={{ fontWeight: 800, opacity: 0.78 }}>{label}</div>
           <div>{val(value)}</div>
-        </>
+        </div>
       ))}
     </div>
   );
