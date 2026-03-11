@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { writeAuditLog } from "../../../../lib/audit";
 
 function cleanNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
