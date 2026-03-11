@@ -85,29 +85,35 @@ export default function LiftPlanForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  async function postForm(payload: LiftPlanData) {
+    const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(data?.error || "Error saving lift plan.");
+    }
+
+    return data;
+  }
+
   async function save() {
+    if (locked) return;
+
     setSaving(true);
     setMsg("");
 
     try {
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(form),
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setMsg(data?.error || "Error saving lift plan.");
-        return;
-      }
-
+      await postForm(form);
       setMsg("Lift plan / RAMS saved.");
-    } catch {
-      setMsg("Error saving lift plan.");
+    } catch (e: any) {
+      setMsg(e?.message || "Error saving lift plan.");
     } finally {
       setSaving(false);
     }
@@ -116,6 +122,7 @@ export default function LiftPlanForm({
   function approveNow() {
     if (locked) return;
     const now = new Date().toISOString();
+
     setForm((prev) => ({
       ...prev,
       approved_at: now,
@@ -124,14 +131,30 @@ export default function LiftPlanForm({
     }));
   }
 
-  function finaliseNow() {
+  async function finaliseNow() {
     if (locked) return;
-    const now = new Date().toISOString();
-    setForm((prev) => ({
-      ...prev,
-      finalised_at: now,
-      paperwork_locked: true,
-    }));
+
+    setSaving(true);
+    setMsg("");
+
+    try {
+      const now = new Date().toISOString();
+
+      const finalPayload: LiftPlanData = {
+        ...form,
+        finalised_at: now,
+        paperwork_locked: true,
+      };
+
+      await postForm(finalPayload);
+
+      setForm(finalPayload);
+      setMsg("Paperwork finalised and locked.");
+    } catch (e: any) {
+      setMsg(e?.message || "Could not finalise paperwork.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -346,7 +369,7 @@ export default function LiftPlanForm({
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-          <button type="button" onClick={approveNow} style={secondaryBtn} disabled={locked}>
+          <button type="button" onClick={approveNow} style={secondaryBtn} disabled={locked || saving}>
             Mark approved now
           </button>
         </div>
@@ -387,16 +410,21 @@ export default function LiftPlanForm({
           <input
             type="checkbox"
             checked={!!form.paperwork_locked}
-            onChange={(e) => update("paperwork_locked", e.target.checked)}
-            disabled={locked}
+            readOnly
+            disabled
           />
           <span>Paperwork locked</span>
         </label>
 
         {!locked ? (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-            <button type="button" onClick={finaliseNow} style={finaliseBtn}>
-              Finalise & lock paperwork
+            <button
+              type="button"
+              onClick={finaliseNow}
+              style={finaliseBtn}
+              disabled={saving}
+            >
+              {saving ? "Finalising..." : "Finalise & lock paperwork"}
             </button>
           </div>
         ) : null}
