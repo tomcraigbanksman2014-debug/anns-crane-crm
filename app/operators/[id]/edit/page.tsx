@@ -1,12 +1,14 @@
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 async function updateOperator(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
 
-  const id = String(formData.get("id") ?? "");
+  const id = String(formData.get("id") ?? "").trim();
   const full_name = String(formData.get("full_name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
@@ -14,7 +16,7 @@ async function updateOperator(formData: FormData) {
 
   if (!id) return;
 
-  await supabase
+  const { error } = await supabase
     .from("operators")
     .update({
       full_name: full_name || null,
@@ -23,6 +25,16 @@ async function updateOperator(formData: FormData) {
       status: status || "active",
     })
     .eq("id", id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath("/operators");
+  revalidatePath(`/operators/${id}`);
+  revalidatePath(`/operators/${id}/edit`);
+
+  redirect(`/operators/${id}`);
 }
 
 export default async function EditOperatorPage({
