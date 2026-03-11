@@ -13,6 +13,10 @@ function cleanText(value: unknown) {
   return s.length ? s : null;
 }
 
+function cleanBool(value: unknown) {
+  return value === true;
+}
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
@@ -70,9 +74,20 @@ export async function POST(
       lifting_accessories: cleanText(body.lifting_accessories),
       method_statement: cleanText(body.method_statement),
       risk_assessment: cleanText(body.risk_assessment),
+      site_hazards: cleanText(body.site_hazards),
+      control_measures: cleanText(body.control_measures),
+      ppe_required: cleanText(body.ppe_required),
+      exclusion_zone_details: cleanText(body.exclusion_zone_details),
+      weather_limitations: cleanText(body.weather_limitations),
+      emergency_procedures: cleanText(body.emergency_procedures),
       lift_supervisor: cleanText(body.lift_supervisor),
       appointed_person: cleanText(body.appointed_person),
       crane_operator: cleanText(body.crane_operator),
+      rams_complete: cleanBool(body.rams_complete),
+      lift_plan_complete: cleanBool(body.lift_plan_complete),
+      approved_by: cleanText(body.approved_by),
+      approved_at: body.approved_at ? new Date(body.approved_at).toISOString() : null,
+      approval_notes: cleanText(body.approval_notes),
       updated_at: new Date().toISOString(),
     };
 
@@ -102,9 +117,7 @@ export async function POST(
         action: "update",
         entity_type: "lift_plan",
         entity_id: existing.id,
-        meta: {
-          job_id: params.id,
-        },
+        meta: { job_id: params.id },
       });
     } else {
       const { data: inserted, error: insertError } = await supabase
@@ -126,9 +139,7 @@ export async function POST(
         action: "create",
         entity_type: "lift_plan",
         entity_id: inserted.id,
-        meta: {
-          job_id: params.id,
-        },
+        meta: { job_id: params.id },
       });
     }
 
