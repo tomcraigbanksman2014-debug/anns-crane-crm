@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type InvoiceLine = {
   description: string;
@@ -17,27 +17,142 @@ function num(v: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function clean(value: string | null | undefined) {
+  return String(value ?? "").trim();
+}
+
+function buildDefaultLines({
+  craneName,
+  operatorName,
+  siteName,
+  jobDate,
+}: {
+  craneName?: string | null;
+  operatorName?: string | null;
+  siteName?: string | null;
+  jobDate?: string | null;
+}) {
+  const formattedDate = jobDate
+    ? new Date(jobDate).toLocaleDateString("en-GB", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      })
+    : "";
+
+  const mainDescriptionParts = [
+    craneName ? `${craneName} crane hire` : "Crane hire",
+    operatorName ? `Operator: ${operatorName}` : "",
+    siteName ? `Site: ${siteName}` : "",
+    formattedDate ? `Date: ${formattedDate}` : "",
+  ].filter(Boolean);
+
+  return [
+    {
+      description: mainDescriptionParts.join("\n"),
+      qty: "1",
+      unit_price: "0",
+    },
+    {
+      description: "Lift supervisor / slinger / support labour",
+      qty: "1",
+      unit_price: "0",
+    },
+    {
+      description: "Travel / transport / mobilisation",
+      qty: "1",
+      unit_price: "0",
+    },
+    {
+      description: "Mats / ancillary equipment",
+      qty: "1",
+      unit_price: "0",
+    },
+  ];
+}
+
+function buildDefaultNotes({
+  jobNumber,
+  siteName,
+  siteAddress,
+  customerName,
+  craneName,
+  operatorName,
+}: {
+  jobNumber?: string | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  customerName?: string | null;
+  craneName?: string | null;
+  operatorName?: string | null;
+}) {
+  const parts = [
+    jobNumber ? `Reference: Job ${jobNumber}` : "",
+    customerName ? `Customer: ${customerName}` : "",
+    craneName ? `Crane: ${craneName}` : "",
+    operatorName ? `Operator: ${operatorName}` : "",
+    siteName ? `Site: ${siteName}` : "",
+    siteAddress ? `Address: ${siteAddress}` : "",
+  ].filter(Boolean);
+
+  return parts.join("\n");
+}
+
 export default function InvoiceBuilder({
   jobId,
+  jobNumber,
+  customerName,
+  craneName,
+  operatorName,
+  siteName,
+  siteAddress,
+  jobDate,
 }: {
   jobId: string;
+  jobNumber?: string | null;
+  customerName?: string | null;
+  craneName?: string | null;
+  operatorName?: string | null;
+  siteName?: string | null;
+  siteAddress?: string | null;
+  jobDate?: string | null;
 }) {
-  const [lines, setLines] = useState<InvoiceLine[]>([
-    { description: "Crane hire", qty: "1", unit_price: "0" },
-    { description: "Operator", qty: "1", unit_price: "0" },
-    { description: "Travel", qty: "1", unit_price: "0" },
-  ]);
+  const [lines, setLines] = useState<InvoiceLine[]>([]);
   const [invoiceNotes, setInvoiceNotes] = useState("");
   const [vatRate, setVatRate] = useState("20");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
   const [generated, setGenerated] = useState(false);
 
+  useEffect(() => {
+    setLines(
+      buildDefaultLines({
+        craneName,
+        operatorName,
+        siteName,
+        jobDate,
+      })
+    );
+
+    setInvoiceNotes(
+      buildDefaultNotes({
+        jobNumber,
+        siteName,
+        siteAddress,
+        customerName,
+        craneName,
+        operatorName,
+      })
+    );
+  }, [jobNumber, customerName, craneName, operatorName, siteName, siteAddress, jobDate]);
+
   const subtotal = useMemo(
     () =>
       lines.reduce((sum, line) => sum + num(line.qty) * num(line.unit_price), 0),
     [lines]
   );
+
   const vat = subtotal * (num(vatRate) / 100);
   const total = subtotal + vat;
 
@@ -53,6 +168,28 @@ export default function InvoiceBuilder({
 
   function removeLine(index: number) {
     setLines((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function resetTemplate() {
+    setLines(
+      buildDefaultLines({
+        craneName,
+        operatorName,
+        siteName,
+        jobDate,
+      })
+    );
+
+    setInvoiceNotes(
+      buildDefaultNotes({
+        jobNumber,
+        siteName,
+        siteAddress,
+        customerName,
+        craneName,
+        operatorName,
+      })
+    );
   }
 
   async function generate() {
@@ -102,13 +239,36 @@ export default function InvoiceBuilder({
       >
         <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 22 }}>Invoice Builder</h2>
 
-        <a
-          href={`/jobs/${jobId}/invoice/print`}
-          target="_blank"
-          style={secondaryBtnLink}
-        >
-          Open Invoice PDF
-        </a>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" onClick={resetTemplate} style={secondaryBtn}>
+            Reset template
+          </button>
+
+          <a
+            href={`/jobs/${jobId}/invoice/print`}
+            target="_blank"
+            style={secondaryBtnLink}
+          >
+            Open Invoice PDF
+          </a>
+        </div>
+      </div>
+
+      <div
+        style={{
+          marginBottom: 12,
+          padding: 12,
+          borderRadius: 10,
+          background: "rgba(255,255,255,0.55)",
+          border: "1px solid rgba(0,0,0,0.08)",
+          fontSize: 13,
+          lineHeight: 1.5,
+        }}
+      >
+        <div><strong>Customer:</strong> {clean(customerName) || "—"}</div>
+        <div><strong>Crane:</strong> {clean(craneName) || "—"}</div>
+        <div><strong>Operator:</strong> {clean(operatorName) || "—"}</div>
+        <div><strong>Site:</strong> {clean(siteName) || "—"}</div>
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
@@ -119,14 +279,15 @@ export default function InvoiceBuilder({
               display: "grid",
               gridTemplateColumns: "minmax(0, 2fr) 110px 140px auto",
               gap: 10,
-              alignItems: "center",
+              alignItems: "start",
             }}
           >
-            <input
+            <textarea
               value={line.description}
               onChange={(e) => updateLine(index, "description", e.target.value)}
               placeholder="Description"
-              style={inputStyle}
+              rows={4}
+              style={textAreaStyle}
             />
             <input
               value={line.qty}
@@ -175,7 +336,7 @@ export default function InvoiceBuilder({
         <textarea
           value={invoiceNotes}
           onChange={(e) => setInvoiceNotes(e.target.value)}
-          rows={4}
+          rows={5}
           style={textAreaStyle}
         />
       </div>
