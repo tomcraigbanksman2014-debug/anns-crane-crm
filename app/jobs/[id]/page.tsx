@@ -92,6 +92,10 @@ function calcWorkedHours(startedAt: string | null | undefined, completedAt: stri
   return `${hours.toFixed(2)} hrs`;
 }
 
+function hasText(value: any) {
+  return String(value ?? "").trim().length > 0;
+}
+
 async function updateJobStatus(formData: FormData) {
   "use server";
 
@@ -101,7 +105,6 @@ async function updateJobStatus(formData: FormData) {
   if (!id || !status) return;
 
   const supabase = createSupabaseServerClient();
-
   await supabase.from("jobs").update({ status }).eq("id", id);
 }
 
@@ -200,6 +203,42 @@ export default async function JobPage({
 
   const docs = documents ?? [];
   const photos = docs.filter((doc: any) => String(doc.document_type ?? "") === "photo");
+  const ramsDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "rams");
+  const liftPlanDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "lift_plan");
+  const siteDrawingDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "site_drawing");
+  const deliveryNoteDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "delivery_note");
+
+  const liftPlanPresent =
+    !!liftPlan &&
+    (
+      hasText(liftPlan.load_description) ||
+      liftPlan.load_weight !== null ||
+      liftPlan.lift_radius !== null ||
+      liftPlan.lift_height !== null
+    );
+
+  const ramsPresent =
+    !!liftPlan &&
+    (
+      hasText(liftPlan.method_statement) ||
+      hasText(liftPlan.risk_assessment) ||
+      hasText(liftPlan.site_hazards) ||
+      hasText(liftPlan.control_measures)
+    );
+
+  const personnelPresent =
+    !!liftPlan &&
+    (
+      hasText(liftPlan.lift_supervisor) ||
+      hasText(liftPlan.appointed_person) ||
+      hasText(liftPlan.crane_operator)
+    );
+
+  const paperworkReady =
+    !!liftPlan?.lift_plan_complete &&
+    !!liftPlan?.rams_complete &&
+    hasText(liftPlan?.approved_by) &&
+    !!liftPlan?.approved_at;
 
   return (
     <ClientShell>
@@ -268,6 +307,25 @@ export default async function JobPage({
               </div>
             </div>
 
+            <div style={{ marginTop: 16 }}>
+              <PaperworkDashboard
+                liftPlanPresent={liftPlanPresent}
+                ramsPresent={ramsPresent}
+                personnelPresent={personnelPresent}
+                liftPlanComplete={!!liftPlan?.lift_plan_complete}
+                ramsComplete={!!liftPlan?.rams_complete}
+                approvedBy={liftPlan?.approved_by ?? null}
+                approvedAt={liftPlan?.approved_at ?? null}
+                approvalNotes={liftPlan?.approval_notes ?? null}
+                paperworkReady={paperworkReady}
+                photoCount={photos.length}
+                ramsDocCount={ramsDocs.length}
+                liftPlanDocCount={liftPlanDocs.length}
+                siteDrawingCount={siteDrawingDocs.length}
+                deliveryNoteCount={deliveryNoteDocs.length}
+              />
+            </div>
+
             <div
               style={{
                 marginTop: 16,
@@ -299,7 +357,6 @@ export default async function JobPage({
                   <Row label="Lift type" value={(job as any).lift_type} />
                   <Row label="Created" value={fmtDateTime((job as any).created_at)} />
                   <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
-
                   <Block label="Notes" value={(job as any).notes} />
                 </div>
 
@@ -423,6 +480,164 @@ export default async function JobPage({
         )}
       </div>
     </ClientShell>
+  );
+}
+
+function PaperworkDashboard({
+  liftPlanPresent,
+  ramsPresent,
+  personnelPresent,
+  liftPlanComplete,
+  ramsComplete,
+  approvedBy,
+  approvedAt,
+  approvalNotes,
+  paperworkReady,
+  photoCount,
+  ramsDocCount,
+  liftPlanDocCount,
+  siteDrawingCount,
+  deliveryNoteCount,
+}: {
+  liftPlanPresent: boolean;
+  ramsPresent: boolean;
+  personnelPresent: boolean;
+  liftPlanComplete: boolean;
+  ramsComplete: boolean;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  approvalNotes: string | null;
+  paperworkReady: boolean;
+  photoCount: number;
+  ramsDocCount: number;
+  liftPlanDocCount: number;
+  siteDrawingCount: number;
+  deliveryNoteCount: number;
+}) {
+  return (
+    <div style={card}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <div>
+          <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
+          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
+        </div>
+
+        <span
+          style={{
+            display: "inline-block",
+            padding: "8px 12px",
+            borderRadius: 999,
+            fontWeight: 900,
+            ...(paperworkReady
+              ? {
+                  background: "rgba(0,180,120,0.12)",
+                  color: "#0b7a4b",
+                  border: "1px solid rgba(0,180,120,0.20)",
+                }
+              : {
+                  background: "rgba(255,170,0,0.14)",
+                  color: "#8a5200",
+                  border: "1px solid rgba(255,170,0,0.24)",
+                }),
+          }}
+        >
+          {paperworkReady ? "Paperwork Ready" : "Paperwork Incomplete"}
+        </span>
+      </div>
+
+      <div
+        style={{
+          marginTop: 14,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 12,
+        }}
+      >
+        <StatusBox label="Lift plan data" ok={liftPlanPresent} />
+        <StatusBox label="RAMS data" ok={ramsPresent} />
+        <StatusBox label="Personnel filled" ok={personnelPresent} />
+        <StatusBox label="Lift plan complete" ok={liftPlanComplete} />
+        <StatusBox label="RAMS complete" ok={ramsComplete} />
+        <StatusBox label="Approved" ok={!!approvedBy && !!approvedAt} />
+      </div>
+
+      <div
+        style={{
+          marginTop: 14,
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+          gap: 12,
+        }}
+      >
+        <CountBox label="Lift plan docs" count={liftPlanDocCount} />
+        <CountBox label="RAMS docs" count={ramsDocCount} />
+        <CountBox label="Site drawings" count={siteDrawingCount} />
+        <CountBox label="Delivery notes" count={deliveryNoteCount} />
+        <CountBox label="Site photos" count={photoCount} />
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <Row label="Approved by" value={approvedBy || "—"} />
+        <Row label="Approved at" value={fmtDateTime(approvedAt)} />
+        <Block label="Approval notes" value={approvalNotes} />
+      </div>
+    </div>
+  );
+}
+
+function StatusBox({
+  label,
+  ok,
+}: {
+  label: string;
+  ok: boolean;
+}) {
+  return (
+    <div
+      style={{
+        padding: 14,
+        borderRadius: 12,
+        background: ok ? "rgba(0,180,120,0.12)" : "rgba(255,170,0,0.14)",
+        border: ok
+          ? "1px solid rgba(0,180,120,0.20)"
+          : "1px solid rgba(255,170,0,0.24)",
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
+      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 1000 }}>
+        {ok ? "Complete" : "Missing"}
+      </div>
+    </div>
+  );
+}
+
+function CountBox({
+  label,
+  count,
+}: {
+  label: string;
+  count: number;
+}) {
+  return (
+    <div
+      style={{
+        padding: 14,
+        borderRadius: 12,
+        background: "rgba(255,255,255,0.42)",
+        border: "1px solid rgba(0,0,0,0.08)",
+      }}
+    >
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
+      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 1000 }}>{count}</div>
+    </div>
   );
 }
 
