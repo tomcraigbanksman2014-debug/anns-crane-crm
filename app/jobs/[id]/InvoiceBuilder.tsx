@@ -31,6 +31,7 @@ export default function InvoiceBuilder({
   const [vatRate, setVatRate] = useState("20");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
+  const [generated, setGenerated] = useState(false);
 
   const subtotal = useMemo(
     () =>
@@ -57,6 +58,7 @@ export default function InvoiceBuilder({
   async function generate() {
     setSaving(true);
     setMsg("");
+    setGenerated(false);
 
     try {
       const res = await fetch(`/api/jobs/${jobId}/invoice`, {
@@ -78,6 +80,7 @@ export default function InvoiceBuilder({
         return;
       }
 
+      setGenerated(true);
       setMsg(`Invoice generated: ${data.invoice_number}`);
     } catch {
       setMsg("Could not generate invoice.");
@@ -88,7 +91,25 @@ export default function InvoiceBuilder({
 
   return (
     <div style={wrapStyle}>
-      <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 22 }}>Invoice Builder</h2>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 10,
+          flexWrap: "wrap",
+          alignItems: "center",
+        }}
+      >
+        <h2 style={{ marginTop: 0, marginBottom: 12, fontSize: 22 }}>Invoice Builder</h2>
+
+        <a
+          href={`/jobs/${jobId}/invoice/print`}
+          target="_blank"
+          style={secondaryBtnLink}
+        >
+          Open Invoice PDF
+        </a>
+      </div>
 
       <div style={{ display: "grid", gap: 10 }}>
         {lines.map((line, index) => (
@@ -169,6 +190,12 @@ export default function InvoiceBuilder({
         <button type="button" onClick={generate} disabled={saving} style={saveBtn}>
           {saving ? "Generating..." : "Generate Invoice"}
         </button>
+
+        {generated ? (
+          <a href={`/jobs/${jobId}/invoice/print`} target="_blank" style={secondaryBtnLink}>
+            Open Invoice PDF
+          </a>
+        ) : null}
       </div>
 
       {msg ? <div style={msgStyle}>{msg}</div> : null}
@@ -234,6 +261,17 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const secondaryBtnLink: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.70)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
 };
 
 const removeBtn: React.CSSProperties = {
