@@ -416,7 +416,16 @@ export default async function JobPage({
                   initialSignedOffAt={(job as any).signed_off_at}
                 />
 
-                <InvoiceBuilder jobId={(job as any).id} />
+                <InvoiceBuilder
+                  jobId={(job as any).id}
+                  jobNumber={(job as any).job_number}
+                  customerName={client?.company_name}
+                  craneName={equipment?.name}
+                  operatorName={operator?.full_name}
+                  siteName={(job as any).site_name}
+                  siteAddress={(job as any).site_address}
+                  jobDate={(job as any).job_date}
+                />
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
