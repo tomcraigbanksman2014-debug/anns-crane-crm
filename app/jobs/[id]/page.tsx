@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
+import LiftPlanForm from "./LiftPlanForm";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -101,10 +102,7 @@ async function updateJobStatus(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  await supabase
-    .from("jobs")
-    .update({ status })
-    .eq("id", id);
+  await supabase.from("jobs").update({ status }).eq("id", id);
 }
 
 export default async function JobPage({
@@ -114,7 +112,11 @@ export default async function JobPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error }, { data: documents }] = await Promise.all([
+  const [
+    { data: job, error },
+    { data: documents },
+    { data: liftPlan },
+  ] = await Promise.all([
     supabase
       .from("jobs")
       .select(`
@@ -172,6 +174,12 @@ export default async function JobPage({
       .select("id, file_name, file_path, file_type, document_type, created_at")
       .eq("job_id", params.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("lift_plans")
+      .select("*")
+      .eq("job_id", params.id)
+      .maybeSingle(),
   ]);
 
   const client = Array.isArray((job as any)?.clients)
@@ -318,6 +326,11 @@ export default async function JobPage({
                     )}
                   </div>
                 </div>
+
+                <LiftPlanForm
+                  jobId={(job as any).id}
+                  initial={liftPlan ?? null}
+                />
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
@@ -523,10 +536,7 @@ function DocumentRow({
           <a href={href} target="_blank" style={actionBtn}>
             Open
           </a>
-          <DocumentDeleteButton
-            jobId={jobId}
-            documentId={documentId}
-          />
+          <DocumentDeleteButton jobId={jobId} documentId={documentId} />
         </div>
       </div>
     </div>
