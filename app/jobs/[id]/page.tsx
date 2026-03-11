@@ -3,6 +3,8 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
 import LiftPlanForm from "./LiftPlanForm";
+import SignoffForm from "./SignoffForm";
+import InvoiceBuilder from "./InvoiceBuilder";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -143,6 +145,17 @@ export default async function JobPage({
         arrived_on_site_at,
         lift_completed_at,
         completed_at,
+        customer_signature_name,
+        operator_signature_name,
+        signed_off_at,
+        invoice_number,
+        invoice_created_at,
+        invoice_due_date,
+        invoice_notes,
+        invoice_subtotal,
+        invoice_vat,
+        invoice_total,
+        portal_token,
         clients:client_id (
           id,
           company_name,
@@ -240,10 +253,14 @@ export default async function JobPage({
     hasText(liftPlan?.approved_by) &&
     !!liftPlan?.approved_at;
 
-  const fullySignedOff =
-    hasText(liftPlan?.customer_signed_by) &&
-    hasText(liftPlan?.operator_signed_by) &&
-    hasText(liftPlan?.office_signed_by);
+  const portalUrl = job?.portal_token
+    ? `/portal/job/${job.portal_token}`
+    : null;
+
+  const suggestedLiftPlan = {
+    ...liftPlan,
+    crane_operator: liftPlan?.crane_operator || operator?.full_name || "",
+  };
 
   return (
     <ClientShell>
@@ -328,12 +345,6 @@ export default async function JobPage({
                 liftPlanDocCount={liftPlanDocs.length}
                 siteDrawingCount={siteDrawingDocs.length}
                 deliveryNoteCount={deliveryNoteDocs.length}
-                customerSignedBy={liftPlan?.customer_signed_by ?? null}
-                operatorSignedBy={liftPlan?.operator_signed_by ?? null}
-                officeSignedBy={liftPlan?.office_signed_by ?? null}
-                finalisedAt={liftPlan?.finalised_at ?? null}
-                paperworkLocked={!!liftPlan?.paperwork_locked}
-                fullySignedOff={!!fullySignedOff}
               />
             </div>
 
@@ -373,9 +384,7 @@ export default async function JobPage({
 
                 <div style={card}>
                   <h2 style={sectionTitle}>Documents</h2>
-
                   <DocumentUploadForm jobId={(job as any).id} />
-
                   <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
                     {docs.length === 0 ? (
                       <p style={{ margin: 0 }}>No documents uploaded yet.</p>
@@ -397,8 +406,17 @@ export default async function JobPage({
 
                 <LiftPlanForm
                   jobId={(job as any).id}
-                  initial={liftPlan ?? null}
+                  initial={suggestedLiftPlan ?? null}
                 />
+
+                <SignoffForm
+                  jobId={(job as any).id}
+                  initialCustomerSignatureName={(job as any).customer_signature_name}
+                  initialOperatorSignatureName={(job as any).operator_signature_name}
+                  initialSignedOffAt={(job as any).signed_off_at}
+                />
+
+                <InvoiceBuilder jobId={(job as any).id} />
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
@@ -408,7 +426,6 @@ export default async function JobPage({
                   <Row label="Contact" value={client?.contact_name} />
                   <Row label="Phone" value={client?.phone} />
                   <Row label="Email" value={client?.email} />
-
                   {client?.id ? (
                     <div style={{ marginTop: 12 }}>
                       <a href={`/customers/${client.id}`} style={actionBtn}>
@@ -425,7 +442,6 @@ export default async function JobPage({
                   <Row label="Type" value={equipment?.type} />
                   <Row label="Capacity" value={equipment?.capacity} />
                   <Row label="Status" value={equipment?.status} />
-
                   {equipment?.id ? (
                     <div style={{ marginTop: 12 }}>
                       <a href={`/equipment/${equipment.id}`} style={actionBtn}>
@@ -456,6 +472,23 @@ export default async function JobPage({
                 </div>
 
                 <div style={card}>
+                  <h2 style={sectionTitle}>Invoice & Portal</h2>
+                  <Row label="Invoice number" value={(job as any).invoice_number} />
+                  <Row label="Invoice created" value={fmtDateTime((job as any).invoice_created_at)} />
+                  <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
+                  <Row label="Invoice subtotal" value={(job as any).invoice_subtotal ? `£${Number((job as any).invoice_subtotal).toFixed(2)}` : "—"} />
+                  <Row label="Invoice VAT" value={(job as any).invoice_vat ? `£${Number((job as any).invoice_vat).toFixed(2)}` : "—"} />
+                  <Row label="Invoice total" value={(job as any).invoice_total ? `£${Number((job as any).invoice_total).toFixed(2)}` : "—"} />
+                  {portalUrl ? (
+                    <div style={{ marginTop: 12 }}>
+                      <a href={portalUrl} target="_blank" style={actionBtn}>
+                        Open customer portal
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={card}>
                   <h2 style={sectionTitle}>Site Photos</h2>
                   {photos.length === 0 ? (
                     <p style={{ margin: 0 }}>No site photos uploaded yet.</p>
@@ -476,7 +509,6 @@ export default async function JobPage({
                 <div style={card}>
                   <h2 style={sectionTitle}>Linked records</h2>
                   <Row label="Booking linked" value={booking?.id ? "Yes" : "No"} />
-
                   {booking?.id ? (
                     <div style={{ marginTop: 12 }}>
                       <a href={`/bookings/${booking.id}`} style={actionBtn}>
@@ -509,12 +541,6 @@ function PaperworkDashboard({
   liftPlanDocCount,
   siteDrawingCount,
   deliveryNoteCount,
-  customerSignedBy,
-  operatorSignedBy,
-  officeSignedBy,
-  finalisedAt,
-  paperworkLocked,
-  fullySignedOff,
 }: {
   liftPlanPresent: boolean;
   ramsPresent: boolean;
@@ -530,12 +556,6 @@ function PaperworkDashboard({
   liftPlanDocCount: number;
   siteDrawingCount: number;
   deliveryNoteCount: number;
-  customerSignedBy: string | null;
-  operatorSignedBy: string | null;
-  officeSignedBy: string | null;
-  finalisedAt: string | null;
-  paperworkLocked: boolean;
-  fullySignedOff: boolean;
 }) {
   return (
     <div style={card}>
@@ -550,7 +570,7 @@ function PaperworkDashboard({
       >
         <div>
           <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
-          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS, sign-off and supporting docs.</div>
+          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
         </div>
 
         <span
@@ -559,7 +579,7 @@ function PaperworkDashboard({
             padding: "8px 12px",
             borderRadius: 999,
             fontWeight: 900,
-            ...(paperworkReady && fullySignedOff && paperworkLocked
+            ...(paperworkReady
               ? {
                   background: "rgba(0,180,120,0.12)",
                   color: "#0b7a4b",
@@ -572,9 +592,7 @@ function PaperworkDashboard({
                 }),
           }}
         >
-          {paperworkReady && fullySignedOff && paperworkLocked
-            ? "Final Pack Ready"
-            : "Final Pack Incomplete"}
+          {paperworkReady ? "Paperwork Ready" : "Paperwork Incomplete"}
         </span>
       </div>
 
@@ -592,10 +610,6 @@ function PaperworkDashboard({
         <StatusBox label="Lift plan complete" ok={liftPlanComplete} />
         <StatusBox label="RAMS complete" ok={ramsComplete} />
         <StatusBox label="Approved" ok={!!approvedBy && !!approvedAt} />
-        <StatusBox label="Customer signed" ok={!!customerSignedBy} />
-        <StatusBox label="Operator signed" ok={!!operatorSignedBy} />
-        <StatusBox label="Office signed" ok={!!officeSignedBy} />
-        <StatusBox label="Paperwork locked" ok={paperworkLocked} />
       </div>
 
       <div
@@ -616,11 +630,6 @@ function PaperworkDashboard({
       <div style={{ marginTop: 16 }}>
         <Row label="Approved by" value={approvedBy || "—"} />
         <Row label="Approved at" value={fmtDateTime(approvedAt)} />
-        <Row label="Customer signed by" value={customerSignedBy || "—"} />
-        <Row label="Operator signed by" value={operatorSignedBy || "—"} />
-        <Row label="Office signed by" value={officeSignedBy || "—"} />
-        <Row label="Finalised at" value={fmtDateTime(finalisedAt)} />
-        <Row label="Paperwork locked" value={paperworkLocked ? "Yes" : "No"} />
         <Block label="Approval notes" value={approvalNotes} />
       </div>
     </div>
