@@ -1,15 +1,32 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { writeAuditLog } from "../../../lib/audit";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 
 function cleanText(value: unknown) {
   const s = String(value ?? "").trim();
   return s.length ? s : null;
 }
 
-function cleanStatus(value: unknown) {
-  const v = String(value ?? "").trim().toLowerCase();
-  return v === "inactive" ? "inactive" : "active";
+export async function GET() {
+  try {
+    const supabase = createSupabaseServerClient();
+
+    const { data, error } = await supabase
+      .from("operators")
+      .select("*")
+      .order("full_name", { ascending: true });
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(data ?? []);
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Could not load operators." },
+      { status: 400 }
+    );
+  }
 }
 
 export async function POST(req: Request) {
@@ -27,30 +44,16 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    const full_name = cleanText(body.full_name);
-    const email = cleanText(body.email);
-    const phone = cleanText(body.phone);
-    const status = cleanStatus(body.status);
-    const notes = cleanText(body.notes);
+    const payload = {
+      full_name: cleanText(body.full_name),
+      email: cleanText(body.email),
+      phone: cleanText(body.phone),
+      status: cleanText(body.status) ?? "active",
+    };
 
-    if (!full_name) {
-      return NextResponse.json(
-        { error: "Full name is required." },
-        { status: 400 }
-      );
-    }
-
-    const { data: inserted, error } = await supabase
+    const { data, error } = await supabase
       .from("operators")
-      .insert([
-        {
-          full_name,
-          email,
-          phone,
-          status,
-          notes,
-        },
-      ])
+      .insert(payload)
       .select("id")
       .single();
 
@@ -63,16 +66,11 @@ export async function POST(req: Request) {
       actor_username: user.email ? user.email.split("@")[0] : null,
       action: "create",
       entity_type: "operator",
-      entity_id: inserted.id,
-      meta: {
-        full_name,
-        email,
-        phone,
-        status,
-      },
+      entity_id: data.id,
+      meta: payload,
     });
 
-    return NextResponse.json({ ok: true, id: inserted.id });
+    return NextResponse.json({ ok: true, id: data.id });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Could not create operator." },
