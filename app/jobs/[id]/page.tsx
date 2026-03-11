@@ -240,6 +240,11 @@ export default async function JobPage({
     hasText(liftPlan?.approved_by) &&
     !!liftPlan?.approved_at;
 
+  const fullySignedOff =
+    hasText(liftPlan?.customer_signed_by) &&
+    hasText(liftPlan?.operator_signed_by) &&
+    hasText(liftPlan?.office_signed_by);
+
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
@@ -323,6 +328,12 @@ export default async function JobPage({
                 liftPlanDocCount={liftPlanDocs.length}
                 siteDrawingCount={siteDrawingDocs.length}
                 deliveryNoteCount={deliveryNoteDocs.length}
+                customerSignedBy={liftPlan?.customer_signed_by ?? null}
+                operatorSignedBy={liftPlan?.operator_signed_by ?? null}
+                officeSignedBy={liftPlan?.office_signed_by ?? null}
+                finalisedAt={liftPlan?.finalised_at ?? null}
+                paperworkLocked={!!liftPlan?.paperwork_locked}
+                fullySignedOff={!!fullySignedOff}
               />
             </div>
 
@@ -498,6 +509,12 @@ function PaperworkDashboard({
   liftPlanDocCount,
   siteDrawingCount,
   deliveryNoteCount,
+  customerSignedBy,
+  operatorSignedBy,
+  officeSignedBy,
+  finalisedAt,
+  paperworkLocked,
+  fullySignedOff,
 }: {
   liftPlanPresent: boolean;
   ramsPresent: boolean;
@@ -513,6 +530,12 @@ function PaperworkDashboard({
   liftPlanDocCount: number;
   siteDrawingCount: number;
   deliveryNoteCount: number;
+  customerSignedBy: string | null;
+  operatorSignedBy: string | null;
+  officeSignedBy: string | null;
+  finalisedAt: string | null;
+  paperworkLocked: boolean;
+  fullySignedOff: boolean;
 }) {
   return (
     <div style={card}>
@@ -527,7 +550,7 @@ function PaperworkDashboard({
       >
         <div>
           <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
-          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
+          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS, sign-off and supporting docs.</div>
         </div>
 
         <span
@@ -536,7 +559,7 @@ function PaperworkDashboard({
             padding: "8px 12px",
             borderRadius: 999,
             fontWeight: 900,
-            ...(paperworkReady
+            ...(paperworkReady && fullySignedOff && paperworkLocked
               ? {
                   background: "rgba(0,180,120,0.12)",
                   color: "#0b7a4b",
@@ -549,7 +572,9 @@ function PaperworkDashboard({
                 }),
           }}
         >
-          {paperworkReady ? "Paperwork Ready" : "Paperwork Incomplete"}
+          {paperworkReady && fullySignedOff && paperworkLocked
+            ? "Final Pack Ready"
+            : "Final Pack Incomplete"}
         </span>
       </div>
 
@@ -567,6 +592,10 @@ function PaperworkDashboard({
         <StatusBox label="Lift plan complete" ok={liftPlanComplete} />
         <StatusBox label="RAMS complete" ok={ramsComplete} />
         <StatusBox label="Approved" ok={!!approvedBy && !!approvedAt} />
+        <StatusBox label="Customer signed" ok={!!customerSignedBy} />
+        <StatusBox label="Operator signed" ok={!!operatorSignedBy} />
+        <StatusBox label="Office signed" ok={!!officeSignedBy} />
+        <StatusBox label="Paperwork locked" ok={paperworkLocked} />
       </div>
 
       <div
@@ -587,6 +616,11 @@ function PaperworkDashboard({
       <div style={{ marginTop: 16 }}>
         <Row label="Approved by" value={approvedBy || "—"} />
         <Row label="Approved at" value={fmtDateTime(approvedAt)} />
+        <Row label="Customer signed by" value={customerSignedBy || "—"} />
+        <Row label="Operator signed by" value={operatorSignedBy || "—"} />
+        <Row label="Office signed by" value={officeSignedBy || "—"} />
+        <Row label="Finalised at" value={fmtDateTime(finalisedAt)} />
+        <Row label="Paperwork locked" value={paperworkLocked ? "Yes" : "No"} />
         <Block label="Approval notes" value={approvalNotes} />
       </div>
     </div>
