@@ -61,6 +61,23 @@ export async function POST(
 
     const body = await req.json().catch(() => ({}));
 
+    const { data: existing, error: existingError } = await supabase
+      .from("lift_plans")
+      .select("id, paperwork_locked")
+      .eq("job_id", params.id)
+      .maybeSingle();
+
+    if (existingError) {
+      return NextResponse.json({ error: existingError.message }, { status: 400 });
+    }
+
+    if (existing?.paperwork_locked) {
+      return NextResponse.json(
+        { error: "Paperwork is locked and can no longer be edited." },
+        { status: 403 }
+      );
+    }
+
     const payload = {
       job_id: params.id,
       load_description: cleanText(body.load_description),
@@ -88,18 +105,13 @@ export async function POST(
       approved_by: cleanText(body.approved_by),
       approved_at: body.approved_at ? new Date(body.approved_at).toISOString() : null,
       approval_notes: cleanText(body.approval_notes),
+      customer_signed_by: cleanText(body.customer_signed_by),
+      operator_signed_by: cleanText(body.operator_signed_by),
+      office_signed_by: cleanText(body.office_signed_by),
+      finalised_at: body.finalised_at ? new Date(body.finalised_at).toISOString() : null,
+      paperwork_locked: cleanBool(body.paperwork_locked),
       updated_at: new Date().toISOString(),
     };
-
-    const { data: existing, error: existingError } = await supabase
-      .from("lift_plans")
-      .select("id")
-      .eq("job_id", params.id)
-      .maybeSingle();
-
-    if (existingError) {
-      return NextResponse.json({ error: existingError.message }, { status: 400 });
-    }
 
     if (existing?.id) {
       const { error: updateError } = await supabase
