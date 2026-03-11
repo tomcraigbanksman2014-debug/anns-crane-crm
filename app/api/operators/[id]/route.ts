@@ -1,15 +1,36 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../lib/audit";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { writeAuditLog } from "../../../lib/audit";
 
 function cleanText(value: unknown) {
   const s = String(value ?? "").trim();
   return s.length ? s : null;
 }
 
-function cleanStatus(value: unknown) {
-  const v = String(value ?? "").trim().toLowerCase();
-  return v === "inactive" ? "inactive" : "active";
+export async function GET(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const supabase = createSupabaseServerClient();
+
+    const { data, error } = await supabase
+      .from("operators")
+      .select("*")
+      .eq("id", params.id)
+      .single();
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json(data);
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Could not load operator." },
+      { status: 400 }
+    );
+  }
 }
 
 export async function PATCH(
@@ -30,28 +51,16 @@ export async function PATCH(
 
     const body = await req.json().catch(() => ({}));
 
-    const full_name = cleanText(body.full_name);
-    const email = cleanText(body.email);
-    const phone = cleanText(body.phone);
-    const status = cleanStatus(body.status);
-    const notes = cleanText(body.notes);
-
-    if (!full_name) {
-      return NextResponse.json(
-        { error: "Full name is required." },
-        { status: 400 }
-      );
-    }
+    const payload = {
+      full_name: cleanText(body.full_name),
+      email: cleanText(body.email),
+      phone: cleanText(body.phone),
+      status: cleanText(body.status) ?? "active",
+    };
 
     const { error } = await supabase
       .from("operators")
-      .update({
-        full_name,
-        email,
-        phone,
-        status,
-        notes,
-      })
+      .update(payload)
       .eq("id", params.id);
 
     if (error) {
@@ -64,12 +73,7 @@ export async function PATCH(
       action: "update",
       entity_type: "operator",
       entity_id: params.id,
-      meta: {
-        full_name,
-        email,
-        phone,
-        status,
-      },
+      meta: payload,
     });
 
     return NextResponse.json({ ok: true });
