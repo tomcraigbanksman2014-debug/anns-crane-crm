@@ -191,6 +191,7 @@ export default function ClientShell({
       { href: "/quotes", label: "Quotes", active: pathname?.startsWith("/quotes") ?? false },
       { href: "/customers", label: "Customers", active: pathname?.startsWith("/customers") ?? false },
       { href: "/equipment", label: "Equipment", active: pathname?.startsWith("/equipment") ?? false },
+      { href: "/operators", label: "Operators", active: pathname?.startsWith("/operators") ?? false },
       { href: "/calendar", label: "Calendar", active: pathname?.startsWith("/calendar") ?? false },
       { href: "/planner", label: "Planner", active: pathname?.startsWith("/planner") ?? false },
       { href: "/settings", label: "Settings", active: pathname?.startsWith("/settings") ?? false },
