@@ -28,6 +28,11 @@ type LiftPlanData = {
   approved_by?: string | null;
   approved_at?: string | null;
   approval_notes?: string | null;
+  customer_signed_by?: string | null;
+  operator_signed_by?: string | null;
+  office_signed_by?: string | null;
+  finalised_at?: string | null;
+  paperwork_locked?: boolean;
 };
 
 export default function LiftPlanForm({
@@ -63,12 +68,20 @@ export default function LiftPlanForm({
     approved_by: initial?.approved_by ?? "",
     approved_at: initial?.approved_at ?? "",
     approval_notes: initial?.approval_notes ?? "",
+    customer_signed_by: initial?.customer_signed_by ?? "",
+    operator_signed_by: initial?.operator_signed_by ?? "",
+    office_signed_by: initial?.office_signed_by ?? "",
+    finalised_at: initial?.finalised_at ?? "",
+    paperwork_locked: initial?.paperwork_locked ?? false,
   });
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
+  const locked = !!form.paperwork_locked;
+
   function update(key: keyof LiftPlanData, value: any) {
+    if (locked) return;
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -101,12 +114,23 @@ export default function LiftPlanForm({
   }
 
   function approveNow() {
+    if (locked) return;
     const now = new Date().toISOString();
     setForm((prev) => ({
       ...prev,
       approved_at: now,
       lift_plan_complete: true,
       rams_complete: true,
+    }));
+  }
+
+  function finaliseNow() {
+    if (locked) return;
+    const now = new Date().toISOString();
+    setForm((prev) => ({
+      ...prev,
+      finalised_at: now,
+      paperwork_locked: true,
     }));
   }
 
@@ -128,6 +152,12 @@ export default function LiftPlanForm({
         </a>
       </div>
 
+      {locked ? (
+        <div style={lockedBoxStyle}>
+          Paperwork is locked and cannot be edited.
+        </div>
+      ) : null}
+
       <div style={sectionStyle}>
         <div style={sectionTitleStyle}>Lift Details</div>
         <div style={gridStyle}>
@@ -135,6 +165,7 @@ export default function LiftPlanForm({
             label="Load description"
             value={form.load_description ?? ""}
             onChange={(v) => update("load_description", v)}
+            disabled={locked}
           />
           <Field
             label="Load weight (kg)"
@@ -142,6 +173,7 @@ export default function LiftPlanForm({
             step="0.01"
             value={form.load_weight ?? ""}
             onChange={(v) => update("load_weight", v)}
+            disabled={locked}
           />
           <Field
             label="Lift radius (m)"
@@ -149,6 +181,7 @@ export default function LiftPlanForm({
             step="0.01"
             value={form.lift_radius ?? ""}
             onChange={(v) => update("lift_radius", v)}
+            disabled={locked}
           />
           <Field
             label="Lift height (m)"
@@ -156,16 +189,19 @@ export default function LiftPlanForm({
             step="0.01"
             value={form.lift_height ?? ""}
             onChange={(v) => update("lift_height", v)}
+            disabled={locked}
           />
           <Field
             label="Sling type"
             value={form.sling_type ?? ""}
             onChange={(v) => update("sling_type", v)}
+            disabled={locked}
           />
           <Field
             label="Lifting accessories"
             value={form.lifting_accessories ?? ""}
             onChange={(v) => update("lifting_accessories", v)}
+            disabled={locked}
           />
         </div>
       </div>
@@ -176,26 +212,31 @@ export default function LiftPlanForm({
           label="Crane configuration"
           value={form.crane_configuration ?? ""}
           onChange={(v) => update("crane_configuration", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Outrigger setup"
           value={form.outrigger_setup ?? ""}
           onChange={(v) => update("outrigger_setup", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Ground conditions"
           value={form.ground_conditions ?? ""}
           onChange={(v) => update("ground_conditions", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Exclusion zone details"
           value={form.exclusion_zone_details ?? ""}
           onChange={(v) => update("exclusion_zone_details", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Weather limitations"
           value={form.weather_limitations ?? ""}
           onChange={(v) => update("weather_limitations", v)}
+          disabled={locked}
         />
       </div>
 
@@ -205,31 +246,37 @@ export default function LiftPlanForm({
           label="Method statement"
           value={form.method_statement ?? ""}
           onChange={(v) => update("method_statement", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Risk assessment"
           value={form.risk_assessment ?? ""}
           onChange={(v) => update("risk_assessment", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Site hazards"
           value={form.site_hazards ?? ""}
           onChange={(v) => update("site_hazards", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Control measures"
           value={form.control_measures ?? ""}
           onChange={(v) => update("control_measures", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="PPE required"
           value={form.ppe_required ?? ""}
           onChange={(v) => update("ppe_required", v)}
+          disabled={locked}
         />
         <TextAreaField
           label="Emergency procedures"
           value={form.emergency_procedures ?? ""}
           onChange={(v) => update("emergency_procedures", v)}
+          disabled={locked}
         />
       </div>
 
@@ -240,31 +287,32 @@ export default function LiftPlanForm({
             label="Lift supervisor"
             value={form.lift_supervisor ?? ""}
             onChange={(v) => update("lift_supervisor", v)}
+            disabled={locked}
           />
           <Field
             label="Appointed person"
             value={form.appointed_person ?? ""}
             onChange={(v) => update("appointed_person", v)}
+            disabled={locked}
           />
           <Field
             label="Crane operator"
             value={form.crane_operator ?? ""}
             onChange={(v) => update("crane_operator", v)}
+            disabled={locked}
           />
           <Field
             label="Approved by"
             value={form.approved_by ?? ""}
             onChange={(v) => update("approved_by", v)}
+            disabled={locked}
           />
           <Field
             label="Approved at"
             type="datetime-local"
-            value={
-              form.approved_at
-                ? String(form.approved_at).slice(0, 16)
-                : ""
-            }
+            value={form.approved_at ? String(form.approved_at).slice(0, 16) : ""}
             onChange={(v) => update("approved_at", v ? new Date(v).toISOString() : "")}
+            disabled={locked}
           />
         </div>
 
@@ -272,6 +320,7 @@ export default function LiftPlanForm({
           label="Approval notes"
           value={form.approval_notes ?? ""}
           onChange={(v) => update("approval_notes", v)}
+          disabled={locked}
         />
 
         <div style={checkGridStyle}>
@@ -280,6 +329,7 @@ export default function LiftPlanForm({
               type="checkbox"
               checked={!!form.lift_plan_complete}
               onChange={(e) => update("lift_plan_complete", e.target.checked)}
+              disabled={locked}
             />
             <span>Lift plan complete</span>
           </label>
@@ -289,21 +339,72 @@ export default function LiftPlanForm({
               type="checkbox"
               checked={!!form.rams_complete}
               onChange={(e) => update("rams_complete", e.target.checked)}
+              disabled={locked}
             />
             <span>RAMS complete</span>
           </label>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-          <button type="button" onClick={approveNow} style={secondaryBtn}>
+          <button type="button" onClick={approveNow} style={secondaryBtn} disabled={locked}>
             Mark approved now
           </button>
         </div>
       </div>
 
+      <div style={sectionStyle}>
+        <div style={sectionTitleStyle}>Sign-Off & Final Lock</div>
+
+        <div style={gridStyle}>
+          <Field
+            label="Customer signed by"
+            value={form.customer_signed_by ?? ""}
+            onChange={(v) => update("customer_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Operator signed by"
+            value={form.operator_signed_by ?? ""}
+            onChange={(v) => update("operator_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Office signed by"
+            value={form.office_signed_by ?? ""}
+            onChange={(v) => update("office_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Finalised at"
+            type="datetime-local"
+            value={form.finalised_at ? String(form.finalised_at).slice(0, 16) : ""}
+            onChange={(v) => update("finalised_at", v ? new Date(v).toISOString() : "")}
+            disabled={locked}
+          />
+        </div>
+
+        <label style={{ ...checkLabelStyle, marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={!!form.paperwork_locked}
+            onChange={(e) => update("paperwork_locked", e.target.checked)}
+            disabled={locked}
+          />
+          <span>Paperwork locked</span>
+        </label>
+
+        {!locked ? (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+            <button type="button" onClick={finaliseNow} style={finaliseBtn}>
+              Finalise & lock paperwork
+            </button>
+          </div>
+        ) : null}
+      </div>
+
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-        <button onClick={save} disabled={saving} style={saveBtn}>
-          {saving ? "Saving..." : "Save Lift Plan & RAMS"}
+        <button onClick={save} disabled={saving || locked} style={saveBtn}>
+          {saving ? "Saving..." : locked ? "Paperwork locked" : "Save Lift Plan & RAMS"}
         </button>
       </div>
 
@@ -318,12 +419,14 @@ function Field({
   onChange,
   type = "text",
   step,
+  disabled = false,
 }: {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
   type?: string;
   step?: string;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -334,6 +437,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         style={inputStyle}
+        disabled={disabled}
       />
     </div>
   );
@@ -343,10 +447,12 @@ function TextAreaField({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
@@ -356,6 +462,7 @@ function TextAreaField({
         onChange={(e) => onChange(e.target.value)}
         rows={4}
         style={textAreaStyle}
+        disabled={disabled}
       />
     </div>
   );
@@ -367,6 +474,16 @@ const wrapStyle: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const lockedBoxStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.08)",
+  border: "1px solid rgba(255,0,0,0.18)",
+  color: "#b00020",
+  fontWeight: 800,
 };
 
 const sectionStyle: React.CSSProperties = {
@@ -445,6 +562,16 @@ const secondaryBtn: React.CSSProperties = {
   background: "rgba(255,255,255,0.7)",
   color: "#111",
   fontWeight: 800,
+  cursor: "pointer",
+};
+
+const finaliseBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,180,120,0.20)",
+  background: "rgba(0,180,120,0.12)",
+  color: "#0b7a4b",
+  fontWeight: 900,
   cursor: "pointer",
 };
 
