@@ -2,6 +2,7 @@ import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import OperatorJobActions from "../OperatorJobActions";
 import OperatorPhotoUpload from "./OperatorPhotoUpload";
+import OperatorJobSheetForm from "./OperatorJobSheetForm";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -24,13 +25,11 @@ function fmtDateTime(value: string | null | undefined) {
 
 function prettyStatus(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
-
   if (v === "in_progress") return "In Progress";
   if (v === "completed") return "Completed";
   if (v === "confirmed") return "Confirmed";
   if (v === "cancelled") return "Cancelled";
   if (v === "draft") return "Draft";
-
   return value ?? "—";
 }
 
@@ -173,6 +172,13 @@ export default async function OperatorJobSheetPage({
         lift_completed_at,
         completed_at,
         operator_id,
+        travel_hours,
+        break_hours,
+        overtime_hours,
+        operator_job_notes,
+        customer_signoff_name,
+        operator_signoff_name,
+        submitted_to_office_at,
         clients:client_id (
           company_name
         ),
@@ -299,7 +305,7 @@ export default async function OperatorJobSheetPage({
           </div>
 
           <div style={sectionBlock}>
-            <div style={rowLabel}>Notes</div>
+            <div style={rowLabel}>Office notes</div>
             <div style={rowValue}>{(job as any).notes ?? "—"}</div>
           </div>
 
@@ -320,6 +326,17 @@ export default async function OperatorJobSheetPage({
           </div>
 
           <OperatorJobActions jobId={(job as any).id} />
+
+          <OperatorJobSheetForm
+            jobId={(job as any).id}
+            initialTravelHours={(job as any).travel_hours}
+            initialBreakHours={(job as any).break_hours}
+            initialOvertimeHours={(job as any).overtime_hours}
+            initialOperatorJobNotes={(job as any).operator_job_notes}
+            initialCustomerSignoffName={(job as any).customer_signoff_name}
+            initialOperatorSignoffName={(job as any).operator_signoff_name}
+            initialSubmittedToOfficeAt={(job as any).submitted_to_office_at}
+          />
 
           <div style={photoSection}>
             <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>Site Photos</h2>
