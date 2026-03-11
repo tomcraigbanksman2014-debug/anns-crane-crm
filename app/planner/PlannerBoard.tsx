@@ -31,6 +31,11 @@ type PlannerEquipment = {
   status?: string | null;
 };
 
+type PlannerDay = {
+  date: string;
+  label: string;
+};
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -54,19 +59,38 @@ function prettyStatus(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function mondayOf(dateStr: string) {
+  const d = new Date(dateStr);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function isoDate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
 export default function PlannerBoard() {
-  const [date, setDate] = useState(todayIso());
+  const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [draggingJobId, setDraggingJobId] = useState<string | null>(null);
+  const [hoverCell, setHoverCell] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [data, setData] = useState<{
-    unassigned: PlannerJob[];
-    assigned: PlannerJob[];
+    week_start: string;
+    week_end: string;
+    days: PlannerDay[];
+    jobs: PlannerJob[];
     operators: PlannerPerson[];
     equipment: PlannerEquipment[];
   }>({
-    unassigned: [],
-    assigned: [],
+    week_start: "",
+    week_end: "",
+    days: [],
+    jobs: [],
     operators: [],
     equipment: [],
   });
@@ -76,22 +100,24 @@ export default function PlannerBoard() {
     setMsg("");
 
     try {
-      const res = await fetch(`/api/planner/board?date=${date}`);
+      const res = await fetch(`/api/planner/board?date=${selectedDate}`);
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setMsg(json?.error || "Could not load planner board.");
+        setMsg(json?.error || "Could not load weekly planner.");
         return;
       }
 
       setData({
-        unassigned: json?.unassigned ?? [],
-        assigned: json?.assigned ?? [],
+        week_start: json?.week_start ?? "",
+        week_end: json?.week_end ?? "",
+        days: json?.days ?? [],
+        jobs: json?.jobs ?? [],
         operators: json?.operators ?? [],
         equipment: json?.equipment ?? [],
       });
     } catch {
-      setMsg("Could not load planner board.");
+      setMsg("Could not load weekly planner.");
     } finally {
       setLoading(false);
     }
@@ -99,7 +125,7 @@ export default function PlannerBoard() {
 
   useEffect(() => {
     load();
-  }, [date]);
+  }, [selectedDate]);
 
   async function updateJob(jobId: string, update: Record<string, any>) {
     setSavingId(jobId);
@@ -129,34 +155,88 @@ export default function PlannerBoard() {
       setMsg("Could not update planner job.");
     } finally {
       setSavingId(null);
+      setDraggingJobId(null);
+      setHoverCell(null);
     }
   }
 
-  const operatorMap = useMemo(() => {
-    return new Map(data.operators.map((o) => [o.id, o]));
-  }, [data.operators]);
+  function moveWeek(direction: -1 | 1) {
+    const base = mondayOf(selectedDate);
+    base.setDate(base.getDate() + direction * 7);
+    setSelectedDate(isoDate(base));
+  }
 
-  const equipmentMap = useMemo(() => {
-    return new Map(data.equipment.map((e) => [e.id, e]));
-  }, [data.equipment]);
+  const equipmentOptions = useMemo(
+    () =>
+      data.equipment.map((eq) => ({
+        value: eq.id,
+        label: `${eq.name ?? "Equipment"}${eq.asset_number ? ` (${eq.asset_number})` : ""}`,
+      })),
+    [data.equipment]
+  );
+
+  const unassignedByDay = useMemo(() => {
+    const map = new Map<string, PlannerJob[]>();
+
+    for (const day of data.days) {
+      map.set(day.date, []);
+    }
+
+    for (const job of data.jobs) {
+      if (!job.operator_id && job.job_date && map.has(job.job_date)) {
+        map.get(job.job_date)!.push(job);
+      }
+    }
+
+    return map;
+  }, [data.days, data.jobs]);
+
+  const operatorDayMap = useMemo(() => {
+    const map = new Map<string, PlannerJob[]>();
+
+    for (const operator of data.operators) {
+      for (const day of data.days) {
+        map.set(`${operator.id}__${day.date}`, []);
+      }
+    }
+
+    for (const job of data.jobs) {
+      if (job.operator_id && job.job_date) {
+        const key = `${job.operator_id}__${job.job_date}`;
+        if (map.has(key)) {
+          map.get(key)!.push(job);
+        }
+      }
+    }
+
+    return map;
+  }, [data.operators, data.days, data.jobs]);
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={toolbarStyle}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24 }}>Planner Board</h2>
+          <h2 style={{ margin: 0, fontSize: 24 }}>Weekly Planner Board</h2>
           <div style={{ marginTop: 4, opacity: 0.75 }}>
-            Assign cranes and operators for the selected day.
+            Drag jobs across the week and between operators.
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
+            ← Previous week
+          </button>
+
           <input
             type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
             style={inputStyle}
           />
+
+          <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
+            Next week →
+          </button>
 
           <button type="button" onClick={load} style={secondaryBtn}>
             Refresh
@@ -166,267 +246,255 @@ export default function PlannerBoard() {
 
       {msg ? <div style={infoBox}>{msg}</div> : null}
 
-      <section style={panelStyle}>
-        <div style={sectionHeaderStyle}>
-          <div>
-            <div style={sectionTitleStyle}>Unassigned / Needs Attention</div>
-            <div style={sectionSubStyle}>
-              Jobs missing operator or crane.
-            </div>
+      {loading ? (
+        <div style={boardShellStyle}>Loading weekly planner...</div>
+      ) : (
+        <div style={boardShellStyle}>
+          <div style={weekHeaderStyle}>
+            <div style={nameColHeaderStyle}>Lane</div>
+            {data.days.map((day) => (
+              <div key={day.date} style={dayHeaderStyle}>
+                {day.label}
+              </div>
+            ))}
           </div>
-          <div style={countPill}>{data.unassigned.length}</div>
-        </div>
 
-        {loading ? (
-          <div style={emptyStyle}>Loading planner...</div>
-        ) : data.unassigned.length === 0 ? (
-          <div style={emptyStyle}>No unassigned jobs for this day.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 12 }}>
-            {data.unassigned.map((job) => {
-              const client = first(job.clients);
-              const jobOperator = first(job.operators);
-              const jobEquipment = first(job.equipment);
+          <div style={rowStyle}>
+            <div style={nameCellStyle}>
+              <div style={{ fontWeight: 1000 }}>Unassigned</div>
+              <div style={{ fontSize: 12, opacity: 0.72 }}>Needs operator</div>
+            </div>
+
+            {data.days.map((day) => {
+              const cellKey = `unassigned__${day.date}`;
+              const jobs = unassignedByDay.get(day.date) ?? [];
 
               return (
-                <div key={job.id} style={jobCardStyle}>
-                  <div style={jobTopStyle}>
-                    <div>
-                      <div style={{ fontWeight: 1000, fontSize: 18 }}>
-                        Job #{job.job_number ?? "—"}
-                      </div>
-                      <div style={{ marginTop: 4, opacity: 0.78 }}>
-                        {client?.company_name ?? "Customer"} • {job.site_name ?? "No site"}
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                        {job.start_time ?? "—"} - {job.end_time ?? "—"} • {prettyStatus(job.status)}
-                      </div>
-                    </div>
-
-                    <a href={`/jobs/${job.id}`} style={linkBtn}>
-                      Open job
-                    </a>
-                  </div>
-
-                  <div style={plannerGridStyle}>
-                    <SelectBox
-                      label="Operator"
-                      value={job.operator_id ?? ""}
-                      options={data.operators.map((op) => ({
-                        value: op.id,
-                        label: op.full_name ?? "Unnamed operator",
-                      }))}
-                      onChange={(value) => updateJob(job.id, { operator_id: value || null })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <SelectBox
-                      label="Crane / Equipment"
-                      value={job.equipment_id ?? ""}
-                      options={data.equipment.map((eq) => ({
-                        value: eq.id,
-                        label: `${eq.name ?? "Equipment"}${eq.asset_number ? ` (${eq.asset_number})` : ""}`,
-                      }))}
-                      onChange={(value) => updateJob(job.id, { equipment_id: value || null })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <FieldBox
-                      label="Planned date"
-                      value={job.job_date ?? date}
-                      type="date"
-                      onChange={(value) => updateJob(job.id, { job_date: value })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <SelectBox
-                      label="Status"
-                      value={job.status ?? ""}
-                      options={[
-                        { value: "draft", label: "Draft" },
-                        { value: "confirmed", label: "Confirmed" },
-                        { value: "in_progress", label: "In Progress" },
-                        { value: "completed", label: "Completed" },
-                        { value: "cancelled", label: "Cancelled" },
-                      ]}
-                      onChange={(value) => updateJob(job.id, { status: value })}
-                      disabled={savingId === job.id}
-                    />
-                  </div>
-
-                  <div style={currentRowStyle}>
-                    <div><strong>Current operator:</strong> {jobOperator?.full_name ?? "Unassigned"}</div>
-                    <div><strong>Current crane:</strong> {jobEquipment?.name ?? "Unassigned"}</div>
-                  </div>
-                </div>
+                <DropCell
+                  key={cellKey}
+                  active={hoverCell === cellKey}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setHoverCell(cellKey);
+                  }}
+                  onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+                  onDrop={async (e) => {
+                    e.preventDefault();
+                    const jobId = e.dataTransfer.getData("text/plain");
+                    if (!jobId) return;
+                    await updateJob(jobId, {
+                      operator_id: null,
+                      job_date: day.date,
+                    });
+                  }}
+                >
+                  {jobs.length === 0 ? (
+                    <div style={emptyMiniStyle}>—</div>
+                  ) : (
+                    jobs.map((job) => (
+                      <JobCard
+                        key={job.id}
+                        job={job}
+                        equipmentOptions={equipmentOptions}
+                        saving={savingId === job.id}
+                        dragging={draggingJobId === job.id}
+                        compact
+                        onDragStart={() => setDraggingJobId(job.id)}
+                        onDragEnd={() => {
+                          setDraggingJobId(null);
+                          setHoverCell(null);
+                        }}
+                        onUpdate={updateJob}
+                      />
+                    ))
+                  )}
+                </DropCell>
               );
             })}
           </div>
-        )}
-      </section>
 
-      <section style={panelStyle}>
-        <div style={sectionHeaderStyle}>
-          <div>
-            <div style={sectionTitleStyle}>Assigned Jobs</div>
-            <div style={sectionSubStyle}>
-              Live dispatch board for the selected day.
+          {data.operators.map((operator) => (
+            <div key={operator.id} style={rowStyle}>
+              <div style={nameCellStyle}>
+                <div style={{ fontWeight: 1000 }}>{operator.full_name ?? "Operator"}</div>
+                <div style={{ fontSize: 12, opacity: 0.72 }}>Assigned lane</div>
+              </div>
+
+              {data.days.map((day) => {
+                const cellKey = `${operator.id}__${day.date}`;
+                const jobs = operatorDayMap.get(cellKey) ?? [];
+
+                return (
+                  <DropCell
+                    key={cellKey}
+                    active={hoverCell === cellKey}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setHoverCell(cellKey);
+                    }}
+                    onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      const jobId = e.dataTransfer.getData("text/plain");
+                      if (!jobId) return;
+                      await updateJob(jobId, {
+                        operator_id: operator.id,
+                        job_date: day.date,
+                      });
+                    }}
+                  >
+                    {jobs.length === 0 ? (
+                      <div style={emptyMiniStyle}>—</div>
+                    ) : (
+                      jobs.map((job) => (
+                        <JobCard
+                          key={job.id}
+                          job={job}
+                          equipmentOptions={equipmentOptions}
+                          saving={savingId === job.id}
+                          dragging={draggingJobId === job.id}
+                          compact
+                          onDragStart={() => setDraggingJobId(job.id)}
+                          onDragEnd={() => {
+                            setDraggingJobId(null);
+                            setHoverCell(null);
+                          }}
+                          onUpdate={updateJob}
+                        />
+                      ))
+                    )}
+                  </DropCell>
+                );
+              })}
             </div>
-          </div>
-          <div style={countPill}>{data.assigned.length}</div>
+          ))}
         </div>
-
-        {loading ? (
-          <div style={emptyStyle}>Loading planner...</div>
-        ) : data.assigned.length === 0 ? (
-          <div style={emptyStyle}>No assigned jobs for this day.</div>
-        ) : (
-          <div style={{ display: "grid", gap: 12 }}>
-            {data.assigned.map((job) => {
-              const client = first(job.clients);
-              const jobOperator = job.operator_id ? operatorMap.get(job.operator_id) : null;
-              const jobEquipment = job.equipment_id ? equipmentMap.get(job.equipment_id) : null;
-
-              return (
-                <div key={job.id} style={jobCardStyle}>
-                  <div style={jobTopStyle}>
-                    <div>
-                      <div style={{ fontWeight: 1000, fontSize: 18 }}>
-                        Job #{job.job_number ?? "—"}
-                      </div>
-                      <div style={{ marginTop: 4, opacity: 0.78 }}>
-                        {client?.company_name ?? "Customer"} • {job.site_name ?? "No site"}
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                        {job.start_time ?? "—"} - {job.end_time ?? "—"} • {prettyStatus(job.status)}
-                      </div>
-                    </div>
-
-                    <a href={`/jobs/${job.id}`} style={linkBtn}>
-                      Open job
-                    </a>
-                  </div>
-
-                  <div style={assignedSummaryStyle}>
-                    <div style={assignedPillGood}>
-                      Operator: {jobOperator?.full_name ?? "Unassigned"}
-                    </div>
-                    <div style={assignedPillNeutral}>
-                      Crane: {jobEquipment?.name ?? "Unassigned"}
-                    </div>
-                  </div>
-
-                  <div style={plannerGridStyle}>
-                    <SelectBox
-                      label="Reassign operator"
-                      value={job.operator_id ?? ""}
-                      options={data.operators.map((op) => ({
-                        value: op.id,
-                        label: op.full_name ?? "Unnamed operator",
-                      }))}
-                      onChange={(value) => updateJob(job.id, { operator_id: value || null })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <SelectBox
-                      label="Reassign crane"
-                      value={job.equipment_id ?? ""}
-                      options={data.equipment.map((eq) => ({
-                        value: eq.id,
-                        label: `${eq.name ?? "Equipment"}${eq.asset_number ? ` (${eq.asset_number})` : ""}`,
-                      }))}
-                      onChange={(value) => updateJob(job.id, { equipment_id: value || null })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <FieldBox
-                      label="Move date"
-                      value={job.job_date ?? date}
-                      type="date"
-                      onChange={(value) => updateJob(job.id, { job_date: value })}
-                      disabled={savingId === job.id}
-                    />
-
-                    <SelectBox
-                      label="Status"
-                      value={job.status ?? ""}
-                      options={[
-                        { value: "draft", label: "Draft" },
-                        { value: "confirmed", label: "Confirmed" },
-                        { value: "in_progress", label: "In Progress" },
-                        { value: "completed", label: "Completed" },
-                        { value: "cancelled", label: "Cancelled" },
-                      ]}
-                      onChange={(value) => updateJob(job.id, { status: value })}
-                      disabled={savingId === job.id}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+      )}
     </div>
   );
 }
 
-function SelectBox({
-  label,
-  value,
-  options,
-  onChange,
-  disabled,
+function DropCell({
+  active,
+  onDragOver,
+  onDragLeave,
+  onDrop,
+  children,
 }: {
-  label: string;
-  value: string;
-  options: Array<{ value: string; label: string }>;
-  onChange: (value: string) => void;
-  disabled?: boolean;
+  active: boolean;
+  onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        style={inputStyle}
-      >
-        <option value="">— Select —</option>
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
+    <div
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{
+        ...cellStyle,
+        ...(active ? activeCellStyle : {}),
+      }}
+    >
+      {children}
     </div>
   );
 }
 
-function FieldBox({
-  label,
-  value,
-  onChange,
-  type = "text",
-  disabled,
+function JobCard({
+  job,
+  equipmentOptions,
+  saving,
+  dragging,
+  compact,
+  onDragStart,
+  onDragEnd,
+  onUpdate,
 }: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: string;
-  disabled?: boolean;
+  job: PlannerJob;
+  equipmentOptions: Array<{ value: string; label: string }>;
+  saving: boolean;
+  dragging: boolean;
+  compact?: boolean;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
 }) {
+  const client = first(job.clients);
+  const equipment = first(job.equipment);
+
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        disabled={disabled}
-        style={inputStyle}
-      />
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", job.id);
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
+      style={{
+        ...jobCardStyle,
+        opacity: dragging ? 0.55 : 1,
+        cursor: "grab",
+        padding: compact ? 10 : 16,
+      }}
+    >
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ fontWeight: 1000, fontSize: compact ? 14 : 18 }}>
+          Job #{job.job_number ?? "—"}
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.8 }}>
+          {client?.company_name ?? "Customer"}
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          {job.start_time ?? "—"} - {job.end_time ?? "—"}
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          {job.site_name ?? "No site"}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700 }}>
+          {prettyStatus(job.status)}
+        </div>
+
+        <select
+          value={job.equipment_id ?? ""}
+          onChange={(e) => onUpdate(job.id, { equipment_id: e.target.value || null })}
+          disabled={saving}
+          style={miniInputStyle}
+        >
+          <option value="">Crane</option>
+          {equipmentOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={job.status ?? ""}
+          onChange={(e) => onUpdate(job.id, { status: e.target.value })}
+          disabled={saving}
+          style={miniInputStyle}
+        >
+          <option value="draft">Draft</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="in_progress">In Progress</option>
+          <option value="completed">Completed</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+
+        <a href={`/jobs/${job.id}`} style={miniLinkStyle}>
+          Open
+        </a>
+
+        <div style={{ fontSize: 11, opacity: 0.68 }}>
+          Crane: {equipment?.name ?? "Unassigned"}
+        </div>
+      </div>
     </div>
   );
 }
@@ -444,98 +512,77 @@ const toolbarStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const panelStyle: React.CSSProperties = {
+const boardShellStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
+  padding: 14,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  overflowX: "auto",
 };
 
-const sectionHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
+const weekHeaderStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
   gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  marginBottom: 14,
+  marginBottom: 12,
+  minWidth: 1780,
 };
 
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 22,
-  fontWeight: 1000,
+const rowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
+  gap: 12,
+  marginBottom: 12,
+  minWidth: 1780,
 };
 
-const sectionSubStyle: React.CSSProperties = {
-  marginTop: 4,
-  opacity: 0.72,
-  fontSize: 14,
-};
-
-const countPill: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 999,
+const nameColHeaderStyle: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
 };
 
-const emptyStyle: React.CSSProperties = {
-  padding: "16px 0",
-  opacity: 0.62,
+const dayHeaderStyle: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 900,
+  textAlign: "center",
 };
 
-const jobCardStyle: React.CSSProperties = {
-  padding: 16,
+const nameCellStyle: React.CSSProperties = {
+  padding: 12,
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
-  display: "grid",
-  gap: 14,
+  alignSelf: "stretch",
 };
 
-const jobTopStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "flex-start",
-  flexWrap: "wrap",
-};
-
-const plannerGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const currentRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 18,
-  flexWrap: "wrap",
-  fontSize: 14,
-  opacity: 0.82,
-};
-
-const assignedSummaryStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const assignedPillGood: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 999,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.20)",
-  fontWeight: 800,
-};
-
-const assignedPillNeutral: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.55)",
+const cellStyle: React.CSSProperties = {
+  minHeight: 150,
+  padding: 8,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.34)",
   border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 800,
+  display: "grid",
+  gap: 8,
+  alignContent: "start",
+};
+
+const activeCellStyle: React.CSSProperties = {
+  outline: "2px dashed rgba(0,120,255,0.55)",
+  background: "rgba(225,238,255,0.65)",
+};
+
+const jobCardStyle: React.CSSProperties = {
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.82)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  boxShadow: "0 4px 14px rgba(0,0,0,0.06)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -548,10 +595,15 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const labelStyle: React.CSSProperties = {
+const miniInputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 34,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#fff",
+  boxSizing: "border-box",
   fontSize: 12,
-  opacity: 0.75,
-  fontWeight: 800,
 };
 
 const secondaryBtn: React.CSSProperties = {
@@ -564,15 +616,18 @@ const secondaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const linkBtn: React.CSSProperties = {
+const miniLinkStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.70)",
   color: "#111",
-  border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
+  fontSize: 12,
+};
+
+const emptyMiniStyle: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.5,
+  padding: 6,
 };
 
 const infoBox: React.CSSProperties = {
