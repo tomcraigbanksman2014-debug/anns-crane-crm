@@ -479,13 +479,18 @@ export default async function JobPage({
                   <Row label="Invoice subtotal" value={(job as any).invoice_subtotal ? `£${Number((job as any).invoice_subtotal).toFixed(2)}` : "—"} />
                   <Row label="Invoice VAT" value={(job as any).invoice_vat ? `£${Number((job as any).invoice_vat).toFixed(2)}` : "—"} />
                   <Row label="Invoice total" value={(job as any).invoice_total ? `£${Number((job as any).invoice_total).toFixed(2)}` : "—"} />
-                  {portalUrl ? (
-                    <div style={{ marginTop: 12 }}>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+                    <a href={`/jobs/${(job as any).id}/invoice/print`} target="_blank" style={actionBtn}>
+                      Open invoice PDF
+                    </a>
+
+                    {portalUrl ? (
                       <a href={portalUrl} target="_blank" style={actionBtn}>
                         Open customer portal
                       </a>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
 
                 <div style={card}>
