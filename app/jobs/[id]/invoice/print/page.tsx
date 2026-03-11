@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import PrintInvoiceButton from "./PrintInvoiceButton";
 
 function fmtDate(value: string | null | undefined) {
