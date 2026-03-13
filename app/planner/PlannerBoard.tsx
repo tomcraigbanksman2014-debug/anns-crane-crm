@@ -251,83 +251,27 @@ export default function PlannerBoard() {
 
       {msg ? <div style={infoBox}>{msg}</div> : null}
 
-      {loading ? (
-        <div style={boardShellStyle}>Loading weekly planner...</div>
-      ) : (
-        <div style={boardShellStyle}>
-          <div style={weekHeaderStyle}>
-            <div style={nameColHeaderStyle}>Lane</div>
-            {data.days.map((day) => (
-              <div key={day.date} style={dayHeaderStyle}>
-                {day.label}
-              </div>
-            ))}
-          </div>
+      <div style={plannerOuterStyle}>
+        {loading ? (
+          <div style={loadingStyle}>Loading weekly planner...</div>
+        ) : (
+          <div style={plannerScrollStyle}>
+            <div style={plannerGridStyle}>
+              <div style={cornerHeaderStyle}>Lane</div>
+              {data.days.map((day) => (
+                <div key={day.date} style={dayHeaderStyle}>
+                  {day.label}
+                </div>
+              ))}
 
-          <div style={rowStyle}>
-            <div style={nameCellStyle}>
-              <div style={{ fontWeight: 1000 }}>Unassigned</div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>Needs operator</div>
-            </div>
-
-            {data.days.map((day) => {
-              const cellKey = `unassigned__${day.date}`;
-              const items = unassignedByDay.get(day.date) ?? [];
-
-              return (
-                <DropCell
-                  key={cellKey}
-                  active={hoverCell === cellKey}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setHoverCell(cellKey);
-                  }}
-                  onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
-                  onDrop={async (e) => {
-                    e.preventDefault();
-                    const itemId = e.dataTransfer.getData("text/plain");
-                    const item = data.items.find((x) => x.id === itemId);
-                    if (!item) return;
-                    await updateItem(item, {
-                      operator_id: null,
-                      job_date: day.date,
-                    });
-                  }}
-                >
-                  {items.length === 0 ? (
-                    <div style={emptyMiniStyle}>—</div>
-                  ) : (
-                    items.map((item) => (
-                      <PlannerCard
-                        key={item.id}
-                        item={item}
-                        equipmentOptions={equipmentOptions}
-                        saving={savingId === item.id}
-                        dragging={draggingItemId === item.id}
-                        onDragStart={() => setDraggingItemId(item.id)}
-                        onDragEnd={() => {
-                          setDraggingItemId(null);
-                          setHoverCell(null);
-                        }}
-                        onUpdate={updateItem}
-                      />
-                    ))
-                  )}
-                </DropCell>
-              );
-            })}
-          </div>
-
-          {data.operators.map((operator) => (
-            <div key={operator.id} style={rowStyle}>
-              <div style={nameCellStyle}>
-                <div style={{ fontWeight: 1000 }}>{operator.full_name ?? "Operator"}</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>Assigned lane</div>
+              <div style={laneHeaderStyle}>
+                <div style={{ fontWeight: 1000 }}>Unassigned</div>
+                <div style={{ fontSize: 12, opacity: 0.72 }}>Needs operator</div>
               </div>
 
               {data.days.map((day) => {
-                const cellKey = `${operator.id}__${day.date}`;
-                const items = operatorDayMap.get(cellKey) ?? [];
+                const cellKey = `unassigned__${day.date}`;
+                const items = unassignedByDay.get(day.date) ?? [];
 
                 return (
                   <DropCell
@@ -344,7 +288,7 @@ export default function PlannerBoard() {
                       const item = data.items.find((x) => x.id === itemId);
                       if (!item) return;
                       await updateItem(item, {
-                        operator_id: operator.id,
+                        operator_id: null,
                         job_date: day.date,
                       });
                     }}
@@ -371,11 +315,110 @@ export default function PlannerBoard() {
                   </DropCell>
                 );
               })}
+
+              {data.operators.map((operator) => (
+                <PlannerRow
+                  key={operator.id}
+                  operator={operator}
+                  days={data.days}
+                  operatorDayMap={operatorDayMap}
+                  hoverCell={hoverCell}
+                  setHoverCell={setHoverCell}
+                  dataItems={data.items}
+                  equipmentOptions={equipmentOptions}
+                  savingId={savingId}
+                  draggingItemId={draggingItemId}
+                  setDraggingItemId={setDraggingItemId}
+                  updateItem={updateItem}
+                />
+              ))}
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
+  );
+}
+
+function PlannerRow({
+  operator,
+  days,
+  operatorDayMap,
+  hoverCell,
+  setHoverCell,
+  dataItems,
+  equipmentOptions,
+  savingId,
+  draggingItemId,
+  setDraggingItemId,
+  updateItem,
+}: {
+  operator: PlannerPerson;
+  days: PlannerDay[];
+  operatorDayMap: Map<string, PlannerItem[]>;
+  hoverCell: string | null;
+  setHoverCell: React.Dispatch<React.SetStateAction<string | null>>;
+  dataItems: PlannerItem[];
+  equipmentOptions: Array<{ value: string; label: string }>;
+  savingId: string | null;
+  draggingItemId: string | null;
+  setDraggingItemId: React.Dispatch<React.SetStateAction<string | null>>;
+  updateItem: (item: PlannerItem, update: Record<string, any>) => Promise<void>;
+}) {
+  return (
+    <>
+      <div style={laneHeaderStyle}>
+        <div style={{ fontWeight: 1000 }}>{operator.full_name ?? "Operator"}</div>
+        <div style={{ fontSize: 12, opacity: 0.72 }}>Assigned lane</div>
+      </div>
+
+      {days.map((day) => {
+        const cellKey = `${operator.id}__${day.date}`;
+        const items = operatorDayMap.get(cellKey) ?? [];
+
+        return (
+          <DropCell
+            key={cellKey}
+            active={hoverCell === cellKey}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setHoverCell(cellKey);
+            }}
+            onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+            onDrop={async (e) => {
+              e.preventDefault();
+              const itemId = e.dataTransfer.getData("text/plain");
+              const item = dataItems.find((x) => x.id === itemId);
+              if (!item) return;
+              await updateItem(item, {
+                operator_id: operator.id,
+                job_date: day.date,
+              });
+            }}
+          >
+            {items.length === 0 ? (
+              <div style={emptyMiniStyle}>—</div>
+            ) : (
+              items.map((item) => (
+                <PlannerCard
+                  key={item.id}
+                  item={item}
+                  equipmentOptions={equipmentOptions}
+                  saving={savingId === item.id}
+                  dragging={draggingItemId === item.id}
+                  onDragStart={() => setDraggingItemId(item.id)}
+                  onDragEnd={() => {
+                    setDraggingItemId(null);
+                    setHoverCell(null);
+                  }}
+                  onUpdate={updateItem}
+                />
+              ))
+            )}
+          </DropCell>
+        );
+      })}
+    </>
   );
 }
 
@@ -444,7 +487,6 @@ function PlannerCard({
         ...jobCardStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
-        padding: 10,
       }}
     >
       <div style={{ display: "grid", gap: 6 }}>
@@ -525,58 +567,67 @@ const toolbarStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const boardShellStyle: React.CSSProperties = {
+const plannerOuterStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 14,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-  overflowX: "auto",
+  height: "calc(100vh - 230px)",
+  minHeight: 620,
 };
 
-const weekHeaderStyle: React.CSSProperties = {
+const plannerScrollStyle: React.CSSProperties = {
+  width: "100%",
+  height: "100%",
+  overflow: "auto",
+};
+
+const plannerGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
+  gridTemplateColumns: "220px repeat(7, minmax(260px, 1fr))",
   gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
+  minWidth: 2100,
+  alignItems: "start",
 };
 
-const rowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
-  gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
-};
-
-const nameColHeaderStyle: React.CSSProperties = {
+const cornerHeaderStyle: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  left: 0,
+  zIndex: 5,
   padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.55)",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
 };
 
 const dayHeaderStyle: React.CSSProperties = {
+  position: "sticky",
+  top: 0,
+  zIndex: 4,
   padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.55)",
+  background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   textAlign: "center",
 };
 
-const nameCellStyle: React.CSSProperties = {
+const laneHeaderStyle: React.CSSProperties = {
+  position: "sticky",
+  left: 0,
+  zIndex: 3,
   padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+  background: "rgba(255,255,255,0.92)",
   border: "1px solid rgba(0,0,0,0.08)",
-  alignSelf: "stretch",
+  minHeight: 110,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 150,
+  minHeight: 110,
   padding: 8,
   borderRadius: 12,
   background: "rgba(255,255,255,0.34)",
@@ -593,9 +644,10 @@ const activeCellStyle: React.CSSProperties = {
 
 const jobCardStyle: React.CSSProperties = {
   borderRadius: 10,
-  background: "rgba(255,255,255,0.82)",
+  background: "rgba(255,255,255,0.88)",
   border: "1px solid rgba(0,0,0,0.08)",
   boxShadow: "0 4px 14px rgba(0,0,0,0.06)",
+  padding: 10,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -648,5 +700,12 @@ const infoBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,170,0,0.14)",
   border: "1px solid rgba(255,170,0,0.24)",
+  fontWeight: 800,
+};
+
+const loadingStyle: React.CSSProperties = {
+  height: "100%",
+  display: "grid",
+  placeItems: "center",
   fontWeight: 800,
 };
