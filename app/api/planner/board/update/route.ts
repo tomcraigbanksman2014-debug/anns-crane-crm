@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../lib/audit";
 
-function cleanText(value: unknown) {
+function clean(value: unknown) {
   const s = String(value ?? "").trim();
   return s.length ? s : null;
 }
@@ -22,42 +21,116 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
 
-    const jobId = cleanText(body.job_id);
-    const operatorId = cleanText(body.operator_id);
-    const equipmentId = cleanText(body.equipment_id);
-    const jobDate = cleanText(body.job_date);
-    const status = cleanText(body.status);
+    const allocation_id = clean(body.allocation_id);
+    const job_id = clean(body.job_id);
+    const operator_id = clean(body.operator_id);
+    const equipment_id = clean(body.equipment_id);
+    const job_date = clean(body.job_date);
+    const status = clean(body.status);
 
-    if (!jobId) {
+    if (!job_id) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
     }
 
-    const updateData: Record<string, any> = {
+    if (allocation_id) {
+      const allocationUpdate: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (operator_id !== null) allocationUpdate.operator_id = operator_id;
+      if (equipment_id !== null) allocationUpdate.equipment_id = equipment_id;
+      if (job_date !== null) {
+        allocationUpdate.start_date = job_date;
+        allocationUpdate.end_date = job_date;
+      }
+
+      const { error: allocationError } = await supabase
+        .from("job_equipment")
+        .update(allocationUpdate)
+        .eq("id", allocation_id);
+
+      if (allocationError) {
+        return NextResponse.json({ error: allocationError.message }, { status: 400 });
+      }
+
+      if (status !== null) {
+        const { error: statusError } = await supabase
+          .from("jobs")
+          .update({
+            status,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", job_id);
+
+        if (statusError) {
+          return NextResponse.json({ error: statusError.message }, { status: 400 });
+        }
+      }
+
+      const { data: allRows, error: rowsError } = await supabase
+        .from("job_equipment")
+        .select("id, equipment_id, operator_id, source_type, agreed_cost, start_date")
+        .eq("job_id", job_id)
+        .order("created_at", { ascending: true });
+
+      if (rowsError) {
+        return NextResponse.json({ error: rowsError.message }, { status: 400 });
+      }
+
+      const rows = allRows ?? [];
+      const firstRow = rows[0] ?? null;
+      const earliestDate =
+        rows
+          .map((r: any) => r.start_date)
+          .filter(Boolean)
+          .sort()[0] ?? null;
+
+      const crossHireTotal = rows
+        .filter((r: any) => r.source_type === "cross_hire")
+        .reduce((sum: number, r: any) => sum + Number(r.agreed_cost ?? 0), 0);
+
+      const jobUpdate: Record<string, any> = {
+        equipment_id: firstRow?.equipment_id ?? null,
+        operator_id: firstRow?.operator_id ?? null,
+        main_operator_id: firstRow?.operator_id ?? null,
+        equipment_count: rows.length,
+        cross_hire_cost_total: crossHireTotal,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (earliestDate) {
+        jobUpdate.job_date = earliestDate;
+      }
+
+      const { error: jobUpdateError } = await supabase
+        .from("jobs")
+        .update(jobUpdate)
+        .eq("id", job_id);
+
+      if (jobUpdateError) {
+        return NextResponse.json({ error: jobUpdateError.message }, { status: 400 });
+      }
+
+      return NextResponse.json({ ok: true });
+    }
+
+    const legacyUpdate: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
 
-    if (body.hasOwnProperty("operator_id")) updateData.operator_id = operatorId;
-    if (body.hasOwnProperty("equipment_id")) updateData.equipment_id = equipmentId;
-    if (body.hasOwnProperty("job_date")) updateData.job_date = jobDate;
-    if (body.hasOwnProperty("status")) updateData.status = status;
+    if (operator_id !== null) legacyUpdate.operator_id = operator_id;
+    if (equipment_id !== null) legacyUpdate.equipment_id = equipment_id;
+    if (job_date !== null) legacyUpdate.job_date = job_date;
+    if (status !== null) legacyUpdate.status = status;
 
-    const { error } = await supabase
+    const { error: legacyError } = await supabase
       .from("jobs")
-      .update(updateData)
-      .eq("id", jobId);
+      .update(legacyUpdate)
+      .eq("id", job_id);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+    if (legacyError) {
+      return NextResponse.json({ error: legacyError.message }, { status: 400 });
     }
-
-    await writeAuditLog({
-      actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "planner_update",
-      entity_type: "job",
-      entity_id: jobId,
-      meta: updateData,
-    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
