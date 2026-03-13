@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { writeAuditLog } from "../../../lib/audit";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
@@ -74,12 +74,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    await supabase.rpc?.("noop"); // harmless if unavailable
-
     await supabase
       .from("jobs")
       .update({
-        equipment_count: 0,
         updated_at: new Date().toISOString(),
       })
       .eq("id", payload.job_id);
