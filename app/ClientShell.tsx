@@ -22,18 +22,30 @@ export default function ClientShell({
   const pathname = usePathname();
   const supabase = createSupabaseBrowserClient();
 
+  const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "operator" | "">("");
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
+
     async function load() {
-      const { data } = await supabase.auth.getUser();
+      const { data, error } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
       const user = data.user;
-      if (!user) return;
+
+      if (error || !user) {
+        window.location.href = "/login";
+        return;
+      }
 
       const email = String(user.email ?? "").toLowerCase();
-      const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
         .trim()
         .toLowerCase();
 
@@ -44,9 +56,25 @@ export default function ClientShell({
 
       setUsername(fromAuthEmail(user.email ?? null));
       setRole(userRole);
+      setLoading(false);
     }
 
     load();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+
+      if (!session?.user) {
+        window.location.href = "/login";
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [supabase]);
 
   const officeNav = useMemo<NavItem[]>(
@@ -55,7 +83,7 @@ export default function ClientShell({
       { label: "Bookings", href: "/bookings" },
       { label: "Jobs", href: "/jobs" },
       { label: "Timesheets", href: "/timesheets" },
-      { label: "My Jobs", href: "/my-jobs" },
+      { label: "My Jobs", href: "/operator/jobs" },
       { label: "Quotes", href: "/quotes" },
       { label: "Customers", href: "/customers" },
       { label: "Equipment", href: "/equipment" },
@@ -73,7 +101,7 @@ export default function ClientShell({
 
   const operatorNav = useMemo<NavItem[]>(
     () => [
-      { label: "My Jobs", href: "/my-jobs" },
+      { label: "My Jobs", href: "/operator/jobs" },
       { label: "Timesheets", href: "/timesheets" },
       { label: "Settings", href: "/settings" },
     ],
@@ -87,9 +115,34 @@ export default function ClientShell({
     window.location.href = "/login";
   }
 
+  if (loading) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          background: "#dfeaf5",
+          display: "grid",
+          placeItems: "center",
+        }}
+      >
+        <div
+          style={{
+            padding: 24,
+            borderRadius: 16,
+            background: "rgba(255,255,255,0.55)",
+            border: "1px solid rgba(0,0,0,0.08)",
+            fontWeight: 800,
+          }}
+        >
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={pageStyle}>
-      <div style={mobileHeader}>
+      <div className="oai-mobile-header" style={mobileHeader}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <img src="/logo.png" alt="AnnS Crane Hire" style={mobileLogo} />
           <div>
@@ -107,7 +160,7 @@ export default function ClientShell({
         <aside
           style={{
             ...sidebarStyle,
-            ...(menuOpen ? mobileSidebarOpen : {}),
+            ...(menuOpen ? mobileSidebarVisible : {}),
           }}
         >
           <div style={brandBox}>
@@ -149,6 +202,14 @@ export default function ClientShell({
 
         <main style={mainStyle}>{children}</main>
       </div>
+
+      <style>{`
+        @media (max-width: 900px) {
+          .oai-mobile-header {
+            display: flex !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }
@@ -254,21 +315,4 @@ const menuBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const mobileSidebarOpen: React.CSSProperties = {};
-
-if (typeof window !== "undefined") {
-  const style = document.createElement("style");
-  style.innerHTML = `
-    @media (max-width: 900px) {
-      .__oai-mobile-header-fix { display:block; }
-    }
-  `;
-}
-
-const responsiveStyles = `
-@media (max-width: 900px) {
-  .oai-mobile-header {
-    display: flex !important;
-  }
-}
-`;
+const mobileSidebarVisible: React.CSSProperties = {};
