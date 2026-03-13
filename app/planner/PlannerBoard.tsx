@@ -65,12 +65,12 @@ function prettyStatus(value: string | null | undefined) {
 
 function compactStatus(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
-  if (v === "in_progress") return "Live";
-  if (v === "completed") return "Done";
-  if (v === "confirmed") return "Conf";
-  if (v === "cancelled") return "Cancel";
-  if (v === "draft") return "Draft";
-  return value ?? "—";
+  if (v === "in_progress") return "LIVE";
+  if (v === "completed") return "DONE";
+  if (v === "confirmed") return "CONF";
+  if (v === "cancelled") return "CANC";
+  if (v === "draft") return "DRAFT";
+  return String(value ?? "—").toUpperCase();
 }
 
 function mondayOf(dateStr: string) {
@@ -84,6 +84,72 @@ function mondayOf(dateStr: string) {
 
 function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
+}
+
+function timeToMinutes(value: string | null | undefined) {
+  if (!value) return null;
+  const m = String(value).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function rangesOverlap(
+  startA: string | null | undefined,
+  endA: string | null | undefined,
+  startB: string | null | undefined,
+  endB: string | null | undefined
+) {
+  const a1 = timeToMinutes(startA);
+  const a2 = timeToMinutes(endA);
+  const b1 = timeToMinutes(startB);
+  const b2 = timeToMinutes(endB);
+
+  if (a1 == null || a2 == null || b1 == null || b2 == null) return false;
+  return a1 < b2 && b1 < a2;
+}
+
+function statusCardStyle(status: string | null | undefined): React.CSSProperties {
+  const v = String(status ?? "").toLowerCase();
+
+  if (v === "confirmed") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      border: "1px solid rgba(0,180,120,0.24)",
+    };
+  }
+
+  if (v === "in_progress") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      border: "1px solid rgba(255,170,0,0.28)",
+    };
+  }
+
+  if (v === "draft") {
+    return {
+      background: "rgba(0,120,255,0.10)",
+      border: "1px solid rgba(0,120,255,0.22)",
+    };
+  }
+
+  if (v === "completed") {
+    return {
+      background: "rgba(120,120,120,0.10)",
+      border: "1px solid rgba(120,120,120,0.20)",
+    };
+  }
+
+  if (v === "cancelled") {
+    return {
+      background: "rgba(255,0,0,0.09)",
+      border: "1px solid rgba(255,0,0,0.20)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.9)",
+    border: "1px solid rgba(0,0,0,0.08)",
+  };
 }
 
 export default function PlannerBoard() {
@@ -190,6 +256,50 @@ export default function PlannerBoard() {
     [data.equipment]
   );
 
+  const operatorConflictIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    for (const item of data.items) {
+      if (!item.operator_id || !item.job_date) continue;
+
+      const clashes = data.items.filter(
+        (other) =>
+          other.id !== item.id &&
+          other.operator_id === item.operator_id &&
+          other.job_date === item.job_date &&
+          rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
+      );
+
+      if (clashes.length > 0) {
+        ids.add(item.id);
+      }
+    }
+
+    return ids;
+  }, [data.items]);
+
+  const equipmentConflictIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    for (const item of data.items) {
+      if (!item.equipment_id || !item.job_date) continue;
+
+      const clashes = data.items.filter(
+        (other) =>
+          other.id !== item.id &&
+          other.equipment_id === item.equipment_id &&
+          other.job_date === item.job_date &&
+          rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
+      );
+
+      if (clashes.length > 0) {
+        ids.add(item.id);
+      }
+    }
+
+    return ids;
+  }, [data.items]);
+
   const unassignedByDay = useMemo(() => {
     const map = new Map<string, PlannerItem[]>();
 
@@ -261,6 +371,16 @@ export default function PlannerBoard() {
 
       {msg ? <div style={infoBox}>{msg}</div> : null}
 
+      <div style={legendStyle}>
+        <span style={{ ...legendPillStyle, background: "rgba(0,180,120,0.12)", border: "1px solid rgba(0,180,120,0.24)" }}>Confirmed</span>
+        <span style={{ ...legendPillStyle, background: "rgba(255,170,0,0.14)", border: "1px solid rgba(255,170,0,0.28)" }}>In Progress</span>
+        <span style={{ ...legendPillStyle, background: "rgba(0,120,255,0.10)", border: "1px solid rgba(0,120,255,0.22)" }}>Draft</span>
+        <span style={{ ...legendPillStyle, background: "rgba(120,120,120,0.10)", border: "1px solid rgba(120,120,120,0.20)" }}>Completed</span>
+        <span style={{ ...legendPillStyle, background: "rgba(255,0,0,0.09)", border: "1px solid rgba(255,0,0,0.20)" }}>Cancelled</span>
+        <span style={{ ...legendPillStyle, border: "2px solid #7c3aed" }}>Cross hire</span>
+        <span style={{ ...legendPillStyle, border: "2px solid #d97706" }}>Conflict</span>
+      </div>
+
       <div style={plannerOuterStyle}>
         {loading ? (
           <div style={loadingStyle}>Loading weekly planner...</div>
@@ -313,6 +433,8 @@ export default function PlannerBoard() {
                           equipmentOptions={equipmentOptions}
                           saving={savingId === item.id}
                           dragging={draggingItemId === item.id}
+                          operatorConflict={operatorConflictIds.has(item.id)}
+                          equipmentConflict={equipmentConflictIds.has(item.id)}
                           onDragStart={() => setDraggingItemId(item.id)}
                           onDragEnd={() => {
                             setDraggingItemId(null);
@@ -340,6 +462,8 @@ export default function PlannerBoard() {
                   draggingItemId={draggingItemId}
                   setDraggingItemId={setDraggingItemId}
                   updateItem={updateItem}
+                  operatorConflictIds={operatorConflictIds}
+                  equipmentConflictIds={equipmentConflictIds}
                 />
               ))}
             </div>
@@ -362,6 +486,8 @@ function PlannerRow({
   draggingItemId,
   setDraggingItemId,
   updateItem,
+  operatorConflictIds,
+  equipmentConflictIds,
 }: {
   operator: PlannerPerson;
   days: PlannerDay[];
@@ -374,6 +500,8 @@ function PlannerRow({
   draggingItemId: string | null;
   setDraggingItemId: React.Dispatch<React.SetStateAction<string | null>>;
   updateItem: (item: PlannerItem, update: Record<string, any>) => Promise<void>;
+  operatorConflictIds: Set<string>;
+  equipmentConflictIds: Set<string>;
 }) {
   return (
     <>
@@ -416,6 +544,8 @@ function PlannerRow({
                   equipmentOptions={equipmentOptions}
                   saving={savingId === item.id}
                   dragging={draggingItemId === item.id}
+                  operatorConflict={operatorConflictIds.has(item.id)}
+                  equipmentConflict={equipmentConflictIds.has(item.id)}
                   onDragStart={() => setDraggingItemId(item.id)}
                   onDragEnd={() => {
                     setDraggingItemId(null);
@@ -465,6 +595,8 @@ function PlannerCard({
   equipmentOptions,
   saving,
   dragging,
+  operatorConflict,
+  equipmentConflict,
   onDragStart,
   onDragEnd,
   onUpdate,
@@ -473,6 +605,8 @@ function PlannerCard({
   equipmentOptions: Array<{ value: string; label: string }>;
   saving: boolean;
   dragging: boolean;
+  operatorConflict: boolean;
+  equipmentConflict: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onUpdate: (item: PlannerItem, update: Record<string, any>) => Promise<void>;
@@ -485,6 +619,9 @@ function PlannerCard({
     equipment?.name ||
     (item.source_type === "cross_hire" ? "Cross hire" : "Equipment");
 
+  const isCrossHire = item.source_type === "cross_hire";
+  const hasConflict = operatorConflict || equipmentConflict;
+
   return (
     <div
       draggable
@@ -495,13 +632,19 @@ function PlannerCard({
       onDragEnd={onDragEnd}
       style={{
         ...jobCardStyle,
+        ...statusCardStyle(item.status),
+        ...(isCrossHire ? crossHireCardStyle : {}),
+        ...(hasConflict ? conflictCardStyle : {}),
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
       }}
     >
       <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ fontWeight: 1000, fontSize: 13 }}>
-          Job #{item.job_number ?? "—"}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "start" }}>
+          <div style={{ fontWeight: 1000, fontSize: 13 }}>
+            Job #{item.job_number ?? "—"}
+          </div>
+          <div style={statusBadgeStyle}>{compactStatus(item.status)}</div>
         </div>
 
         <div style={smallText}>{client?.company_name ?? "Customer"}</div>
@@ -517,8 +660,10 @@ function PlannerCard({
 
         <div style={smallText}>{item.site_name ?? "No site"}</div>
 
-        <div style={{ ...smallText, fontWeight: 800 }}>
-          {compactStatus(item.status)}
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {isCrossHire ? <span style={miniTagPurple}>Cross hire</span> : <span style={miniTagGrey}>Owned</span>}
+          {operatorConflict ? <span style={miniTagWarn}>Operator clash</span> : null}
+          {equipmentConflict ? <span style={miniTagWarn}>Crane clash</span> : null}
         </div>
 
         <select
@@ -567,6 +712,21 @@ const toolbarStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const legendStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const legendPillStyle: React.CSSProperties = {
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
+  background: "rgba(255,255,255,0.6)",
 };
 
 const plannerOuterStyle: React.CSSProperties = {
@@ -647,10 +807,24 @@ const activeCellStyle: React.CSSProperties = {
 
 const jobCardStyle: React.CSSProperties = {
   borderRadius: 9,
-  background: "rgba(255,255,255,0.9)",
-  border: "1px solid rgba(0,0,0,0.08)",
   boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
   padding: 8,
+};
+
+const crossHireCardStyle: React.CSSProperties = {
+  border: "2px solid #7c3aed",
+};
+
+const conflictCardStyle: React.CSSProperties = {
+  boxShadow: "0 0 0 2px rgba(217,119,6,0.75)",
+};
+
+const statusBadgeStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 900,
+  padding: "3px 6px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.7)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -717,4 +891,34 @@ const smallText: React.CSSProperties = {
   fontSize: 11,
   lineHeight: 1.25,
   opacity: 0.82,
+};
+
+const miniTagPurple: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  padding: "2px 6px",
+  borderRadius: 999,
+  background: "rgba(124,58,237,0.12)",
+  color: "#6d28d9",
+  border: "1px solid rgba(124,58,237,0.26)",
+};
+
+const miniTagGrey: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  padding: "2px 6px",
+  borderRadius: 999,
+  background: "rgba(0,0,0,0.05)",
+  color: "#444",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const miniTagWarn: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  padding: "2px 6px",
+  borderRadius: 999,
+  background: "rgba(217,119,6,0.12)",
+  color: "#b45309",
+  border: "1px solid rgba(217,119,6,0.28)",
 };
