@@ -62,13 +62,20 @@ async function tryInsertBooking(
       .single();
 
     if (!error && data) {
-      return { data, error: null };
+      return { data, error: null, payload };
     }
 
     lastError = error;
   }
 
-  return { data: null, error: lastError };
+  return { data: null, error: lastError, payload: null };
+}
+
+function redirectWithError(message: string) {
+  const params = new URLSearchParams({
+    error: message,
+  });
+  redirect(`/bookings/new?${params.toString()}`);
 }
 
 async function createBooking(formData: FormData) {
@@ -153,14 +160,15 @@ async function createBooking(formData: FormData) {
     },
   ];
 
-  const { data: createdBooking, error } = await tryInsertBooking(
-    supabase,
-    payloadAttempts
-  );
+  const bookingResult = await tryInsertBooking(supabase, payloadAttempts);
 
-  if (error || !createdBooking) {
-    throw new Error(error?.message ?? "Could not create booking.");
+  if (bookingResult.error || !bookingResult.data) {
+    redirectWithError(
+      `Booking insert failed: ${bookingResult.error?.message ?? "Unknown error"}`
+    );
   }
+
+  const createdBooking = bookingResult.data;
 
   if (allocations.length > 0) {
     const rows = allocations.map((item) => ({
@@ -186,14 +194,20 @@ async function createBooking(formData: FormData) {
       .insert(rows);
 
     if (allocationError) {
-      throw new Error(allocationError.message);
+      redirectWithError(
+        `Booking equipment insert failed: ${allocationError.message}`
+      );
     }
   }
 
   redirect("/bookings");
 }
 
-export default async function NewBookingPage() {
+export default async function NewBookingPage({
+  searchParams,
+}: {
+  searchParams?: { error?: string };
+}) {
   const supabase = createSupabaseServerClient();
 
   const [
@@ -232,6 +246,10 @@ export default async function NewBookingPage() {
       .limit(300),
   ]);
 
+  const errorMessage = searchParams?.error
+    ? decodeURIComponent(searchParams.error)
+    : "";
+
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
@@ -248,6 +266,10 @@ export default async function NewBookingPage() {
               ← Back
             </a>
           </div>
+
+          {errorMessage ? (
+            <div style={errorBox}>{errorMessage}</div>
+          ) : null}
 
           <form action={createBooking} style={{ marginTop: 18 }}>
             <div style={gridStyle}>
@@ -445,4 +467,15 @@ const saveBtn: React.CSSProperties = {
   border: "none",
   cursor: "pointer",
   fontWeight: 800,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
+  color: "#8a1020",
+  fontWeight: 700,
+  whiteSpace: "pre-wrap",
 };
