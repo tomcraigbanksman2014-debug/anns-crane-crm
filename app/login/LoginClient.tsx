@@ -3,6 +3,14 @@
 import { useState } from "react";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
+function toLoginEmail(value: string) {
+  const v = value.trim().toLowerCase();
+  if (!v) return "";
+  if (v.includes("@")) return v;
+
+  return `${v}@anns.local`;
+}
+
 export default function LoginClient({
   next,
 }: {
@@ -10,7 +18,7 @@ export default function LoginClient({
 }) {
   const supabase = createSupabaseBrowserClient();
 
-  const [email, setEmail] = useState("");
+  const [usernameOrEmail, setUsernameOrEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,13 +28,15 @@ export default function LoginClient({
     setLoading(true);
     setError("");
 
+    const email = toLoginEmail(usernameOrEmail);
+
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
-      setError(error.message);
+      setError("Invalid login credentials");
       setLoading(false);
       return;
     }
@@ -41,14 +51,14 @@ export default function LoginClient({
 
         <h1 style={{ marginBottom: 6 }}>Login</h1>
         <p style={{ opacity: 0.7, marginBottom: 20 }}>
-          Use your account to access AnnS Crane CRM
+          Use your username or email and password to access AnnS Crane CRM
         </p>
 
         <form onSubmit={signIn} style={{ width: "100%" }}>
           <input
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Username or Email"
+            value={usernameOrEmail}
+            onChange={(e) => setUsernameOrEmail(e.target.value)}
             style={input}
           />
 
