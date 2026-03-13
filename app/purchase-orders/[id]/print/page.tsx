@@ -70,9 +70,18 @@ export default async function PurchaseOrderPrintPage({
               </div>
             </div>
 
-            <button onClick={() => window.print()} style={printBtn}>
-              Print / Save PDF
-            </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={() => window.print()} style={printBtn}>
+                Print / Save PDF
+              </button>
+              <a href="/purchase-orders" style={backBtn}>
+                Back to PO list
+              </a>
+            </div>
+          </div>
+
+          <div style={helpBox}>
+            Use <strong>Print / Save PDF</strong>, then choose <strong>Save as PDF</strong> in the browser print window.
           </div>
 
           <div style={companyBox}>
@@ -174,6 +183,14 @@ const topBarStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const helpBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 10,
+  background: "#f7f7f7",
+  border: "1px solid #ddd",
+};
+
 const companyBox: React.CSSProperties = {
   marginTop: 18,
   padding: 16,
@@ -231,4 +248,15 @@ const printBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const backBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid #111",
+  background: "#fff",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
 };
