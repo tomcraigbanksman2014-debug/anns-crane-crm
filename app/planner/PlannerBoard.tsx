@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type PlannerJob = {
+type PlannerItem = {
   id: string;
+  allocation_id: string | null;
+  job_id: string;
   job_number?: string | null;
   job_date?: string | null;
   start_time?: string | null;
@@ -13,6 +15,8 @@ type PlannerJob = {
   site_address?: string | null;
   operator_id?: string | null;
   equipment_id?: string | null;
+  source_type?: string | null;
+  item_name?: string | null;
   clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
   operators?: { id?: string; full_name?: string | null } | { id?: string; full_name?: string | null }[] | null;
   equipment?: { id?: string; name?: string | null; asset_number?: string | null } | { id?: string; name?: string | null; asset_number?: string | null }[] | null;
@@ -76,21 +80,21 @@ export default function PlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [draggingJobId, setDraggingJobId] = useState<string | null>(null);
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [hoverCell, setHoverCell] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [data, setData] = useState<{
     week_start: string;
     week_end: string;
     days: PlannerDay[];
-    jobs: PlannerJob[];
+    items: PlannerItem[];
     operators: PlannerPerson[];
     equipment: PlannerEquipment[];
   }>({
     week_start: "",
     week_end: "",
     days: [],
-    jobs: [],
+    items: [],
     operators: [],
     equipment: [],
   });
@@ -112,7 +116,7 @@ export default function PlannerBoard() {
         week_start: json?.week_start ?? "",
         week_end: json?.week_end ?? "",
         days: json?.days ?? [],
-        jobs: json?.jobs ?? [],
+        items: json?.items ?? [],
         operators: json?.operators ?? [],
         equipment: json?.equipment ?? [],
       });
@@ -127,8 +131,8 @@ export default function PlannerBoard() {
     load();
   }, [selectedDate]);
 
-  async function updateJob(jobId: string, update: Record<string, any>) {
-    setSavingId(jobId);
+  async function updateItem(item: PlannerItem, update: Record<string, any>) {
+    setSavingId(item.id);
     setMsg("");
 
     try {
@@ -138,7 +142,8 @@ export default function PlannerBoard() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          job_id: jobId,
+          allocation_id: item.allocation_id,
+          job_id: item.job_id,
           ...update,
         }),
       });
@@ -155,7 +160,7 @@ export default function PlannerBoard() {
       setMsg("Could not update planner job.");
     } finally {
       setSavingId(null);
-      setDraggingJobId(null);
+      setDraggingItemId(null);
       setHoverCell(null);
     }
   }
@@ -176,23 +181,23 @@ export default function PlannerBoard() {
   );
 
   const unassignedByDay = useMemo(() => {
-    const map = new Map<string, PlannerJob[]>();
+    const map = new Map<string, PlannerItem[]>();
 
     for (const day of data.days) {
       map.set(day.date, []);
     }
 
-    for (const job of data.jobs) {
-      if (!job.operator_id && job.job_date && map.has(job.job_date)) {
-        map.get(job.job_date)!.push(job);
+    for (const item of data.items) {
+      if (!item.operator_id && item.job_date && map.has(item.job_date)) {
+        map.get(item.job_date)!.push(item);
       }
     }
 
     return map;
-  }, [data.days, data.jobs]);
+  }, [data.days, data.items]);
 
   const operatorDayMap = useMemo(() => {
-    const map = new Map<string, PlannerJob[]>();
+    const map = new Map<string, PlannerItem[]>();
 
     for (const operator of data.operators) {
       for (const day of data.days) {
@@ -200,17 +205,17 @@ export default function PlannerBoard() {
       }
     }
 
-    for (const job of data.jobs) {
-      if (job.operator_id && job.job_date) {
-        const key = `${job.operator_id}__${job.job_date}`;
+    for (const item of data.items) {
+      if (item.operator_id && item.job_date) {
+        const key = `${item.operator_id}__${item.job_date}`;
         if (map.has(key)) {
-          map.get(key)!.push(job);
+          map.get(key)!.push(item);
         }
       }
     }
 
     return map;
-  }, [data.operators, data.days, data.jobs]);
+  }, [data.operators, data.days, data.items]);
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -218,7 +223,7 @@ export default function PlannerBoard() {
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Weekly Planner Board</h2>
           <div style={{ marginTop: 4, opacity: 0.75 }}>
-            Drag jobs across the week and between operators.
+            Drag each crane or equipment allocation across the week and between operators.
           </div>
         </div>
 
@@ -267,7 +272,7 @@ export default function PlannerBoard() {
 
             {data.days.map((day) => {
               const cellKey = `unassigned__${day.date}`;
-              const jobs = unassignedByDay.get(day.date) ?? [];
+              const items = unassignedByDay.get(day.date) ?? [];
 
               return (
                 <DropCell
@@ -280,31 +285,31 @@ export default function PlannerBoard() {
                   onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
                   onDrop={async (e) => {
                     e.preventDefault();
-                    const jobId = e.dataTransfer.getData("text/plain");
-                    if (!jobId) return;
-                    await updateJob(jobId, {
+                    const itemId = e.dataTransfer.getData("text/plain");
+                    const item = data.items.find((x) => x.id === itemId);
+                    if (!item) return;
+                    await updateItem(item, {
                       operator_id: null,
                       job_date: day.date,
                     });
                   }}
                 >
-                  {jobs.length === 0 ? (
+                  {items.length === 0 ? (
                     <div style={emptyMiniStyle}>—</div>
                   ) : (
-                    jobs.map((job) => (
-                      <JobCard
-                        key={job.id}
-                        job={job}
+                    items.map((item) => (
+                      <PlannerCard
+                        key={item.id}
+                        item={item}
                         equipmentOptions={equipmentOptions}
-                        saving={savingId === job.id}
-                        dragging={draggingJobId === job.id}
-                        compact
-                        onDragStart={() => setDraggingJobId(job.id)}
+                        saving={savingId === item.id}
+                        dragging={draggingItemId === item.id}
+                        onDragStart={() => setDraggingItemId(item.id)}
                         onDragEnd={() => {
-                          setDraggingJobId(null);
+                          setDraggingItemId(null);
                           setHoverCell(null);
                         }}
-                        onUpdate={updateJob}
+                        onUpdate={updateItem}
                       />
                     ))
                   )}
@@ -322,7 +327,7 @@ export default function PlannerBoard() {
 
               {data.days.map((day) => {
                 const cellKey = `${operator.id}__${day.date}`;
-                const jobs = operatorDayMap.get(cellKey) ?? [];
+                const items = operatorDayMap.get(cellKey) ?? [];
 
                 return (
                   <DropCell
@@ -335,31 +340,31 @@ export default function PlannerBoard() {
                     onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
                     onDrop={async (e) => {
                       e.preventDefault();
-                      const jobId = e.dataTransfer.getData("text/plain");
-                      if (!jobId) return;
-                      await updateJob(jobId, {
+                      const itemId = e.dataTransfer.getData("text/plain");
+                      const item = data.items.find((x) => x.id === itemId);
+                      if (!item) return;
+                      await updateItem(item, {
                         operator_id: operator.id,
                         job_date: day.date,
                       });
                     }}
                   >
-                    {jobs.length === 0 ? (
+                    {items.length === 0 ? (
                       <div style={emptyMiniStyle}>—</div>
                     ) : (
-                      jobs.map((job) => (
-                        <JobCard
-                          key={job.id}
-                          job={job}
+                      items.map((item) => (
+                        <PlannerCard
+                          key={item.id}
+                          item={item}
                           equipmentOptions={equipmentOptions}
-                          saving={savingId === job.id}
-                          dragging={draggingJobId === job.id}
-                          compact
-                          onDragStart={() => setDraggingJobId(job.id)}
+                          saving={savingId === item.id}
+                          dragging={draggingItemId === item.id}
+                          onDragStart={() => setDraggingItemId(item.id)}
                           onDragEnd={() => {
-                            setDraggingJobId(null);
+                            setDraggingItemId(null);
                             setHoverCell(null);
                           }}
-                          onUpdate={updateJob}
+                          onUpdate={updateItem}
                         />
                       ))
                     )}
@@ -402,33 +407,36 @@ function DropCell({
   );
 }
 
-function JobCard({
-  job,
+function PlannerCard({
+  item,
   equipmentOptions,
   saving,
   dragging,
-  compact,
   onDragStart,
   onDragEnd,
   onUpdate,
 }: {
-  job: PlannerJob;
+  item: PlannerItem;
   equipmentOptions: Array<{ value: string; label: string }>;
   saving: boolean;
   dragging: boolean;
-  compact?: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
-  onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
+  onUpdate: (item: PlannerItem, update: Record<string, any>) => Promise<void>;
 }) {
-  const client = first(job.clients);
-  const equipment = first(job.equipment);
+  const client = first(item.clients);
+  const equipment = first(item.equipment);
+
+  const itemLabel =
+    item.item_name ||
+    equipment?.name ||
+    (item.source_type === "cross_hire" ? "Cross hire item" : "Equipment");
 
   return (
     <div
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", job.id);
+        e.dataTransfer.setData("text/plain", item.id);
         onDragStart();
       }}
       onDragEnd={onDragEnd}
@@ -436,33 +444,38 @@ function JobCard({
         ...jobCardStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
-        padding: compact ? 10 : 16,
+        padding: 10,
       }}
     >
       <div style={{ display: "grid", gap: 6 }}>
-        <div style={{ fontWeight: 1000, fontSize: compact ? 14 : 18 }}>
-          Job #{job.job_number ?? "—"}
+        <div style={{ fontWeight: 1000, fontSize: 14 }}>
+          Job #{item.job_number ?? "—"}
         </div>
 
         <div style={{ fontSize: 12, opacity: 0.8 }}>
           {client?.company_name ?? "Customer"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          {job.start_time ?? "—"} - {job.end_time ?? "—"}
+        <div style={{ fontSize: 12, fontWeight: 800 }}>
+          {itemLabel}
+          {equipment?.asset_number ? ` (${equipment.asset_number})` : ""}
         </div>
 
         <div style={{ fontSize: 12, opacity: 0.75 }}>
-          {job.site_name ?? "No site"}
+          {item.start_time ?? "—"} - {item.end_time ?? "—"}
+        </div>
+
+        <div style={{ fontSize: 12, opacity: 0.75 }}>
+          {item.site_name ?? "No site"}
         </div>
 
         <div style={{ fontSize: 12, fontWeight: 700 }}>
-          {prettyStatus(job.status)}
+          {prettyStatus(item.status)}
         </div>
 
         <select
-          value={job.equipment_id ?? ""}
-          onChange={(e) => onUpdate(job.id, { equipment_id: e.target.value || null })}
+          value={item.equipment_id ?? ""}
+          onChange={(e) => onUpdate(item, { equipment_id: e.target.value || null })}
           disabled={saving}
           style={miniInputStyle}
         >
@@ -475,8 +488,8 @@ function JobCard({
         </select>
 
         <select
-          value={job.status ?? ""}
-          onChange={(e) => onUpdate(job.id, { status: e.target.value })}
+          value={item.status ?? ""}
+          onChange={(e) => onUpdate(item, { status: e.target.value })}
           disabled={saving}
           style={miniInputStyle}
         >
@@ -487,12 +500,12 @@ function JobCard({
           <option value="cancelled">Cancelled</option>
         </select>
 
-        <a href={`/jobs/${job.id}`} style={miniLinkStyle}>
+        <a href={`/jobs/${item.job_id}`} style={miniLinkStyle}>
           Open
         </a>
 
         <div style={{ fontSize: 11, opacity: 0.68 }}>
-          Crane: {equipment?.name ?? "Unassigned"}
+          {item.source_type === "cross_hire" ? "Cross hire" : "Owned"}
         </div>
       </div>
     </div>
