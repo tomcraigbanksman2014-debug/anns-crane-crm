@@ -40,6 +40,8 @@ type PlannerDay = {
   label: string;
 };
 
+type PlannerMode = "operator" | "equipment";
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -51,16 +53,6 @@ function todayIso() {
   const m = `${d.getMonth() + 1}`.padStart(2, "0");
   const day = `${d.getDate()}`.padStart(2, "0");
   return `${y}-${m}-${day}`;
-}
-
-function prettyStatus(value: string | null | undefined) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "in_progress") return "In Progress";
-  if (v === "completed") return "Completed";
-  if (v === "confirmed") return "Confirmed";
-  if (v === "cancelled") return "Cancelled";
-  if (v === "draft") return "Draft";
-  return value ?? "—";
 }
 
 function compactStatus(value: string | null | undefined) {
@@ -154,6 +146,7 @@ function statusCardStyle(status: string | null | undefined): React.CSSProperties
 
 export default function PlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
+  const [mode, setMode] = useState<PlannerMode>("operator");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
@@ -302,10 +295,7 @@ export default function PlannerBoard() {
 
   const unassignedByDay = useMemo(() => {
     const map = new Map<string, PlannerItem[]>();
-
-    for (const day of data.days) {
-      map.set(day.date, []);
-    }
+    for (const day of data.days) map.set(day.date, []);
 
     for (const item of data.items) {
       if (!item.operator_id && item.job_date && map.has(item.job_date)) {
@@ -328,14 +318,31 @@ export default function PlannerBoard() {
     for (const item of data.items) {
       if (item.operator_id && item.job_date) {
         const key = `${item.operator_id}__${item.job_date}`;
-        if (map.has(key)) {
-          map.get(key)!.push(item);
-        }
+        if (map.has(key)) map.get(key)!.push(item);
       }
     }
 
     return map;
   }, [data.operators, data.days, data.items]);
+
+  const equipmentDayMap = useMemo(() => {
+    const map = new Map<string, PlannerItem[]>();
+
+    for (const eq of data.equipment) {
+      for (const day of data.days) {
+        map.set(`${eq.id}__${day.date}`, []);
+      }
+    }
+
+    for (const item of data.items) {
+      if (item.equipment_id && item.job_date) {
+        const key = `${item.equipment_id}__${item.job_date}`;
+        if (map.has(key)) map.get(key)!.push(item);
+      }
+    }
+
+    return map;
+  }, [data.equipment, data.days, data.items]);
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -348,6 +355,23 @@ export default function PlannerBoard() {
         </div>
 
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={toggleWrapStyle}>
+            <button
+              type="button"
+              onClick={() => setMode("operator")}
+              style={mode === "operator" ? activeToggleBtn : toggleBtn}
+            >
+              By Operator
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("equipment")}
+              style={mode === "equipment" ? activeToggleBtn : toggleBtn}
+            >
+              By Crane
+            </button>
+          </div>
+
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
             ← Prev
           </button>
@@ -387,85 +411,113 @@ export default function PlannerBoard() {
         ) : (
           <div style={plannerScrollStyle}>
             <div style={plannerGridStyle}>
-              <div style={cornerHeaderStyle}>Lane</div>
+              <div style={cornerHeaderStyle}>
+                {mode === "operator" ? "Lane" : "Crane"}
+              </div>
+
               {data.days.map((day) => (
                 <div key={day.date} style={dayHeaderStyle}>
                   {day.label}
                 </div>
               ))}
 
-              <div style={laneHeaderStyle}>
-                <div style={{ fontWeight: 1000 }}>Unassigned</div>
-                <div style={{ fontSize: 11, opacity: 0.68 }}>No operator</div>
-              </div>
+              {mode === "operator" ? (
+                <>
+                  <div style={laneHeaderStyle}>
+                    <div style={{ fontWeight: 1000 }}>Unassigned</div>
+                    <div style={{ fontSize: 11, opacity: 0.68 }}>No operator</div>
+                  </div>
 
-              {data.days.map((day) => {
-                const cellKey = `unassigned__${day.date}`;
-                const items = unassignedByDay.get(day.date) ?? [];
+                  {data.days.map((day) => {
+                    const cellKey = `unassigned__${day.date}`;
+                    const items = unassignedByDay.get(day.date) ?? [];
 
-                return (
-                  <DropCell
-                    key={cellKey}
-                    active={hoverCell === cellKey}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setHoverCell(cellKey);
-                    }}
-                    onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      const itemId = e.dataTransfer.getData("text/plain");
-                      const item = data.items.find((x) => x.id === itemId);
-                      if (!item) return;
-                      await updateItem(item, {
-                        operator_id: null,
-                        job_date: day.date,
-                      });
-                    }}
-                  >
-                    {items.length === 0 ? (
-                      <div style={emptyMiniStyle}>—</div>
-                    ) : (
-                      items.map((item) => (
-                        <PlannerCard
-                          key={item.id}
-                          item={item}
-                          equipmentOptions={equipmentOptions}
-                          saving={savingId === item.id}
-                          dragging={draggingItemId === item.id}
-                          operatorConflict={operatorConflictIds.has(item.id)}
-                          equipmentConflict={equipmentConflictIds.has(item.id)}
-                          onDragStart={() => setDraggingItemId(item.id)}
-                          onDragEnd={() => {
-                            setDraggingItemId(null);
-                            setHoverCell(null);
-                          }}
-                          onUpdate={updateItem}
-                        />
-                      ))
-                    )}
-                  </DropCell>
-                );
-              })}
+                    return (
+                      <DropCell
+                        key={cellKey}
+                        active={hoverCell === cellKey}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setHoverCell(cellKey);
+                        }}
+                        onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          const itemId = e.dataTransfer.getData("text/plain");
+                          const item = data.items.find((x) => x.id === itemId);
+                          if (!item) return;
+                          await updateItem(item, {
+                            operator_id: null,
+                            job_date: day.date,
+                          });
+                        }}
+                      >
+                        {items.length === 0 ? (
+                          <div style={emptyMiniStyle}>—</div>
+                        ) : (
+                          items.map((item) => (
+                            <PlannerCard
+                              key={item.id}
+                              item={item}
+                              equipmentOptions={equipmentOptions}
+                              saving={savingId === item.id}
+                              dragging={draggingItemId === item.id}
+                              operatorConflict={operatorConflictIds.has(item.id)}
+                              equipmentConflict={equipmentConflictIds.has(item.id)}
+                              onDragStart={() => setDraggingItemId(item.id)}
+                              onDragEnd={() => {
+                                setDraggingItemId(null);
+                                setHoverCell(null);
+                              }}
+                              onUpdate={updateItem}
+                            />
+                          ))
+                        )}
+                      </DropCell>
+                    );
+                  })}
 
-              {data.operators.map((operator) => (
-                <PlannerRow
-                  key={operator.id}
-                  operator={operator}
-                  days={data.days}
-                  operatorDayMap={operatorDayMap}
-                  hoverCell={hoverCell}
-                  setHoverCell={setHoverCell}
-                  dataItems={data.items}
-                  equipmentOptions={equipmentOptions}
-                  savingId={savingId}
-                  draggingItemId={draggingItemId}
-                  setDraggingItemId={setDraggingItemId}
-                  updateItem={updateItem}
-                  operatorConflictIds={operatorConflictIds}
-                  equipmentConflictIds={equipmentConflictIds}
-                />
-              ))}
+                  {data.operators.map((operator) => (
+                    <OperatorRow
+                      key={operator.id}
+                      operator={operator}
+                      days={data.days}
+                      operatorDayMap={operatorDayMap}
+                      hoverCell={hoverCell}
+                      setHoverCell={setHoverCell}
+                      dataItems={data.items}
+                      equipmentOptions={equipmentOptions}
+                      savingId={savingId}
+                      draggingItemId={draggingItemId}
+                      setDraggingItemId={setDraggingItemId}
+                      updateItem={updateItem}
+                      operatorConflictIds={operatorConflictIds}
+                      equipmentConflictIds={equipmentConflictIds}
+                    />
+                  ))}
+                </>
+              ) : (
+                <>
+                  {data.equipment.map((eq) => (
+                    <EquipmentRow
+                      key={eq.id}
+                      equipment={eq}
+                      days={data.days}
+                      equipmentDayMap={equipmentDayMap}
+                      hoverCell={hoverCell}
+                      setHoverCell={setHoverCell}
+                      dataItems={data.items}
+                      equipmentOptions={equipmentOptions}
+                      savingId={savingId}
+                      draggingItemId={draggingItemId}
+                      setDraggingItemId={setDraggingItemId}
+                      updateItem={updateItem}
+                      operatorConflictIds={operatorConflictIds}
+                      equipmentConflictIds={equipmentConflictIds}
+                    />
+                  ))}
+                </>
+              )}
             </div>
           </div>
         )}
@@ -474,7 +526,7 @@ export default function PlannerBoard() {
   );
 }
 
-function PlannerRow({
+function OperatorRow({
   operator,
   days,
   operatorDayMap,
@@ -530,6 +582,98 @@ function PlannerRow({
               if (!item) return;
               await updateItem(item, {
                 operator_id: operator.id,
+                job_date: day.date,
+              });
+            }}
+          >
+            {items.length === 0 ? (
+              <div style={emptyMiniStyle}>—</div>
+            ) : (
+              items.map((item) => (
+                <PlannerCard
+                  key={item.id}
+                  item={item}
+                  equipmentOptions={equipmentOptions}
+                  saving={savingId === item.id}
+                  dragging={draggingItemId === item.id}
+                  operatorConflict={operatorConflictIds.has(item.id)}
+                  equipmentConflict={equipmentConflictIds.has(item.id)}
+                  onDragStart={() => setDraggingItemId(item.id)}
+                  onDragEnd={() => {
+                    setDraggingItemId(null);
+                    setHoverCell(null);
+                  }}
+                  onUpdate={updateItem}
+                />
+              ))
+            )}
+          </DropCell>
+        );
+      })}
+    </>
+  );
+}
+
+function EquipmentRow({
+  equipment,
+  days,
+  equipmentDayMap,
+  hoverCell,
+  setHoverCell,
+  dataItems,
+  equipmentOptions,
+  savingId,
+  draggingItemId,
+  setDraggingItemId,
+  updateItem,
+  operatorConflictIds,
+  equipmentConflictIds,
+}: {
+  equipment: PlannerEquipment;
+  days: PlannerDay[];
+  equipmentDayMap: Map<string, PlannerItem[]>;
+  hoverCell: string | null;
+  setHoverCell: React.Dispatch<React.SetStateAction<string | null>>;
+  dataItems: PlannerItem[];
+  equipmentOptions: Array<{ value: string; label: string }>;
+  savingId: string | null;
+  draggingItemId: string | null;
+  setDraggingItemId: React.Dispatch<React.SetStateAction<string | null>>;
+  updateItem: (item: PlannerItem, update: Record<string, any>) => Promise<void>;
+  operatorConflictIds: Set<string>;
+  equipmentConflictIds: Set<string>;
+}) {
+  return (
+    <>
+      <div style={laneHeaderStyle}>
+        <div style={{ fontWeight: 1000 }}>
+          {equipment.name ?? "Equipment"}
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.68 }}>
+          {equipment.asset_number ?? "No asset"}
+        </div>
+      </div>
+
+      {days.map((day) => {
+        const cellKey = `${equipment.id}__${day.date}`;
+        const items = equipmentDayMap.get(cellKey) ?? [];
+
+        return (
+          <DropCell
+            key={cellKey}
+            active={hoverCell === cellKey}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setHoverCell(cellKey);
+            }}
+            onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+            onDrop={async (e) => {
+              e.preventDefault();
+              const itemId = e.dataTransfer.getData("text/plain");
+              const item = dataItems.find((x) => x.id === itemId);
+              if (!item) return;
+              await updateItem(item, {
+                equipment_id: equipment.id,
                 job_date: day.date,
               });
             }}
@@ -712,6 +856,29 @@ const toolbarStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const toggleWrapStyle: React.CSSProperties = {
+  display: "inline-flex",
+  borderRadius: 10,
+  overflow: "hidden",
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.5)",
+};
+
+const toggleBtn: React.CSSProperties = {
+  padding: "8px 12px",
+  border: "none",
+  background: "transparent",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const activeToggleBtn: React.CSSProperties = {
+  ...toggleBtn,
+  background: "#111",
+  color: "#fff",
 };
 
 const legendStyle: React.CSSProperties = {
