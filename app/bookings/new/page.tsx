@@ -32,49 +32,8 @@ function parseAllocations(raw: string): AllocationInput[] {
   }
 }
 
-function buildCombinedNotes(args: {
-  notes: string | null;
-  site_address: string | null;
-  contact_name: string | null;
-  contact_phone: string | null;
-}) {
-  const parts: string[] = [];
-
-  if (args.notes) parts.push(args.notes);
-  if (args.site_address) parts.push(`Site address: ${args.site_address}`);
-  if (args.contact_name) parts.push(`Site contact: ${args.contact_name}`);
-  if (args.contact_phone) parts.push(`Site phone: ${args.contact_phone}`);
-
-  return parts.join("\n") || null;
-}
-
-async function tryInsertBooking(
-  supabase: ReturnType<typeof createSupabaseServerClient>,
-  payloads: Record<string, any>[]
-) {
-  let lastError: any = null;
-
-  for (const payload of payloads) {
-    const { data, error } = await supabase
-      .from("bookings")
-      .insert(payload)
-      .select("*")
-      .single();
-
-    if (!error && data) {
-      return { data, error: null, payload };
-    }
-
-    lastError = error;
-  }
-
-  return { data: null, error: lastError, payload: null };
-}
-
 function redirectWithError(message: string) {
-  const params = new URLSearchParams({
-    error: message,
-  });
+  const params = new URLSearchParams({ error: message });
   redirect(`/bookings/new?${params.toString()}`);
 }
 
@@ -101,15 +60,10 @@ async function createBooking(formData: FormData) {
   );
 
   const first = allocations[0];
-  const combinedNotes = buildCombinedNotes({
-    notes,
-    site_address,
-    contact_name,
-    contact_phone,
-  });
 
-  const payloadAttempts: Record<string, any>[] = [
-    {
+  const { data: createdBooking, error } = await supabase
+    .from("bookings")
+    .insert({
       client_id,
       start_date: booking_date,
       start_time,
@@ -123,52 +77,13 @@ async function createBooking(formData: FormData) {
       invoice_status,
       equipment_id: first?.equipment_id || null,
       updated_at: new Date().toISOString(),
-    },
-    {
-      client_id,
-      start_date: booking_date,
-      start_time,
-      end_time,
-      location: site_name,
-      notes: combinedNotes,
-      status,
-      invoice_status,
-      equipment_id: first?.equipment_id || null,
-      updated_at: new Date().toISOString(),
-    },
-    {
-      client_id,
-      start_date: booking_date,
-      start_time,
-      end_time,
-      location: site_name,
-      notes: combinedNotes,
-      status,
-      equipment_id: first?.equipment_id || null,
-      updated_at: new Date().toISOString(),
-    },
-    {
-      client_id,
-      booking_date,
-      start_time,
-      end_time,
-      location: site_name,
-      notes: combinedNotes,
-      status,
-      equipment_id: first?.equipment_id || null,
-      updated_at: new Date().toISOString(),
-    },
-  ];
+    })
+    .select("*")
+    .single();
 
-  const bookingResult = await tryInsertBooking(supabase, payloadAttempts);
-
-  if (bookingResult.error || !bookingResult.data) {
-    redirectWithError(
-      `Booking insert failed: ${bookingResult.error?.message ?? "Unknown error"}`
-    );
+  if (error || !createdBooking) {
+    redirectWithError(error?.message ?? "Could not create booking.");
   }
-
-  const createdBooking = bookingResult.data;
 
   if (allocations.length > 0) {
     const rows = allocations.map((item) => ({
@@ -194,9 +109,7 @@ async function createBooking(formData: FormData) {
       .insert(rows);
 
     if (allocationError) {
-      redirectWithError(
-        `Booking equipment insert failed: ${allocationError.message}`
-      );
+      redirectWithError(allocationError.message);
     }
   }
 
@@ -267,9 +180,7 @@ export default async function NewBookingPage({
             </a>
           </div>
 
-          {errorMessage ? (
-            <div style={errorBox}>{errorMessage}</div>
-          ) : null}
+          {errorMessage && <div style={errorBox}>{errorMessage}</div>}
 
           <form action={createBooking} style={{ marginTop: 18 }}>
             <div style={gridStyle}>
@@ -357,15 +268,7 @@ export default async function NewBookingPage({
   );
 }
 
-function Field({
-  label,
-  name,
-  type = "text",
-}: {
-  label: string;
-  name: string;
-  type?: string;
-}) {
+function Field({ label, name, type = "text" }: { label: string; name: string; type?: string }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
@@ -434,7 +337,7 @@ const inputStyle: React.CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "#fff",
   boxSizing: "border-box",
 };
 
@@ -443,13 +346,12 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "#fff",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
 const btnStyle: React.CSSProperties = {
-  display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
@@ -475,7 +377,5 @@ const errorBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
-  color: "#8a1020",
   fontWeight: 700,
-  whiteSpace: "pre-wrap",
 };
