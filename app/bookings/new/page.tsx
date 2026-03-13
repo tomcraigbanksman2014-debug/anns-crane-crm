@@ -56,20 +56,22 @@ async function createBooking(formData: FormData) {
 
   const first = allocations[0];
 
+  const bookingPayload = {
+    client_id,
+    start_date: booking_date,
+    start_time,
+    end_time,
+    location: site_name,
+    notes,
+    status,
+    invoice_status,
+    equipment_id: first?.equipment_id || null,
+    updated_at: new Date().toISOString(),
+  };
+
   const { data: createdBooking, error } = await supabase
     .from("bookings")
-    .insert({
-      client_id,
-      start_date: booking_date,
-      start_time,
-      end_time,
-      location: site_name,
-      notes,
-      status,
-      invoice_status,
-      equipment_id: first?.equipment_id || null,
-      updated_at: new Date().toISOString(),
-    })
+    .insert(bookingPayload)
     .select("*")
     .single();
 
@@ -95,10 +97,14 @@ async function createBooking(formData: FormData) {
       updated_at: new Date().toISOString(),
     }));
 
-    await supabase.from("booking_equipment").insert(rows);
+    const { error: allocationError } = await supabase.from("booking_equipment").insert(rows);
+
+    if (allocationError) {
+      throw new Error(allocationError.message);
+    }
   }
 
-  redirect(`/bookings/${createdBooking.id}`);
+  redirect("/bookings");
 }
 
 export default async function NewBookingPage() {
@@ -142,8 +148,8 @@ export default async function NewBookingPage() {
               />
 
               <Field label="Booking date" name="booking_date" type="date" />
-              <Field label="Start time" name="start_time" />
-              <Field label="End time" name="end_time" />
+              <Field label="Start time" name="start_time" type="time" />
+              <Field label="End time" name="end_time" type="time" />
               <Field label="Site name" name="site_name" />
               <Field label="Site contact" name="contact_name" />
               <Field label="Site phone" name="contact_phone" />
@@ -202,7 +208,6 @@ export default async function NewBookingPage() {
                 label: po.po_number ?? "PO",
               }))}
               title="Requested Equipment"
-              defaultDate=""
             />
 
             <div style={{ marginTop: 18 }}>
