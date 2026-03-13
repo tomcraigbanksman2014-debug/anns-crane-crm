@@ -63,6 +63,16 @@ function prettyStatus(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function compactStatus(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "in_progress") return "Live";
+  if (v === "completed") return "Done";
+  if (v === "confirmed") return "Conf";
+  if (v === "cancelled") return "Cancel";
+  if (v === "draft") return "Draft";
+  return value ?? "—";
+}
+
 function mondayOf(dateStr: string) {
   const d = new Date(dateStr);
   d.setHours(0, 0, 0, 0);
@@ -218,18 +228,18 @@ export default function PlannerBoard() {
   }, [data.operators, data.days, data.items]);
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gap: 12 }}>
       <div style={toolbarStyle}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24 }}>Weekly Planner Board</h2>
-          <div style={{ marginTop: 4, opacity: 0.75 }}>
-            Drag each crane or equipment allocation across the week and between operators.
+          <h2 style={{ margin: 0, fontSize: 22 }}>Weekly Planner Board</h2>
+          <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>
+            Compact weekly view for operators and equipment allocations.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
-            ← Previous week
+            ← Prev
           </button>
 
           <input
@@ -240,7 +250,7 @@ export default function PlannerBoard() {
           />
 
           <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
-            Next week →
+            Next →
           </button>
 
           <button type="button" onClick={load} style={secondaryBtn}>
@@ -266,7 +276,7 @@ export default function PlannerBoard() {
 
               <div style={laneHeaderStyle}>
                 <div style={{ fontWeight: 1000 }}>Unassigned</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>Needs operator</div>
+                <div style={{ fontSize: 11, opacity: 0.68 }}>No operator</div>
               </div>
 
               {data.days.map((day) => {
@@ -369,7 +379,7 @@ function PlannerRow({
     <>
       <div style={laneHeaderStyle}>
         <div style={{ fontWeight: 1000 }}>{operator.full_name ?? "Operator"}</div>
-        <div style={{ fontSize: 12, opacity: 0.72 }}>Assigned lane</div>
+        <div style={{ fontSize: 11, opacity: 0.68 }}>Assigned</div>
       </div>
 
       {days.map((day) => {
@@ -473,7 +483,7 @@ function PlannerCard({
   const itemLabel =
     item.item_name ||
     equipment?.name ||
-    (item.source_type === "cross_hire" ? "Cross hire item" : "Equipment");
+    (item.source_type === "cross_hire" ? "Cross hire" : "Equipment");
 
   return (
     <div
@@ -489,30 +499,26 @@ function PlannerCard({
         cursor: "grab",
       }}
     >
-      <div style={{ display: "grid", gap: 6 }}>
-        <div style={{ fontWeight: 1000, fontSize: 14 }}>
+      <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ fontWeight: 1000, fontSize: 13 }}>
           Job #{item.job_number ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.8 }}>
-          {client?.company_name ?? "Customer"}
-        </div>
+        <div style={smallText}>{client?.company_name ?? "Customer"}</div>
 
-        <div style={{ fontSize: 12, fontWeight: 800 }}>
+        <div style={{ ...smallText, fontWeight: 800 }}>
           {itemLabel}
           {equipment?.asset_number ? ` (${equipment.asset_number})` : ""}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={smallText}>
           {item.start_time ?? "—"} - {item.end_time ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          {item.site_name ?? "No site"}
-        </div>
+        <div style={smallText}>{item.site_name ?? "No site"}</div>
 
-        <div style={{ fontSize: 12, fontWeight: 700 }}>
-          {prettyStatus(item.status)}
+        <div style={{ ...smallText, fontWeight: 800 }}>
+          {compactStatus(item.status)}
         </div>
 
         <select
@@ -545,10 +551,6 @@ function PlannerCard({
         <a href={`/jobs/${item.job_id}`} style={miniLinkStyle}>
           Open
         </a>
-
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
-          {item.source_type === "cross_hire" ? "Cross hire" : "Owned"}
-        </div>
       </div>
     </div>
   );
@@ -561,7 +563,7 @@ const toolbarStyle: React.CSSProperties = {
   alignItems: "center",
   flexWrap: "wrap",
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
+  padding: 14,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -569,12 +571,12 @@ const toolbarStyle: React.CSSProperties = {
 
 const plannerOuterStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 14,
+  padding: 10,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-  height: "calc(100vh - 230px)",
-  minHeight: 620,
+  height: "calc(100vh - 205px)",
+  minHeight: 540,
 };
 
 const plannerScrollStyle: React.CSSProperties = {
@@ -585,9 +587,9 @@ const plannerScrollStyle: React.CSSProperties = {
 
 const plannerGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(260px, 1fr))",
-  gap: 12,
-  minWidth: 2100,
+  gridTemplateColumns: "160px repeat(7, minmax(170px, 1fr))",
+  gap: 8,
+  minWidth: 1380,
   alignItems: "start",
 };
 
@@ -596,8 +598,8 @@ const cornerHeaderStyle: React.CSSProperties = {
   top: 0,
   left: 0,
   zIndex: 5,
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
@@ -607,33 +609,34 @@ const dayHeaderStyle: React.CSSProperties = {
   position: "sticky",
   top: 0,
   zIndex: 4,
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   textAlign: "center",
+  fontSize: 13,
 };
 
 const laneHeaderStyle: React.CSSProperties = {
   position: "sticky",
   left: 0,
   zIndex: 3,
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.92)",
   border: "1px solid rgba(0,0,0,0.08)",
-  minHeight: 110,
+  minHeight: 88,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 110,
-  padding: 8,
-  borderRadius: 12,
+  minHeight: 88,
+  padding: 6,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.34)",
   border: "1px solid rgba(0,0,0,0.08)",
   display: "grid",
-  gap: 8,
+  gap: 6,
   alignContent: "start",
 };
 
@@ -643,17 +646,17 @@ const activeCellStyle: React.CSSProperties = {
 };
 
 const jobCardStyle: React.CSSProperties = {
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.88)",
+  borderRadius: 9,
+  background: "rgba(255,255,255,0.9)",
   border: "1px solid rgba(0,0,0,0.08)",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.06)",
-  padding: 10,
+  boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
+  padding: 8,
 };
 
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
+  width: 150,
+  height: 36,
+  padding: "0 10px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.90)",
@@ -662,17 +665,17 @@ const inputStyle: React.CSSProperties = {
 
 const miniInputStyle: React.CSSProperties = {
   width: "100%",
-  height: 34,
-  padding: "0 10px",
-  borderRadius: 8,
+  height: 28,
+  padding: "0 8px",
+  borderRadius: 7,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "#fff",
   boxSizing: "border-box",
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "10px 14px",
+  padding: "8px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.70)",
@@ -686,17 +689,17 @@ const miniLinkStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const emptyMiniStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   opacity: 0.5,
-  padding: 6,
+  padding: 4,
 };
 
 const infoBox: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "10px 12px",
   borderRadius: 12,
   background: "rgba(255,170,0,0.14)",
   border: "1px solid rgba(255,170,0,0.24)",
@@ -708,4 +711,10 @@ const loadingStyle: React.CSSProperties = {
   display: "grid",
   placeItems: "center",
   fontWeight: 800,
+};
+
+const smallText: React.CSSProperties = {
+  fontSize: 11,
+  lineHeight: 1.25,
+  opacity: 0.82,
 };
