@@ -138,7 +138,7 @@ export default function EquipmentAllocationsCreate({
               />
 
               <TextField
-                label="Item name override"
+                label="Item name (optional)"
                 value={row.item_name}
                 onChange={(value) => updateRow(index, "item_name", value)}
               />
@@ -159,12 +159,14 @@ export default function EquipmentAllocationsCreate({
 
               <TextField
                 label="Start time"
+                type="time"
                 value={row.start_time}
                 onChange={(value) => updateRow(index, "start_time", value)}
               />
 
               <TextField
                 label="End time"
+                type="time"
                 value={row.end_time}
                 onChange={(value) => updateRow(index, "end_time", value)}
               />
