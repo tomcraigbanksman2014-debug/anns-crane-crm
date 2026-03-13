@@ -1,7 +1,7 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import POLinesEditorClient from "./POLinesEditorClient";
+import { redirect } from "next/navigation";
 
 function generatePONumber() {
   const d = new Date();
@@ -80,8 +80,12 @@ async function createPurchaseOrder(formData: FormData) {
     .select("id")
     .single();
 
-  if (!error && created?.id && lines.length > 0) {
-    await supabase.from("purchase_order_lines").insert(
+  if (error || !created?.id) {
+    redirect(`/purchase-orders?error=${encodeURIComponent(error?.message ?? "Could not create purchase order.")}`);
+  }
+
+  if (lines.length > 0) {
+    const { error: lineError } = await supabase.from("purchase_order_lines").insert(
       lines.map((line) => ({
         purchase_order_id: created.id,
         description: line.description,
@@ -90,17 +94,24 @@ async function createPurchaseOrder(formData: FormData) {
         total_cost: line.total_cost,
       }))
     );
+
+    if (lineError) {
+      redirect(`/purchase-orders?error=${encodeURIComponent(lineError.message)}`);
+    }
   }
 
-  revalidatePath("/purchase-orders");
+  redirect(`/purchase-orders?success=${encodeURIComponent(`Purchase order ${po_number} saved.`)}`);
 }
 
 async function updatePurchaseOrder(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
+
   const id = clean(formData.get("id"));
-  if (!id) return;
+  if (!id) {
+    redirect(`/purchase-orders?error=${encodeURIComponent("Purchase order id missing.")}`);
+  }
 
   const supplier_id = clean(formData.get("supplier_id")) || null;
   const job_id = clean(formData.get("job_id")) || null;
@@ -109,6 +120,7 @@ async function updatePurchaseOrder(formData: FormData) {
   const required_date = clean(formData.get("required_date")) || null;
   const supplier_reference = clean(formData.get("supplier_reference")) || null;
   const notes = clean(formData.get("notes")) || null;
+  const po_number = clean(formData.get("po_number_display")) || "Purchase order";
 
   const rawLines = clean(formData.get("po_lines_json"));
   const parsedLines = parseLines(rawLines).filter(
@@ -128,7 +140,7 @@ async function updatePurchaseOrder(formData: FormData) {
 
   const total_cost = lines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0);
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("purchase_orders")
     .update({
       supplier_id,
@@ -143,10 +155,21 @@ async function updatePurchaseOrder(formData: FormData) {
     })
     .eq("id", id);
 
-  await supabase.from("purchase_order_lines").delete().eq("purchase_order_id", id);
+  if (updateError) {
+    redirect(`/purchase-orders?error=${encodeURIComponent(updateError.message)}`);
+  }
+
+  const { error: deleteLinesError } = await supabase
+    .from("purchase_order_lines")
+    .delete()
+    .eq("purchase_order_id", id);
+
+  if (deleteLinesError) {
+    redirect(`/purchase-orders?error=${encodeURIComponent(deleteLinesError.message)}`);
+  }
 
   if (lines.length > 0) {
-    await supabase.from("purchase_order_lines").insert(
+    const { error: lineInsertError } = await supabase.from("purchase_order_lines").insert(
       lines.map((line) => ({
         purchase_order_id: id,
         description: line.description,
@@ -155,12 +178,20 @@ async function updatePurchaseOrder(formData: FormData) {
         total_cost: line.total_cost,
       }))
     );
+
+    if (lineInsertError) {
+      redirect(`/purchase-orders?error=${encodeURIComponent(lineInsertError.message)}`);
+    }
   }
 
-  revalidatePath("/purchase-orders");
+  redirect(`/purchase-orders?success=${encodeURIComponent(`${po_number} updated.`)}`);
 }
 
-export default async function PurchaseOrdersPage() {
+export default async function PurchaseOrdersPage({
+  searchParams,
+}: {
+  searchParams?: { success?: string; error?: string };
+}) {
   const supabase = createSupabaseServerClient();
 
   const [
@@ -210,6 +241,13 @@ export default async function PurchaseOrdersPage() {
     linesByPoId.set(key, existing);
   }
 
+  const successMessage = searchParams?.success
+    ? decodeURIComponent(searchParams.success)
+    : "";
+  const errorMessage = searchParams?.error
+    ? decodeURIComponent(searchParams.error)
+    : "";
+
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 96vw)", margin: "0 auto" }}>
@@ -218,6 +256,9 @@ export default async function PurchaseOrdersPage() {
           <p style={{ opacity: 0.8 }}>
             Raise, edit and print cross-hire purchase orders for cranes and equipment.
           </p>
+
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <section style={sectionCard}>
             <h2 style={sectionTitle}>Create purchase order</h2>
@@ -260,7 +301,7 @@ export default async function PurchaseOrdersPage() {
 
               <FullWidthField label="Notes" name="notes" />
 
-              <POLinesEditor fieldName="po_lines_json" />
+              <POLinesEditorClient fieldName="po_lines_json" />
 
               <div>
                 <button type="submit" style={saveBtn}>
@@ -287,6 +328,7 @@ export default async function PurchaseOrdersPage() {
                   return (
                     <form key={po.id} action={updatePurchaseOrder} style={poCard}>
                       <input type="hidden" name="id" value={po.id} />
+                      <input type="hidden" name="po_number_display" value={po.po_number ?? ""} />
 
                       <div style={poHeaderStyle}>
                         <div style={{ fontWeight: 1000, fontSize: 18 }}>
@@ -300,7 +342,7 @@ export default async function PurchaseOrdersPage() {
                             rel="noreferrer"
                             style={printBtn}
                           >
-                            Open / Print PO
+                            Open / Save PDF
                           </a>
                         </div>
                       </div>
@@ -347,7 +389,7 @@ export default async function PurchaseOrdersPage() {
                       </div>
 
                       <div style={{ marginTop: 12 }}>
-                        <POLinesEditor
+                        <POLinesEditorClient
                           fieldName="po_lines_json"
                           initialLines={existingLines.map((line: any) => ({
                             description: line.description ?? "",
@@ -448,26 +490,6 @@ function FullWidthField({
   );
 }
 
-function POLinesEditor({
-  fieldName,
-  initialLines,
-}: {
-  fieldName: string;
-  initialLines?: Array<{
-    description?: string;
-    qty?: string;
-    unit_cost?: string;
-  }>;
-}) {
-  return (
-    <POLinesEditorClient fieldName={fieldName} initialLines={initialLines ?? []} />
-  );
-}
-
-function POLinesEditorClientPlaceholder() {
-  return null;
-}
-
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 20,
@@ -558,7 +580,18 @@ const printBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
+const successBox: React.CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#0b7a4b",
+  fontWeight: 800,
+};
+
 const errorBox: React.CSSProperties = {
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
