@@ -5,6 +5,7 @@ import DocumentDeleteButton from "./DocumentDeleteButton";
 import LiftPlanForm from "./LiftPlanForm";
 import SignoffForm from "./SignoffForm";
 import InvoiceBuilder from "./InvoiceBuilder";
+import JobEquipmentManager from "./JobEquipmentManager";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -68,14 +69,6 @@ function documentTypeStyle(value: string | null | undefined): React.CSSPropertie
     };
   }
 
-  if (v === "delivery_note") {
-    return {
-      background: "rgba(255,0,0,0.08)",
-      color: "#b00020",
-      border: "1px solid rgba(255,0,0,0.18)",
-    };
-  }
-
   return {
     background: "rgba(255,255,255,0.35)",
     color: "#111",
@@ -103,7 +96,6 @@ async function updateJobStatus(formData: FormData) {
 
   const id = String(formData.get("id") ?? "");
   const status = String(formData.get("status") ?? "");
-
   if (!id || !status) return;
 
   const supabase = createSupabaseServerClient();
@@ -121,6 +113,11 @@ export default async function JobPage({
     { data: job, error },
     { data: documents },
     { data: liftPlan },
+    { data: allocations },
+    { data: equipmentList },
+    { data: operatorList },
+    { data: supplierList },
+    { data: poList },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -156,6 +153,8 @@ export default async function JobPage({
         invoice_vat,
         invoice_total,
         portal_token,
+        cross_hire_cost_total,
+        equipment_count,
         clients:client_id (
           id,
           company_name,
@@ -196,6 +195,55 @@ export default async function JobPage({
       .select("*")
       .eq("job_id", params.id)
       .maybeSingle(),
+
+    supabase
+      .from("job_equipment")
+      .select(`
+        *,
+        equipment:equipment_id (
+          id,
+          name,
+          asset_number
+        ),
+        operators:operator_id (
+          id,
+          full_name
+        ),
+        suppliers:supplier_id (
+          id,
+          company_name
+        ),
+        purchase_orders:purchase_order_id (
+          id,
+          po_number,
+          status
+        )
+      `)
+      .eq("job_id", params.id)
+      .order("created_at", { ascending: true }),
+
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number")
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("operators")
+      .select("id, full_name")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .eq("status", "active")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("purchase_orders")
+      .select("id, po_number")
+      .order("created_at", { ascending: false })
+      .limit(300),
   ]);
 
   const client = Array.isArray((job as any)?.clients)
@@ -253,9 +301,7 @@ export default async function JobPage({
     hasText(liftPlan?.approved_by) &&
     !!liftPlan?.approved_at;
 
-  const portalUrl = job?.portal_token
-    ? `/portal/job/${job.portal_token}`
-    : null;
+  const portalUrl = job?.portal_token ? `/portal/job/${job.portal_token}` : null;
 
   const suggestedLiftPlan = {
     ...liftPlan,
@@ -279,7 +325,7 @@ export default async function JobPage({
               Job #{(job as any)?.job_number ?? "—"}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View crane hire job details.
+              View crane hire job details, multiple equipment allocations and cross-hire items.
             </p>
           </div>
 
@@ -375,12 +421,34 @@ export default async function JobPage({
                   <Row label="Site address" value={(job as any).site_address} />
                   <Row label="Site contact" value={(job as any).contact_name} />
                   <Row label="Site phone" value={(job as any).contact_phone} />
-                  <Row label="Hire type" value={(job as any).hire_type} />
-                  <Row label="Lift type" value={(job as any).lift_type} />
-                  <Row label="Created" value={fmtDateTime((job as any).created_at)} />
-                  <Row label="Updated" value={fmtDateTime((job as any).updated_at)} />
+                  <Row label="Equipment count" value={(allocations ?? []).length} />
+                  <Row label="Cross-hire cost total" value={`£${Number((job as any).cross_hire_cost_total ?? 0).toFixed(2)}`} />
                   <Block label="Notes" value={(job as any).notes} />
                 </div>
+
+                <JobEquipmentManager
+                  jobId={(job as any).id}
+                  initialAllocations={allocations ?? []}
+                  equipmentOptions={(equipmentList ?? []).map((e: any) => ({
+                    value: e.id,
+                    label: `${e.name ?? "Equipment"}${e.asset_number ? ` (${e.asset_number})` : ""}`,
+                  }))}
+                  operatorOptions={(operatorList ?? []).map((o: any) => ({
+                    value: o.id,
+                    label: o.full_name ?? "Operator",
+                  }))}
+                  supplierOptions={(supplierList ?? []).map((s: any) => ({
+                    value: s.id,
+                    label: s.company_name ?? "Supplier",
+                  }))}
+                  purchaseOrderOptions={(poList ?? []).map((po: any) => ({
+                    value: po.id,
+                    label: po.po_number ?? "PO",
+                  }))}
+                  defaultDate={(job as any).job_date}
+                  defaultStartTime={(job as any).start_time}
+                  defaultEndTime={(job as any).end_time}
+                />
 
                 <div style={card}>
                   <h2 style={sectionTitle}>Documents</h2>
@@ -445,23 +513,16 @@ export default async function JobPage({
                 </div>
 
                 <div style={card}>
-                  <h2 style={sectionTitle}>Equipment</h2>
+                  <h2 style={sectionTitle}>Legacy primary equipment</h2>
                   <Row label="Crane" value={equipment?.name} />
                   <Row label="Asset #" value={equipment?.asset_number} />
                   <Row label="Type" value={equipment?.type} />
                   <Row label="Capacity" value={equipment?.capacity} />
                   <Row label="Status" value={equipment?.status} />
-                  {equipment?.id ? (
-                    <div style={{ marginTop: 12 }}>
-                      <a href={`/equipment/${equipment.id}`} style={actionBtn}>
-                        Open equipment
-                      </a>
-                    </div>
-                  ) : null}
                 </div>
 
                 <div style={card}>
-                  <h2 style={sectionTitle}>Operator</h2>
+                  <h2 style={sectionTitle}>Legacy primary operator</h2>
                   <Row label="Operator" value={operator?.full_name} />
                   <Row label="Phone" value={operator?.phone} />
                   <Row label="Email" value={operator?.email} />
