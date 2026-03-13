@@ -61,7 +61,10 @@ async function createBooking(formData: FormData) {
     start_date: booking_date,
     start_time,
     end_time,
-    location: site_name,
+    site_name,
+    site_address,
+    contact_name,
+    contact_phone,
     notes,
     status,
     invoice_status,
@@ -97,7 +100,9 @@ async function createBooking(formData: FormData) {
       updated_at: new Date().toISOString(),
     }));
 
-    const { error: allocationError } = await supabase.from("booking_equipment").insert(rows);
+    const { error: allocationError } = await supabase
+      .from("booking_equipment")
+      .insert(rows);
 
     if (allocationError) {
       throw new Error(allocationError.message);
@@ -110,14 +115,41 @@ async function createBooking(formData: FormData) {
 export default async function NewBookingPage() {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: operators }, { data: suppliers }, { data: purchaseOrders }] =
-    await Promise.all([
-      supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
-      supabase.from("equipment").select("id, name, asset_number").order("name", { ascending: true }),
-      supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
-      supabase.from("suppliers").select("id, company_name").eq("status", "active").order("company_name", { ascending: true }),
-      supabase.from("purchase_orders").select("id, po_number").order("created_at", { ascending: false }).limit(300),
-    ]);
+  const [
+    { data: clients },
+    { data: equipment },
+    { data: operators },
+    { data: suppliers },
+    { data: purchaseOrders },
+  ] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number")
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("operators")
+      .select("id, full_name")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .eq("status", "active")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("purchase_orders")
+      .select("id, po_number")
+      .order("created_at", { ascending: false })
+      .limit(300),
+  ]);
 
   return (
     <ClientShell>
