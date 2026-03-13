@@ -11,25 +11,85 @@ function generatePONumber() {
   return `PO-${y}${m}${day}-${stamp}`;
 }
 
+function clean(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
+}
+
+type LineInput = {
+  description?: string;
+  qty?: string | number;
+  unit_cost?: string | number;
+};
+
+function parseLines(raw: string): LineInput[] {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 async function createPurchaseOrder(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
 
-  const payload = {
-    po_number: String(formData.get("po_number") ?? "").trim() || generatePONumber(),
-    supplier_id: String(formData.get("supplier_id") ?? "").trim() || null,
-    job_id: String(formData.get("job_id") ?? "").trim() || null,
-    status: String(formData.get("status") ?? "draft").trim() || "draft",
-    order_date: String(formData.get("order_date") ?? "").trim() || null,
-    required_date: String(formData.get("required_date") ?? "").trim() || null,
-    supplier_reference: String(formData.get("supplier_reference") ?? "").trim() || null,
-    total_cost: Number(formData.get("total_cost") ?? 0) || 0,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    updated_at: new Date().toISOString(),
-  };
+  const po_number = clean(formData.get("po_number")) || generatePONumber();
+  const supplier_id = clean(formData.get("supplier_id")) || null;
+  const job_id = clean(formData.get("job_id")) || null;
+  const status = clean(formData.get("status")) || "draft";
+  const order_date = clean(formData.get("order_date")) || null;
+  const required_date = clean(formData.get("required_date")) || null;
+  const supplier_reference = clean(formData.get("supplier_reference")) || null;
+  const notes = clean(formData.get("notes")) || null;
 
-  await supabase.from("purchase_orders").insert(payload);
+  const rawLines = clean(formData.get("po_lines_json"));
+  const parsedLines = parseLines(rawLines).filter(
+    (line) => String(line.description ?? "").trim().length > 0
+  );
+
+  const lines = parsedLines.map((line) => {
+    const qty = Number(line.qty ?? 0) || 0;
+    const unit_cost = Number(line.unit_cost ?? 0) || 0;
+    return {
+      description: String(line.description ?? "").trim(),
+      qty,
+      unit_cost,
+      total_cost: qty * unit_cost,
+    };
+  });
+
+  const total_cost = lines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0);
+
+  const { data: created, error } = await supabase
+    .from("purchase_orders")
+    .insert({
+      po_number,
+      supplier_id,
+      job_id,
+      status,
+      order_date,
+      required_date,
+      supplier_reference,
+      total_cost,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (!error && created?.id && lines.length > 0) {
+    await supabase.from("purchase_order_lines").insert(
+      lines.map((line) => ({
+        purchase_order_id: created.id,
+        description: line.description,
+        qty: line.qty,
+        unit_cost: line.unit_cost,
+        total_cost: line.total_cost,
+      }))
+    );
+  }
 
   revalidatePath("/purchase-orders");
 }
@@ -38,22 +98,63 @@ async function updatePurchaseOrder(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
-  const id = String(formData.get("id") ?? "").trim();
+  const id = clean(formData.get("id"));
   if (!id) return;
 
-  const payload = {
-    supplier_id: String(formData.get("supplier_id") ?? "").trim() || null,
-    job_id: String(formData.get("job_id") ?? "").trim() || null,
-    status: String(formData.get("status") ?? "draft").trim() || "draft",
-    order_date: String(formData.get("order_date") ?? "").trim() || null,
-    required_date: String(formData.get("required_date") ?? "").trim() || null,
-    supplier_reference: String(formData.get("supplier_reference") ?? "").trim() || null,
-    total_cost: Number(formData.get("total_cost") ?? 0) || 0,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    updated_at: new Date().toISOString(),
-  };
+  const supplier_id = clean(formData.get("supplier_id")) || null;
+  const job_id = clean(formData.get("job_id")) || null;
+  const status = clean(formData.get("status")) || "draft";
+  const order_date = clean(formData.get("order_date")) || null;
+  const required_date = clean(formData.get("required_date")) || null;
+  const supplier_reference = clean(formData.get("supplier_reference")) || null;
+  const notes = clean(formData.get("notes")) || null;
 
-  await supabase.from("purchase_orders").update(payload).eq("id", id);
+  const rawLines = clean(formData.get("po_lines_json"));
+  const parsedLines = parseLines(rawLines).filter(
+    (line) => String(line.description ?? "").trim().length > 0
+  );
+
+  const lines = parsedLines.map((line) => {
+    const qty = Number(line.qty ?? 0) || 0;
+    const unit_cost = Number(line.unit_cost ?? 0) || 0;
+    return {
+      description: String(line.description ?? "").trim(),
+      qty,
+      unit_cost,
+      total_cost: qty * unit_cost,
+    };
+  });
+
+  const total_cost = lines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0);
+
+  await supabase
+    .from("purchase_orders")
+    .update({
+      supplier_id,
+      job_id,
+      status,
+      order_date,
+      required_date,
+      supplier_reference,
+      total_cost,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  await supabase.from("purchase_order_lines").delete().eq("purchase_order_id", id);
+
+  if (lines.length > 0) {
+    await supabase.from("purchase_order_lines").insert(
+      lines.map((line) => ({
+        purchase_order_id: id,
+        description: line.description,
+        qty: line.qty,
+        unit_cost: line.unit_cost,
+        total_cost: line.total_cost,
+      }))
+    );
+  }
 
   revalidatePath("/purchase-orders");
 }
@@ -65,6 +166,7 @@ export default async function PurchaseOrdersPage() {
     { data: purchaseOrders, error },
     { data: suppliers },
     { data: jobs },
+    { data: poLines },
   ] = await Promise.all([
     supabase
       .from("purchase_orders")
@@ -81,9 +183,31 @@ export default async function PurchaseOrdersPage() {
         )
       `)
       .order("created_at", { ascending: false }),
-    supabase.from("suppliers").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(200),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("jobs")
+      .select("id, job_number, site_name")
+      .order("created_at", { ascending: false })
+      .limit(200),
+
+    supabase
+      .from("purchase_order_lines")
+      .select("*")
+      .order("created_at", { ascending: true }),
   ]);
+
+  const linesByPoId = new Map<string, any[]>();
+  for (const line of poLines ?? []) {
+    const key = String((line as any).purchase_order_id);
+    const existing = linesByPoId.get(key) ?? [];
+    existing.push(line);
+    linesByPoId.set(key, existing);
+  }
 
   return (
     <ClientShell>
@@ -91,37 +215,53 @@ export default async function PurchaseOrdersPage() {
         <div style={cardStyle}>
           <h1 style={{ marginTop: 0, fontSize: 32 }}>Purchase Orders</h1>
           <p style={{ opacity: 0.8 }}>
-            Raise and track cross-hire purchase orders for cranes and equipment.
+            Raise, edit and print cross-hire purchase orders for cranes and equipment.
           </p>
 
           <section style={sectionCard}>
             <h2 style={sectionTitle}>Create purchase order</h2>
 
-            <form action={createPurchaseOrder} style={gridStyle}>
-              <Field label="PO number" name="po_number" defaultValue={generatePONumber()} />
-              <SelectField
-                label="Supplier"
-                name="supplier_id"
-                options={(suppliers ?? []).map((s: any) => ({
-                  value: s.id,
-                  label: s.company_name,
-                }))}
-              />
-              <SelectField
-                label="Linked job"
-                name="job_id"
-                options={(jobs ?? []).map((j: any) => ({
-                  value: j.id,
-                  label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
-                }))}
-              />
-              <Field label="Status" name="status" defaultValue="draft" />
-              <Field label="Order date" name="order_date" type="date" />
-              <Field label="Required date" name="required_date" type="date" />
-              <Field label="Supplier reference" name="supplier_reference" />
-              <Field label="Total cost" name="total_cost" type="number" defaultValue="0" />
+            <form action={createPurchaseOrder} style={{ display: "grid", gap: 14 }}>
+              <div style={gridStyle}>
+                <Field label="PO number" name="po_number" defaultValue={generatePONumber()} />
+                <SelectField
+                  label="Supplier"
+                  name="supplier_id"
+                  options={(suppliers ?? []).map((s: any) => ({
+                    value: s.id,
+                    label: s.company_name,
+                  }))}
+                />
+                <SelectField
+                  label="Linked job"
+                  name="job_id"
+                  options={(jobs ?? []).map((j: any) => ({
+                    value: j.id,
+                    label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                  }))}
+                />
+                <SelectField
+                  label="Status"
+                  name="status"
+                  defaultValue="draft"
+                  options={[
+                    { value: "draft", label: "Draft" },
+                    { value: "sent", label: "Sent" },
+                    { value: "approved", label: "Approved" },
+                    { value: "completed", label: "Completed" },
+                    { value: "cancelled", label: "Cancelled" },
+                  ]}
+                />
+                <Field label="Order date" name="order_date" type="date" />
+                <Field label="Required date" name="required_date" type="date" />
+                <Field label="Supplier reference" name="supplier_reference" />
+              </div>
+
               <FullWidthField label="Notes" name="notes" />
-              <div style={{ gridColumn: "1 / -1" }}>
+
+              <POLinesEditor fieldName="po_lines_json" />
+
+              <div>
                 <button type="submit" style={saveBtn}>
                   Save purchase order
                 </button>
@@ -141,13 +281,27 @@ export default async function PurchaseOrdersPage() {
                 {purchaseOrders.map((po: any) => {
                   const supplier = Array.isArray(po.suppliers) ? po.suppliers[0] : po.suppliers;
                   const job = Array.isArray(po.jobs) ? po.jobs[0] : po.jobs;
+                  const existingLines = linesByPoId.get(String(po.id)) ?? [];
 
                   return (
                     <form key={po.id} action={updatePurchaseOrder} style={poCard}>
                       <input type="hidden" name="id" value={po.id} />
 
-                      <div style={{ marginBottom: 10, fontWeight: 1000 }}>
-                        {po.po_number}
+                      <div style={poHeaderStyle}>
+                        <div style={{ fontWeight: 1000, fontSize: 18 }}>
+                          {po.po_number}
+                        </div>
+
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <a
+                            href={`/purchase-orders/${po.id}/print`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={printBtn}
+                          >
+                            Open / Print PO
+                          </a>
+                        </div>
                       </div>
 
                       <div style={gridStyle}>
@@ -169,21 +323,46 @@ export default async function PurchaseOrdersPage() {
                             label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
                           }))}
                         />
-                        <Field label="Status" name="status" defaultValue={po.status ?? "draft"} />
+                        <SelectField
+                          label="Status"
+                          name="status"
+                          defaultValue={po.status ?? "draft"}
+                          options={[
+                            { value: "draft", label: "Draft" },
+                            { value: "sent", label: "Sent" },
+                            { value: "approved", label: "Approved" },
+                            { value: "completed", label: "Completed" },
+                            { value: "cancelled", label: "Cancelled" },
+                          ]}
+                        />
                         <Field label="Order date" name="order_date" type="date" defaultValue={po.order_date ?? ""} />
                         <Field label="Required date" name="required_date" type="date" defaultValue={po.required_date ?? ""} />
                         <Field label="Supplier reference" name="supplier_reference" defaultValue={po.supplier_reference ?? ""} />
-                        <Field label="Total cost" name="total_cost" type="number" defaultValue={String(po.total_cost ?? 0)} />
+                        <Field label="Total cost" name="total_cost_display" type="number" defaultValue={String(po.total_cost ?? 0)} disabled />
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
                         <FullWidthField label="Notes" name="notes" defaultValue={po.notes ?? ""} />
                       </div>
 
-                      <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ marginTop: 12 }}>
+                        <POLinesEditor
+                          fieldName="po_lines_json"
+                          initialLines={existingLines.map((line: any) => ({
+                            description: line.description ?? "",
+                            qty: String(line.qty ?? 0),
+                            unit_cost: String(line.unit_cost ?? 0),
+                          }))}
+                        />
+                      </div>
+
+                      <div style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
                         <button type="submit" style={saveBtn}>
                           Update purchase order
                         </button>
 
-                        <div style={{ opacity: 0.72, alignSelf: "center" }}>
-                          Supplier: {supplier?.company_name ?? "—"} • Job: {job?.job_number ?? "—"}
+                        <div style={{ opacity: 0.72 }}>
+                          Supplier: {supplier?.company_name ?? "—"} • Job: {job?.job_number ?? "—"} • Total: £{Number(po.total_cost ?? 0).toFixed(2)}
                         </div>
                       </div>
                     </form>
@@ -203,16 +382,24 @@ function Field({
   name,
   defaultValue,
   type = "text",
+  disabled = false,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        style={inputStyle}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -253,11 +440,31 @@ function FullWidthField({
   defaultValue?: string;
 }) {
   return (
-    <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
+    <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
       <textarea name={name} defaultValue={defaultValue} rows={4} style={textareaStyle} />
     </div>
   );
+}
+
+function POLinesEditor({
+  fieldName,
+  initialLines,
+}: {
+  fieldName: string;
+  initialLines?: Array<{
+    description?: string;
+    qty?: string;
+    unit_cost?: string;
+  }>;
+}) {
+  return (
+    <POLinesEditorClient fieldName={fieldName} initialLines={initialLines ?? []} />
+  );
+}
+
+function POLinesEditorClientPlaceholder() {
+  return null;
 }
 
 const cardStyle: React.CSSProperties = {
@@ -280,6 +487,15 @@ const poCard: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 12,
   padding: 14,
+};
+
+const poHeaderStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 12,
 };
 
 const sectionTitle: React.CSSProperties = {
@@ -328,6 +544,17 @@ const saveBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const printBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.75)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const errorBox: React.CSSProperties = {
