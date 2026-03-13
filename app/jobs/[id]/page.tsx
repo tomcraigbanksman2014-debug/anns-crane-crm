@@ -4,7 +4,6 @@ import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
 import LiftPlanForm from "./LiftPlanForm";
 import SignoffForm from "./SignoffForm";
-import InvoiceBuilder from "./InvoiceBuilder";
 import JobEquipmentManager from "./JobEquipmentManager";
 
 function fmtDate(value: string | null | undefined) {
@@ -145,6 +144,7 @@ export default async function JobPage({
         customer_signature_name,
         operator_signature_name,
         signed_off_at,
+        invoice_status,
         invoice_number,
         invoice_created_at,
         invoice_due_date,
@@ -483,17 +483,6 @@ export default async function JobPage({
                   initialOperatorSignatureName={(job as any).operator_signature_name}
                   initialSignedOffAt={(job as any).signed_off_at}
                 />
-
-                <InvoiceBuilder
-                  jobId={(job as any).id}
-                  jobNumber={(job as any).job_number}
-                  customerName={client?.company_name}
-                  craneName={equipment?.name}
-                  operatorName={operator?.full_name}
-                  siteName={(job as any).site_name}
-                  siteAddress={(job as any).site_address}
-                  jobDate={(job as any).job_date}
-                />
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
@@ -542,25 +531,11 @@ export default async function JobPage({
                 </div>
 
                 <div style={card}>
-                  <h2 style={sectionTitle}>Invoice & Portal</h2>
-                  <Row label="Invoice number" value={(job as any).invoice_number} />
+                  <h2 style={sectionTitle}>Invoice Status</h2>
+                  <Row label="Invoice status" value={(job as any).invoice_status ?? "not_invoiced"} />
                   <Row label="Invoice created" value={fmtDateTime((job as any).invoice_created_at)} />
                   <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
-                  <Row label="Invoice subtotal" value={(job as any).invoice_subtotal ? `£${Number((job as any).invoice_subtotal).toFixed(2)}` : "—"} />
-                  <Row label="Invoice VAT" value={(job as any).invoice_vat ? `£${Number((job as any).invoice_vat).toFixed(2)}` : "—"} />
-                  <Row label="Invoice total" value={(job as any).invoice_total ? `£${Number((job as any).invoice_total).toFixed(2)}` : "—"} />
-
-                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-                    <a href={`/jobs/${(job as any).id}/invoice/print`} target="_blank" style={actionBtn}>
-                      Open invoice PDF
-                    </a>
-
-                    {portalUrl ? (
-                      <a href={portalUrl} target="_blank" style={actionBtn}>
-                        Open customer portal
-                      </a>
-                    ) : null}
-                  </div>
+                  <Block label="Invoice notes" value={(job as any).invoice_notes} />
                 </div>
 
                 <div style={card}>
@@ -588,6 +563,14 @@ export default async function JobPage({
                     <div style={{ marginTop: 12 }}>
                       <a href={`/bookings/${booking.id}`} style={actionBtn}>
                         Open booking
+                      </a>
+                    </div>
+                  ) : null}
+
+                  {portalUrl ? (
+                    <div style={{ marginTop: 12 }}>
+                      <a href={portalUrl} target="_blank" style={actionBtn}>
+                        Open customer portal
                       </a>
                     </div>
                   ) : null}
