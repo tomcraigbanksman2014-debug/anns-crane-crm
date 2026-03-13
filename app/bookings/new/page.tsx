@@ -32,6 +32,45 @@ function parseAllocations(raw: string): AllocationInput[] {
   }
 }
 
+function buildCombinedNotes(args: {
+  notes: string | null;
+  site_address: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+}) {
+  const parts: string[] = [];
+
+  if (args.notes) parts.push(args.notes);
+  if (args.site_address) parts.push(`Site address: ${args.site_address}`);
+  if (args.contact_name) parts.push(`Site contact: ${args.contact_name}`);
+  if (args.contact_phone) parts.push(`Site phone: ${args.contact_phone}`);
+
+  return parts.join("\n") || null;
+}
+
+async function tryInsertBooking(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  payloads: Record<string, any>[]
+) {
+  let lastError: any = null;
+
+  for (const payload of payloads) {
+    const { data, error } = await supabase
+      .from("bookings")
+      .insert(payload)
+      .select("*")
+      .single();
+
+    if (!error && data) {
+      return { data, error: null };
+    }
+
+    lastError = error;
+  }
+
+  return { data: null, error: lastError };
+}
+
 async function createBooking(formData: FormData) {
   "use server";
 
@@ -55,28 +94,69 @@ async function createBooking(formData: FormData) {
   );
 
   const first = allocations[0];
-
-  const bookingPayload = {
-    client_id,
-    start_date: booking_date,
-    start_time,
-    end_time,
-    site_name,
+  const combinedNotes = buildCombinedNotes({
+    notes,
     site_address,
     contact_name,
     contact_phone,
-    notes,
-    status,
-    invoice_status,
-    equipment_id: first?.equipment_id || null,
-    updated_at: new Date().toISOString(),
-  };
+  });
 
-  const { data: createdBooking, error } = await supabase
-    .from("bookings")
-    .insert(bookingPayload)
-    .select("*")
-    .single();
+  const payloadAttempts: Record<string, any>[] = [
+    {
+      client_id,
+      start_date: booking_date,
+      start_time,
+      end_time,
+      site_name,
+      site_address,
+      contact_name,
+      contact_phone,
+      notes,
+      status,
+      invoice_status,
+      equipment_id: first?.equipment_id || null,
+      updated_at: new Date().toISOString(),
+    },
+    {
+      client_id,
+      start_date: booking_date,
+      start_time,
+      end_time,
+      location: site_name,
+      notes: combinedNotes,
+      status,
+      invoice_status,
+      equipment_id: first?.equipment_id || null,
+      updated_at: new Date().toISOString(),
+    },
+    {
+      client_id,
+      start_date: booking_date,
+      start_time,
+      end_time,
+      location: site_name,
+      notes: combinedNotes,
+      status,
+      equipment_id: first?.equipment_id || null,
+      updated_at: new Date().toISOString(),
+    },
+    {
+      client_id,
+      booking_date,
+      start_time,
+      end_time,
+      location: site_name,
+      notes: combinedNotes,
+      status,
+      equipment_id: first?.equipment_id || null,
+      updated_at: new Date().toISOString(),
+    },
+  ];
+
+  const { data: createdBooking, error } = await tryInsertBooking(
+    supabase,
+    payloadAttempts
+  );
 
   if (error || !createdBooking) {
     throw new Error(error?.message ?? "Could not create booking.");
@@ -89,7 +169,8 @@ async function createBooking(formData: FormData) {
       operator_id: item.operator_id || null,
       source_type: item.source_type || "owned",
       supplier_id: item.source_type === "cross_hire" ? item.supplier_id || null : null,
-      purchase_order_id: item.source_type === "cross_hire" ? item.purchase_order_id || null : null,
+      purchase_order_id:
+        item.source_type === "cross_hire" ? item.purchase_order_id || null : null,
       item_name: item.item_name || null,
       booking_date: item.start_date || booking_date,
       start_time: item.start_time || start_time,
