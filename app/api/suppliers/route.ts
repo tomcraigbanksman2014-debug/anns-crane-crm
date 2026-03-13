@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { writeAuditLog } from "../../../lib/audit";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
