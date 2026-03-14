@@ -53,6 +53,7 @@ async function createPurchaseOrder(formData: FormData) {
   const lines = parsedLines.map((line) => {
     const qty = Number(line.qty ?? 0) || 0;
     const unit_cost = Number(line.unit_cost ?? 0) || 0;
+
     return {
       description: String(line.description ?? "").trim(),
       qty,
@@ -61,7 +62,10 @@ async function createPurchaseOrder(formData: FormData) {
     };
   });
 
-  const total_cost = lines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0);
+  const total_cost = lines.reduce(
+    (sum, line) => sum + Number(line.total_cost ?? 0),
+    0
+  );
 
   const { data: created, error } = await supabase
     .from("purchase_orders")
@@ -81,26 +85,57 @@ async function createPurchaseOrder(formData: FormData) {
     .single();
 
   if (error || !created?.id) {
-    redirect(`/purchase-orders/new?error=${encodeURIComponent(error?.message ?? "Could not create purchase order.")}`);
+    redirect(
+      `/purchase-orders/new?error=${encodeURIComponent(
+        error?.message ?? "Could not create purchase order."
+      )}`
+    );
   }
 
   if (lines.length > 0) {
-    const { error: lineError } = await supabase.from("purchase_order_lines").insert(
-      lines.map((line) => ({
-        purchase_order_id: created.id,
-        description: line.description,
-        qty: line.qty,
-        unit_cost: line.unit_cost,
-        total_cost: line.total_cost,
-      }))
-    );
+    const { error: lineError } = await supabase
+      .from("purchase_order_lines")
+      .insert(
+        lines.map((line) => ({
+          purchase_order_id: created.id,
+          description: line.description,
+          qty: line.qty,
+          unit_cost: line.unit_cost,
+          total_cost: line.total_cost,
+        }))
+      );
 
     if (lineError) {
-      redirect(`/purchase-orders/new?error=${encodeURIComponent(lineError.message)}`);
+      redirect(
+        `/purchase-orders/new?error=${encodeURIComponent(lineError.message)}`
+      );
     }
   }
 
-  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${po_number} saved.`)}`);
+  if (supplier_id) {
+    const correspondenceMessageParts = [
+      `Purchase order ${po_number} created.`,
+      `Status: ${status}.`,
+      `Total value £${total_cost.toFixed(2)}.`,
+      supplier_reference ? `Supplier ref: ${supplier_reference}.` : "",
+      required_date ? `Required date: ${required_date}.` : "",
+      notes ? `Notes: ${notes}` : "",
+    ].filter(Boolean);
+
+    await supabase.from("supplier_correspondence").insert({
+      supplier_id,
+      type: status === "sent" ? "email" : "note",
+      subject: status === "sent" ? "Purchase Order Sent" : "Purchase Order Created",
+      message: correspondenceMessageParts.join(" "),
+      created_by: "system",
+    });
+  }
+
+  redirect(
+    `/purchase-orders/${created.id}?success=${encodeURIComponent(
+      `Purchase order ${po_number} saved.`
+    )}`
+  );
 }
 
 export default async function NewPurchaseOrderPage({
@@ -111,11 +146,20 @@ export default async function NewPurchaseOrderPage({
   const supabase = createSupabaseServerClient();
 
   const [{ data: suppliers }, { data: jobs }] = await Promise.all([
-    supabase.from("suppliers").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(200),
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+    supabase
+      .from("jobs")
+      .select("id, job_number, site_name")
+      .order("created_at", { ascending: false })
+      .limit(200),
   ]);
 
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const errorMessage = searchParams?.error
+    ? decodeURIComponent(searchParams.error)
+    : "";
 
   return (
     <ClientShell>
@@ -139,7 +183,11 @@ export default async function NewPurchaseOrderPage({
           <section style={sectionCard}>
             <form action={createPurchaseOrder} style={{ display: "grid", gap: 14 }}>
               <div style={gridStyle}>
-                <Field label="PO number" name="po_number" defaultValue={generatePONumber()} />
+                <Field
+                  label="PO number"
+                  name="po_number"
+                  defaultValue={generatePONumber()}
+                />
                 <SelectField
                   label="Supplier"
                   name="supplier_id"
@@ -153,7 +201,9 @@ export default async function NewPurchaseOrderPage({
                   name="job_id"
                   options={(jobs ?? []).map((j: any) => ({
                     value: j.id,
-                    label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                    label: `Job #${j.job_number ?? "—"}${
+                      j.site_name ? ` • ${j.site_name}` : ""
+                    }`,
                   }))}
                 />
                 <SelectField
@@ -204,7 +254,12 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        style={inputStyle}
+      />
     </div>
   );
 }
@@ -247,7 +302,12 @@ function FullWidthField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={4} style={textareaStyle} />
+      <textarea
+        name={name}
+        defaultValue={defaultValue}
+        rows={4}
+        style={textareaStyle}
+      />
     </div>
   );
 }
