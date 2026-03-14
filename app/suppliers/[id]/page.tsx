@@ -35,6 +35,87 @@ async function updateSupplier(formData: FormData) {
   redirect(`/suppliers/${id}?success=${encodeURIComponent(`${payload.company_name ?? "Supplier"} updated.`)}`);
 }
 
+async function addSupplierCorrespondence(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const supplier_id = clean(formData.get("supplier_id"));
+  if (!supplier_id) {
+    redirect(`/suppliers?error=${encodeURIComponent("Supplier id missing.")}`);
+  }
+
+  const type = clean(formData.get("type")) || "note";
+  const subject = clean(formData.get("subject")) || null;
+  const message = clean(formData.get("message")) || null;
+  const created_by = clean(formData.get("created_by")) || "office";
+
+  const { error } = await supabase.from("supplier_correspondence").insert({
+    supplier_id,
+    type,
+    subject,
+    message,
+    created_by,
+  });
+
+  if (error) {
+    redirect(`/suppliers/${supplier_id}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/suppliers/${supplier_id}?success=${encodeURIComponent("Supplier correspondence added.")}`);
+}
+
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB");
+}
+
+function prettyType(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "email") return "Email";
+  if (v === "call") return "Call";
+  if (v === "phone") return "Phone";
+  if (v === "note") return "Note";
+  if (v === "meeting") return "Meeting";
+  return value || "Note";
+}
+
+function typePillStyle(value: string | null | undefined): React.CSSProperties {
+  const v = String(value ?? "").toLowerCase();
+
+  if (v === "email") {
+    return {
+      background: "rgba(0,120,255,0.10)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  if (v === "call" || v === "phone") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (v === "meeting") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.68)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
+}
+
 export default async function SupplierDetailPage({
   params,
   searchParams,
@@ -44,8 +125,13 @@ export default async function SupplierDetailPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: supplier, error }, { data: purchaseOrders }] = await Promise.all([
+  const [
+    { data: supplier, error },
+    { data: purchaseOrders },
+    { data: correspondence },
+  ] = await Promise.all([
     supabase.from("suppliers").select("*").eq("id", params.id).single(),
+
     supabase
       .from("purchase_orders")
       .select(`
@@ -58,6 +144,12 @@ export default async function SupplierDetailPage({
       `)
       .eq("supplier_id", params.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("supplier_correspondence")
+      .select("*")
+      .eq("supplier_id", params.id)
+      .order("created_at", { ascending: false }),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -65,7 +157,7 @@ export default async function SupplierDetailPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1200px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
@@ -73,7 +165,7 @@ export default async function SupplierDetailPage({
                 {supplier?.company_name ?? "Supplier"}
               </h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                Supplier details, linked purchase orders and contact information.
+                Supplier details, purchase orders and correspondence history.
               </p>
             </div>
 
@@ -167,6 +259,55 @@ export default async function SupplierDetailPage({
                     </div>
                   )}
                 </section>
+
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Correspondence history</h2>
+
+                  {!correspondence || correspondence.length === 0 ? (
+                    <p style={{ margin: 0 }}>No supplier correspondence logged yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {correspondence.map((item: any) => (
+                        <div key={item.id} style={correspondenceCard}>
+                          <div style={correspondenceTop}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  padding: "4px 8px",
+                                  borderRadius: 999,
+                                  fontSize: 12,
+                                  fontWeight: 900,
+                                  ...typePillStyle(item.type),
+                                }}
+                              >
+                                {prettyType(item.type)}
+                              </span>
+
+                              <span style={{ fontSize: 12, opacity: 0.72 }}>
+                                {fmtDateTime(item.created_at)}
+                              </span>
+
+                              {item.created_by ? (
+                                <span style={{ fontSize: 12, opacity: 0.72 }}>
+                                  by {item.created_by}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <div style={{ marginTop: 8, fontWeight: 900 }}>
+                            {item.subject || "No subject"}
+                          </div>
+
+                          <div style={{ marginTop: 8, whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
+                            {item.message || "—"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
               </div>
 
               <div style={{ display: "grid", gap: 16 }}>
@@ -180,12 +321,33 @@ export default async function SupplierDetailPage({
                 </section>
 
                 <section style={sectionCard}>
-                  <h2 style={sectionTitle}>Correspondence</h2>
-                  <div style={placeholderBox}>
-                    No supplier correspondence table is connected yet.
-                    <br />
-                    Once you add one in Supabase, this page can show full supplier email / note history the same way as a customer record.
-                  </div>
+                  <h2 style={sectionTitle}>Add correspondence</h2>
+
+                  <form action={addSupplierCorrespondence} style={{ display: "grid", gap: 12 }}>
+                    <input type="hidden" name="supplier_id" value={supplier.id} />
+                    <input type="hidden" name="created_by" value="office" />
+
+                    <SelectField
+                      label="Type"
+                      name="type"
+                      defaultValue="note"
+                      options={[
+                        { value: "note", label: "note" },
+                        { value: "email", label: "email" },
+                        { value: "call", label: "call" },
+                        { value: "meeting", label: "meeting" },
+                      ]}
+                    />
+
+                    <Field label="Subject" name="subject" />
+                    <FullWidthField label="Message" name="message" />
+
+                    <div>
+                      <button type="submit" style={primaryBtn}>
+                        Add correspondence
+                      </button>
+                    </div>
+                  </form>
                 </section>
               </div>
             </div>
@@ -329,6 +491,21 @@ const poRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const correspondenceCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.52)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 14,
+};
+
+const correspondenceTop: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
 const infoRow: React.CSSProperties = {
   padding: "10px 0",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
@@ -343,14 +520,6 @@ const infoLabel: React.CSSProperties = {
 const infoValue: React.CSSProperties = {
   marginTop: 4,
   fontWeight: 900,
-};
-
-const placeholderBox: React.CSSProperties = {
-  padding: 14,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.62)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  lineHeight: 1.5,
 };
 
 const labelStyle: React.CSSProperties = {
