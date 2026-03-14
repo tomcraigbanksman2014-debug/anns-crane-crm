@@ -26,6 +26,17 @@ export default function ClientShell({
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "operator" | "">("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    function applyViewport() {
+      setIsMobile(window.innerWidth <= 900);
+    }
+
+    applyViewport();
+    window.addEventListener("resize", applyViewport);
+    return () => window.removeEventListener("resize", applyViewport);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -77,6 +88,10 @@ export default function ClientShell({
     };
   }, [supabase]);
 
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
   const officeNav = useMemo<NavItem[]>(
     () => [
       { label: "Dashboard", href: "/" },
@@ -106,7 +121,6 @@ export default function ClientShell({
   const operatorNav = useMemo<NavItem[]>(
     () => [
       { label: "My Jobs", href: "/operator/jobs" },
-      { label: "My Transport", href: "/operator/transport" },
       { label: "Timesheets", href: "/timesheets" },
       { label: "Settings", href: "/settings" },
     ],
@@ -122,50 +136,47 @@ export default function ClientShell({
 
   if (loading) {
     return (
-      <div
-        style={{
-          minHeight: "100vh",
-          background: "#dfeaf5",
-          display: "grid",
-          placeItems: "center",
-        }}
-      >
-        <div
-          style={{
-            padding: 24,
-            borderRadius: 16,
-            background: "rgba(255,255,255,0.55)",
-            border: "1px solid rgba(0,0,0,0.08)",
-            fontWeight: 800,
-          }}
-        >
-          Loading...
-        </div>
+      <div style={loadingPageStyle}>
+        <div style={loadingCardStyle}>Loading...</div>
       </div>
     );
   }
 
   return (
     <div style={pageStyle}>
-      <div className="oai-mobile-header" style={mobileHeader}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <img src="/logo.png" alt="AnnS Crane Hire" style={mobileLogo} />
-          <div>
-            <div style={{ fontSize: 18, fontWeight: 1000 }}>AnnS Crane CRM</div>
-            <div style={{ opacity: 0.72 }}>{role || "user"}</div>
+      {isMobile ? (
+        <div style={mobileHeader}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <img src="/logo.png" alt="AnnS Crane Hire" style={mobileLogo} />
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 1000 }}>AnnS Crane CRM</div>
+              <div style={{ opacity: 0.72 }}>{role || "user"}</div>
+            </div>
           </div>
-        </div>
 
-        <button type="button" onClick={() => setMenuOpen((v) => !v)} style={menuBtn}>
-          Menu
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            style={menuBtn}
+          >
+            Menu
+          </button>
+        </div>
+      ) : null}
 
       <div style={shellStyle}>
+        {isMobile && menuOpen ? (
+          <div
+            onClick={() => setMenuOpen(false)}
+            style={mobileBackdropStyle}
+          />
+        ) : null}
+
         <aside
           style={{
             ...sidebarStyle,
-            ...(menuOpen ? mobileSidebarVisible : {}),
+            ...(isMobile ? mobileSidebarStyle : desktopSidebarStyle),
+            ...(isMobile && menuOpen ? mobileSidebarOpenStyle : {}),
           }}
         >
           <div style={brandBox}>
@@ -207,16 +218,15 @@ export default function ClientShell({
           </button>
         </aside>
 
-        <main style={mainStyle}>{children}</main>
+        <main
+          style={{
+            ...mainStyle,
+            ...(isMobile ? mobileMainStyle : {}),
+          }}
+        >
+          {children}
+        </main>
       </div>
-
-      <style>{`
-        @media (max-width: 900px) {
-          .oai-mobile-header {
-            display: flex !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
@@ -226,17 +236,32 @@ const pageStyle: React.CSSProperties = {
   background: "#dfeaf5",
 };
 
+const loadingPageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#dfeaf5",
+  display: "grid",
+  placeItems: "center",
+};
+
+const loadingCardStyle: React.CSSProperties = {
+  padding: 24,
+  borderRadius: 16,
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+};
+
 const shellStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
   gap: 18,
   padding: 18,
+  position: "relative",
 };
 
 const sidebarStyle: React.CSSProperties = {
   width: 280,
   minWidth: 280,
-  maxHeight: "calc(100vh - 36px)",
   background: "rgba(255,255,255,0.24)",
   border: "1px solid rgba(255,255,255,0.45)",
   borderRadius: 18,
@@ -246,9 +271,38 @@ const sidebarStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateRows: "auto auto 1fr auto",
   gap: 14,
+  overflow: "hidden",
+  zIndex: 20,
+};
+
+const desktopSidebarStyle: React.CSSProperties = {
   position: "sticky",
   top: 18,
-  overflow: "hidden",
+  maxHeight: "calc(100vh - 36px)",
+};
+
+const mobileSidebarStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  bottom: 0,
+  width: "min(320px, 86vw)",
+  minWidth: "min(320px, 86vw)",
+  maxHeight: "100vh",
+  borderRadius: 0,
+  transform: "translateX(-105%)",
+  transition: "transform 0.22s ease",
+};
+
+const mobileSidebarOpenStyle: React.CSSProperties = {
+  transform: "translateX(0)",
+};
+
+const mobileBackdropStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.25)",
+  zIndex: 15,
 };
 
 const navScrollerStyle: React.CSSProperties = {
@@ -261,6 +315,10 @@ const navScrollerStyle: React.CSSProperties = {
 const mainStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
+};
+
+const mobileMainStyle: React.CSSProperties = {
+  width: "100%",
 };
 
 const brandBox: React.CSSProperties = {
@@ -309,12 +367,16 @@ const signOutBtn: React.CSSProperties = {
 };
 
 const mobileHeader: React.CSSProperties = {
-  display: "none",
+  display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
   padding: 14,
   background: "rgba(255,255,255,0.35)",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
+  position: "sticky",
+  top: 0,
+  zIndex: 10,
+  backdropFilter: "blur(8px)",
 };
 
 const mobileLogo: React.CSSProperties = {
@@ -331,5 +393,3 @@ const menuBtn: React.CSSProperties = {
   fontWeight: 900,
   cursor: "pointer",
 };
-
-const mobileSidebarVisible: React.CSSProperties = {};
