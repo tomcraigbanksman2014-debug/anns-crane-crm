@@ -14,6 +14,30 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
+function isOperatorArea(pathname: string) {
+  return pathname.startsWith("/operator");
+}
+
+function isOfficeOnlyPath(pathname: string) {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/bookings")) return true;
+  if (pathname.startsWith("/jobs")) return true;
+  if (pathname.startsWith("/transport-jobs")) return true;
+  if (pathname.startsWith("/transport-planner")) return true;
+  if (pathname.startsWith("/transport-map")) return true;
+  if (pathname.startsWith("/vehicles")) return true;
+  if (pathname.startsWith("/quotes")) return true;
+  if (pathname.startsWith("/customers")) return true;
+  if (pathname.startsWith("/equipment")) return true;
+  if (pathname.startsWith("/operators")) return true;
+  if (pathname.startsWith("/suppliers")) return true;
+  if (pathname.startsWith("/purchase-orders")) return true;
+  if (pathname.startsWith("/calendar")) return true;
+  if (pathname.startsWith("/planner")) return true;
+  if (pathname.startsWith("/admin")) return true;
+  return false;
+}
+
 export default function ClientShell({
   children,
 }: {
@@ -68,7 +92,7 @@ export default function ClientShell({
         ? "admin"
         : ((user.user_metadata?.role as "admin" | "staff" | "operator" | "") ?? "");
 
-      if (!isMaster && resolvedRole !== "operator") {
+      if (!isMaster) {
         const { data: operators } = await supabase
           .from("operators")
           .select("id, full_name, email, status")
@@ -79,9 +103,8 @@ export default function ClientShell({
           const operatorName = String(op.full_name ?? "").trim().toLowerCase();
 
           return (
-            operatorEmail === email ||
-            operatorName === usernameFromEmail ||
-            (!!usernameFromEmail && operatorEmail.startsWith(`${usernameFromEmail}@`))
+            (!!operatorEmail && operatorEmail === email) ||
+            (!!operatorName && operatorName === usernameFromEmail)
           );
         });
 
@@ -93,6 +116,13 @@ export default function ClientShell({
       setUsername(fromAuthEmail(user.email ?? null));
       setRole(resolvedRole);
       setLoading(false);
+
+      if (resolvedRole === "operator") {
+        if (isOfficeOnlyPath(pathname) && !isOperatorArea(pathname)) {
+          window.location.href = "/operator/jobs";
+          return;
+        }
+      }
     }
 
     load();
@@ -111,7 +141,7 @@ export default function ClientShell({
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, [supabase, pathname]);
 
   useEffect(() => {
     setMenuOpen(false);
