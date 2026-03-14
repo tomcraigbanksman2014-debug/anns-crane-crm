@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import OperatorJobActions from "./OperatorJobActions";
+import OperatorTransportTracker from "../transport/OperatorTransportTracker";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -99,7 +100,7 @@ export default async function OperatorJobsPage() {
   if (userError || !user) {
     return (
       <ClientShell>
-        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
           <div style={errorBox}>Not signed in.</div>
         </div>
       </ClientShell>
@@ -120,7 +121,7 @@ export default async function OperatorJobsPage() {
   if (operatorsError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
           <div style={errorBox}>{operatorsError.message}</div>
         </div>
       </ClientShell>
@@ -142,7 +143,7 @@ export default async function OperatorJobsPage() {
   if (!operator) {
     return (
       <ClientShell>
-        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
           <div style={cardStyle}>
             <h1 style={{ marginTop: 0, fontSize: 32 }}>My Jobs</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
@@ -170,59 +171,114 @@ export default async function OperatorJobsPage() {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
 
-  const { data: jobs, error: jobsError } = await supabase
-    .from("jobs")
-    .select(`
-      id,
-      job_number,
-      job_date,
-      start_time,
-      end_time,
-      status,
-      site_name,
-      site_address,
-      contact_name,
-      contact_phone,
-      notes,
-      started_at,
-      arrived_on_site_at,
-      lift_completed_at,
-      completed_at,
-      clients:client_id (
-        company_name,
-        contact_name,
-        phone,
-        email
-      ),
-      equipment:equipment_id (
-        name,
-        asset_number,
-        type,
-        capacity
-      )
-    `)
-    .eq("operator_id", operator.id)
-    .gte("job_date", todayStr)
-    .order("job_date", { ascending: true })
-    .order("start_time", { ascending: true });
+  const [{ data: jobs, error: jobsError }, { data: transportJobs, error: transportJobsError }] =
+    await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          id,
+          job_number,
+          job_date,
+          start_time,
+          end_time,
+          status,
+          site_name,
+          site_address,
+          contact_name,
+          contact_phone,
+          notes,
+          started_at,
+          arrived_on_site_at,
+          lift_completed_at,
+          completed_at,
+          clients:client_id (
+            company_name,
+            contact_name,
+            phone,
+            email
+          ),
+          equipment:equipment_id (
+            name,
+            asset_number,
+            type,
+            capacity
+          )
+        `)
+        .eq("operator_id", operator.id)
+        .gte("job_date", todayStr)
+        .order("job_date", { ascending: true })
+        .order("start_time", { ascending: true }),
+
+      supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          transport_number,
+          transport_date,
+          collection_time,
+          delivery_time,
+          collection_address,
+          delivery_address,
+          load_description,
+          status,
+          vehicle_id,
+          vehicles:vehicle_id (
+            id,
+            name,
+            reg_number
+          )
+        `)
+        .eq("operator_id", operator.id)
+        .gte("transport_date", todayStr)
+        .order("transport_date", { ascending: true })
+        .order("collection_time", { ascending: true }),
+    ]);
 
   const jobsList = jobs ?? [];
+  const transportList = transportJobs ?? [];
 
   return (
     <ClientShell>
-      <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <h1 style={{ marginTop: 0, fontSize: 32 }}>My Jobs</h1>
           <p style={{ marginTop: 6, opacity: 0.8 }}>
             Operator: <strong>{operator.full_name}</strong>
           </p>
 
+          {transportJobsError ? (
+            <div style={errorBox}>{transportJobsError.message}</div>
+          ) : transportList.length > 0 ? (
+            <div style={{ marginTop: 18 }}>
+              <OperatorTransportTracker
+                operatorId={operator.id}
+                jobs={transportList.map((job: any) => {
+                  const vehicle = first(job.vehicles);
+                  return {
+                    id: job.id,
+                    transport_number: job.transport_number ?? "Transport Job",
+                    transport_date: job.transport_date ?? "",
+                    collection_time: job.collection_time ?? "",
+                    delivery_time: job.delivery_time ?? "",
+                    collection_address: job.collection_address ?? "",
+                    delivery_address: job.delivery_address ?? "",
+                    status: job.status ?? "",
+                    vehicle_id: job.vehicle_id ?? "",
+                    vehicle_label: `${vehicle?.name ?? "Vehicle"}${
+                      vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
+                    }`,
+                  };
+                })}
+              />
+            </div>
+          ) : null}
+
           {jobsError ? (
             <div style={errorBox}>{jobsError.message}</div>
           ) : jobsList.length === 0 ? (
-            <div style={infoBox}>No upcoming jobs assigned.</div>
+            <div style={infoBox}>No upcoming crane jobs assigned.</div>
           ) : (
-            <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+            <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
               {jobsList.map((job: any) => {
                 const client = first(job.clients);
                 const equipment = first(job.equipment);
@@ -340,6 +396,89 @@ export default async function OperatorJobsPage() {
               })}
             </div>
           )}
+
+          {transportList.length > 0 ? (
+            <div style={{ marginTop: 22 }}>
+              <h2 style={{ margin: 0, fontSize: 24 }}>My Transport Allocations</h2>
+              <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+                {transportList.map((job: any) => {
+                  const vehicle = first(job.vehicles);
+
+                  return (
+                    <div key={job.id} style={transportCard}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 1000, fontSize: 18 }}>
+                            {job.transport_number ?? "Transport Job"}
+                          </div>
+                          <div style={{ marginTop: 4, opacity: 0.78 }}>
+                            {fmtDate(job.transport_date)}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...statusStyle(job.status),
+                          }}
+                        >
+                          {prettyStatus(job.status)}
+                        </span>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Vehicle</div>
+                        <div style={rowValue}>
+                          {vehicle?.name ?? "—"}
+                          {vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                        </div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Times</div>
+                        <div style={rowValue}>
+                          {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
+                        </div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Pickup</div>
+                        <div style={rowValue}>{job.collection_address ?? "—"}</div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Delivery</div>
+                        <div style={rowValue}>{job.delivery_address ?? "—"}</div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Load</div>
+                        <div style={rowValue}>{job.load_description ?? "—"}</div>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <a href={`/transport-jobs/${job.id}`} style={openBtn}>
+                          Open transport sheet
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </ClientShell>
@@ -355,6 +494,13 @@ const cardStyle: React.CSSProperties = {
 };
 
 const jobCard: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const transportCard: React.CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: "rgba(255,255,255,0.42)",
