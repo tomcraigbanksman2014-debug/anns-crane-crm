@@ -133,14 +133,41 @@ export default function DashboardPage() {
       }
 
       const user = data.user;
-      const email = String(user.email ?? "").toLowerCase();
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
+
       const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
         .trim()
         .toLowerCase();
       const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
 
+      const metadataRole = String((user.user_metadata?.role as any) ?? "").toLowerCase();
+
+      if (!isMaster) {
+        const { data: operators } = await supabase
+          .from("operators")
+          .select("id, full_name, email, status")
+          .eq("status", "active");
+
+        const matchedOperator =
+          (operators ?? []).find((op: any) => {
+            const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+            const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+            return (
+              (!!operatorEmail && operatorEmail === email) ||
+              (!!operatorName && operatorName === usernameFromEmail)
+            );
+          }) ?? null;
+
+        if (metadataRole === "operator" || matchedOperator) {
+          window.location.href = "/operator/jobs";
+          return;
+        }
+      }
+
       setUsername(fromAuthEmail(user.email ?? null));
-      setRole(isMaster ? "admin" : ((user.user_metadata?.role as any) ?? ""));
+      setRole(isMaster ? "admin" : ((user.user_metadata?.role as any) ?? "staff"));
 
       const daysLeft = isMaster
         ? null
