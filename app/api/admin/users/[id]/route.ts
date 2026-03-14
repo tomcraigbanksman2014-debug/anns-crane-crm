@@ -154,6 +154,7 @@ export async function DELETE(
     const masterAdminEmail = getMasterAdminEmail();
     const targetEmail = String(targetUser.email ?? "").toLowerCase();
     const actorEmail = String(auth.user.email ?? "").toLowerCase();
+    const targetRole = String(targetUser.user_metadata?.role ?? "staff").toLowerCase();
 
     if (targetEmail === masterAdminEmail) {
       return NextResponse.json(
@@ -167,6 +168,10 @@ export async function DELETE(
         { error: "You cannot delete your own account" },
         { status: 400 }
       );
+    }
+
+    if (targetRole === "operator") {
+      await admin.from("operators").delete().eq("email", targetEmail);
     }
 
     const { error } = await admin.auth.admin.deleteUser(params.id);
