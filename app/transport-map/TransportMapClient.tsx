@@ -69,6 +69,21 @@ type TransportItem = {
     | null;
 };
 
+type DriverLocation = {
+  id: string;
+  transport_job_id: string | null;
+  operator_id: string | null;
+  vehicle_id: string | null;
+  lat: number | null;
+  lng: number | null;
+  recorded_at: string | null;
+};
+
+type EtaInfo = {
+  toPickup: string;
+  toDelivery: string;
+};
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -144,6 +159,7 @@ function createColoredIcon(color: string, label: string) {
 
 const pickupIcon = createColoredIcon("#2563eb", "P");
 const deliveryIcon = createColoredIcon("#16a34a", "D");
+const liveIcon = createColoredIcon("#f97316", "L");
 const defaultCenter: LatLngExpression = [53.5, -2.5];
 
 function FitMapToMarkers({
@@ -217,8 +233,48 @@ function statusPillStyle(status: string | null | undefined): React.CSSProperties
   };
 }
 
+function minsToText(minutes: number | null) {
+  if (minutes === null || !Number.isFinite(minutes)) return "—";
+  if (minutes < 60) return `${Math.round(minutes)} mins`;
+  const hrs = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  return `${hrs}h ${mins}m`;
+}
+
+function ageText(value: string | null | undefined) {
+  if (!value) return "—";
+  const now = Date.now();
+  const then = new Date(value).getTime();
+  if (!Number.isFinite(then)) return "—";
+  const mins = Math.round((now - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
+async function roadMinutes(
+  fromLat: number,
+  fromLng: number,
+  toLat: number,
+  toLng: number
+) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=false`;
+    const res = await fetch(url);
+    const json = await res.json();
+    const seconds = json?.routes?.[0]?.duration;
+    if (typeof seconds !== "number") return null;
+    return seconds / 60;
+  } catch {
+    return null;
+  }
+}
+
 export default function TransportMapClient() {
   const [items, setItems] = useState<TransportItem[]>([]);
+  const [locations, setLocations] = useState<DriverLocation[]>([]);
+  const [etas, setEtas] = useState<Record<string, EtaInfo>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -234,55 +290,72 @@ export default function TransportMapClient() {
       setLoading(true);
       setError("");
 
-      const { data, error } = await supabase
-        .from("transport_jobs")
-        .select(`
-          id,
-          transport_number,
-          transport_date,
-          collection_time,
-          delivery_time,
-          collection_address,
-          delivery_address,
-          collection_lat,
-          collection_lng,
-          delivery_lat,
-          delivery_lng,
-          status,
-          job_type,
-          load_description,
-          price,
-          vehicle_id,
-          operator_id,
-          linked_job_id,
-          vehicles:vehicle_id (
-            name,
-            reg_number,
-            status
-          ),
-          operators:operator_id (
-            full_name
-          ),
-          jobs:linked_job_id (
+      const [jobsRes, locationsRes] = await Promise.all([
+        supabase
+          .from("transport_jobs")
+          .select(`
             id,
-            job_number,
-            site_name,
-            job_date
-          ),
-          clients:client_id (
-            company_name
-          )
-        `)
-        .order("transport_date", { ascending: true })
-        .order("collection_time", { ascending: true });
+            transport_number,
+            transport_date,
+            collection_time,
+            delivery_time,
+            collection_address,
+            delivery_address,
+            collection_lat,
+            collection_lng,
+            delivery_lat,
+            delivery_lng,
+            status,
+            job_type,
+            load_description,
+            price,
+            vehicle_id,
+            operator_id,
+            linked_job_id,
+            vehicles:vehicle_id (
+              name,
+              reg_number,
+              status
+            ),
+            operators:operator_id (
+              full_name
+            ),
+            jobs:linked_job_id (
+              id,
+              job_number,
+              site_name,
+              job_date
+            ),
+            clients:client_id (
+              company_name
+            )
+          `)
+          .order("transport_date", { ascending: true })
+          .order("collection_time", { ascending: true }),
+        supabase
+          .from("driver_locations")
+          .select(`
+            id,
+            transport_job_id,
+            operator_id,
+            vehicle_id,
+            lat,
+            lng,
+            recorded_at
+          `)
+          .order("recorded_at", { ascending: false })
+          .limit(500),
+      ]);
 
       if (!active) return;
 
-      if (error) {
-        setError(error.message);
+      if (jobsRes.error) {
+        setError(jobsRes.error.message);
         setItems([]);
+        setLocations([]);
       } else {
-        setItems((data ?? []) as TransportItem[]);
+        setItems((jobsRes.data ?? []) as TransportItem[]);
+        setLocations((locationsRes.data ?? []) as DriverLocation[]);
       }
 
       setLoading(false);
@@ -290,10 +363,26 @@ export default function TransportMapClient() {
 
     load();
 
+    const intervalId = window.setInterval(load, 30000);
+
     return () => {
       active = false;
+      window.clearInterval(intervalId);
     };
   }, []);
+
+  const latestLocationByJob = useMemo(() => {
+    const map = new Map<string, DriverLocation>();
+
+    for (const loc of locations) {
+      if (!loc.transport_job_id) continue;
+      if (!map.has(loc.transport_job_id)) {
+        map.set(loc.transport_job_id, loc);
+      }
+    }
+
+    return map;
+  }, [locations]);
 
   const vehicleOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -327,13 +416,22 @@ export default function TransportMapClient() {
         jobTypeFilter === "all" ||
         String(item.job_type ?? "").toLowerCase() === jobTypeFilter;
 
+      const hasLiveLocation = latestLocationByJob.has(item.id);
       const coordsOk =
         hasCoords(item.collection_lat, item.collection_lng) ||
-        hasCoords(item.delivery_lat, item.delivery_lng);
+        hasCoords(item.delivery_lat, item.delivery_lng) ||
+        hasLiveLocation;
 
       return statusOk && dateOk && vehicleOk && jobTypeOk && coordsOk;
     });
-  }, [items, statusFilter, dateFilter, vehicleFilter, jobTypeFilter]);
+  }, [
+    items,
+    statusFilter,
+    dateFilter,
+    vehicleFilter,
+    jobTypeFilter,
+    latestLocationByJob,
+  ]);
 
   const mapPoints = useMemo<LatLngExpression[]>(() => {
     const points: LatLngExpression[] = [];
@@ -346,10 +444,66 @@ export default function TransportMapClient() {
       if (hasCoords(item.delivery_lat, item.delivery_lng)) {
         points.push(asLatLng(item.delivery_lat as number, item.delivery_lng as number));
       }
+
+      const live = latestLocationByJob.get(item.id);
+      if (live && hasCoords(Number(live.lat), Number(live.lng))) {
+        points.push(asLatLng(Number(live.lat), Number(live.lng)));
+      }
     }
 
     return points;
-  }, [filtered]);
+  }, [filtered, latestLocationByJob]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function calculateEtas() {
+      const nextEtas: Record<string, EtaInfo> = {};
+
+      for (const item of filtered) {
+        const live = latestLocationByJob.get(item.id);
+        if (!live || !hasCoords(Number(live.lat), Number(live.lng))) continue;
+
+        const liveLat = Number(live.lat);
+        const liveLng = Number(live.lng);
+
+        const toPickupMins =
+          hasCoords(item.collection_lat, item.collection_lng)
+            ? await roadMinutes(
+                liveLat,
+                liveLng,
+                Number(item.collection_lat),
+                Number(item.collection_lng)
+              )
+            : null;
+
+        const toDeliveryMins =
+          hasCoords(item.delivery_lat, item.delivery_lng)
+            ? await roadMinutes(
+                liveLat,
+                liveLng,
+                Number(item.delivery_lat),
+                Number(item.delivery_lng)
+              )
+            : null;
+
+        nextEtas[item.id] = {
+          toPickup: minsToText(toPickupMins),
+          toDelivery: minsToText(toDeliveryMins),
+        };
+      }
+
+      if (!cancelled) {
+        setEtas(nextEtas);
+      }
+    }
+
+    calculateEtas();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filtered, latestLocationByJob]);
 
   const plannedCount = filtered.filter(
     (x) => String(x.status ?? "").toLowerCase() === "planned"
@@ -454,13 +608,7 @@ export default function TransportMapClient() {
       ) : error ? (
         <div style={errorBox}>{error}</div>
       ) : filtered.length === 0 ? (
-        <div style={infoBox}>
-          No mapped transport jobs found.
-          <br />
-          Each transport job needs coordinates in:
-          <br />
-          `collection_lat`, `collection_lng`, `delivery_lat`, `delivery_lng`
-        </div>
+        <div style={infoBox}>No mapped transport jobs found.</div>
       ) : (
         <div style={contentGrid}>
           <div style={mapWrap}>
@@ -482,20 +630,26 @@ export default function TransportMapClient() {
                 const vehicle = first(item.vehicles);
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
+                const live = latestLocationByJob.get(item.id);
 
                 const pickupPoint: LatLngExpression | null = hasCoords(
                   item.collection_lat,
                   item.collection_lng
                 )
-                  ? asLatLng(item.collection_lat as number, item.collection_lng as number)
+                  ? asLatLng(Number(item.collection_lat), Number(item.collection_lng))
                   : null;
 
                 const deliveryPoint: LatLngExpression | null = hasCoords(
                   item.delivery_lat,
                   item.delivery_lng
                 )
-                  ? asLatLng(item.delivery_lat as number, item.delivery_lng as number)
+                  ? asLatLng(Number(item.delivery_lat), Number(item.delivery_lng))
                   : null;
+
+                const livePoint: LatLngExpression | null =
+                  live && hasCoords(Number(live.lat), Number(live.lng))
+                    ? asLatLng(Number(live.lat), Number(live.lng))
+                    : null;
 
                 return (
                   <div key={item.id}>
@@ -509,11 +663,7 @@ export default function TransportMapClient() {
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
-                            <div><strong>Type:</strong> {prettyJobType(item.job_type)}</div>
-                            <div><strong>Date:</strong> {fmtDate(item.transport_date)}</div>
-                            <div><strong>Time:</strong> {item.collection_time ?? "—"}</div>
-                            <div><strong>Pickup:</strong> {item.collection_address ?? "—"}</div>
-                            <div><strong>Delivery:</strong> {item.delivery_address ?? "—"}</div>
+                            <div><strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
                           </div>
                         </SafePopup>
@@ -530,12 +680,24 @@ export default function TransportMapClient() {
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
-                            <div><strong>Type:</strong> {prettyJobType(item.job_type)}</div>
-                            <div><strong>Date:</strong> {fmtDate(item.transport_date)}</div>
-                            <div><strong>Time:</strong> {item.delivery_time ?? "—"}</div>
-                            <div><strong>Pickup:</strong> {item.collection_address ?? "—"}</div>
-                            <div><strong>Delivery:</strong> {item.delivery_address ?? "—"}</div>
+                            <div><strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
+                          </div>
+                        </SafePopup>
+                      </SafeMarker>
+                    ) : null}
+
+                    {livePoint ? (
+                      <SafeMarker position={livePoint} icon={liveIcon}>
+                        <SafePopup>
+                          <div style={{ minWidth: 240 }}>
+                            <div style={{ fontWeight: 900, marginBottom: 6 }}>Live Driver Location</div>
+                            <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
+                            <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
+                            <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
+                            <div><strong>Last update:</strong> {ageText(live.recorded_at)}</div>
+                            <div><strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}</div>
+                            <div><strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}</div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
@@ -562,6 +724,7 @@ export default function TransportMapClient() {
                 const vehicle = first(item.vehicles);
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
+                const live = latestLocationByJob.get(item.id);
 
                 return (
                   <div key={item.id} style={jobCard}>
@@ -601,6 +764,15 @@ export default function TransportMapClient() {
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Delivery:</strong> {item.delivery_address ?? "—"}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>Live update:</strong> {live ? ageText(live.recorded_at) : "No live tracking"}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Load:</strong> {item.load_description ?? "—"}
