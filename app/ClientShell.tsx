@@ -83,6 +83,8 @@ export default function ClientShell({
       { label: "Bookings", href: "/bookings" },
       { label: "Jobs", href: "/jobs" },
       { label: "Transport Jobs", href: "/transport-jobs" },
+      { label: "Transport Planner", href: "/transport-planner" },
+      { label: "Transport Map", href: "/transport-map" },
       { label: "Vehicles", href: "/vehicles" },
       { label: "Timesheets", href: "/timesheets" },
       { label: "My Jobs", href: "/operator/jobs" },
