@@ -1,87 +1,80 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import { revalidatePath } from "next/cache";
 
-async function createSupplier(formData: FormData) {
-  "use server";
+function matchesQuery(supplier: any, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
 
-  const supabase = createSupabaseServerClient();
+  const haystack = [
+    supplier.company_name,
+    supplier.contact_name,
+    supplier.phone,
+    supplier.email,
+    supplier.status,
+    supplier.address,
+    supplier.notes,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
 
-  const payload = {
-    company_name: String(formData.get("company_name") ?? "").trim(),
-    contact_name: String(formData.get("contact_name") ?? "").trim() || null,
-    phone: String(formData.get("phone") ?? "").trim() || null,
-    email: String(formData.get("email") ?? "").trim() || null,
-    address: String(formData.get("address") ?? "").trim() || null,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    status: String(formData.get("status") ?? "active").trim() || "active",
-    updated_at: new Date().toISOString(),
-  };
-
-  if (!payload.company_name) return;
-
-  await supabase.from("suppliers").insert(payload);
-
-  revalidatePath("/suppliers");
+  return haystack.includes(q);
 }
 
-async function updateSupplier(formData: FormData) {
-  "use server";
-
+export default async function SuppliersPage({
+  searchParams,
+}: {
+  searchParams?: { q?: string; success?: string; error?: string };
+}) {
   const supabase = createSupabaseServerClient();
-
-  const id = String(formData.get("id") ?? "").trim();
-  if (!id) return;
-
-  const payload = {
-    company_name: String(formData.get("company_name") ?? "").trim(),
-    contact_name: String(formData.get("contact_name") ?? "").trim() || null,
-    phone: String(formData.get("phone") ?? "").trim() || null,
-    email: String(formData.get("email") ?? "").trim() || null,
-    address: String(formData.get("address") ?? "").trim() || null,
-    notes: String(formData.get("notes") ?? "").trim() || null,
-    status: String(formData.get("status") ?? "active").trim() || "active",
-    updated_at: new Date().toISOString(),
-  };
-
-  await supabase.from("suppliers").update(payload).eq("id", id);
-
-  revalidatePath("/suppliers");
-}
-
-export default async function SuppliersPage() {
-  const supabase = createSupabaseServerClient();
+  const query = String(searchParams?.q ?? "").trim();
 
   const { data: suppliers, error } = await supabase
     .from("suppliers")
     .select("*")
     .order("company_name", { ascending: true });
 
+  const list = (suppliers ?? []).filter((supplier: any) => matchesQuery(supplier, query));
+  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
+  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+
   return (
     <ClientShell>
       <div style={{ width: "min(1200px, 96vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
-          <h1 style={{ marginTop: 0, fontSize: 32 }}>Suppliers</h1>
-          <p style={{ opacity: 0.8 }}>
-            Manage cross-hire suppliers for cranes, HIABs and other equipment.
-          </p>
+          <div style={headerRow}>
+            <div>
+              <h1 style={{ marginTop: 0, fontSize: 32 }}>Suppliers</h1>
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                Search, open and manage cross-hire suppliers.
+              </p>
+            </div>
+
+            <a href="/suppliers/new" style={primaryBtn}>
+              + Create supplier
+            </a>
+          </div>
+
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <section style={sectionCard}>
-            <h2 style={sectionTitle}>Add supplier</h2>
-
-            <form action={createSupplier} style={gridStyle}>
-              <Field label="Company name" name="company_name" required />
-              <Field label="Contact name" name="contact_name" />
-              <Field label="Phone" name="phone" />
-              <Field label="Email" name="email" type="email" />
-              <Field label="Status" name="status" defaultValue="active" />
-              <Field label="Address" name="address" />
-              <FullWidthField label="Notes" name="notes" />
-              <div style={{ gridColumn: "1 / -1" }}>
-                <button type="submit" style={saveBtn}>
-                  Save supplier
-                </button>
-              </div>
+            <form method="get" action="/suppliers" style={searchRow}>
+              <input
+                type="text"
+                name="q"
+                defaultValue={query}
+                placeholder="Search company, contact, phone, email, notes..."
+                style={searchInput}
+              />
+              <button type="submit" style={secondaryBtn}>
+                Search
+              </button>
+              {query ? (
+                <a href="/suppliers" style={secondaryBtn}>
+                  Clear
+                </a>
+              ) : null}
             </form>
           </section>
 
@@ -90,39 +83,34 @@ export default async function SuppliersPage() {
 
             {error ? (
               <div style={errorBox}>{error.message}</div>
-            ) : !suppliers || suppliers.length === 0 ? (
-              <p style={{ margin: 0 }}>No suppliers added yet.</p>
+            ) : list.length === 0 ? (
+              <p style={{ margin: 0 }}>No suppliers found.</p>
             ) : (
-              <div style={{ display: "grid", gap: 14 }}>
-                {suppliers.map((supplier: any) => (
-                  <form key={supplier.id} action={updateSupplier} style={supplierCard}>
-                    <input type="hidden" name="id" value={supplier.id} />
+              <div style={{ display: "grid", gap: 12 }}>
+                {list.map((supplier: any) => (
+                  <div key={supplier.id} style={supplierCard}>
+                    <div style={supplierHeader}>
+                      <div>
+                        <div style={{ fontSize: 22, fontWeight: 1000 }}>
+                          {supplier.company_name ?? "Supplier"}
+                        </div>
+                        <div style={{ marginTop: 6, opacity: 0.72 }}>
+                          {supplier.contact_name ?? "—"} • {supplier.phone ?? "—"} • {supplier.email ?? "—"}
+                        </div>
+                      </div>
 
-                    <div style={gridStyle}>
-                      <Field
-                        label="Company name"
-                        name="company_name"
-                        defaultValue={supplier.company_name ?? ""}
-                        required
-                      />
-                      <Field
-                        label="Contact name"
-                        name="contact_name"
-                        defaultValue={supplier.contact_name ?? ""}
-                      />
-                      <Field label="Phone" name="phone" defaultValue={supplier.phone ?? ""} />
-                      <Field label="Email" name="email" defaultValue={supplier.email ?? ""} />
-                      <Field label="Status" name="status" defaultValue={supplier.status ?? "active"} />
-                      <Field label="Address" name="address" defaultValue={supplier.address ?? ""} />
-                      <FullWidthField label="Notes" name="notes" defaultValue={supplier.notes ?? ""} />
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <a href={`/suppliers/${supplier.id}`} style={secondaryBtn}>
+                          Open
+                        </a>
+                      </div>
                     </div>
 
-                    <div style={{ marginTop: 12 }}>
-                      <button type="submit" style={saveBtn}>
-                        Update supplier
-                      </button>
+                    <div style={metaGrid}>
+                      <Meta label="Status" value={supplier.status ?? "—"} />
+                      <Meta label="Address" value={supplier.address ?? "—"} />
                     </div>
-                  </form>
+                  </div>
                 ))}
               </div>
             )}
@@ -133,46 +121,17 @@ export default async function SuppliersPage() {
   );
 }
 
-function Field({
+function Meta({
   label,
-  name,
-  defaultValue,
-  type = "text",
-  required = false,
+  value,
 }: {
   label: string;
-  name: string;
-  defaultValue?: string;
-  type?: string;
-  required?: boolean;
+  value: string;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        name={name}
-        type={type}
-        defaultValue={defaultValue}
-        required={required}
-        style={inputStyle}
-      />
-    </div>
-  );
-}
-
-function FullWidthField({
-  label,
-  name,
-  defaultValue,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-}) {
-  return (
-    <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={4} style={textareaStyle} />
+    <div style={metaBox}>
+      <div style={metaLabel}>{label}</div>
+      <div style={metaValue}>{value}</div>
     </div>
   );
 }
@@ -183,6 +142,14 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
 const sectionCard: React.CSSProperties = {
@@ -198,56 +165,98 @@ const sectionTitle: React.CSSProperties = {
   fontSize: 22,
 };
 
+const searchRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const searchInput: React.CSSProperties = {
+  flex: 1,
+  minWidth: 280,
+  height: 44,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+};
+
 const supplierCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 12,
   padding: 14,
 };
 
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+const supplierHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
   gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
-const labelStyle: React.CSSProperties = {
+const metaGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 10,
+  marginTop: 14,
+};
+
+const metaBox: React.CSSProperties = {
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const metaLabel: React.CSSProperties = {
   fontSize: 12,
+  opacity: 0.7,
   fontWeight: 800,
-  opacity: 0.75,
 };
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
+const metaValue: React.CSSProperties = {
+  marginTop: 4,
+  fontWeight: 900,
 };
 
-const textareaStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "12px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-  resize: "vertical",
-};
-
-const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
-  borderRadius: 10,
-  border: "none",
+  textDecoration: "none",
   background: "#111",
   color: "#fff",
+  fontWeight: 900,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
   fontWeight: 800,
-  cursor: "pointer",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 14,
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#0b7a4b",
+  fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
+  marginTop: 14,
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
