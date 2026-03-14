@@ -131,17 +131,17 @@ export default async function TransportJobDetailPage({
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>
+              <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32, lineHeight: 1.1 }}>
                 {(item as any)?.transport_number ?? "Transport Job"}
               </h1>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>
+              <p style={{ opacity: 0.8, marginTop: 10 }}>
                 {isAssignedDriver
                   ? "View your assigned transport allocation."
                   : "View and update transport allocation details."}
               </p>
             </div>
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <div style={headerButtons}>
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back to transport jobs
               </a>
@@ -158,7 +158,7 @@ export default async function TransportJobDetailPage({
           {!item ? (
             <div style={errorBox}>Transport job not found.</div>
           ) : isAssignedDriver ? (
-            <div style={pageGrid}>
+            <div style={pageGridResponsive}>
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Transport job details</h2>
 
@@ -220,7 +220,7 @@ export default async function TransportJobDetailPage({
               </section>
             </div>
           ) : (
-            <div style={pageGrid}>
+            <div style={pageGridResponsive}>
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Transport job details</h2>
 
@@ -481,14 +481,21 @@ const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
   flexWrap: "wrap",
 };
 
-const pageGrid: React.CSSProperties = {
+const headerButtons: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const pageGridResponsive: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1.15fr) minmax(280px, 0.85fr)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
+  alignItems: "start",
 };
 
 const sectionCard: React.CSSProperties = {
@@ -496,6 +503,7 @@ const sectionCard: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
+  minWidth: 0,
 };
 
 const sectionTitle: React.CSSProperties = {
@@ -524,6 +532,7 @@ const infoLabel: React.CSSProperties = {
 const infoValue: React.CSSProperties = {
   marginTop: 4,
   fontWeight: 900,
+  wordBreak: "break-word",
 };
 
 const miniLinkBtn: React.CSSProperties = {
@@ -571,6 +580,7 @@ const readValueStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.66)",
   boxSizing: "border-box",
   fontWeight: 700,
+  wordBreak: "break-word",
 };
 
 const readAreaStyle: React.CSSProperties = {
@@ -582,6 +592,7 @@ const readAreaStyle: React.CSSProperties = {
   boxSizing: "border-box",
   fontWeight: 700,
   whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };
 
 const primaryBtn: React.CSSProperties = {
