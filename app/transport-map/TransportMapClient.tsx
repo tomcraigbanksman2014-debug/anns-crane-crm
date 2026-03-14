@@ -13,7 +13,7 @@ import {
   Polyline,
   useMap,
 } from "react-leaflet";
-import L from "leaflet";
+import L, { type LatLngExpression } from "leaflet";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 type TransportItem = {
@@ -95,6 +95,10 @@ function hasCoords(lat: number | null, lng: number | null) {
   return typeof lat === "number" && typeof lng === "number";
 }
 
+function asLatLng(lat: number, lng: number): LatLngExpression {
+  return [lat, lng];
+}
+
 function createColoredIcon(color: string, label: string) {
   return new L.DivIcon({
     className: "",
@@ -124,11 +128,12 @@ function createColoredIcon(color: string, label: string) {
 
 const pickupIcon = createColoredIcon("#2563eb", "P");
 const deliveryIcon = createColoredIcon("#16a34a", "D");
+const defaultCenter: LatLngExpression = [53.5, -2.5];
 
 function FitMapToMarkers({
   points,
 }: {
-  points: Array<[number, number]>;
+  points: LatLngExpression[];
 }) {
   const map = useMap();
 
@@ -140,7 +145,7 @@ function FitMapToMarkers({
       return;
     }
 
-    map.fitBounds(points, { padding: [40, 40] });
+    map.fitBounds(points as L.LatLngBoundsExpression, { padding: [40, 40] });
   }, [map, points]);
 
   return null;
@@ -314,16 +319,16 @@ export default function TransportMapClient() {
     });
   }, [items, statusFilter, dateFilter, vehicleFilter, jobTypeFilter]);
 
-  const mapPoints = useMemo(() => {
-    const points: Array<[number, number]> = [];
+  const mapPoints = useMemo<LatLngExpression[]>(() => {
+    const points: LatLngExpression[] = [];
 
     for (const item of filtered) {
       if (hasCoords(item.collection_lat, item.collection_lng)) {
-        points.push([item.collection_lat as number, item.collection_lng as number]);
+        points.push(asLatLng(item.collection_lat as number, item.collection_lng as number));
       }
 
       if (hasCoords(item.delivery_lat, item.delivery_lng)) {
-        points.push([item.delivery_lat as number, item.delivery_lng as number]);
+        points.push(asLatLng(item.delivery_lat as number, item.delivery_lng as number));
       }
     }
 
@@ -444,9 +449,9 @@ export default function TransportMapClient() {
         <div style={contentGrid}>
           <div style={mapWrap}>
             <MapContainer
-              center={[53.5, -2.5]}
+              center={defaultCenter}
               zoom={6}
-              scrollWheelZoom
+              scrollWheelZoom={true}
               style={{ width: "100%", height: "100%", borderRadius: 14 }}
             >
               <TileLayer
@@ -462,12 +467,18 @@ export default function TransportMapClient() {
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
 
-                const pickupPoint = hasCoords(item.collection_lat, item.collection_lng)
-                  ? [item.collection_lat as number, item.collection_lng as number]
+                const pickupPoint: LatLngExpression | null = hasCoords(
+                  item.collection_lat,
+                  item.collection_lng
+                )
+                  ? asLatLng(item.collection_lat as number, item.collection_lng as number)
                   : null;
 
-                const deliveryPoint = hasCoords(item.delivery_lat, item.delivery_lng)
-                  ? [item.delivery_lat as number, item.delivery_lng as number]
+                const deliveryPoint: LatLngExpression | null = hasCoords(
+                  item.delivery_lat,
+                  item.delivery_lng
+                )
+                  ? asLatLng(item.delivery_lat as number, item.delivery_lng as number)
                   : null;
 
                 return (
