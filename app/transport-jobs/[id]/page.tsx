@@ -120,6 +120,9 @@ export default async function TransportJobDetailPage({
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back to transport jobs
               </a>
+              <a href="/transport-map" style={secondaryBtn}>
+                Open control map
+              </a>
             </div>
           </div>
 
@@ -228,21 +231,23 @@ export default async function TransportJobDetailPage({
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
                 <InfoRow label="Price" value={fmtMoney((item as any).price)} />
 
-                {linkedJob?.id ? (
-                  <div style={{ marginTop: 12 }}>
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <a href="/transport-map" style={miniLinkBtn}>
+                    Open control map
+                  </a>
+
+                  {linkedJob?.id ? (
                     <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
                       Open linked crane job
                     </a>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {(item as any).vehicle_id ? (
-                  <div style={{ marginTop: 12 }}>
+                  {(item as any).vehicle_id ? (
                     <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
                       Open vehicle
                     </a>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </section>
             </div>
           )}
