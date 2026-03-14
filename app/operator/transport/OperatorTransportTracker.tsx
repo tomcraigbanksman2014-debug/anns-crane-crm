@@ -19,14 +19,6 @@ type WakeLockSentinelLike = {
   release: () => Promise<void>;
 };
 
-declare global {
-  interface Navigator {
-    wakeLock?: {
-      request: (type: "screen") => Promise<WakeLockSentinelLike>;
-    };
-  }
-}
-
 function todayIso() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -115,7 +107,13 @@ export default function OperatorTransportTracker({
 
   async function acquireWakeLock() {
     try {
-      if (!navigator.wakeLock?.request) {
+      const nav = navigator as Navigator & {
+        wakeLock?: {
+          request: (type: "screen") => Promise<WakeLockSentinelLike>;
+        };
+      };
+
+      if (!nav.wakeLock?.request) {
         setWakeLockText("Wake lock not supported on this device/browser");
         return;
       }
@@ -125,7 +123,7 @@ export default function OperatorTransportTracker({
         wakeLockRef.current = null;
       }
 
-      wakeLockRef.current = await navigator.wakeLock.request("screen");
+      wakeLockRef.current = await nav.wakeLock.request("screen");
       setWakeLockText("Screen wake lock active");
     } catch {
       setWakeLockText("Wake lock unavailable");
