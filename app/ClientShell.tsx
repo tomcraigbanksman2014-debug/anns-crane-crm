@@ -106,6 +106,7 @@ export default function ClientShell({
   const operatorNav = useMemo<NavItem[]>(
     () => [
       { label: "My Jobs", href: "/operator/jobs" },
+      { label: "My Transport", href: "/operator/transport" },
       { label: "Timesheets", href: "/timesheets" },
       { label: "Settings", href: "/settings" },
     ],
