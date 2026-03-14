@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 function clean(value: any) {
   const s = String(value ?? "").trim();
@@ -24,7 +24,10 @@ export async function POST(req: Request) {
     const transportJobId = clean(body.transport_job_id);
 
     if (!transportJobId) {
-      return NextResponse.json({ error: "Transport job id is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Transport job id is required." },
+        { status: 400 }
+      );
     }
 
     const updatePayload: Record<string, any> = {
