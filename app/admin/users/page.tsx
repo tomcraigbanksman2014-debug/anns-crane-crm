@@ -39,6 +39,8 @@ export default function AdminUsersPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("staff");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -80,6 +82,11 @@ export default function AdminUsersPage() {
       return;
     }
 
+    if (role === "operator" && !fullName.trim()) {
+      setMsg("Full name is required for operator accounts.");
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/admin/users", {
@@ -89,6 +96,8 @@ export default function AdminUsersPage() {
           username,
           password,
           role,
+          full_name: fullName,
+          phone,
         }),
       });
 
@@ -103,6 +112,8 @@ export default function AdminUsersPage() {
       setUsername("");
       setPassword("");
       setRole("staff");
+      setFullName("");
+      setPhone("");
       await loadUsers();
     } catch {
       setMsg("Something went wrong. Try again.");
@@ -165,6 +176,10 @@ export default function AdminUsersPage() {
     }
   }
 
+  const successMessage =
+    !!msg &&
+    (msg.includes("successfully") || msg.includes("deleted") || msg.includes("reset"));
+
   return (
     <ClientShell>
       <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
@@ -180,7 +195,7 @@ export default function AdminUsersPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Admin: Staff accounts</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Create, manage and reset staff/admin logins. The hidden master admin is not shown here.
+              Create login accounts for admin, staff and operators. Operator accounts are linked automatically.
             </p>
           </div>
 
@@ -195,18 +210,12 @@ export default function AdminUsersPage() {
               marginTop: 16,
               padding: "10px 12px",
               borderRadius: 10,
-              background:
-                msg.includes("successfully") ||
-                msg.includes("deleted") ||
-                msg.includes("reset")
-                  ? "rgba(0,180,120,0.10)"
-                  : "rgba(255,0,0,0.10)",
-              border:
-                msg.includes("successfully") ||
-                msg.includes("deleted") ||
-                msg.includes("reset")
-                  ? "1px solid rgba(0,180,120,0.25)"
-                  : "1px solid rgba(255,0,0,0.25)",
+              background: successMessage
+                ? "rgba(0,180,120,0.10)"
+                : "rgba(255,0,0,0.10)",
+              border: successMessage
+                ? "1px solid rgba(0,180,120,0.25)"
+                : "1px solid rgba(255,0,0,0.25)",
             }}
           >
             {msg}
@@ -214,18 +223,18 @@ export default function AdminUsersPage() {
         )}
 
         <form onSubmit={onCreate} style={card}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>Create staff login</h2>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Create login account</h2>
           <p style={{ marginTop: 6, opacity: 0.8 }}>
-            Username is case-insensitive. Password remains case-sensitive.
+            Username is case-insensitive. Password remains case-sensitive. Choosing <strong>operator</strong> also creates or updates the operator record.
           </p>
 
           <div style={grid12}>
-            <Field span={5} label="Username">
+            <Field span={4} label="Username">
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 style={input}
-                placeholder="e.g. office1"
+                placeholder="e.g. dave.driver"
               />
             </Field>
 
@@ -239,11 +248,30 @@ export default function AdminUsersPage() {
               />
             </Field>
 
-            <Field span={3} label="Role">
+            <Field span={4} label="Role">
               <select value={role} onChange={(e) => setRole(e.target.value)} style={input}>
                 <option value="staff">staff</option>
                 <option value="admin">admin</option>
+                <option value="operator">operator</option>
               </select>
+            </Field>
+
+            <Field span={6} label="Full name (required for operator)">
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                style={input}
+                placeholder="e.g. Dave Smith"
+              />
+            </Field>
+
+            <Field span={6} label="Phone (optional)">
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                style={input}
+                placeholder="e.g. 07700 900123"
+              />
             </Field>
           </div>
 
