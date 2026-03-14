@@ -73,6 +73,10 @@ export default function OperatorForm({
 
   return (
     <form onSubmit={onSubmit} style={formWrap}>
+      <div style={infoBanner}>
+        Operator accounts are now created from <strong>Admin: Staff Accounts</strong>. This screen is for editing operator profile details only.
+      </div>
+
       <div style={gridStyle}>
         <Field
           label="Full name"
@@ -118,13 +122,7 @@ export default function OperatorForm({
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
         <button type="submit" disabled={saving} style={saveBtn}>
-          {saving
-            ? mode === "create"
-              ? "Creating..."
-              : "Saving..."
-            : mode === "create"
-            ? "Create operator"
-            : "Save operator"}
+          {saving ? "Saving..." : mode === "create" ? "Create operator" : "Save operator"}
         </button>
 
         <a href="/operators" style={cancelBtn}>
@@ -171,6 +169,15 @@ const formWrap: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const infoBanner: React.CSSProperties = {
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
 };
 
 const gridStyle: React.CSSProperties = {
