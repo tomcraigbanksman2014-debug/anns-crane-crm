@@ -32,6 +32,17 @@ async function updatePurchaseOrder(formData: FormData) {
     redirect(`/purchase-orders?error=${encodeURIComponent("Purchase order id missing.")}`);
   }
 
+  const existingResult = await supabase
+    .from("purchase_orders")
+    .select("id, po_number, supplier_id, status, total_cost")
+    .eq("id", id)
+    .single();
+
+  const existingPO = existingResult.data;
+  if (existingResult.error || !existingPO) {
+    redirect(`/purchase-orders?error=${encodeURIComponent("Purchase order not found.")}`);
+  }
+
   const supplier_id = clean(formData.get("supplier_id")) || null;
   const job_id = clean(formData.get("job_id")) || null;
   const status = clean(formData.get("status")) || "draft";
@@ -57,7 +68,10 @@ async function updatePurchaseOrder(formData: FormData) {
     };
   });
 
-  const total_cost = lines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0);
+  const total_cost = lines.reduce(
+    (sum, line) => sum + Number(line.total_cost ?? 0),
+    0
+  );
 
   const { error: updateError } = await supabase
     .from("purchase_orders")
@@ -88,22 +102,66 @@ async function updatePurchaseOrder(formData: FormData) {
   }
 
   if (lines.length > 0) {
-    const { error: lineInsertError } = await supabase.from("purchase_order_lines").insert(
-      lines.map((line) => ({
-        purchase_order_id: id,
-        description: line.description,
-        qty: line.qty,
-        unit_cost: line.unit_cost,
-        total_cost: line.total_cost,
-      }))
-    );
+    const { error: lineInsertError } = await supabase
+      .from("purchase_order_lines")
+      .insert(
+        lines.map((line) => ({
+          purchase_order_id: id,
+          description: line.description,
+          qty: line.qty,
+          unit_cost: line.unit_cost,
+          total_cost: line.total_cost,
+        }))
+      );
 
     if (lineInsertError) {
       redirect(`/purchase-orders/${id}?error=${encodeURIComponent(lineInsertError.message)}`);
     }
   }
 
-  redirect(`/purchase-orders/${id}?success=${encodeURIComponent(`${po_number} updated.`)}`);
+  if (supplier_id) {
+    const messages: string[] = [];
+
+    messages.push(`Purchase order ${po_number} was updated.`);
+
+    if (existingPO.status !== status) {
+      messages.push(`Status changed from ${existingPO.status ?? "—"} to ${status}.`);
+    }
+
+    if (Number(existingPO.total_cost ?? 0) !== total_cost) {
+      messages.push(
+        `Total changed from £${Number(existingPO.total_cost ?? 0).toFixed(2)} to £${total_cost.toFixed(2)}.`
+      );
+    }
+
+    if (supplier_reference) {
+      messages.push(`Supplier ref: ${supplier_reference}.`);
+    }
+
+    if (required_date) {
+      messages.push(`Required date: ${required_date}.`);
+    }
+
+    const baseType = status === "sent" ? "email" : "note";
+    const baseSubject =
+      status === "sent" && existingPO.status !== "sent"
+        ? "Purchase Order Sent"
+        : existingPO.status !== status
+        ? "Purchase Order Status Changed"
+        : "Purchase Order Updated";
+
+    await supabase.from("supplier_correspondence").insert({
+      supplier_id,
+      type: baseType,
+      subject: baseSubject,
+      message: messages.join(" "),
+      created_by: "system",
+    });
+  }
+
+  redirect(
+    `/purchase-orders/${id}?success=${encodeURIComponent(`${po_number} updated.`)}`
+  );
 }
 
 export default async function PurchaseOrderDetailPage({
@@ -138,13 +196,30 @@ export default async function PurchaseOrderDetailPage({
       .eq("id", params.id)
       .single(),
 
-    supabase.from("suppliers").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(200),
-    supabase.from("purchase_order_lines").select("*").eq("purchase_order_id", params.id).order("created_at", { ascending: true }),
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("jobs")
+      .select("id, job_number, site_name")
+      .order("created_at", { ascending: false })
+      .limit(200),
+
+    supabase
+      .from("purchase_order_lines")
+      .select("*")
+      .eq("purchase_order_id", params.id)
+      .order("created_at", { ascending: true }),
   ]);
 
-  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const successMessage = searchParams?.success
+    ? decodeURIComponent(searchParams.success)
+    : "";
+  const errorMessage = searchParams?.error
+    ? decodeURIComponent(searchParams.error)
+    : "";
 
   return (
     <ClientShell>
@@ -188,7 +263,12 @@ export default async function PurchaseOrderDetailPage({
                 <input type="hidden" name="po_number_display" value={po.po_number ?? ""} />
 
                 <div style={gridStyle}>
-                  <Field label="PO number" name="po_number_readonly" defaultValue={po.po_number ?? ""} disabled />
+                  <Field
+                    label="PO number"
+                    name="po_number_readonly"
+                    defaultValue={po.po_number ?? ""}
+                    disabled
+                  />
                   <SelectField
                     label="Supplier"
                     name="supplier_id"
@@ -204,7 +284,9 @@ export default async function PurchaseOrderDetailPage({
                     defaultValue={po.job_id ?? ""}
                     options={(jobs ?? []).map((j: any) => ({
                       value: j.id,
-                      label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                      label: `Job #${j.job_number ?? "—"}${
+                        j.site_name ? ` • ${j.site_name}` : ""
+                      }`,
                     }))}
                   />
                   <SelectField
@@ -219,13 +301,37 @@ export default async function PurchaseOrderDetailPage({
                       { value: "cancelled", label: "Cancelled" },
                     ]}
                   />
-                  <Field label="Order date" name="order_date" type="date" defaultValue={po.order_date ?? ""} />
-                  <Field label="Required date" name="required_date" type="date" defaultValue={po.required_date ?? ""} />
-                  <Field label="Supplier reference" name="supplier_reference" defaultValue={po.supplier_reference ?? ""} />
-                  <Field label="Total cost" name="total_cost_display" type="number" defaultValue={String(po.total_cost ?? 0)} disabled />
+                  <Field
+                    label="Order date"
+                    name="order_date"
+                    type="date"
+                    defaultValue={po.order_date ?? ""}
+                  />
+                  <Field
+                    label="Required date"
+                    name="required_date"
+                    type="date"
+                    defaultValue={po.required_date ?? ""}
+                  />
+                  <Field
+                    label="Supplier reference"
+                    name="supplier_reference"
+                    defaultValue={po.supplier_reference ?? ""}
+                  />
+                  <Field
+                    label="Total cost"
+                    name="total_cost_display"
+                    type="number"
+                    defaultValue={String(po.total_cost ?? 0)}
+                    disabled
+                  />
                 </div>
 
-                <FullWidthField label="Notes" name="notes" defaultValue={po.notes ?? ""} />
+                <FullWidthField
+                  label="Notes"
+                  name="notes"
+                  defaultValue={po.notes ?? ""}
+                />
 
                 <POLinesEditorClient
                   fieldName="po_lines_json"
@@ -266,7 +372,13 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        style={inputStyle}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -309,7 +421,12 @@ function FullWidthField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={4} style={textareaStyle} />
+      <textarea
+        name={name}
+        defaultValue={defaultValue}
+        rows={4}
+        style={textareaStyle}
+      />
     </div>
   );
 }
