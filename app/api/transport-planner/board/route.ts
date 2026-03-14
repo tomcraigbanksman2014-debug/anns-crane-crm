@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(dateStr) : new Date();
