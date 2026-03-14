@@ -16,6 +16,8 @@ import {
 import L, { type LatLngExpression } from "leaflet";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
+const SafeMapContainer = MapContainer as any;
+
 type TransportItem = {
   id: string;
   transport_number: string | null;
@@ -44,8 +46,18 @@ type TransportItem = {
     | { full_name: string | null }[]
     | null;
   jobs:
-    | { id: string; job_number: string | number | null; site_name: string | null; job_date?: string | null }
-    | { id: string; job_number: string | number | null; site_name: string | null; job_date?: string | null }[]
+    | {
+        id: string;
+        job_number: string | number | null;
+        site_name: string | null;
+        job_date?: string | null;
+      }
+    | {
+        id: string;
+        job_number: string | number | null;
+        site_name: string | null;
+        job_date?: string | null;
+      }[]
     | null;
   clients:
     | { company_name: string | null }
@@ -448,7 +460,7 @@ export default function TransportMapClient() {
       ) : (
         <div style={contentGrid}>
           <div style={mapWrap}>
-            <MapContainer
+            <SafeMapContainer
               center={defaultCenter}
               zoom={6}
               scrollWheelZoom={true}
@@ -534,7 +546,7 @@ export default function TransportMapClient() {
                   </div>
                 );
               })}
-            </MapContainer>
+            </SafeMapContainer>
           </div>
 
           <div style={listWrap}>
