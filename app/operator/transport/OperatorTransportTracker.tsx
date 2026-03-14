@@ -15,6 +15,18 @@ type TrackJob = {
   vehicle_label: string;
 };
 
+type WakeLockSentinelLike = {
+  release: () => Promise<void>;
+};
+
+declare global {
+  interface Navigator {
+    wakeLock?: {
+      request: (type: "screen") => Promise<WakeLockSentinelLike>;
+    };
+  }
+}
+
 function todayIso() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
@@ -40,6 +52,28 @@ function sortJobsForAutoPick(jobs: TrackJob[]) {
   });
 }
 
+function ageTextFromIso(value: string | null) {
+  if (!value) return "—";
+  const then = new Date(value).getTime();
+  if (!Number.isFinite(then)) return "—";
+
+  const diffMs = Date.now() - then;
+  const diffSec = Math.max(0, Math.round(diffMs / 1000));
+
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const mins = Math.floor(diffSec / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  return `${hrs}h ago`;
+}
+
+function isStale(lastSentIso: string | null, limitMinutes = 3) {
+  if (!lastSentIso) return true;
+  const then = new Date(lastSentIso).getTime();
+  if (!Number.isFinite(then)) return true;
+  return Date.now() - then > limitMinutes * 60 * 1000;
+}
+
 export default function OperatorTransportTracker({
   operatorId,
   jobs,
@@ -50,13 +84,24 @@ export default function OperatorTransportTracker({
   const [activeJobId, setActiveJobId] = useState("");
   const [isTracking, setIsTracking] = useState(false);
   const [statusText, setStatusText] = useState("Preparing automatic tracking...");
-  const [lastSentAt, setLastSentAt] = useState("");
+  const [lastSentAt, setLastSentAt] = useState<string | null>(null);
+  const [lastGpsAt, setLastGpsAt] = useState<string | null>(null);
   const [coordsText, setCoordsText] = useState("");
   const [errorText, setErrorText] = useState("");
   const [permissionText, setPermissionText] = useState("Waiting for location permission...");
+  const [wakeLockText, setWakeLockText] = useState("Not requested");
+  const [visibilityText, setVisibilityText] = useState(
+    typeof document !== "undefined" && document.visibilityState === "visible"
+      ? "Page visible"
+      : "Page not visible"
+  );
 
   const watchIdRef = useRef<number | null>(null);
-  const lastSentRef = useRef<number>(0);
+  const lastSentMsRef = useRef<number>(0);
+  const lastGpsMsRef = useRef<number>(0);
+  const fallbackIntervalRef = useRef<number | null>(null);
+  const staleCheckIntervalRef = useRef<number | null>(null);
+  const wakeLockRef = useRef<WakeLockSentinelLike | null>(null);
   const autoStartedRef = useRef(false);
 
   const orderedJobs = useMemo(() => sortJobsForAutoPick(jobs), [jobs]);
@@ -66,27 +111,38 @@ export default function OperatorTransportTracker({
     [jobs, activeJobId]
   );
 
-  useEffect(() => {
-    const storedJobId =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("active_transport_job_id") || ""
-        : "";
+  const trackingLooksStale = isStale(lastSentAt, 3);
 
-    if (storedJobId && jobs.some((job) => job.id === storedJobId)) {
-      setActiveJobId(storedJobId);
-      return;
-    }
+  async function acquireWakeLock() {
+    try {
+      if (!navigator.wakeLock?.request) {
+        setWakeLockText("Wake lock not supported on this device/browser");
+        return;
+      }
 
-    if (orderedJobs[0]?.id) {
-      setActiveJobId(orderedJobs[0].id);
-    }
-  }, [jobs, orderedJobs]);
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release().catch(() => undefined);
+        wakeLockRef.current = null;
+      }
 
-  useEffect(() => {
-    if (activeJobId && typeof window !== "undefined") {
-      window.localStorage.setItem("active_transport_job_id", activeJobId);
+      wakeLockRef.current = await navigator.wakeLock.request("screen");
+      setWakeLockText("Screen wake lock active");
+    } catch {
+      setWakeLockText("Wake lock unavailable");
     }
-  }, [activeJobId]);
+  }
+
+  async function releaseWakeLock() {
+    try {
+      if (wakeLockRef.current) {
+        await wakeLockRef.current.release().catch(() => undefined);
+        wakeLockRef.current = null;
+      }
+      setWakeLockText("Wake lock released");
+    } catch {
+      setWakeLockText("Wake lock release failed");
+    }
+  }
 
   async function sendLocation(position: GeolocationPosition) {
     if (!activeJob) return;
@@ -96,6 +152,10 @@ export default function OperatorTransportTracker({
 
     setCoordsText(`${lat.toFixed(6)}, ${lng.toFixed(6)}`);
     setErrorText("");
+
+    const nowIso = new Date().toISOString();
+    lastGpsMsRef.current = Date.now();
+    setLastGpsAt(nowIso);
 
     const res = await fetch("/api/driver-location/update", {
       method: "POST",
@@ -121,18 +181,90 @@ export default function OperatorTransportTracker({
       return;
     }
 
-    const now = new Date();
-    setLastSentAt(now.toLocaleTimeString("en-GB"));
-    setStatusText(`Auto tracking live for ${activeJob.transport_number}.`);
+    lastSentMsRef.current = Date.now();
+    setLastSentAt(nowIso);
+    setStatusText(`Tracking live for ${activeJob.transport_number}.`);
     setPermissionText("Location permission granted.");
   }
 
-  function stopTracking() {
+  function clearTrackingInternals() {
     if (watchIdRef.current !== null && navigator.geolocation) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
 
+    if (fallbackIntervalRef.current !== null) {
+      window.clearInterval(fallbackIntervalRef.current);
+      fallbackIntervalRef.current = null;
+    }
+
+    if (staleCheckIntervalRef.current !== null) {
+      window.clearInterval(staleCheckIntervalRef.current);
+      staleCheckIntervalRef.current = null;
+    }
+  }
+
+  async function requestSinglePositionAndSend(reason: string) {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        setStatusText(`Tracking live for ${activeJob?.transport_number ?? "selected job"} (${reason}).`);
+        await sendLocation(position);
+      },
+      (error) => {
+        setErrorText(error.message || "Could not get GPS location.");
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 20000,
+      }
+    );
+  }
+
+  function startFallbackPolling() {
+    if (fallbackIntervalRef.current !== null) {
+      window.clearInterval(fallbackIntervalRef.current);
+    }
+
+    fallbackIntervalRef.current = window.setInterval(async () => {
+      if (!activeJob) return;
+
+      const now = Date.now();
+      const noGpsForTooLong = now - lastGpsMsRef.current > 45000;
+      const noSendForTooLong = now - lastSentMsRef.current > 45000;
+
+      if (document.visibilityState !== "visible") {
+        setVisibilityText("Page not visible");
+      }
+
+      if (noGpsForTooLong || noSendForTooLong) {
+        await requestSinglePositionAndSend("fallback refresh");
+      }
+    }, 30000);
+  }
+
+  function startStaleChecker() {
+    if (staleCheckIntervalRef.current !== null) {
+      window.clearInterval(staleCheckIntervalRef.current);
+    }
+
+    staleCheckIntervalRef.current = window.setInterval(() => {
+      if (!lastSentMsRef.current) return;
+
+      const now = Date.now();
+      const diff = now - lastSentMsRef.current;
+
+      if (diff > 3 * 60 * 1000) {
+        setStatusText("Tracking warning: no fresh location sent in the last 3 minutes.");
+      }
+    }, 15000);
+  }
+
+  function stopTracking() {
+    clearTrackingInternals();
+    releaseWakeLock();
     setIsTracking(false);
     setStatusText("Tracking stopped.");
   }
@@ -149,25 +281,25 @@ export default function OperatorTransportTracker({
       return;
     }
 
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-
-    lastSentRef.current = 0;
+    clearTrackingInternals();
+    lastSentMsRef.current = 0;
+    lastGpsMsRef.current = 0;
     setErrorText("");
     setStatusText(`Starting automatic tracking for ${activeJob.transport_number}...`);
     setPermissionText("Requesting location permission...");
 
+    acquireWakeLock();
+
     watchIdRef.current = navigator.geolocation.watchPosition(
       async (position) => {
-        const now = Date.now();
+        lastGpsMsRef.current = Date.now();
+        setLastGpsAt(new Date().toISOString());
 
-        if (now - lastSentRef.current < 30000) {
+        const now = Date.now();
+        if (now - lastSentMsRef.current < 20000) {
           return;
         }
 
-        lastSentRef.current = now;
         await sendLocation(position);
       },
       (error) => {
@@ -184,7 +316,49 @@ export default function OperatorTransportTracker({
     );
 
     setIsTracking(true);
+    startFallbackPolling();
+    startStaleChecker();
+    requestSinglePositionAndSend("initial fix");
   }
+
+  useEffect(() => {
+    const storedJobId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("active_transport_job_id") || ""
+        : "";
+
+    if (storedJobId && jobs.some((job) => job.id === storedJobId)) {
+      setActiveJobId(storedJobId);
+      return;
+    }
+
+    if (orderedJobs[0]?.id) {
+      setActiveJobId(orderedJobs[0].id);
+    }
+  }, [jobs, orderedJobs]);
+
+  useEffect(() => {
+    if (activeJobId && typeof window !== "undefined") {
+      window.localStorage.setItem("active_transport_job_id", activeJobId);
+    }
+  }, [activeJobId]);
+
+  useEffect(() => {
+    async function onVisibilityChange() {
+      const visible = document.visibilityState === "visible";
+      setVisibilityText(visible ? "Page visible" : "Page not visible");
+
+      if (visible && isTracking) {
+        await acquireWakeLock();
+        await requestSinglePositionAndSend("page visible again");
+      }
+    }
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isTracking, activeJob]);
 
   useEffect(() => {
     if (!activeJob) return;
@@ -200,15 +374,34 @@ export default function OperatorTransportTracker({
 
   useEffect(() => {
     return () => {
-      if (watchIdRef.current !== null && navigator.geolocation) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
+      clearTrackingInternals();
+      releaseWakeLock();
     };
   }, []);
 
   return (
     <div style={cardStyle}>
-      <h2 style={{ marginTop: 0, fontSize: 22 }}>Live Driver Tracking</h2>
+      <div
+        style={{
+          ...topBannerStyle,
+          ...(trackingLooksStale ? staleBannerStyle : healthyBannerStyle),
+        }}
+      >
+        <div style={{ fontWeight: 900 }}>
+          {trackingLooksStale
+            ? "Tracking warning"
+            : isTracking
+            ? "Tracking active"
+            : "Tracking inactive"}
+        </div>
+        <div style={{ marginTop: 4, fontSize: 13 }}>
+          {trackingLooksStale
+            ? "Keep this page open on the phone during the shift. Background browser tracking can pause if the page is hidden."
+            : "Best browser-mode tracking is active. Keep this page open during the shift for the most reliable updates."}
+        </div>
+      </div>
+
+      <h2 style={{ marginTop: 16, fontSize: 22 }}>Live Driver Tracking</h2>
       <p style={{ marginTop: 6, opacity: 0.8 }}>
         Tracking starts automatically when this page is opened on the driver’s phone.
       </p>
@@ -254,6 +447,14 @@ export default function OperatorTransportTracker({
         <button type="button" onClick={stopTracking} style={secondaryBtn}>
           Stop tracking
         </button>
+
+        <button
+          type="button"
+          onClick={startTrackingAutomatically}
+          style={primaryBtn}
+        >
+          Restart tracking
+        </button>
       </div>
 
       <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
@@ -264,10 +465,19 @@ export default function OperatorTransportTracker({
           <strong>Permission:</strong> {permissionText}
         </div>
         <div style={infoRow}>
+          <strong>Wake lock:</strong> {wakeLockText}
+        </div>
+        <div style={infoRow}>
+          <strong>Page state:</strong> {visibilityText}
+        </div>
+        <div style={infoRow}>
           <strong>Current coordinates:</strong> {coordsText || "—"}
         </div>
         <div style={infoRow}>
-          <strong>Last sent:</strong> {lastSentAt || "—"}
+          <strong>Last GPS fix:</strong> {ageTextFromIso(lastGpsAt)}
+        </div>
+        <div style={infoRow}>
+          <strong>Last sent to office:</strong> {ageTextFromIso(lastSentAt)}
         </div>
         <div style={infoRow}>
           <strong>Tracking:</strong> {isTracking ? "On" : "Off"}
@@ -285,6 +495,24 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const topBannerStyle: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const healthyBannerStyle: React.CSSProperties = {
+  background: "rgba(0,180,120,0.10)",
+  border: "1px solid rgba(0,180,120,0.18)",
+  color: "#0b7a4b",
+};
+
+const staleBannerStyle: React.CSSProperties = {
+  background: "rgba(255,170,0,0.14)",
+  border: "1px solid rgba(255,170,0,0.24)",
+  color: "#8a5200",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -325,6 +553,16 @@ const jobInfoBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "10px 16px",
+  background: "#111",
+  color: "#fff",
+  borderRadius: 10,
+  border: "none",
+  cursor: "pointer",
+  fontWeight: 800,
 };
 
 const secondaryBtn: React.CSSProperties = {
