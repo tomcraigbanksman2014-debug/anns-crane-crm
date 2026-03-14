@@ -48,12 +48,12 @@ export default async function OperatorsPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Operators</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Manage operator records inside the CRM.
+              Operator accounts are now created from <strong>Admin: Staff Accounts</strong>. Use this page to view and edit operator records only.
             </p>
           </div>
 
-          <a href="/operators/new" style={primaryBtn}>
-            + Add operator
+          <a href="/admin/users" style={primaryBtn}>
+            Create operator account
           </a>
         </div>
 
