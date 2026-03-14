@@ -17,6 +17,10 @@ import L, { type LatLngExpression } from "leaflet";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 const SafeMapContainer = MapContainer as any;
+const SafeTileLayer = TileLayer as any;
+const SafeMarker = Marker as any;
+const SafePopup = Popup as any;
+const SafePolyline = Polyline as any;
 
 type TransportItem = {
   id: string;
@@ -466,8 +470,8 @@ export default function TransportMapClient() {
               scrollWheelZoom={true}
               style={{ width: "100%", height: "100%", borderRadius: 14 }}
             >
-              <TileLayer
-                attribution={`&copy; OpenStreetMap contributors`}
+              <SafeTileLayer
+                attribution="&copy; OpenStreetMap contributors"
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
@@ -496,8 +500,8 @@ export default function TransportMapClient() {
                 return (
                   <div key={item.id}>
                     {pickupPoint ? (
-                      <Marker position={pickupPoint} icon={pickupIcon}>
-                        <Popup>
+                      <SafeMarker position={pickupPoint} icon={pickupIcon}>
+                        <SafePopup>
                           <div style={{ minWidth: 240 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pickup</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
@@ -512,13 +516,13 @@ export default function TransportMapClient() {
                             <div><strong>Delivery:</strong> {item.delivery_address ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
                           </div>
-                        </Popup>
-                      </Marker>
+                        </SafePopup>
+                      </SafeMarker>
                     ) : null}
 
                     {deliveryPoint ? (
-                      <Marker position={deliveryPoint} icon={deliveryIcon}>
-                        <Popup>
+                      <SafeMarker position={deliveryPoint} icon={deliveryIcon}>
+                        <SafePopup>
                           <div style={{ minWidth: 240 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Delivery</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
@@ -533,12 +537,12 @@ export default function TransportMapClient() {
                             <div><strong>Delivery:</strong> {item.delivery_address ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
                           </div>
-                        </Popup>
-                      </Marker>
+                        </SafePopup>
+                      </SafeMarker>
                     ) : null}
 
                     {pickupPoint && deliveryPoint ? (
-                      <Polyline
+                      <SafePolyline
                         positions={[pickupPoint, deliveryPoint]}
                         pathOptions={{ color: "#111", weight: 3, opacity: 0.6 }}
                       />
