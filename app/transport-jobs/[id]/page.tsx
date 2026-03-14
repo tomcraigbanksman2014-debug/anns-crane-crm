@@ -49,6 +49,11 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 export default async function TransportJobDetailPage({
   params,
   searchParams,
@@ -57,6 +62,15 @@ export default async function TransportJobDetailPage({
   searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const authEmail = String(user?.email ?? "").trim().toLowerCase();
+  const authUsername = authEmail.includes("@")
+    ? authEmail.split("@")[0]
+    : authEmail;
 
   const [
     { data: item, error },
@@ -77,7 +91,9 @@ export default async function TransportJobDetailPage({
           reg_number
         ),
         operators:operator_id (
-          full_name
+          id,
+          full_name,
+          email
         ),
         jobs:linked_job_id (
           id,
@@ -97,10 +113,17 @@ export default async function TransportJobDetailPage({
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
-  const client = Array.isArray((item as any)?.clients) ? (item as any).clients[0] : (item as any)?.clients;
-  const vehicle = Array.isArray((item as any)?.vehicles) ? (item as any).vehicles[0] : (item as any)?.vehicles;
-  const driver = Array.isArray((item as any)?.operators) ? (item as any).operators[0] : (item as any)?.operators;
-  const linkedJob = Array.isArray((item as any)?.jobs) ? (item as any).jobs[0] : (item as any)?.jobs;
+  const client = first((item as any)?.clients);
+  const vehicle = first((item as any)?.vehicles);
+  const driver = first((item as any)?.operators);
+  const linkedJob = first((item as any)?.jobs);
+
+  const isAssignedDriver =
+    !!driver &&
+    (
+      String(driver.email ?? "").trim().toLowerCase() === authEmail ||
+      String(driver.full_name ?? "").trim().toLowerCase() === authUsername
+    );
 
   return (
     <ClientShell>
@@ -112,7 +135,9 @@ export default async function TransportJobDetailPage({
                 {(item as any)?.transport_number ?? "Transport Job"}
               </h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                View and update transport allocation details.
+                {isAssignedDriver
+                  ? "View your assigned transport allocation."
+                  : "View and update transport allocation details."}
               </p>
             </div>
 
@@ -132,6 +157,68 @@ export default async function TransportJobDetailPage({
 
           {!item ? (
             <div style={errorBox}>Transport job not found.</div>
+          ) : isAssignedDriver ? (
+            <div style={pageGrid}>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Transport job details</h2>
+
+                <div style={{ display: "grid", gap: 14 }}>
+                  <div style={gridStyle}>
+                    <ReadField label="Reference" value={(item as any).transport_number ?? "—"} />
+                    <ReadField
+                      label="Linked crane job"
+                      value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+                    />
+                    <ReadField label="Customer" value={client?.company_name ?? "—"} />
+                    <ReadField
+                      label="Vehicle"
+                      value={`${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`}
+                    />
+                    <ReadField label="Driver" value={driver?.full_name ?? "—"} />
+                    <ReadField label="Job type" value={(item as any).job_type ?? "—"} />
+                    <ReadField label="Transport date" value={(item as any).transport_date ?? "—"} />
+                    <ReadField label="Collection time" value={(item as any).collection_time ?? "—"} />
+                    <ReadField label="Delivery time" value={(item as any).delivery_time ?? "—"} />
+                    <ReadField label="Status" value={(item as any).status ?? "—"} />
+                    <ReadField label="Price" value={fmtMoney((item as any).price)} />
+                  </div>
+
+                  <ReadArea label="Collection address" value={(item as any).collection_address ?? "—"} />
+                  <ReadArea label="Delivery address" value={(item as any).delivery_address ?? "—"} />
+                  <ReadArea label="Load description" value={(item as any).load_description ?? "—"} />
+                  <ReadArea label="Notes" value={(item as any).notes ?? "—"} />
+                </div>
+              </section>
+
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Quick summary</h2>
+
+                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
+                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
+                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
+                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
+                <InfoRow label="Status" value={(item as any).status ?? "—"} />
+                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
+
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <a href="/transport-map" style={miniLinkBtn}>
+                    Open control map
+                  </a>
+
+                  {linkedJob?.id ? (
+                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
+                      Open linked crane job
+                    </a>
+                  ) : null}
+
+                  {(item as any).vehicle_id ? (
+                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
+                      Open vehicle
+                    </a>
+                  ) : null}
+                </div>
+              </section>
+            </div>
           ) : (
             <div style={pageGrid}>
               <section style={sectionCard}>
@@ -141,7 +228,12 @@ export default async function TransportJobDetailPage({
                   <input type="hidden" name="id" value={(item as any).id} />
 
                   <div style={gridStyle}>
-                    <Field label="Reference" name="transport_number_readonly" defaultValue={(item as any).transport_number ?? ""} disabled />
+                    <Field
+                      label="Reference"
+                      name="transport_number_readonly"
+                      defaultValue={(item as any).transport_number ?? ""}
+                      disabled
+                    />
                     <SelectField
                       label="Linked crane job"
                       name="linked_job_id"
@@ -273,7 +365,13 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        style={inputStyle}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -316,7 +414,42 @@ function FullWidthField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
+      <textarea
+        name={name}
+        defaultValue={defaultValue}
+        rows={3}
+        style={textareaStyle}
+      />
+    </div>
+  );
+}
+
+function ReadField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={readValueStyle}>{value}</div>
+    </div>
+  );
+}
+
+function ReadArea({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <div style={readAreaStyle}>{value}</div>
     </div>
   );
 }
@@ -354,7 +487,7 @@ const headerRow: React.CSSProperties = {
 
 const pageGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.15fr 0.85fr",
+  gridTemplateColumns: "minmax(0, 1.15fr) minmax(280px, 0.85fr)",
   gap: 16,
 };
 
@@ -428,6 +561,27 @@ const textareaStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
+};
+
+const readValueStyle: React.CSSProperties = {
+  minHeight: 42,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.66)",
+  boxSizing: "border-box",
+  fontWeight: 700,
+};
+
+const readAreaStyle: React.CSSProperties = {
+  minHeight: 84,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.66)",
+  boxSizing: "border-box",
+  fontWeight: 700,
+  whiteSpace: "pre-wrap",
 };
 
 const primaryBtn: React.CSSProperties = {
