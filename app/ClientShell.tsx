@@ -53,7 +53,9 @@ export default function ClientShell({
         return;
       }
 
-      const email = String(user.email ?? "").toLowerCase();
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
+
       const masterAdminEmail = String(
         process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
       )
@@ -61,12 +63,35 @@ export default function ClientShell({
         .toLowerCase();
 
       const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
-      const userRole = isMaster
+
+      let resolvedRole: "admin" | "staff" | "operator" | "" = isMaster
         ? "admin"
         : ((user.user_metadata?.role as "admin" | "staff" | "operator" | "") ?? "");
 
+      if (!isMaster && resolvedRole !== "operator") {
+        const { data: operators } = await supabase
+          .from("operators")
+          .select("id, full_name, email, status")
+          .eq("status", "active");
+
+        const matchedOperator = (operators ?? []).find((op: any) => {
+          const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+          const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+          return (
+            operatorEmail === email ||
+            operatorName === usernameFromEmail ||
+            (!!usernameFromEmail && operatorEmail.startsWith(`${usernameFromEmail}@`))
+          );
+        });
+
+        if (matchedOperator) {
+          resolvedRole = "operator";
+        }
+      }
+
       setUsername(fromAuthEmail(user.email ?? null));
-      setRole(userRole);
+      setRole(resolvedRole);
       setLoading(false);
     }
 
@@ -166,10 +191,7 @@ export default function ClientShell({
 
       <div style={shellStyle}>
         {isMobile && menuOpen ? (
-          <div
-            onClick={() => setMenuOpen(false)}
-            style={mobileBackdropStyle}
-          />
+          <div onClick={() => setMenuOpen(false)} style={mobileBackdropStyle} />
         ) : null}
 
         <aside
@@ -246,7 +268,7 @@ const loadingPageStyle: React.CSSProperties = {
 const loadingCardStyle: React.CSSProperties = {
   padding: 24,
   borderRadius: 16,
-  background: "rgba(255,255,255,0.55)",
+  background: "rgba(255,255,255,0.85)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
 };
@@ -262,9 +284,8 @@ const shellStyle: React.CSSProperties = {
 const sidebarStyle: React.CSSProperties = {
   width: 280,
   minWidth: 280,
-  background: "rgba(255,255,255,0.24)",
-  border: "1px solid rgba(255,255,255,0.45)",
-  borderRadius: 18,
+  background: "#dfeaf5",
+  border: "1px solid rgba(0,0,0,0.08)",
   padding: 16,
   boxSizing: "border-box",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -279,6 +300,7 @@ const desktopSidebarStyle: React.CSSProperties = {
   position: "sticky",
   top: 18,
   maxHeight: "calc(100vh - 36px)",
+  borderRadius: 18,
 };
 
 const mobileSidebarStyle: React.CSSProperties = {
@@ -301,7 +323,7 @@ const mobileSidebarOpenStyle: React.CSSProperties = {
 const mobileBackdropStyle: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.25)",
+  background: "rgba(0,0,0,0.28)",
   zIndex: 15,
 };
 
@@ -326,7 +348,7 @@ const brandBox: React.CSSProperties = {
   placeItems: "center",
   padding: 18,
   borderRadius: 14,
-  background: "rgba(255,255,255,0.35)",
+  background: "rgba(255,255,255,0.65)",
 };
 
 const logoStyle: React.CSSProperties = {
@@ -338,7 +360,7 @@ const logoStyle: React.CSSProperties = {
 const userBox: React.CSSProperties = {
   padding: 14,
   borderRadius: 14,
-  background: "rgba(255,255,255,0.35)",
+  background: "rgba(255,255,255,0.65)",
   border: "1px solid rgba(0,0,0,0.06)",
 };
 
@@ -352,7 +374,7 @@ const navItemStyle: React.CSSProperties = {
 };
 
 const navItemActive: React.CSSProperties = {
-  background: "rgba(255,255,255,0.72)",
+  background: "#ffffff",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
@@ -361,7 +383,7 @@ const signOutBtn: React.CSSProperties = {
   padding: "12px 14px",
   borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.68)",
+  background: "#ffffff",
   fontWeight: 900,
   cursor: "pointer",
 };
@@ -371,7 +393,7 @@ const mobileHeader: React.CSSProperties = {
   justifyContent: "space-between",
   alignItems: "center",
   padding: 14,
-  background: "rgba(255,255,255,0.35)",
+  background: "rgba(255,255,255,0.65)",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   position: "sticky",
   top: 0,
@@ -389,7 +411,7 @@ const menuBtn: React.CSSProperties = {
   padding: "12px 16px",
   borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.72)",
+  background: "#ffffff",
   fontWeight: 900,
   cursor: "pointer",
 };
