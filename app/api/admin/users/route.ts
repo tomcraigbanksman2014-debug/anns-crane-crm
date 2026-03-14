@@ -119,6 +119,8 @@ export async function POST(req: Request) {
     const rawUsername = String(body?.username ?? "");
     const password = String(body?.password ?? "");
     const role = String(body?.role ?? "staff").trim().toLowerCase();
+    const fullName = String(body?.full_name ?? "").trim();
+    const phone = String(body?.phone ?? "").trim();
 
     const username = normalizeUsername(rawUsername);
     const masterAdminUsername = getMasterAdminUsername();
@@ -148,9 +150,16 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!["staff", "admin"].includes(role)) {
+    if (!["staff", "admin", "operator"].includes(role)) {
       return NextResponse.json(
-        { error: "Role must be staff or admin" },
+        { error: "Role must be admin, staff or operator" },
+        { status: 400 }
+      );
+    }
+
+    if (role === "operator" && !fullName) {
+      return NextResponse.json(
+        { error: "Full name is required for operator accounts" },
         { status: 400 }
       );
     }
@@ -218,6 +227,47 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    if (role === "operator") {
+      const operatorPayload = {
+        full_name: fullName,
+        email,
+        phone: phone || null,
+        status: "active",
+        notes: "Created from Staff Accounts",
+      };
+
+      const { data: existingOperator } = await admin
+        .from("operators")
+        .select("id")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (existingOperator?.id) {
+        const { error: updateOperatorError } = await admin
+          .from("operators")
+          .update(operatorPayload)
+          .eq("id", existingOperator.id);
+
+        if (updateOperatorError) {
+          return NextResponse.json(
+            { error: updateOperatorError.message },
+            { status: 400 }
+          );
+        }
+      } else {
+        const { error: insertOperatorError } = await admin
+          .from("operators")
+          .insert(operatorPayload);
+
+        if (insertOperatorError) {
+          return NextResponse.json(
+            { error: insertOperatorError.message },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     return NextResponse.json({
