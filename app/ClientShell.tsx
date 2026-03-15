@@ -20,12 +20,14 @@ function isOperatorArea(pathname: string) {
 
 function isOfficeOnlyPath(pathname: string) {
   if (pathname === "/") return true;
+  if (pathname.startsWith("/dashboard")) return true;
   if (pathname.startsWith("/bookings")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
   if (pathname.startsWith("/transport-planner")) return true;
   if (pathname.startsWith("/transport-map")) return true;
   if (pathname.startsWith("/vehicles")) return true;
+  if (pathname.startsWith("/timesheets")) return true;
   if (pathname.startsWith("/quotes")) return true;
   if (pathname.startsWith("/customers")) return true;
   if (pathname.startsWith("/equipment")) return true;
@@ -174,15 +176,12 @@ export default function ClientShell({
   );
 
   const operatorNav = useMemo<NavItem[]>(
-    () => [
-      { label: "My Jobs", href: "/operator/jobs" },
-      { label: "Timesheets", href: "/timesheets" },
-      { label: "Settings", href: "/settings" },
-    ],
+    () => [{ label: "My Jobs", href: "/operator/jobs" }],
     []
   );
 
   const nav = role === "operator" ? operatorNav : officeNav;
+  const showOperatorMenuButton = role !== "operator";
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -193,6 +192,14 @@ export default function ClientShell({
     return (
       <div style={loadingPageStyle}>
         <div style={loadingCardStyle}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (role === "operator") {
+    return (
+      <div style={pageStyle}>
+        <main style={operatorMainStyle}>{children}</main>
       </div>
     );
   }
@@ -209,13 +216,15 @@ export default function ClientShell({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            style={menuBtn}
-          >
-            Menu
-          </button>
+          {showOperatorMenuButton ? (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              style={menuBtn}
+            >
+              Menu
+            </button>
+          ) : null}
         </div>
       ) : null}
 
@@ -371,6 +380,13 @@ const mainStyle: React.CSSProperties = {
 
 const mobileMainStyle: React.CSSProperties = {
   width: "100%",
+};
+
+const operatorMainStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: "100vh",
+  padding: 14,
+  boxSizing: "border-box",
 };
 
 const brandBox: React.CSSProperties = {
