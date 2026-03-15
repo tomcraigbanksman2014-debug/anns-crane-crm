@@ -92,6 +92,48 @@ function prettyJobType(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function statusBadgeStyle(status: string | null | undefined): React.CSSProperties {
+  const v = String(status ?? "").toLowerCase();
+
+  if (v === "confirmed") {
+    return {
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  if (v === "in_progress") {
+    return {
+      background: "rgba(255,140,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,140,0,0.22)",
+    };
+  }
+
+  if (v === "completed") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (v === "cancelled") {
+    return {
+      background: "rgba(255,0,0,0.10)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  return {
+    background: "rgba(120,120,120,0.10)",
+    color: "#555",
+    border: "1px solid rgba(120,120,120,0.18)",
+  };
+}
+
 export default function TransportPlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -230,16 +272,16 @@ export default function TransportPlannerBoard() {
   }, [data.vehicles, data.days, data.jobs]);
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gap: 12 }}>
       <div style={toolbarStyle}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 24 }}>Transport Planner Board</h2>
-          <div style={{ marginTop: 4, opacity: 0.75 }}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Transport Planner Board</h2>
+          <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
             Drag transport jobs across the week and between vehicles.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={toolbarControlsStyle}>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
             ← Previous week
           </button>
@@ -283,8 +325,8 @@ export default function TransportPlannerBoard() {
 
             <div style={rowStyle}>
               <div style={nameCellStyle}>
-                <div style={{ fontWeight: 1000 }}>Unassigned</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>Needs vehicle</div>
+                <div style={{ fontWeight: 1000, fontSize: 14 }}>Unassigned</div>
+                <div style={{ fontSize: 11, opacity: 0.72 }}>Needs vehicle</div>
               </div>
 
               {data.days.map((day) => {
@@ -320,7 +362,6 @@ export default function TransportPlannerBoard() {
                           vehicleOptions={vehicleOptions}
                           saving={savingId === job.id}
                           dragging={draggingJobId === job.id}
-                          compact
                           onDragStart={() => setDraggingJobId(job.id)}
                           onDragEnd={() => {
                             setDraggingJobId(null);
@@ -338,8 +379,10 @@ export default function TransportPlannerBoard() {
             {data.vehicles.map((vehicle) => (
               <div key={vehicle.id} style={rowStyle}>
                 <div style={nameCellStyle}>
-                  <div style={{ fontWeight: 1000 }}>{vehicle.name ?? "Vehicle"}</div>
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>
+                  <div style={{ fontWeight: 1000, fontSize: 14 }}>
+                    {vehicle.name ?? "Vehicle"}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.72 }}>
                     {vehicle.reg_number ?? "No registration"}
                   </div>
                 </div>
@@ -377,7 +420,6 @@ export default function TransportPlannerBoard() {
                             vehicleOptions={vehicleOptions}
                             saving={savingId === job.id}
                             dragging={draggingJobId === job.id}
-                            compact
                             onDragStart={() => setDraggingJobId(job.id)}
                             onDragEnd={() => {
                               setDraggingJobId(null);
@@ -432,7 +474,6 @@ function TransportCard({
   vehicleOptions,
   saving,
   dragging,
-  compact,
   onDragStart,
   onDragEnd,
   onUpdate,
@@ -441,13 +482,11 @@ function TransportCard({
   vehicleOptions: Array<{ value: string; label: string }>;
   saving: boolean;
   dragging: boolean;
-  compact?: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
 }) {
   const client = first(job.clients);
-  const vehicle = first(job.vehicles);
   const operator = first(job.operators);
   const linkedJob = first(job.jobs);
 
@@ -463,80 +502,76 @@ function TransportCard({
         ...jobCardStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
-        padding: compact ? 10 : 16,
       }}
     >
       <div style={{ display: "grid", gap: 6 }}>
-        <div style={{ fontWeight: 1000, fontSize: compact ? 14 : 18 }}>
-          {job.transport_number ?? "Transport Job"}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "flex-start" }}>
+          <div style={{ fontWeight: 1000, fontSize: 13, lineHeight: 1.2 }}>
+            {job.transport_number ?? "Transport Job"}
+          </div>
+
+          <span
+            style={{
+              ...statusPillStyle,
+              ...statusBadgeStyle(job.status),
+            }}
+          >
+            {prettyStatus(job.status)}
+          </span>
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.8 }}>
+        <div style={{ fontSize: 11, opacity: 0.82, fontWeight: 700, lineHeight: 1.25 }}>
           {client?.company_name ?? "Customer"}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 800 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, opacity: 0.88 }}>
           {prettyJobType(job.job_type)}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 11, opacity: 0.76 }}>
           {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          Pickup: {job.collection_address ?? "—"}
+        <div style={{ fontSize: 11, opacity: 0.76, lineHeight: 1.25 }}>
+          {job.load_description ?? linkedJob?.job_number ? `Crane Job #${linkedJob?.job_number ?? "—"}` : "No load"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
-          Delivery: {job.delivery_address ?? "—"}
-        </div>
-
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 11, opacity: 0.72, lineHeight: 1.25 }}>
           Driver: {operator?.full_name ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 700 }}>
-          {prettyStatus(job.status)}
+        <div style={controlsRowStyle}>
+          <select
+            value={job.vehicle_id ?? ""}
+            onChange={(e) => onUpdate(job.id, { vehicle_id: e.target.value || null })}
+            disabled={saving}
+            style={miniInputStyle}
+          >
+            <option value="">Vehicle</option>
+            {vehicleOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={job.status ?? ""}
+            onChange={(e) => onUpdate(job.id, { status: e.target.value })}
+            disabled={saving}
+            style={miniInputStyle}
+          >
+            <option value="planned">Planned</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
         </div>
-
-        <select
-          value={job.vehicle_id ?? ""}
-          onChange={(e) => onUpdate(job.id, { vehicle_id: e.target.value || null })}
-          disabled={saving}
-          style={miniInputStyle}
-        >
-          <option value="">Vehicle</option>
-          {vehicleOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={job.status ?? ""}
-          onChange={(e) => onUpdate(job.id, { status: e.target.value })}
-          disabled={saving}
-          style={miniInputStyle}
-        >
-          <option value="planned">Planned</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="in_progress">In Progress</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
 
         <a href={`/transport-jobs/${job.id}`} style={miniLinkStyle}>
           Open
         </a>
-
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
-          Vehicle: {vehicle?.name ?? "Unassigned"}
-        </div>
-
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
-          Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
-        </div>
       </div>
     </div>
   );
@@ -545,17 +580,9 @@ function TransportCard({
 const toolbarStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
+  gap: 10,
   alignItems: "center",
   flexWrap: "wrap",
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
-const boardShellStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 14,
   borderRadius: 14,
@@ -563,59 +590,78 @@ const boardShellStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const toolbarControlsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const boardShellStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 10,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
 const boardScrollerStyle: React.CSSProperties = {
   overflowX: "auto",
+  overflowY: "hidden",
 };
 
 const weekHeaderStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
-  gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
+  gridTemplateColumns: "170px repeat(7, minmax(170px, 1fr))",
+  gap: 8,
+  marginBottom: 8,
+  minWidth: 1368,
 };
 
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
-  gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
+  gridTemplateColumns: "170px repeat(7, minmax(170px, 1fr))",
+  gap: 8,
+  marginBottom: 8,
+  minWidth: 1368,
 };
 
 const nameColHeaderStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
+  fontSize: 13,
 };
 
 const dayHeaderStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   textAlign: "center",
+  fontSize: 13,
 };
 
 const nameCellStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   alignSelf: "stretch",
+  minHeight: 96,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 150,
-  padding: 8,
-  borderRadius: 12,
+  minHeight: 96,
+  padding: 6,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.34)",
   border: "1px solid rgba(0,0,0,0.08)",
   display: "grid",
-  gap: 8,
+  gap: 6,
   alignContent: "start",
 };
 
@@ -625,51 +671,70 @@ const activeCellStyle: React.CSSProperties = {
 };
 
 const jobCardStyle: React.CSSProperties = {
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.82)",
+  borderRadius: 9,
+  background: "rgba(255,255,255,0.90)",
   border: "1px solid rgba(0,0,0,0.08)",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.06)",
+  boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
+  padding: 8,
+};
+
+const controlsRowStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
+const statusPillStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "3px 6px",
+  borderRadius: 999,
+  fontSize: 10,
+  fontWeight: 900,
+  lineHeight: 1.1,
+  whiteSpace: "nowrap",
 };
 
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
+  width: 155,
+  height: 38,
+  padding: "0 10px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.90)",
   boxSizing: "border-box",
+  fontSize: 13,
 };
 
 const miniInputStyle: React.CSSProperties = {
   width: "100%",
-  height: 34,
-  padding: "0 10px",
+  height: 28,
+  padding: "0 8px",
   borderRadius: 8,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "#fff",
   boxSizing: "border-box",
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "10px 14px",
+  padding: "9px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.70)",
   color: "#111",
   fontWeight: 800,
   cursor: "pointer",
+  fontSize: 13,
 };
 
 const primaryLinkBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  padding: "9px 12px",
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
+  fontSize: 13,
 };
 
 const miniLinkStyle: React.CSSProperties = {
@@ -677,17 +742,17 @@ const miniLinkStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const emptyMiniStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   opacity: 0.5,
-  padding: 6,
+  padding: 4,
 };
 
 const infoBox: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "10px 12px",
   borderRadius: 12,
   background: "rgba(255,170,0,0.14)",
   border: "1px solid rgba(255,170,0,0.24)",
