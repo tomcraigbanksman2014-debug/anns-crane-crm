@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import OperatorJobActions from "./OperatorJobActions";
 import OperatorTransportTracker from "../transport/OperatorTransportTracker";
+import OperatorSignOutButton from "./OperatorSignOutButton";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -145,10 +146,17 @@ export default async function OperatorJobsPage() {
       <ClientShell>
         <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
           <div style={cardStyle}>
-            <h1 style={{ marginTop: 0, fontSize: 32 }}>My Jobs</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>
-              No operator record is linked to your login yet.
-            </p>
+            <div style={topBarStyle}>
+              <div>
+                <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>My Jobs</h1>
+                <p style={{ marginTop: 6, opacity: 0.8 }}>
+                  No operator record is linked to your login yet.
+                </p>
+              </div>
+
+              <OperatorSignOutButton />
+            </div>
+
             <div style={infoBox}>
               Ask an admin to make the operator full name match your username, or
               make the operator email start with your login name.
@@ -241,10 +249,16 @@ export default async function OperatorJobsPage() {
     <ClientShell>
       <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
-          <h1 style={{ marginTop: 0, fontSize: 32 }}>My Jobs</h1>
-          <p style={{ marginTop: 6, opacity: 0.8 }}>
-            Operator: <strong>{operator.full_name}</strong>
-          </p>
+          <div style={topBarStyle}>
+            <div>
+              <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>My Jobs</h1>
+              <p style={{ marginTop: 6, opacity: 0.8 }}>
+                Operator: <strong>{operator.full_name}</strong>
+              </p>
+            </div>
+
+            <OperatorSignOutButton />
+          </div>
 
           {transportJobsError ? (
             <div style={errorBox}>{transportJobsError.message}</div>
@@ -491,6 +505,14 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const topBarStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
 };
 
 const jobCard: React.CSSProperties = {
