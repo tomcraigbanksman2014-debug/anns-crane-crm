@@ -1,62 +1,16 @@
-import ClientShell from "../../ClientShell";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { redirect } from "next/navigation";
-import { geocodeAddress } from "../../lib/geocode";
+import ClientShell from "../ClientShell";
+import { createSupabaseServerClient } from "../lib/supabase/server";
 
-function clean(value: FormDataEntryValue | null) {
-  return String(value ?? "").trim();
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-async function updateTransportJob(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-  const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  const collectionAddress = clean(formData.get("collection_address")) || null;
-  const deliveryAddress = clean(formData.get("delivery_address")) || null;
-
-  const pickupCoords = collectionAddress
-    ? await geocodeAddress(collectionAddress)
-    : null;
-
-  const deliveryCoords = deliveryAddress
-    ? await geocodeAddress(deliveryAddress)
-    : null;
-
-  const payload = {
-    linked_job_id: clean(formData.get("linked_job_id")) || null,
-    client_id: clean(formData.get("client_id")) || null,
-    vehicle_id: clean(formData.get("vehicle_id")) || null,
-    operator_id: clean(formData.get("operator_id")) || null,
-    job_type: clean(formData.get("job_type")) || null,
-    collection_address: collectionAddress,
-    delivery_address: deliveryAddress,
-    collection_lat: pickupCoords?.lat ?? null,
-    collection_lng: pickupCoords?.lng ?? null,
-    delivery_lat: deliveryCoords?.lat ?? null,
-    delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: clean(formData.get("transport_date")) || null,
-    collection_time: clean(formData.get("collection_time")) || null,
-    delivery_time: clean(formData.get("delivery_time")) || null,
-    load_description: clean(formData.get("load_description")) || null,
-    status: clean(formData.get("status")) || "planned",
-    price: Number(formData.get("price") ?? 0) || 0,
-    notes: clean(formData.get("notes")) || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase.from("transport_jobs").update(payload).eq("id", id);
-
-  if (error) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
 }
 
 function fmtMoney(value: number | string | null | undefined) {
@@ -65,216 +19,220 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
-export default async function TransportJobDetailPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams?: { success?: string; error?: string };
-}) {
+function prettyStatus(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+
+  if (v === "in_progress") return "In Progress";
+  if (v === "planned") return "Planned";
+  if (v === "confirmed") return "Confirmed";
+  if (v === "completed") return "Completed";
+  if (v === "cancelled") return "Cancelled";
+
+  return value ?? "—";
+}
+
+function statusStyle(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").toLowerCase();
+
+  if (s === "planned") {
+    return {
+      background: "rgba(0,120,255,0.10)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.18)",
+    };
+  }
+
+  if (s === "confirmed") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.22)",
+    };
+  }
+
+  if (s === "in_progress") {
+    return {
+      background: "rgba(170,0,255,0.10)",
+      color: "#6a1b9a",
+      border: "1px solid rgba(170,0,255,0.18)",
+    };
+  }
+
+  if (s === "completed") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "rgba(255,0,0,0.10)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.55)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
+}
+
+export default async function TransportJobsPage() {
   const supabase = createSupabaseServerClient();
 
-  const [
-    { data: item, error },
-    { data: clients },
-    { data: jobs },
-    { data: vehicles },
-    { data: operators },
-  ] = await Promise.all([
-    supabase
-      .from("transport_jobs")
-      .select(`
-        *,
-        clients:client_id (
-          company_name
-        ),
-        vehicles:vehicle_id (
-          name,
-          reg_number
-        ),
-        operators:operator_id (
-          full_name
-        ),
-        jobs:linked_job_id (
-          id,
-          job_number,
-          site_name
-        )
-      `)
-      .eq("id", params.id)
-      .single(),
+  const { data, error } = await supabase
+    .from("transport_jobs")
+    .select(`
+      id,
+      transport_number,
+      transport_date,
+      collection_time,
+      delivery_time,
+      collection_address,
+      delivery_address,
+      load_description,
+      status,
+      price,
+      job_type,
+      vehicles:vehicle_id (
+        name,
+        reg_number
+      ),
+      operators:operator_id (
+        full_name
+      ),
+      clients:client_id (
+        company_name
+      ),
+      jobs:linked_job_id (
+        id,
+        job_number,
+        site_name
+      )
+    `)
+    .order("transport_date", { ascending: true })
+    .order("collection_time", { ascending: true });
 
-    supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(300),
-    supabase.from("vehicles").select("id, name, reg_number").order("name", { ascending: true }),
-    supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
-  ]);
-
-  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
-
-  const client = Array.isArray((item as any)?.clients) ? (item as any).clients[0] : (item as any)?.clients;
-  const vehicle = Array.isArray((item as any)?.vehicles) ? (item as any).vehicles[0] : (item as any)?.vehicles;
-  const driver = Array.isArray((item as any)?.operators) ? (item as any).operators[0] : (item as any)?.operators;
-  const linkedJob = Array.isArray((item as any)?.jobs) ? (item as any).jobs[0] : (item as any)?.jobs;
+  const rows = data ?? [];
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
-        <div style={cardStyle}>
+      <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+        <div style={pageCard}>
           <div style={headerRow}>
             <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>
-                {(item as any)?.transport_number ?? "Transport Job"}
-              </h1>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>
-                View and update transport allocation details.
+              <h1 style={{ margin: 0, fontSize: 32 }}>Transport Jobs</h1>
+              <p style={{ marginTop: 6, opacity: 0.8 }}>
+                Manage transport work, vehicle movements and linked crane support jobs.
               </p>
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/transport-jobs" style={secondaryBtn}>
-                ← Back to transport jobs
-              </a>
               <a href="/transport-map" style={secondaryBtn}>
                 Open control map
+              </a>
+              <a href="/transport-planner" style={secondaryBtn}>
+                Open transport planner
+              </a>
+              <a href="/transport-jobs/new" style={primaryBtn}>
+                + New transport job
               </a>
             </div>
           </div>
 
-          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
-          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
-          {error ? <div style={errorBox}>{error.message}</div> : null}
-
-          {!item ? (
-            <div style={errorBox}>Transport job not found.</div>
+          {error ? (
+            <div style={errorBox}>{error.message}</div>
+          ) : rows.length === 0 ? (
+            <div style={infoBox}>No transport jobs found.</div>
           ) : (
-            <div style={pageGrid}>
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Transport job details</h2>
+            <div style={{ ...tableWrap, marginTop: 16 }}>
+              <table style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th align="left" style={thStyle}>Ref</th>
+                    <th align="left" style={thStyle}>Customer</th>
+                    <th align="left" style={thStyle}>Date</th>
+                    <th align="left" style={thStyle}>Vehicle</th>
+                    <th align="left" style={thStyle}>Driver</th>
+                    <th align="left" style={thStyle}>Pickup</th>
+                    <th align="left" style={thStyle}>Delivery</th>
+                    <th align="left" style={thStyle}>Type</th>
+                    <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Price</th>
+                    <th align="left" style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((item: any) => {
+                    const client = first(item.clients);
+                    const vehicle = first(item.vehicles);
+                    const driver = first(item.operators);
 
-                <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
-                  <input type="hidden" name="id" value={(item as any).id} />
+                    return (
+                      <tr key={item.id}>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 900 }}>
+                            {item.transport_number ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
+                          </div>
+                        </td>
 
-                  <div style={gridStyle}>
-                    <Field label="Reference" name="transport_number_readonly" defaultValue={(item as any).transport_number ?? ""} disabled />
-                    <SelectField
-                      label="Linked crane job"
-                      name="linked_job_id"
-                      defaultValue={(item as any).linked_job_id ?? ""}
-                      options={(jobs ?? []).map((j: any) => ({
-                        value: j.id,
-                        label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
-                      }))}
-                    />
-                    <SelectField
-                      label="Customer"
-                      name="client_id"
-                      defaultValue={(item as any).client_id ?? ""}
-                      options={(clients ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.company_name ?? "Customer",
-                      }))}
-                    />
-                    <SelectField
-                      label="Vehicle"
-                      name="vehicle_id"
-                      defaultValue={(item as any).vehicle_id ?? ""}
-                      options={(vehicles ?? []).map((v: any) => ({
-                        value: v.id,
-                        label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-                      }))}
-                    />
-                    <SelectField
-                      label="Driver"
-                      name="operator_id"
-                      defaultValue={(item as any).operator_id ?? ""}
-                      options={(operators ?? []).map((o: any) => ({
-                        value: o.id,
-                        label: o.full_name ?? "Driver",
-                      }))}
-                    />
-                    <SelectField
-                      label="Job type"
-                      name="job_type"
-                      defaultValue={(item as any).job_type ?? ""}
-                      options={[
-                        { value: "haulage", label: "haulage" },
-                        { value: "delivery", label: "delivery" },
-                        { value: "collection", label: "collection" },
-                        { value: "ballast", label: "ballast" },
-                        { value: "crane_support", label: "crane_support" },
-                      ]}
-                    />
-                    <Field label="Transport date" name="transport_date" type="date" defaultValue={(item as any).transport_date ?? ""} />
-                    <Field label="Collection time" name="collection_time" type="time" defaultValue={(item as any).collection_time ?? ""} />
-                    <Field label="Delivery time" name="delivery_time" type="time" defaultValue={(item as any).delivery_time ?? ""} />
-                    <SelectField
-                      label="Status"
-                      name="status"
-                      defaultValue={(item as any).status ?? "planned"}
-                      options={[
-                        { value: "planned", label: "planned" },
-                        { value: "confirmed", label: "confirmed" },
-                        { value: "in_progress", label: "in_progress" },
-                        { value: "completed", label: "completed" },
-                        { value: "cancelled", label: "cancelled" },
-                      ]}
-                    />
-                    <Field label="Price" name="price" type="number" defaultValue={String((item as any).price ?? 0)} />
-                  </div>
+                        <td style={tdStyle}>{client?.company_name ?? "—"}</td>
 
-                  <FullWidthField label="Collection address" name="collection_address" defaultValue={(item as any).collection_address ?? ""} />
-                  <FullWidthField label="Delivery address" name="delivery_address" defaultValue={(item as any).delivery_address ?? ""} />
-                  <FullWidthField label="Load description" name="load_description" defaultValue={(item as any).load_description ?? ""} />
-                  <FullWidthField label="Notes" name="notes" defaultValue={(item as any).notes ?? ""} />
+                        <td style={tdStyle}>{fmtDate(item.transport_date)}</td>
 
-                  <div>
-                    <button type="submit" style={primaryBtn}>
-                      Update transport job
-                    </button>
-                  </div>
-                </form>
-              </section>
+                        <td style={tdStyle}>
+                          {vehicle?.name ?? "—"}
+                          {vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                        </td>
 
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Quick summary</h2>
+                        <td style={tdStyle}>{driver?.full_name ?? "—"}</td>
 
-                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
-                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
-                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
-                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
-                <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
-                <InfoRow label="Pickup lat/lng" value={
-                  (item as any).collection_lat && (item as any).collection_lng
-                    ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
-                    : "—"
-                } />
-                <InfoRow label="Delivery lat/lng" value={
-                  (item as any).delivery_lat && (item as any).delivery_lng
-                    ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
-                    : "—"
-                } />
+                        <td style={tdStyle}>{item.collection_address ?? "—"}</td>
 
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <a href="/transport-map" style={miniLinkBtn}>
-                    Open control map
-                  </a>
+                        <td style={tdStyle}>{item.delivery_address ?? "—"}</td>
 
-                  {linkedJob?.id ? (
-                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
-                      Open linked crane job
-                    </a>
-                  ) : null}
+                        <td style={tdStyle}>{item.job_type ?? "—"}</td>
 
-                  {(item as any).vehicle_id ? (
-                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
-                      Open vehicle
-                    </a>
-                  ) : null}
-                </div>
-              </section>
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 900,
+                              ...statusStyle(item.status),
+                            }}
+                          >
+                            {prettyStatus(item.status)}
+                          </span>
+                        </td>
+
+                        <td style={tdStyle}>{fmtMoney(item.price)}</td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <a href={`/transport-jobs/${item.id}`} style={miniBtn}>
+                              Open
+                            </a>
+
+                            <a href="/transport-map" style={miniBtn}>
+                              Map
+                            </a>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -283,89 +241,10 @@ export default async function TransportJobDetailPage({
   );
 }
 
-function Field({
-  label,
-  name,
-  defaultValue,
-  type = "text",
-  disabled = false,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  type?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  name,
-  defaultValue,
-  options,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  options: Array<{ value: string; label: string }>;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <select name={name} defaultValue={defaultValue} style={inputStyle}>
-        <option value="">— Select —</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function FullWidthField({
-  label,
-  name,
-  defaultValue,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
-    </div>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div style={infoRow}>
-      <div style={infoLabel}>{label}</div>
-      <div style={infoValue}>{value}</div>
-    </div>
-  );
-}
-
-const cardStyle: React.CSSProperties = {
+const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 20,
-  borderRadius: 16,
+  padding: 18,
+  borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
@@ -378,48 +257,29 @@ const headerRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const pageGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.15fr 0.85fr",
-  gap: 16,
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  border: "none",
 };
 
-const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 14,
-  padding: 16,
-};
-
-const sectionTitle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 14,
-  fontSize: 22,
-};
-
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const infoRow: React.CSSProperties = {
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
-};
-
-const infoLabel: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
   fontWeight: 800,
 };
 
-const infoValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
-};
-
-const miniLinkBtn: React.CSSProperties = {
+const miniBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 9,
@@ -430,69 +290,44 @@ const miniLinkBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const labelStyle: React.CSSProperties = {
+const tableWrap: React.CSSProperties = {
+  overflowX: "auto",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const tableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+};
+
+const thStyle: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.75,
+  opacity: 0.78,
+  whiteSpace: "nowrap",
 };
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
+const tdStyle: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+  verticalAlign: "top",
 };
 
-const textareaStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-  resize: "vertical",
-};
-
-const primaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "12px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const successBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
   padding: "12px 14px",
   borderRadius: 12,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
-  color: "#0b7a4b",
-  fontWeight: 800,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
