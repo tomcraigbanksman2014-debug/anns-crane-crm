@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 type OrsFeature = {
   geometry?: {
@@ -11,6 +12,25 @@ type OrsFeature = {
     };
   };
 };
+
+function roundCoord(value: number) {
+  return value.toFixed(5);
+}
+
+function makeKey(lat: number, lng: number) {
+  return `${roundCoord(lat)},${roundCoord(lng)}`;
+}
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey);
+}
 
 export async function POST(req: Request) {
   try {
@@ -40,6 +60,35 @@ export async function POST(req: Request) {
         { error: "ORS_API_KEY is missing on the server." },
         { status: 500 }
       );
+    }
+
+    const profile = "driving-hgv";
+    const fromKey = makeKey(fromLat, fromLng);
+    const toKey = makeKey(toLat, toLng);
+
+    const admin = getAdminClient();
+
+    const { data: cached } = await admin
+      .from("transport_route_cache")
+      .select("distance_meters, duration_seconds, path_json")
+      .eq("profile", profile)
+      .eq("from_key", fromKey)
+      .eq("to_key", toKey)
+      .maybeSingle();
+
+    if (cached?.path_json) {
+      return NextResponse.json({
+        path: cached.path_json,
+        distance_meters:
+          typeof cached.distance_meters === "number"
+            ? cached.distance_meters
+            : Number(cached.distance_meters ?? 0) || null,
+        duration_seconds:
+          typeof cached.duration_seconds === "number"
+            ? cached.duration_seconds
+            : Number(cached.duration_seconds ?? 0) || null,
+        cached: true,
+      });
     }
 
     const res = await fetch(
@@ -87,12 +136,31 @@ export async function POST(req: Request) {
 
     const latLngs = coords.map((pair) => [Number(pair[1]), Number(pair[0])]);
 
+    const distanceMeters =
+      typeof summary.distance === "number" ? summary.distance : null;
+    const durationSeconds =
+      typeof summary.duration === "number" ? summary.duration : null;
+
+    await admin.from("transport_route_cache").upsert(
+      {
+        profile,
+        from_key: fromKey,
+        to_key: toKey,
+        distance_meters: distanceMeters,
+        duration_seconds: durationSeconds,
+        path_json: latLngs,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "profile,from_key,to_key",
+      }
+    );
+
     return NextResponse.json({
       path: latLngs,
-      distance_meters:
-        typeof summary.distance === "number" ? summary.distance : null,
-      duration_seconds:
-        typeof summary.duration === "number" ? summary.duration : null,
+      distance_meters: distanceMeters,
+      duration_seconds: durationSeconds,
+      cached: false,
     });
   } catch (e: any) {
     return NextResponse.json(
