@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
+import { geocodeAddress } from "../../lib/geocode";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -16,14 +17,29 @@ async function updateTransportJob(formData: FormData) {
     redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
   }
 
+  const collectionAddress = clean(formData.get("collection_address")) || null;
+  const deliveryAddress = clean(formData.get("delivery_address")) || null;
+
+  const pickupCoords = collectionAddress
+    ? await geocodeAddress(collectionAddress)
+    : null;
+
+  const deliveryCoords = deliveryAddress
+    ? await geocodeAddress(deliveryAddress)
+    : null;
+
   const payload = {
     linked_job_id: clean(formData.get("linked_job_id")) || null,
     client_id: clean(formData.get("client_id")) || null,
     vehicle_id: clean(formData.get("vehicle_id")) || null,
     operator_id: clean(formData.get("operator_id")) || null,
     job_type: clean(formData.get("job_type")) || null,
-    collection_address: clean(formData.get("collection_address")) || null,
-    delivery_address: clean(formData.get("delivery_address")) || null,
+    collection_address: collectionAddress,
+    delivery_address: deliveryAddress,
+    collection_lat: pickupCoords?.lat ?? null,
+    collection_lng: pickupCoords?.lng ?? null,
+    delivery_lat: deliveryCoords?.lat ?? null,
+    delivery_lng: deliveryCoords?.lng ?? null,
     transport_date: clean(formData.get("transport_date")) || null,
     collection_time: clean(formData.get("collection_time")) || null,
     delivery_time: clean(formData.get("delivery_time")) || null,
@@ -49,11 +65,6 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
-
 export default async function TransportJobDetailPage({
   params,
   searchParams,
@@ -62,15 +73,6 @@ export default async function TransportJobDetailPage({
   searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const authEmail = String(user?.email ?? "").trim().toLowerCase();
-  const authUsername = authEmail.includes("@")
-    ? authEmail.split("@")[0]
-    : authEmail;
 
   const [
     { data: item, error },
@@ -91,9 +93,7 @@ export default async function TransportJobDetailPage({
           reg_number
         ),
         operators:operator_id (
-          id,
-          full_name,
-          email
+          full_name
         ),
         jobs:linked_job_id (
           id,
@@ -113,17 +113,10 @@ export default async function TransportJobDetailPage({
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
-  const client = first((item as any)?.clients);
-  const vehicle = first((item as any)?.vehicles);
-  const driver = first((item as any)?.operators);
-  const linkedJob = first((item as any)?.jobs);
-
-  const isAssignedDriver =
-    !!driver &&
-    (
-      String(driver.email ?? "").trim().toLowerCase() === authEmail ||
-      String(driver.full_name ?? "").trim().toLowerCase() === authUsername
-    );
+  const client = Array.isArray((item as any)?.clients) ? (item as any).clients[0] : (item as any)?.clients;
+  const vehicle = Array.isArray((item as any)?.vehicles) ? (item as any).vehicles[0] : (item as any)?.vehicles;
+  const driver = Array.isArray((item as any)?.operators) ? (item as any).operators[0] : (item as any)?.operators;
+  const linkedJob = Array.isArray((item as any)?.jobs) ? (item as any).jobs[0] : (item as any)?.jobs;
 
   return (
     <ClientShell>
@@ -131,17 +124,15 @@ export default async function TransportJobDetailPage({
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
-              <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32, lineHeight: 1.1 }}>
+              <h1 style={{ marginTop: 0, fontSize: 32 }}>
                 {(item as any)?.transport_number ?? "Transport Job"}
               </h1>
-              <p style={{ opacity: 0.8, marginTop: 10 }}>
-                {isAssignedDriver
-                  ? "View your assigned transport allocation."
-                  : "View and update transport allocation details."}
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                View and update transport allocation details.
               </p>
             </div>
 
-            <div style={headerButtons}>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back to transport jobs
               </a>
@@ -157,70 +148,8 @@ export default async function TransportJobDetailPage({
 
           {!item ? (
             <div style={errorBox}>Transport job not found.</div>
-          ) : isAssignedDriver ? (
-            <div style={pageGridResponsive}>
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Transport job details</h2>
-
-                <div style={{ display: "grid", gap: 14 }}>
-                  <div style={gridStyle}>
-                    <ReadField label="Reference" value={(item as any).transport_number ?? "—"} />
-                    <ReadField
-                      label="Linked crane job"
-                      value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
-                    />
-                    <ReadField label="Customer" value={client?.company_name ?? "—"} />
-                    <ReadField
-                      label="Vehicle"
-                      value={`${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`}
-                    />
-                    <ReadField label="Driver" value={driver?.full_name ?? "—"} />
-                    <ReadField label="Job type" value={(item as any).job_type ?? "—"} />
-                    <ReadField label="Transport date" value={(item as any).transport_date ?? "—"} />
-                    <ReadField label="Collection time" value={(item as any).collection_time ?? "—"} />
-                    <ReadField label="Delivery time" value={(item as any).delivery_time ?? "—"} />
-                    <ReadField label="Status" value={(item as any).status ?? "—"} />
-                    <ReadField label="Price" value={fmtMoney((item as any).price)} />
-                  </div>
-
-                  <ReadArea label="Collection address" value={(item as any).collection_address ?? "—"} />
-                  <ReadArea label="Delivery address" value={(item as any).delivery_address ?? "—"} />
-                  <ReadArea label="Load description" value={(item as any).load_description ?? "—"} />
-                  <ReadArea label="Notes" value={(item as any).notes ?? "—"} />
-                </div>
-              </section>
-
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Quick summary</h2>
-
-                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
-                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
-                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
-                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
-                <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
-
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <a href="/transport-map" style={miniLinkBtn}>
-                    Open control map
-                  </a>
-
-                  {linkedJob?.id ? (
-                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
-                      Open linked crane job
-                    </a>
-                  ) : null}
-
-                  {(item as any).vehicle_id ? (
-                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
-                      Open vehicle
-                    </a>
-                  ) : null}
-                </div>
-              </section>
-            </div>
           ) : (
-            <div style={pageGridResponsive}>
+            <div style={pageGrid}>
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Transport job details</h2>
 
@@ -228,12 +157,7 @@ export default async function TransportJobDetailPage({
                   <input type="hidden" name="id" value={(item as any).id} />
 
                   <div style={gridStyle}>
-                    <Field
-                      label="Reference"
-                      name="transport_number_readonly"
-                      defaultValue={(item as any).transport_number ?? ""}
-                      disabled
-                    />
+                    <Field label="Reference" name="transport_number_readonly" defaultValue={(item as any).transport_number ?? ""} disabled />
                     <SelectField
                       label="Linked crane job"
                       name="linked_job_id"
@@ -322,6 +246,22 @@ export default async function TransportJobDetailPage({
                 <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
                 <InfoRow label="Price" value={fmtMoney((item as any).price)} />
+                <InfoRow
+                  label="Pickup lat/lng"
+                  value={
+                    (item as any).collection_lat != null && (item as any).collection_lng != null
+                      ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
+                      : "—"
+                  }
+                />
+                <InfoRow
+                  label="Delivery lat/lng"
+                  value={
+                    (item as any).delivery_lat != null && (item as any).delivery_lng != null
+                      ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
+                      : "—"
+                  }
+                />
 
                 <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <a href="/transport-map" style={miniLinkBtn}>
@@ -365,13 +305,7 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input
-        name={name}
-        defaultValue={defaultValue}
-        type={type}
-        style={inputStyle}
-        disabled={disabled}
-      />
+      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
     </div>
   );
 }
@@ -414,42 +348,7 @@ function FullWidthField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea
-        name={name}
-        defaultValue={defaultValue}
-        rows={3}
-        style={textareaStyle}
-      />
-    </div>
-  );
-}
-
-function ReadField({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={readValueStyle}>{value}</div>
-    </div>
-  );
-}
-
-function ReadArea({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <div style={readAreaStyle}>{value}</div>
+      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
     </div>
   );
 }
@@ -481,21 +380,14 @@ const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
-  alignItems: "flex-start",
+  alignItems: "center",
   flexWrap: "wrap",
 };
 
-const headerButtons: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const pageGridResponsive: React.CSSProperties = {
+const pageGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gridTemplateColumns: "1.15fr 0.85fr",
   gap: 16,
-  alignItems: "start",
 };
 
 const sectionCard: React.CSSProperties = {
@@ -503,7 +395,6 @@ const sectionCard: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
-  minWidth: 0,
 };
 
 const sectionTitle: React.CSSProperties = {
@@ -532,7 +423,6 @@ const infoLabel: React.CSSProperties = {
 const infoValue: React.CSSProperties = {
   marginTop: 4,
   fontWeight: 900,
-  wordBreak: "break-word",
 };
 
 const miniLinkBtn: React.CSSProperties = {
@@ -570,29 +460,6 @@ const textareaStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
-};
-
-const readValueStyle: React.CSSProperties = {
-  minHeight: 42,
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.66)",
-  boxSizing: "border-box",
-  fontWeight: 700,
-  wordBreak: "break-word",
-};
-
-const readAreaStyle: React.CSSProperties = {
-  minHeight: 84,
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.66)",
-  boxSizing: "border-box",
-  fontWeight: 700,
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
 };
 
 const primaryBtn: React.CSSProperties = {
