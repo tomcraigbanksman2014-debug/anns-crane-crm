@@ -5,6 +5,7 @@ import DocumentDeleteButton from "./DocumentDeleteButton";
 import LiftPlanForm from "./LiftPlanForm";
 import SignoffForm from "./SignoffForm";
 import JobEquipmentManager from "./JobEquipmentManager";
+import CreateTransportJobButton from "./CreateTransportJobButton";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -98,7 +99,13 @@ async function updateJobStatus(formData: FormData) {
   if (!id || !status) return;
 
   const supabase = createSupabaseServerClient();
-  await supabase.from("jobs").update({ status }).eq("id", id);
+  await supabase
+    .from("jobs")
+    .update({
+      status,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
 }
 
 export default async function JobPage({
@@ -131,6 +138,7 @@ export default async function JobPage({
         start_time,
         end_time,
         status,
+        archived,
         hire_type,
         lift_type,
         notes,
@@ -302,7 +310,7 @@ export default async function JobPage({
     hasText(liftPlan?.approved_by) &&
     !!liftPlan?.approved_at;
 
-  const portalUrl = job?.portal_token ? `/portal/job/${job.portal_token}` : null;
+  const portalUrl = (job as any)?.portal_token ? `/portal/job/${(job as any).portal_token}` : null;
 
   const suggestedLiftPlan = {
     ...liftPlan,
@@ -331,11 +339,14 @@ export default async function JobPage({
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {job?.id ? <CreateTransportJobButton jobId={(job as any).id} /> : null}
+
             {job?.id ? (
               <a href={`/jobs/${job.id}/edit`} style={actionBtn}>
                 Edit job
               </a>
             ) : null}
+
             <a href="/jobs" style={btnStyle}>
               ← Back
             </a>
@@ -409,6 +420,7 @@ export default async function JobPage({
                   <h2 style={sectionTitle}>Job details</h2>
                   <Row label="Job #" value={(job as any).job_number} />
                   <Row label="Status" value={(job as any).status} />
+                  <Row label="Archived" value={(job as any).archived ? "Yes" : "No"} />
                   <Row label="Job date" value={fmtDate((job as any).job_date)} />
                   <Row
                     label="Time"
@@ -423,7 +435,10 @@ export default async function JobPage({
                   <Row label="Site contact" value={(job as any).contact_name} />
                   <Row label="Site phone" value={(job as any).contact_phone} />
                   <Row label="Equipment count" value={(allocations ?? []).length} />
-                  <Row label="Cross-hire cost total" value={`£${Number((job as any).cross_hire_cost_total ?? 0).toFixed(2)}`} />
+                  <Row
+                    label="Cross-hire cost total"
+                    value={`£${Number((job as any).cross_hire_cost_total ?? 0).toFixed(2)}`}
+                  />
                   <Block label="Notes" value={(job as any).notes} />
                 </div>
 
@@ -629,7 +644,9 @@ function PaperworkDashboard({
       >
         <div>
           <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
-          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
+          <div style={{ opacity: 0.72 }}>
+            Quick readiness view for lift plan, RAMS and supporting docs.
+          </div>
         </div>
 
         <span
