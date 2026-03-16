@@ -30,7 +30,9 @@ export default function CreateTransportJobButton({
         return;
       }
 
-      window.location.href = `/transport-jobs/${data.job.id}?success=${encodeURIComponent("Transport job created from crane job.")}`;
+      window.location.href = `/transport-jobs/${data.job.id}?success=${encodeURIComponent(
+        "Transport job created from crane job."
+      )}`;
     } catch {
       alert("Could not create transport job.");
     } finally {
@@ -39,7 +41,12 @@ export default function CreateTransportJobButton({
   }
 
   return (
-    <button type="button" onClick={runCreate} style={buttonStyle} disabled={loading}>
+    <button
+      type="button"
+      onClick={runCreate}
+      style={buttonStyle}
+      disabled={loading}
+    >
       {loading ? "Creating..." : "Create transport job"}
     </button>
   );
