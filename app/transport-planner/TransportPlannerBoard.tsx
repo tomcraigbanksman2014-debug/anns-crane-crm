@@ -311,16 +311,16 @@ export default function TransportPlannerBoard() {
   }
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gap: 12 }}>
       <div style={toolbarStyle}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 24 }}>Transport Planner Board</h2>
-          <div style={{ marginTop: 4, opacity: 0.75 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
+          <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
             Drag transport jobs across the week and between vehicles.
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={toolbarActionsStyle}>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
             ← Previous week
           </button>
@@ -364,8 +364,8 @@ export default function TransportPlannerBoard() {
 
             <div style={rowStyle}>
               <div style={nameCellStyle}>
-                <div style={{ fontWeight: 1000 }}>Unassigned</div>
-                <div style={{ fontSize: 12, opacity: 0.72 }}>Needs vehicle</div>
+                <div style={{ fontWeight: 1000, fontSize: 13 }}>Unassigned</div>
+                <div style={{ fontSize: 11, opacity: 0.72 }}>Needs vehicle</div>
               </div>
 
               {data.days.map((day) => {
@@ -420,8 +420,8 @@ export default function TransportPlannerBoard() {
             {data.vehicles.map((vehicle) => (
               <div key={vehicle.id} style={rowStyle}>
                 <div style={nameCellStyle}>
-                  <div style={{ fontWeight: 1000 }}>{vehicle.name ?? "Vehicle"}</div>
-                  <div style={{ fontSize: 12, opacity: 0.72 }}>
+                  <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
+                  <div style={{ fontSize: 11, opacity: 0.72 }}>
                     {vehicle.reg_number ?? "No registration"}
                   </div>
                 </div>
@@ -548,44 +548,44 @@ function TransportCard({
         ...jobCardStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
-        padding: compact ? 10 : 16,
+        padding: compact ? 8 : 12,
       }}
     >
-      <div style={{ display: "grid", gap: 6 }}>
-        <div style={{ fontWeight: 1000, fontSize: compact ? 14 : 18 }}>
+      <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ fontWeight: 1000, fontSize: compact ? 12 : 16, lineHeight: 1.2 }}>
           {job.transport_number ?? "Transport Job"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.8 }}>
+        <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.2 }}>
           {client?.company_name ?? "Customer"}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 800 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.2 }}>
           {prettyJobType(job.job_type)}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 11, opacity: 0.75 }}>
           {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 10, opacity: 0.75, lineHeight: 1.3 }}>
           Pickup: {job.collection_address ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 10, opacity: 0.75, lineHeight: 1.3 }}>
           Delivery: {job.delivery_address ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, opacity: 0.75 }}>
+        <div style={{ fontSize: 10, opacity: 0.75 }}>
           Driver: {operator?.full_name ?? "—"}
         </div>
 
-        <div style={{ fontSize: 12, fontWeight: 700 }}>
+        <div style={{ fontSize: 11, fontWeight: 700 }}>
           {prettyStatus(job.status)}
         </div>
 
         {warnings.length > 0 ? (
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {warnings.map((warning) => (
               <span
                 key={`${job.id}-${warning}`}
@@ -630,11 +630,11 @@ function TransportCard({
           Open
         </a>
 
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
+        <div style={{ fontSize: 10, opacity: 0.68 }}>
           Vehicle: {vehicle?.name ?? "Unassigned"}
         </div>
 
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
+        <div style={{ fontSize: 10, opacity: 0.68 }}>
           Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
         </div>
       </div>
@@ -645,19 +645,26 @@ function TransportCard({
 const toolbarStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
+  gap: 10,
   alignItems: "center",
   flexWrap: "wrap",
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
+  padding: 14,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const toolbarActionsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
 const boardShellStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 14,
+  padding: 10,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -669,53 +676,56 @@ const boardScrollerStyle: React.CSSProperties = {
 
 const weekHeaderStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
-  gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
+  gridTemplateColumns: "175px repeat(7, minmax(165px, 1fr))",
+  gap: 10,
+  marginBottom: 10,
+  minWidth: 1360,
 };
 
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "220px repeat(7, minmax(220px, 1fr))",
-  gap: 12,
-  marginBottom: 12,
-  minWidth: 1780,
+  gridTemplateColumns: "175px repeat(7, minmax(165px, 1fr))",
+  gap: 10,
+  marginBottom: 10,
+  minWidth: 1360,
 };
 
 const nameColHeaderStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
+  fontSize: 13,
 };
 
 const dayHeaderStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   textAlign: "center",
+  fontSize: 13,
 };
 
 const nameCellStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
+  padding: 10,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   alignSelf: "stretch",
+  minHeight: 110,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 150,
-  padding: 8,
-  borderRadius: 12,
+  minHeight: 110,
+  padding: 6,
+  borderRadius: 10,
   background: "rgba(255,255,255,0.34)",
   border: "1px solid rgba(0,0,0,0.08)",
   display: "grid",
-  gap: 8,
+  gap: 6,
   alignContent: "start",
 };
 
@@ -725,51 +735,54 @@ const activeCellStyle: React.CSSProperties = {
 };
 
 const jobCardStyle: React.CSSProperties = {
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.82)",
+  borderRadius: 9,
+  background: "rgba(255,255,255,0.88)",
   border: "1px solid rgba(0,0,0,0.08)",
-  boxShadow: "0 4px 14px rgba(0,0,0,0.06)",
+  boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
 };
 
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
+  width: 140,
+  height: 38,
+  padding: "0 10px",
+  borderRadius: 9,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.90)",
   boxSizing: "border-box",
+  fontSize: 13,
 };
 
 const miniInputStyle: React.CSSProperties = {
   width: "100%",
-  height: 34,
-  padding: "0 10px",
-  borderRadius: 8,
+  height: 28,
+  padding: "0 8px",
+  borderRadius: 7,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "#fff",
   boxSizing: "border-box",
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 10,
+  padding: "8px 10px",
+  borderRadius: 9,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.70)",
   color: "#111",
   fontWeight: 800,
   cursor: "pointer",
+  fontSize: 12,
 };
 
 const primaryLinkBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
+  padding: "8px 10px",
+  borderRadius: 9,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
+  fontSize: 12,
 };
 
 const miniLinkStyle: React.CSSProperties = {
@@ -777,28 +790,29 @@ const miniLinkStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const emptyMiniStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   opacity: 0.5,
-  padding: 6,
+  padding: 4,
 };
 
 const infoBox: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "10px 12px",
   borderRadius: 12,
   background: "rgba(255,170,0,0.14)",
   border: "1px solid rgba(255,170,0,0.24)",
   fontWeight: 800,
+  fontSize: 13,
 };
 
 const warningChipStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "4px 8px",
+  padding: "3px 7px",
   borderRadius: 999,
-  fontSize: 11,
+  fontSize: 10,
   fontWeight: 900,
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.25)",
@@ -807,9 +821,9 @@ const warningChipStyle: React.CSSProperties = {
 
 const conflictChipStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "4px 8px",
+  padding: "3px 7px",
   borderRadius: 999,
-  fontSize: 11,
+  fontSize: 10,
   fontWeight: 900,
   background: "rgba(255,0,0,0.12)",
   border: "1px solid rgba(255,0,0,0.22)",
