@@ -1,69 +1,122 @@
-import ClientShell from "../ClientShell";
-import { createSupabaseServerClient } from "../lib/supabase/server";
+import ClientShell from "../../ClientShell";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { redirect } from "next/navigation";
+import { geocodeAddress } from "../../lib/geocode";
 
-function matchesQuery(item: any, query: string) {
-  const q = query.trim().toLowerCase();
-  if (!q) return true;
-
-  const client = Array.isArray(item.clients) ? item.clients[0] : item.clients;
-  const vehicle = Array.isArray(item.vehicles) ? item.vehicles[0] : item.vehicles;
-  const driver = Array.isArray(item.operators) ? item.operators[0] : item.operators;
-  const linkedJob = Array.isArray(item.jobs) ? item.jobs[0] : item.jobs;
-
-  const haystack = [
-    item.transport_number,
-    item.job_type,
-    item.collection_address,
-    item.delivery_address,
-    item.load_description,
-    item.status,
-    item.notes,
-    client?.company_name,
-    vehicle?.name,
-    vehicle?.reg_number,
-    driver?.full_name,
-    linkedJob?.job_number ? `job ${linkedJob.job_number}` : "",
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-
-  return haystack.includes(q);
+function clean(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
 }
 
-export default async function TransportJobsPage({
+async function updateTransportJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const id = clean(formData.get("id"));
+
+  if (!id) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const collectionAddress = clean(formData.get("collection_address")) || null;
+  const deliveryAddress = clean(formData.get("delivery_address")) || null;
+
+  const pickupCoords = collectionAddress
+    ? await geocodeAddress(collectionAddress)
+    : null;
+
+  const deliveryCoords = deliveryAddress
+    ? await geocodeAddress(deliveryAddress)
+    : null;
+
+  const payload = {
+    linked_job_id: clean(formData.get("linked_job_id")) || null,
+    client_id: clean(formData.get("client_id")) || null,
+    vehicle_id: clean(formData.get("vehicle_id")) || null,
+    operator_id: clean(formData.get("operator_id")) || null,
+    job_type: clean(formData.get("job_type")) || null,
+    collection_address: collectionAddress,
+    delivery_address: deliveryAddress,
+    collection_lat: pickupCoords?.lat ?? null,
+    collection_lng: pickupCoords?.lng ?? null,
+    delivery_lat: deliveryCoords?.lat ?? null,
+    delivery_lng: deliveryCoords?.lng ?? null,
+    transport_date: clean(formData.get("transport_date")) || null,
+    collection_time: clean(formData.get("collection_time")) || null,
+    delivery_time: clean(formData.get("delivery_time")) || null,
+    load_description: clean(formData.get("load_description")) || null,
+    status: clean(formData.get("status")) || "planned",
+    price: Number(formData.get("price") ?? 0) || 0,
+    notes: clean(formData.get("notes")) || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("transport_jobs").update(payload).eq("id", id);
+
+  if (error) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
+}
+
+function fmtMoney(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
+}
+
+export default async function TransportJobDetailPage({
+  params,
   searchParams,
 }: {
-  searchParams?: { q?: string; success?: string; error?: string };
+  params: { id: string };
+  searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
-  const query = String(searchParams?.q ?? "").trim();
 
-  const { data: transportJobs, error } = await supabase
-    .from("transport_jobs")
-    .select(`
-      *,
-      clients:client_id (
-        company_name
-      ),
-      vehicles:vehicle_id (
-        name,
-        reg_number
-      ),
-      operators:operator_id (
-        full_name
-      ),
-      jobs:linked_job_id (
-        id,
-        job_number,
-        site_name
-      )
-    `)
-    .order("transport_date", { ascending: false });
+  const [
+    { data: item, error },
+    { data: clients },
+    { data: jobs },
+    { data: vehicles },
+    { data: operators },
+  ] = await Promise.all([
+    supabase
+      .from("transport_jobs")
+      .select(`
+        *,
+        clients:client_id (
+          company_name
+        ),
+        vehicles:vehicle_id (
+          name,
+          reg_number
+        ),
+        operators:operator_id (
+          full_name
+        ),
+        jobs:linked_job_id (
+          id,
+          job_number,
+          site_name
+        )
+      `)
+      .eq("id", params.id)
+      .single(),
 
-  const list = (transportJobs ?? []).filter((item: any) => matchesQuery(item, query));
+    supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
+    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(300),
+    supabase.from("vehicles").select("id, name, reg_number").order("name", { ascending: true }),
+    supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
+  ]);
+
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+
+  const client = Array.isArray((item as any)?.clients) ? (item as any).clients[0] : (item as any)?.clients;
+  const vehicle = Array.isArray((item as any)?.vehicles) ? (item as any).vehicles[0] : (item as any)?.vehicles;
+  const driver = Array.isArray((item as any)?.operators) ? (item as any).operators[0] : (item as any)?.operators;
+  const linkedJob = Array.isArray((item as any)?.jobs) ? (item as any).jobs[0] : (item as any)?.jobs;
 
   return (
     <ClientShell>
@@ -71,95 +124,240 @@ export default async function TransportJobsPage({
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>Transport Jobs</h1>
+              <h1 style={{ marginTop: 0, fontSize: 32 }}>
+                {(item as any)?.transport_number ?? "Transport Job"}
+              </h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                Plan deliveries, collections, ballast moves and haulage work.
+                View and update transport allocation details.
               </p>
             </div>
 
-            <a href="/transport-jobs/new" style={primaryBtn}>
-              + Create transport job
-            </a>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href="/transport-jobs" style={secondaryBtn}>
+                ← Back to transport jobs
+              </a>
+              <a href="/transport-map" style={secondaryBtn}>
+                Open control map
+              </a>
+            </div>
           </div>
 
           {successMessage ? <div style={successBox}>{successMessage}</div> : null}
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+          {error ? <div style={errorBox}>{error.message}</div> : null}
 
-          <section style={sectionCard}>
-            <form method="get" action="/transport-jobs" style={searchRow}>
-              <input
-                type="text"
-                name="q"
-                defaultValue={query}
-                placeholder="Search ref, customer, vehicle, driver, job..."
-                style={searchInput}
-              />
-              <button type="submit" style={secondaryBtn}>
-                Search
-              </button>
-              {query ? (
-                <a href="/transport-jobs" style={secondaryBtn}>
-                  Clear
-                </a>
-              ) : null}
-            </form>
-          </section>
+          {!item ? (
+            <div style={errorBox}>Transport job not found.</div>
+          ) : (
+            <div style={pageGrid}>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Transport job details</h2>
 
-          <section style={{ ...sectionCard, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Existing transport jobs</h2>
+                <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
+                  <input type="hidden" name="id" value={(item as any).id} />
 
-            {error ? (
-              <div style={errorBox}>{error.message}</div>
-            ) : list.length === 0 ? (
-              <p style={{ margin: 0 }}>No transport jobs found.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 12 }}>
-                {list.map((item: any) => {
-                  const client = Array.isArray(item.clients) ? item.clients[0] : item.clients;
-                  const vehicle = Array.isArray(item.vehicles) ? item.vehicles[0] : item.vehicles;
-                  const driver = Array.isArray(item.operators) ? item.operators[0] : item.operators;
-                  const linkedJob = Array.isArray(item.jobs) ? item.jobs[0] : item.jobs;
+                  <div style={gridStyle}>
+                    <Field label="Reference" name="transport_number_readonly" defaultValue={(item as any).transport_number ?? ""} disabled />
+                    <SelectField
+                      label="Linked crane job"
+                      name="linked_job_id"
+                      defaultValue={(item as any).linked_job_id ?? ""}
+                      options={(jobs ?? []).map((j: any) => ({
+                        value: j.id,
+                        label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                      }))}
+                    />
+                    <SelectField
+                      label="Customer"
+                      name="client_id"
+                      defaultValue={(item as any).client_id ?? ""}
+                      options={(clients ?? []).map((c: any) => ({
+                        value: c.id,
+                        label: c.company_name ?? "Customer",
+                      }))}
+                    />
+                    <SelectField
+                      label="Vehicle"
+                      name="vehicle_id"
+                      defaultValue={(item as any).vehicle_id ?? ""}
+                      options={(vehicles ?? []).map((v: any) => ({
+                        value: v.id,
+                        label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+                      }))}
+                    />
+                    <SelectField
+                      label="Driver"
+                      name="operator_id"
+                      defaultValue={(item as any).operator_id ?? ""}
+                      options={(operators ?? []).map((o: any) => ({
+                        value: o.id,
+                        label: o.full_name ?? "Driver",
+                      }))}
+                    />
+                    <SelectField
+                      label="Job type"
+                      name="job_type"
+                      defaultValue={(item as any).job_type ?? ""}
+                      options={[
+                        { value: "haulage", label: "haulage" },
+                        { value: "delivery", label: "delivery" },
+                        { value: "collection", label: "collection" },
+                        { value: "ballast", label: "ballast" },
+                        { value: "crane_support", label: "crane_support" },
+                      ]}
+                    />
+                    <Field label="Transport date" name="transport_date" type="date" defaultValue={(item as any).transport_date ?? ""} />
+                    <Field label="Collection time" name="collection_time" type="time" defaultValue={(item as any).collection_time ?? ""} />
+                    <Field label="Delivery time" name="delivery_time" type="time" defaultValue={(item as any).delivery_time ?? ""} />
+                    <SelectField
+                      label="Status"
+                      name="status"
+                      defaultValue={(item as any).status ?? "planned"}
+                      options={[
+                        { value: "planned", label: "planned" },
+                        { value: "confirmed", label: "confirmed" },
+                        { value: "in_progress", label: "in_progress" },
+                        { value: "completed", label: "completed" },
+                        { value: "cancelled", label: "cancelled" },
+                      ]}
+                    />
+                    <Field label="Price" name="price" type="number" defaultValue={String((item as any).price ?? 0)} />
+                  </div>
 
-                  return (
-                    <div key={item.id} style={itemCard}>
-                      <div style={itemHeader}>
-                        <div>
-                          <div style={{ fontSize: 22, fontWeight: 1000 }}>
-                            {item.transport_number ?? "Transport Job"}
-                          </div>
-                          <div style={{ marginTop: 6, opacity: 0.72 }}>
-                            {client?.company_name ?? "—"} • {item.job_type ?? "—"} • {item.status ?? "—"}
-                          </div>
-                        </div>
+                  <FullWidthField label="Collection address" name="collection_address" defaultValue={(item as any).collection_address ?? ""} />
+                  <FullWidthField label="Delivery address" name="delivery_address" defaultValue={(item as any).delivery_address ?? ""} />
+                  <FullWidthField label="Load description" name="load_description" defaultValue={(item as any).load_description ?? ""} />
+                  <FullWidthField label="Notes" name="notes" defaultValue={(item as any).notes ?? ""} />
 
-                        <a href={`/transport-jobs/${item.id}`} style={secondaryBtn}>
-                          Open
-                        </a>
-                      </div>
+                  <div>
+                    <button type="submit" style={primaryBtn}>
+                      Update transport job
+                    </button>
+                  </div>
+                </form>
+              </section>
 
-                      <div style={metaGrid}>
-                        <Meta label="Date" value={item.transport_date ?? "—"} />
-                        <Meta label="Vehicle" value={vehicle?.name ?? "—"} />
-                        <Meta label="Driver" value={driver?.full_name ?? "—"} />
-                        <Meta label="Linked Job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Quick summary</h2>
+
+                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
+                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
+                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
+                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
+                <InfoRow label="Status" value={(item as any).status ?? "—"} />
+                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
+                <InfoRow label="Pickup lat/lng" value={
+                  (item as any).collection_lat && (item as any).collection_lng
+                    ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
+                    : "—"
+                } />
+                <InfoRow label="Delivery lat/lng" value={
+                  (item as any).delivery_lat && (item as any).delivery_lng
+                    ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
+                    : "—"
+                } />
+
+                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <a href="/transport-map" style={miniLinkBtn}>
+                    Open control map
+                  </a>
+
+                  {linkedJob?.id ? (
+                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
+                      Open linked crane job
+                    </a>
+                  ) : null}
+
+                  {(item as any).vehicle_id ? (
+                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
+                      Open vehicle
+                    </a>
+                  ) : null}
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       </div>
     </ClientShell>
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  name,
+  defaultValue,
+  type = "text",
+  disabled = false,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  type?: string;
+  disabled?: boolean;
+}) {
   return (
-    <div style={metaBox}>
-      <div style={metaLabel}>{label}</div>
-      <div style={metaValue}>{value}</div>
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <select name={name} defaultValue={defaultValue} style={inputStyle}>
+        <option value="">— Select —</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function FullWidthField({
+  label,
+  name,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
+    </div>
+  );
+}
+
+function InfoRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={infoRow}>
+      <div style={infoLabel}>{label}</div>
+      <div style={infoValue}>{value}</div>
     </div>
   );
 }
@@ -180,6 +378,12 @@ const headerRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const pageGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.15fr 0.85fr",
+  gap: 16,
+};
+
 const sectionCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.32)",
   border: "1px solid rgba(0,0,0,0.08)",
@@ -193,61 +397,63 @@ const sectionTitle: React.CSSProperties = {
   fontSize: 22,
 };
 
-const searchRow: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
+const gridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
 };
 
-const searchInput: React.CSSProperties = {
-  flex: 1,
-  minWidth: 280,
-  height: 44,
-  padding: "0 14px",
+const infoRow: React.CSSProperties = {
+  padding: "10px 0",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+};
+
+const infoLabel: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.7,
+  fontWeight: 800,
+};
+
+const infoValue: React.CSSProperties = {
+  marginTop: 4,
+  fontWeight: 900,
+};
+
+const miniLinkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 9,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.72)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.75,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
 };
 
-const itemCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.45)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 12,
-  padding: 14,
-};
-
-const itemHeader: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const metaGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: 10,
-  marginTop: 14,
-};
-
-const metaBox: React.CSSProperties = {
-  padding: 10,
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.06)",
-};
-
-const metaLabel: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
-  fontWeight: 800,
-};
-
-const metaValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+  resize: "vertical",
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -258,6 +464,8 @@ const primaryBtn: React.CSSProperties = {
   background: "#111",
   color: "#fff",
   fontWeight: 900,
+  border: "none",
+  cursor: "pointer",
 };
 
 const secondaryBtn: React.CSSProperties = {
