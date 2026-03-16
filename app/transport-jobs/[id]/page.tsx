@@ -106,7 +106,7 @@ export default async function TransportJobDetailPage({
 
     supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
     supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(300),
-    supabase.from("vehicles").select("id, name, reg_number").order("name", { ascending: true }),
+    supabase.from("vehicles").select("id, name, reg_number").eq("status", "active").order("name", { ascending: true }),
     supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
   ]);
 
