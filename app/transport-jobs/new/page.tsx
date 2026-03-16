@@ -128,6 +128,7 @@ export default async function NewTransportJobPage({
     supabase
       .from("vehicles")
       .select("id, name, reg_number")
+      .eq("status", "active")
       .order("name", { ascending: true }),
     supabase
       .from("operators")
