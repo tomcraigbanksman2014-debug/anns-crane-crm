@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
+import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -104,19 +105,49 @@ export default async function TransportJobDetailPage({
       .eq("id", params.id)
       .single(),
 
-    supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("jobs").select("id, job_number, site_name").order("created_at", { ascending: false }).limit(300),
-    supabase.from("vehicles").select("id, name, reg_number").eq("status", "active").order("name", { ascending: true }),
-    supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
+    supabase
+      .from("clients")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("jobs")
+      .select("id, job_number, site_name")
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(300),
+
+    supabase
+      .from("vehicles")
+      .select("id, name, reg_number")
+      .eq("status", "active")
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("operators")
+      .select("id, full_name")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
-  const client = Array.isArray((item as any)?.clients) ? (item as any).clients[0] : (item as any)?.clients;
-  const vehicle = Array.isArray((item as any)?.vehicles) ? (item as any).vehicles[0] : (item as any)?.vehicles;
-  const driver = Array.isArray((item as any)?.operators) ? (item as any).operators[0] : (item as any)?.operators;
-  const linkedJob = Array.isArray((item as any)?.jobs) ? (item as any).jobs[0] : (item as any)?.jobs;
+  const client = Array.isArray((item as any)?.clients)
+    ? (item as any).clients[0]
+    : (item as any)?.clients;
+
+  const vehicle = Array.isArray((item as any)?.vehicles)
+    ? (item as any).vehicles[0]
+    : (item as any)?.vehicles;
+
+  const driver = Array.isArray((item as any)?.operators)
+    ? (item as any).operators[0]
+    : (item as any)?.operators;
+
+  const linkedJob = Array.isArray((item as any)?.jobs)
+    ? (item as any).jobs[0]
+    : (item as any)?.jobs;
 
   return (
     <ClientShell>
@@ -133,9 +164,12 @@ export default async function TransportJobDetailPage({
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {item ? <DuplicateTransportJobButton jobId={(item as any).id} /> : null}
+
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back to transport jobs
               </a>
+
               <a href="/transport-map" style={secondaryBtn}>
                 Open control map
               </a>
@@ -157,7 +191,13 @@ export default async function TransportJobDetailPage({
                   <input type="hidden" name="id" value={(item as any).id} />
 
                   <div style={gridStyle}>
-                    <Field label="Reference" name="transport_number_readonly" defaultValue={(item as any).transport_number ?? ""} disabled />
+                    <Field
+                      label="Reference"
+                      name="transport_number_readonly"
+                      defaultValue={(item as any).transport_number ?? ""}
+                      disabled
+                    />
+
                     <SelectField
                       label="Linked crane job"
                       name="linked_job_id"
@@ -167,6 +207,7 @@ export default async function TransportJobDetailPage({
                         label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
                       }))}
                     />
+
                     <SelectField
                       label="Customer"
                       name="client_id"
@@ -176,6 +217,7 @@ export default async function TransportJobDetailPage({
                         label: c.company_name ?? "Customer",
                       }))}
                     />
+
                     <SelectField
                       label="Vehicle"
                       name="vehicle_id"
@@ -185,6 +227,7 @@ export default async function TransportJobDetailPage({
                         label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
                       }))}
                     />
+
                     <SelectField
                       label="Driver"
                       name="operator_id"
@@ -194,6 +237,7 @@ export default async function TransportJobDetailPage({
                         label: o.full_name ?? "Driver",
                       }))}
                     />
+
                     <SelectField
                       label="Job type"
                       name="job_type"
@@ -206,9 +250,28 @@ export default async function TransportJobDetailPage({
                         { value: "crane_support", label: "crane_support" },
                       ]}
                     />
-                    <Field label="Transport date" name="transport_date" type="date" defaultValue={(item as any).transport_date ?? ""} />
-                    <Field label="Collection time" name="collection_time" type="time" defaultValue={(item as any).collection_time ?? ""} />
-                    <Field label="Delivery time" name="delivery_time" type="time" defaultValue={(item as any).delivery_time ?? ""} />
+
+                    <Field
+                      label="Transport date"
+                      name="transport_date"
+                      type="date"
+                      defaultValue={(item as any).transport_date ?? ""}
+                    />
+
+                    <Field
+                      label="Collection time"
+                      name="collection_time"
+                      type="time"
+                      defaultValue={(item as any).collection_time ?? ""}
+                    />
+
+                    <Field
+                      label="Delivery time"
+                      name="delivery_time"
+                      type="time"
+                      defaultValue={(item as any).delivery_time ?? ""}
+                    />
+
                     <SelectField
                       label="Status"
                       name="status"
@@ -221,13 +284,38 @@ export default async function TransportJobDetailPage({
                         { value: "cancelled", label: "cancelled" },
                       ]}
                     />
-                    <Field label="Price" name="price" type="number" defaultValue={String((item as any).price ?? 0)} />
+
+                    <Field
+                      label="Price"
+                      name="price"
+                      type="number"
+                      defaultValue={String((item as any).price ?? 0)}
+                    />
                   </div>
 
-                  <FullWidthField label="Collection address" name="collection_address" defaultValue={(item as any).collection_address ?? ""} />
-                  <FullWidthField label="Delivery address" name="delivery_address" defaultValue={(item as any).delivery_address ?? ""} />
-                  <FullWidthField label="Load description" name="load_description" defaultValue={(item as any).load_description ?? ""} />
-                  <FullWidthField label="Notes" name="notes" defaultValue={(item as any).notes ?? ""} />
+                  <FullWidthField
+                    label="Collection address"
+                    name="collection_address"
+                    defaultValue={(item as any).collection_address ?? ""}
+                  />
+
+                  <FullWidthField
+                    label="Delivery address"
+                    name="delivery_address"
+                    defaultValue={(item as any).delivery_address ?? ""}
+                  />
+
+                  <FullWidthField
+                    label="Load description"
+                    name="load_description"
+                    defaultValue={(item as any).load_description ?? ""}
+                  />
+
+                  <FullWidthField
+                    label="Notes"
+                    name="notes"
+                    defaultValue={(item as any).notes ?? ""}
+                  />
 
                   <div>
                     <button type="submit" style={primaryBtn}>
@@ -243,13 +331,17 @@ export default async function TransportJobDetailPage({
                 <InfoRow label="Customer" value={client?.company_name ?? "—"} />
                 <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
                 <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
-                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"} />
+                <InfoRow
+                  label="Linked crane job"
+                  value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+                />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
                 <InfoRow label="Price" value={fmtMoney((item as any).price)} />
                 <InfoRow
                   label="Pickup lat/lng"
                   value={
-                    (item as any).collection_lat != null && (item as any).collection_lng != null
+                    (item as any).collection_lat != null &&
+                    (item as any).collection_lng != null
                       ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
                       : "—"
                   }
@@ -257,7 +349,8 @@ export default async function TransportJobDetailPage({
                 <InfoRow
                   label="Delivery lat/lng"
                   value={
-                    (item as any).delivery_lat != null && (item as any).delivery_lng != null
+                    (item as any).delivery_lat != null &&
+                    (item as any).delivery_lng != null
                       ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
                       : "—"
                   }
@@ -305,7 +398,13 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} disabled={disabled} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        style={inputStyle}
+        disabled={disabled}
+      />
     </div>
   );
 }
