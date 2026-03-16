@@ -84,6 +84,12 @@ type EtaInfo = {
   toDelivery: string;
 };
 
+type RouteInfo = {
+  path: LatLngExpression[];
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+};
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -253,19 +259,42 @@ function ageText(value: string | null | undefined) {
   return `${hrs}h ago`;
 }
 
-async function roadMinutes(
+function milesFromMeters(meters: number | null) {
+  if (meters === null || !Number.isFinite(meters)) return "—";
+  return `${(meters / 1609.344).toFixed(1)} mi`;
+}
+
+async function fetchRoadRoute(
   fromLat: number,
   fromLng: number,
   toLat: number,
   toLng: number
-) {
+): Promise<RouteInfo | null> {
   try {
-    const url = `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=false`;
-    const res = await fetch(url);
-    const json = await res.json();
-    const seconds = json?.routes?.[0]?.duration;
-    if (typeof seconds !== "number") return null;
-    return seconds / 60;
+    const res = await fetch("/api/transport-route", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fromLat,
+        fromLng,
+        toLat,
+        toLng,
+      }),
+    });
+
+    const json = await res.json().catch(() => null);
+
+    if (!res.ok) return null;
+
+    return {
+      path: Array.isArray(json?.path) ? json.path : [],
+      distanceMeters:
+        typeof json?.distance_meters === "number" ? json.distance_meters : null,
+      durationSeconds:
+        typeof json?.duration_seconds === "number" ? json.duration_seconds : null,
+    };
   } catch {
     return null;
   }
@@ -275,6 +304,7 @@ export default function TransportMapClient() {
   const [items, setItems] = useState<TransportItem[]>([]);
   const [locations, setLocations] = useState<DriverLocation[]>([]);
   const [etas, setEtas] = useState<Record<string, EtaInfo>>({});
+  const [routeMap, setRouteMap] = useState<Record<string, RouteInfo>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -457,48 +487,82 @@ export default function TransportMapClient() {
   useEffect(() => {
     let cancelled = false;
 
-    async function calculateEtas() {
+    async function calculateRoadData() {
       const nextEtas: Record<string, EtaInfo> = {};
+      const nextRoutes: Record<string, RouteInfo> = {};
 
       for (const item of filtered) {
+        const pickupOk = hasCoords(item.collection_lat, item.collection_lng);
+        const deliveryOk = hasCoords(item.delivery_lat, item.delivery_lng);
+
+        if (pickupOk && deliveryOk) {
+          const pickupToDelivery = await fetchRoadRoute(
+            Number(item.collection_lat),
+            Number(item.collection_lng),
+            Number(item.delivery_lat),
+            Number(item.delivery_lng)
+          );
+
+          if (pickupToDelivery && pickupToDelivery.path.length > 0) {
+            nextRoutes[item.id] = pickupToDelivery;
+          }
+        }
+
         const live = latestLocationByJob.get(item.id);
-        if (!live || !hasCoords(Number(live.lat), Number(live.lng))) continue;
 
-        const liveLat = Number(live.lat);
-        const liveLng = Number(live.lng);
+        if (live && hasCoords(Number(live.lat), Number(live.lng))) {
+          const liveLat = Number(live.lat);
+          const liveLng = Number(live.lng);
 
-        const toPickupMins =
-          hasCoords(item.collection_lat, item.collection_lng)
-            ? await roadMinutes(
-                liveLat,
-                liveLng,
-                Number(item.collection_lat),
-                Number(item.collection_lng)
-              )
-            : null;
+          let toPickupText = "—";
+          let toDeliveryText = "—";
 
-        const toDeliveryMins =
-          hasCoords(item.delivery_lat, item.delivery_lng)
-            ? await roadMinutes(
-                liveLat,
-                liveLng,
-                Number(item.delivery_lat),
-                Number(item.delivery_lng)
-              )
-            : null;
+          if (pickupOk) {
+            const liveToPickup = await fetchRoadRoute(
+              liveLat,
+              liveLng,
+              Number(item.collection_lat),
+              Number(item.collection_lng)
+            );
 
-        nextEtas[item.id] = {
-          toPickup: minsToText(toPickupMins),
-          toDelivery: minsToText(toDeliveryMins),
-        };
+            if (
+              liveToPickup &&
+              typeof liveToPickup.durationSeconds === "number"
+            ) {
+              toPickupText = minsToText(liveToPickup.durationSeconds / 60);
+            }
+          }
+
+          if (deliveryOk) {
+            const liveToDelivery = await fetchRoadRoute(
+              liveLat,
+              liveLng,
+              Number(item.delivery_lat),
+              Number(item.delivery_lng)
+            );
+
+            if (
+              liveToDelivery &&
+              typeof liveToDelivery.durationSeconds === "number"
+            ) {
+              toDeliveryText = minsToText(liveToDelivery.durationSeconds / 60);
+            }
+          }
+
+          nextEtas[item.id] = {
+            toPickup: toPickupText,
+            toDelivery: toDeliveryText,
+          };
+        }
       }
 
       if (!cancelled) {
         setEtas(nextEtas);
+        setRouteMap(nextRoutes);
       }
     }
 
-    calculateEtas();
+    calculateRoadData();
 
     return () => {
       cancelled = true;
@@ -631,6 +695,7 @@ export default function TransportMapClient() {
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
                 const live = latestLocationByJob.get(item.id);
+                const route = routeMap[item.id];
 
                 const pickupPoint: LatLngExpression | null = hasCoords(
                   item.collection_lat,
@@ -656,7 +721,7 @@ export default function TransportMapClient() {
                     {pickupPoint ? (
                       <SafeMarker position={pickupPoint} icon={pickupIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 240 }}>
+                          <div style={{ minWidth: 260 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pickup</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
                             <div><strong>Customer:</strong> {client?.company_name ?? "—"}</div>
@@ -673,7 +738,7 @@ export default function TransportMapClient() {
                     {deliveryPoint ? (
                       <SafeMarker position={deliveryPoint} icon={deliveryIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 240 }}>
+                          <div style={{ minWidth: 260 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Delivery</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
                             <div><strong>Customer:</strong> {client?.company_name ?? "—"}</div>
@@ -690,7 +755,7 @@ export default function TransportMapClient() {
                     {livePoint ? (
                       <SafeMarker position={livePoint} icon={liveIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 240 }}>
+                          <div style={{ minWidth: 260 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Live Driver Location</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
@@ -703,10 +768,20 @@ export default function TransportMapClient() {
                       </SafeMarker>
                     ) : null}
 
-                    {pickupPoint && deliveryPoint ? (
+                    {route && route.path.length > 1 ? (
+                      <SafePolyline
+                        positions={route.path}
+                        pathOptions={{ color: "#111", weight: 4, opacity: 0.75 }}
+                      />
+                    ) : pickupPoint && deliveryPoint ? (
                       <SafePolyline
                         positions={[pickupPoint, deliveryPoint]}
-                        pathOptions={{ color: "#111", weight: 3, opacity: 0.6 }}
+                        pathOptions={{
+                          color: "#666",
+                          weight: 2,
+                          opacity: 0.35,
+                          dashArray: "6 6",
+                        }}
                       />
                     ) : null}
                   </div>
@@ -725,6 +800,7 @@ export default function TransportMapClient() {
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
                 const live = latestLocationByJob.get(item.id);
+                const route = routeMap[item.id];
 
                 return (
                   <div key={item.id} style={jobCard}>
@@ -770,6 +846,16 @@ export default function TransportMapClient() {
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>Road distance:</strong> {milesFromMeters(route?.distanceMeters ?? null)}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 13 }}>
+                      <strong>Road travel time:</strong> {minsToText(
+                        typeof route?.durationSeconds === "number"
+                          ? route.durationSeconds / 60
+                          : null
+                      )}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Live update:</strong> {live ? ageText(live.recorded_at) : "No live tracking"}
