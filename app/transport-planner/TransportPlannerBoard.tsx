@@ -100,6 +100,40 @@ function hasCoords(lat: number | null | undefined, lng: number | null | undefine
   return typeof lat === "number" && typeof lng === "number";
 }
 
+function toMinutes(value: string | null | undefined) {
+  const v = String(value ?? "").trim();
+  if (!v) return null;
+  const match = v.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hours = Number(match[1]);
+  const mins = Number(match[2]);
+  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return null;
+  return hours * 60 + mins;
+}
+
+function overlaps(
+  aStart: string | null | undefined,
+  aEnd: string | null | undefined,
+  bStart: string | null | undefined,
+  bEnd: string | null | undefined
+) {
+  const startA = toMinutes(aStart);
+  const endA = toMinutes(aEnd);
+  const startB = toMinutes(bStart);
+  const endB = toMinutes(bEnd);
+
+  if (
+    startA === null ||
+    endA === null ||
+    startB === null ||
+    endB === null
+  ) {
+    return false;
+  }
+
+  return startA < endB && startB < endA;
+}
+
 export default function TransportPlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -237,18 +271,41 @@ export default function TransportPlannerBoard() {
     return map;
   }, [data.vehicles, data.days, data.jobs]);
 
-  function jobWarnings(job: PlannerTransportJob, totalInCell: number) {
+  function jobWarnings(
+    job: PlannerTransportJob,
+    totalInCell: number,
+    allJobs: PlannerTransportJob[]
+  ) {
     const warnings: string[] = [];
 
     if (!job.vehicle_id) warnings.push("No vehicle");
     if (!job.operator_id) warnings.push("No driver");
+
     if (
       !hasCoords(job.collection_lat, job.collection_lng) ||
       !hasCoords(job.delivery_lat, job.delivery_lng)
     ) {
       warnings.push("No route coords");
     }
+
     if (totalInCell > 3) warnings.push("Busy day");
+
+    if (job.vehicle_id && job.transport_date) {
+      const hasConflict = allJobs.some((other) => {
+        if (other.id === job.id) return false;
+        if (other.vehicle_id !== job.vehicle_id) return false;
+        if (other.transport_date !== job.transport_date) return false;
+
+        return overlaps(
+          job.collection_time,
+          job.delivery_time,
+          other.collection_time,
+          other.delivery_time
+        );
+      });
+
+      if (hasConflict) warnings.push("CONFLICT");
+    }
 
     return warnings;
   }
@@ -345,7 +402,7 @@ export default function TransportPlannerBoard() {
                           saving={savingId === job.id}
                           dragging={draggingJobId === job.id}
                           compact
-                          warnings={jobWarnings(job, jobs.length)}
+                          warnings={jobWarnings(job, jobs.length, data.jobs)}
                           onDragStart={() => setDraggingJobId(job.id)}
                           onDragEnd={() => {
                             setDraggingJobId(null);
@@ -403,7 +460,7 @@ export default function TransportPlannerBoard() {
                             saving={savingId === job.id}
                             dragging={draggingJobId === job.id}
                             compact
-                            warnings={jobWarnings(job, jobs.length)}
+                            warnings={jobWarnings(job, jobs.length, data.jobs)}
                             onDragStart={() => setDraggingJobId(job.id)}
                             onDragEnd={() => {
                               setDraggingJobId(null);
@@ -530,7 +587,12 @@ function TransportCard({
         {warnings.length > 0 ? (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
             {warnings.map((warning) => (
-              <span key={`${job.id}-${warning}`} style={warningChip}>
+              <span
+                key={`${job.id}-${warning}`}
+                style={
+                  warning === "CONFLICT" ? conflictChipStyle : warningChipStyle
+                }
+              >
                 {warning}
               </span>
             ))}
@@ -732,7 +794,7 @@ const infoBox: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const warningChip: React.CSSProperties = {
+const warningChipStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "4px 8px",
   borderRadius: 999,
@@ -741,4 +803,15 @@ const warningChip: React.CSSProperties = {
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.25)",
   color: "#8a5200",
+};
+
+const conflictChipStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+  background: "rgba(255,0,0,0.12)",
+  border: "1px solid rgba(255,0,0,0.22)",
+  color: "#b00020",
 };
