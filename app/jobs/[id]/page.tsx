@@ -225,6 +225,7 @@ export default async function JobPage({
     supabase
       .from("equipment")
       .select("id, name, asset_number")
+      .eq("status", "active")
       .order("name", { ascending: true }),
 
     supabase
