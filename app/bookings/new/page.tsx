@@ -38,9 +38,7 @@ function redirectWithError(message: string) {
 }
 
 function combineDateTime(date: string | null, time: string | null) {
-  if (!date) return null;
-  if (!time) return null;
-
+  if (!date || !time) return null;
   const normalizedTime = time.length === 5 ? `${time}:00` : time;
   return `${date}T${normalizedTime}`;
 }
@@ -179,24 +177,21 @@ export default async function NewBookingPage({
       .from("clients")
       .select("id, company_name")
       .order("company_name", { ascending: true }),
-
     supabase
       .from("equipment")
       .select("id, name, asset_number")
+      .eq("status", "active")
       .order("name", { ascending: true }),
-
     supabase
       .from("operators")
       .select("id, full_name")
       .eq("status", "active")
       .order("full_name", { ascending: true }),
-
     supabase
       .from("suppliers")
       .select("id, company_name")
       .eq("status", "active")
       .order("company_name", { ascending: true }),
-
     supabase
       .from("purchase_orders")
       .select("id, po_number")
@@ -427,11 +422,8 @@ const saveBtn: React.CSSProperties = {
 
 const errorBox: React.CSSProperties = {
   marginTop: 16,
-  padding: "12px 14px",
-  borderRadius: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
-  color: "#8a1020",
-  fontWeight: 700,
-  whiteSpace: "pre-wrap",
 };
