@@ -127,14 +127,19 @@ async function createJob(formData: FormData) {
 export default async function NewJobPage() {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: operators }, { data: suppliers }, { data: purchaseOrders }] =
-    await Promise.all([
-      supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
-      supabase.from("equipment").select("id, name, asset_number").order("name", { ascending: true }),
-      supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
-      supabase.from("suppliers").select("id, company_name").eq("status", "active").order("company_name", { ascending: true }),
-      supabase.from("purchase_orders").select("id, po_number").order("created_at", { ascending: false }).limit(300),
-    ]);
+  const [
+    { data: clients },
+    { data: equipment },
+    { data: operators },
+    { data: suppliers },
+    { data: purchaseOrders },
+  ] = await Promise.all([
+    supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
+    supabase.from("equipment").select("id, name, asset_number").eq("status", "active").order("name", { ascending: true }),
+    supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
+    supabase.from("suppliers").select("id, company_name").eq("status", "active").order("company_name", { ascending: true }),
+    supabase.from("purchase_orders").select("id, po_number").order("created_at", { ascending: false }).limit(300),
+  ]);
 
   return (
     <ClientShell>
