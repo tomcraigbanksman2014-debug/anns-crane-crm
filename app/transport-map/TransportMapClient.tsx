@@ -41,6 +41,7 @@ type TransportItem = {
   vehicle_id: string | null;
   operator_id: string | null;
   linked_job_id: string | null;
+  archived?: boolean | null;
   vehicles:
     | { name: string | null; reg_number: string | null; status?: string | null }
     | { name: string | null; reg_number: string | null; status?: string | null }[]
@@ -264,6 +265,18 @@ function milesFromMeters(meters: number | null) {
   return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
+function mapsUrl(label: string, lat: number | null, lng: number | null, address?: string | null) {
+  if (typeof lat === "number" && typeof lng === "number") {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
+  }
+
+  if (address) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  }
+
+  return "#";
+}
+
 async function fetchRoadRoute(
   fromLat: number,
   fromLng: number,
@@ -342,6 +355,7 @@ export default function TransportMapClient() {
             vehicle_id,
             operator_id,
             linked_job_id,
+            archived,
             vehicles:vehicle_id (
               name,
               reg_number,
@@ -360,6 +374,7 @@ export default function TransportMapClient() {
               company_name
             )
           `)
+          .eq("archived", false)
           .order("transport_date", { ascending: true })
           .order("collection_time", { ascending: true }),
         supabase
@@ -730,6 +745,15 @@ export default function TransportMapClient() {
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
                             <div><strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
+                            <div style={{ marginTop: 10 }}>
+                              <a
+                                href={mapsUrl("Pickup", Number(item.collection_lat), Number(item.collection_lng), item.collection_address)}
+                                target="_blank"
+                                style={linkBtn}
+                              >
+                                Navigate to pickup
+                              </a>
+                            </div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
@@ -747,6 +771,15 @@ export default function TransportMapClient() {
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
                             <div><strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
+                            <div style={{ marginTop: 10 }}>
+                              <a
+                                href={mapsUrl("Delivery", Number(item.delivery_lat), Number(item.delivery_lng), item.delivery_address)}
+                                target="_blank"
+                                style={linkBtn}
+                              >
+                                Navigate to delivery
+                              </a>
+                            </div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
@@ -886,6 +919,22 @@ export default function TransportMapClient() {
                           Open crane job
                         </a>
                       ) : null}
+
+                      <a
+                        href={mapsUrl("Pickup", item.collection_lat, item.collection_lng, item.collection_address)}
+                        target="_blank"
+                        style={linkBtn}
+                      >
+                        Pickup nav
+                      </a>
+
+                      <a
+                        href={mapsUrl("Delivery", item.delivery_lat, item.delivery_lng, item.delivery_address)}
+                        target="_blank"
+                        style={linkBtn}
+                      >
+                        Delivery nav
+                      </a>
                     </div>
                   </div>
                 );
