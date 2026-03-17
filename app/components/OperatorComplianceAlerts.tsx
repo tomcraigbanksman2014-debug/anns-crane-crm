@@ -6,16 +6,29 @@ export default function OperatorComplianceAlerts() {
   const [data, setData] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/operator-compliance")
-      .then(r => r.json())
-      .then(setData);
+    let cancelled = false;
+
+    async function load() {
+      const res = await fetch("/api/operator-compliance", { cache: "no-store" });
+      const json = await res.json().catch(() => null);
+
+      if (!cancelled) {
+        setData(json);
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (!data) return null;
 
   if (data.count === 0) {
     return (
-      <div style={box}>
+      <div style={okBox}>
         ✅ All operators compliant
       </div>
     );
@@ -35,19 +48,37 @@ export default function OperatorComplianceAlerts() {
             style={row}
           >
             <div>
-              <b>{o.operator_name}</b> ({o.role})
+              <b>{o.operator_name}</b> ({o.role || "No role"})
             </div>
 
             <div style={{ fontSize: 13 }}>
-              {o.missing > 0 && `Missing: ${o.missing} `}
-              {o.expired > 0 && `• Expired: ${o.expired}`}
+              {o.missing > 0 ? `Missing: ${o.missing}` : ""}
+              {o.missing > 0 && (o.expired > 0 || o.expiring > 0) ? " • " : ""}
+              {o.expired > 0 ? `Expired: ${o.expired}` : ""}
+              {o.expired > 0 && o.expiring > 0 ? " • " : ""}
+              {o.expiring > 0 ? `Expiring: ${o.expiring}` : ""}
             </div>
+
+            {Array.isArray(o.missingList) && o.missingList.length > 0 ? (
+              <div style={{ fontSize: 12, opacity: 0.72, marginTop: 4 }}>
+                Missing items: {o.missingList.join(", ")}
+              </div>
+            ) : null}
           </a>
         ))}
       </div>
     </div>
   );
 }
+
+const okBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.20)",
+  fontWeight: 900,
+};
 
 const box: React.CSSProperties = {
   marginTop: 14,
