@@ -9,70 +9,74 @@ export default function VehicleArchiveButton({
   vehicleId: string;
   archived: boolean;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function runAction() {
-    setLoading(true);
+  async function handleClick() {
+    if (busy) return;
+
+    const action = archived ? "restore" : "archive";
+    const confirmed = window.confirm(
+      archived
+        ? "Restore this vehicle?"
+        : "Archive this vehicle? It will be hidden from active dropdowns."
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
 
     try {
-      const res = await fetch(
-        archived ? "/api/vehicles/restore" : "/api/vehicles/archive",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            vehicle_id: vehicleId,
-          }),
-        }
-      );
+      const res = await fetch(`/api/vehicles/${action}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ vehicleId }),
+      });
 
-      const data = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        alert(data?.error || "Could not update vehicle.");
+        window.alert(json?.error || `Could not ${action} vehicle.`);
         return;
       }
 
       window.location.reload();
     } catch {
-      alert("Could not update vehicle.");
+      window.alert(`Could not ${action} vehicle.`);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
     <button
       type="button"
-      onClick={runAction}
-      disabled={loading}
+      onClick={handleClick}
+      disabled={busy}
       style={archived ? restoreBtn : archiveBtn}
     >
-      {loading ? "Saving..." : archived ? "Restore" : "Archive"}
+      {busy ? "Working..." : archived ? "Restore" : "Archive"}
     </button>
   );
 }
 
 const archiveBtn: React.CSSProperties = {
-  display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  color: "#b00020",
+  color: "#8b0000",
+  border: "1px solid rgba(255,0,0,0.18)",
   fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.20)",
   cursor: "pointer",
 };
 
 const restoreBtn: React.CSSProperties = {
-  display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
   background: "rgba(0,180,120,0.12)",
   color: "#0b7a4b",
+  border: "1px solid rgba(0,180,120,0.18)",
   fontWeight: 800,
-  border: "1px solid rgba(0,180,120,0.20)",
   cursor: "pointer",
 };
