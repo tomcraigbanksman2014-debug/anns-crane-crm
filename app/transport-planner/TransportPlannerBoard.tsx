@@ -20,6 +20,7 @@ type PlannerTransportJob = {
   vehicle_id?: string | null;
   operator_id?: string | null;
   linked_job_id?: string | null;
+  notes?: string | null;
   clients?:
     | { company_name?: string | null }
     | { company_name?: string | null }[]
@@ -48,6 +49,17 @@ type PlannerVehicle = {
 type PlannerDay = {
   date: string;
   label: string;
+};
+
+type LookupOperator = {
+  id: string;
+  full_name?: string | null;
+};
+
+type LookupVehicle = {
+  id: string;
+  name?: string | null;
+  reg_number?: string | null;
 };
 
 function first<T>(value: T | T[] | null | undefined): T | null {
@@ -141,6 +153,12 @@ export default function TransportPlannerBoard() {
   const [draggingJobId, setDraggingJobId] = useState<string | null>(null);
   const [hoverCell, setHoverCell] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
+  const [lookupOperators, setLookupOperators] = useState<LookupOperator[]>([]);
+  const [lookupVehicles, setLookupVehicles] = useState<LookupVehicle[]>([]);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorJob, setEditorJob] = useState<PlannerTransportJob | null>(null);
+  const [editorSaving, setEditorSaving] = useState(false);
+
   const [data, setData] = useState<{
     week_start: string;
     week_end: string;
@@ -160,21 +178,31 @@ export default function TransportPlannerBoard() {
     setMsg("");
 
     try {
-      const res = await fetch(`/api/transport-planner/board?date=${selectedDate}`);
-      const json = await res.json().catch(() => null);
+      const [boardRes, lookupRes] = await Promise.all([
+        fetch(`/api/transport-planner/board?date=${selectedDate}`),
+        fetch("/api/lookups/transport-form"),
+      ]);
 
-      if (!res.ok) {
-        setMsg(json?.error || "Could not load transport planner.");
+      const boardJson = await boardRes.json().catch(() => null);
+      const lookupJson = await lookupRes.json().catch(() => null);
+
+      if (!boardRes.ok) {
+        setMsg(boardJson?.error || "Could not load transport planner.");
         return;
       }
 
       setData({
-        week_start: json?.week_start ?? "",
-        week_end: json?.week_end ?? "",
-        days: json?.days ?? [],
-        jobs: json?.jobs ?? [],
-        vehicles: json?.vehicles ?? [],
+        week_start: boardJson?.week_start ?? "",
+        week_end: boardJson?.week_end ?? "",
+        days: boardJson?.days ?? [],
+        jobs: boardJson?.jobs ?? [],
+        vehicles: boardJson?.vehicles ?? [],
       });
+
+      if (lookupRes.ok) {
+        setLookupOperators(lookupJson?.operators ?? []);
+        setLookupVehicles(lookupJson?.vehicles ?? []);
+      }
     } catch {
       setMsg("Could not load transport planner.");
     } finally {
@@ -216,6 +244,51 @@ export default function TransportPlannerBoard() {
       setSavingId(null);
       setDraggingJobId(null);
       setHoverCell(null);
+    }
+  }
+
+  async function saveEditor(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!editorJob) return;
+
+    const form = new FormData(e.currentTarget);
+
+    setEditorSaving(true);
+    setMsg("");
+
+    try {
+      const res = await fetch("/api/transport-planner/board/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transport_job_id: editorJob.id,
+          transport_date: String(form.get("transport_date") ?? "").trim() || null,
+          collection_time: String(form.get("collection_time") ?? "").trim() || null,
+          delivery_time: String(form.get("delivery_time") ?? "").trim() || null,
+          operator_id: String(form.get("operator_id") ?? "").trim() || null,
+          vehicle_id: String(form.get("vehicle_id") ?? "").trim() || null,
+          status: String(form.get("status") ?? "").trim() || "planned",
+          collection_address: String(form.get("collection_address") ?? "").trim() || null,
+          delivery_address: String(form.get("delivery_address") ?? "").trim() || null,
+          load_description: String(form.get("load_description") ?? "").trim() || null,
+          notes: String(form.get("notes") ?? "").trim() || null,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setMsg(json?.error || "Could not save transport job.");
+        return;
+      }
+
+      setEditorOpen(false);
+      setEditorJob(null);
+      await load();
+    } catch {
+      setMsg("Could not save transport job.");
+    } finally {
+      setEditorSaving(false);
     }
   }
 
@@ -291,7 +364,7 @@ export default function TransportPlannerBoard() {
     if (totalInCell > 3) warnings.push("Busy day");
 
     if (job.vehicle_id && job.transport_date) {
-      const hasConflict = allJobs.some((other) => {
+      const vehicleConflict = allJobs.some((other) => {
         if (other.id === job.id) return false;
         if (other.vehicle_id !== job.vehicle_id) return false;
         if (other.transport_date !== job.transport_date) return false;
@@ -304,131 +377,91 @@ export default function TransportPlannerBoard() {
         );
       });
 
-      if (hasConflict) warnings.push("CONFLICT");
+      if (vehicleConflict) warnings.push("Vehicle conflict");
+    }
+
+    if (job.operator_id && job.transport_date) {
+      const driverConflict = allJobs.some((other) => {
+        if (other.id === job.id) return false;
+        if (other.operator_id !== job.operator_id) return false;
+        if (other.transport_date !== job.transport_date) return false;
+
+        return overlaps(
+          job.collection_time,
+          job.delivery_time,
+          other.collection_time,
+          other.delivery_time
+        );
+      });
+
+      if (driverConflict) warnings.push("Driver conflict");
     }
 
     return warnings;
   }
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div style={toolbarStyle}>
-        <div style={{ minWidth: 0 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
-          <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-            Drag transport jobs across the week and between vehicles.
+    <>
+      <div style={{ display: "grid", gap: 12 }}>
+        <div style={toolbarStyle}>
+          <div style={{ minWidth: 0 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
+            <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
+              Drag transport jobs across the week and between vehicles. Click a card to quick edit.
+            </div>
+          </div>
+
+          <div style={toolbarActionsStyle}>
+            <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
+              ← Previous week
+            </button>
+
+            <input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              style={inputStyle}
+            />
+
+            <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
+              Next week →
+            </button>
+
+            <button type="button" onClick={load} style={secondaryBtn}>
+              Refresh
+            </button>
+
+            <a href="/transport-jobs/new" style={primaryLinkBtn}>
+              + New transport job
+            </a>
           </div>
         </div>
 
-        <div style={toolbarActionsStyle}>
-          <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
-            ← Previous week
-          </button>
+        {msg ? <div style={infoBox}>{msg}</div> : null}
 
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            style={inputStyle}
-          />
-
-          <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
-            Next week →
-          </button>
-
-          <button type="button" onClick={load} style={secondaryBtn}>
-            Refresh
-          </button>
-
-          <a href="/transport-jobs/new" style={primaryLinkBtn}>
-            + New transport job
-          </a>
-        </div>
-      </div>
-
-      {msg ? <div style={infoBox}>{msg}</div> : null}
-
-      {loading ? (
-        <div style={boardShellStyle}>Loading transport planner...</div>
-      ) : (
-        <div style={boardShellStyle}>
-          <div style={boardScrollerStyle}>
-            <div style={weekHeaderStyle}>
-              <div style={nameColHeaderStyle}>Vehicle</div>
-              {data.days.map((day) => (
-                <div key={day.date} style={dayHeaderStyle}>
-                  {day.label}
-                </div>
-              ))}
-            </div>
-
-            <div style={rowStyle}>
-              <div style={nameCellStyle}>
-                <div style={{ fontWeight: 1000, fontSize: 13 }}>Unassigned</div>
-                <div style={{ fontSize: 11, opacity: 0.72 }}>Needs vehicle</div>
+        {loading ? (
+          <div style={boardShellStyle}>Loading transport planner...</div>
+        ) : (
+          <div style={boardShellStyle}>
+            <div style={boardScrollerStyle}>
+              <div style={weekHeaderStyle}>
+                <div style={nameColHeaderStyle}>Vehicle</div>
+                {data.days.map((day) => (
+                  <div key={day.date} style={dayHeaderStyle}>
+                    {day.label}
+                  </div>
+                ))}
               </div>
 
-              {data.days.map((day) => {
-                const cellKey = `unassigned__${day.date}`;
-                const jobs = unassignedByDay.get(day.date) ?? [];
-
-                return (
-                  <DropCell
-                    key={cellKey}
-                    active={hoverCell === cellKey}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setHoverCell(cellKey);
-                    }}
-                    onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
-                    onDrop={async (e) => {
-                      e.preventDefault();
-                      const jobId = e.dataTransfer.getData("text/plain");
-                      if (!jobId) return;
-                      await updateTransportJob(jobId, {
-                        vehicle_id: null,
-                        transport_date: day.date,
-                      });
-                    }}
-                  >
-                    {jobs.length === 0 ? (
-                      <div style={emptyMiniStyle}>—</div>
-                    ) : (
-                      jobs.map((job) => (
-                        <TransportCard
-                          key={job.id}
-                          job={job}
-                          vehicleOptions={vehicleOptions}
-                          saving={savingId === job.id}
-                          dragging={draggingJobId === job.id}
-                          compact
-                          warnings={jobWarnings(job, jobs.length, data.jobs)}
-                          onDragStart={() => setDraggingJobId(job.id)}
-                          onDragEnd={() => {
-                            setDraggingJobId(null);
-                            setHoverCell(null);
-                          }}
-                          onUpdate={updateTransportJob}
-                        />
-                      ))
-                    )}
-                  </DropCell>
-                );
-              })}
-            </div>
-
-            {data.vehicles.map((vehicle) => (
-              <div key={vehicle.id} style={rowStyle}>
+              <div style={rowStyle}>
                 <div style={nameCellStyle}>
-                  <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
-                  <div style={{ fontSize: 11, opacity: 0.72 }}>
-                    {vehicle.reg_number ?? "No registration"}
-                  </div>
+                  <div style={{ fontWeight: 1000, fontSize: 13 }}>Unassigned</div>
+                  <div style={{ fontSize: 11, opacity: 0.72 }}>Needs vehicle</div>
                 </div>
 
                 {data.days.map((day) => {
-                  const cellKey = `${vehicle.id}__${day.date}`;
-                  const jobs = vehicleDayMap.get(cellKey) ?? [];
+                  const cellKey = `unassigned__${day.date}`;
+                  const jobs = unassignedByDay.get(day.date) ?? [];
 
                   return (
                     <DropCell
@@ -444,7 +477,7 @@ export default function TransportPlannerBoard() {
                         const jobId = e.dataTransfer.getData("text/plain");
                         if (!jobId) return;
                         await updateTransportJob(jobId, {
-                          vehicle_id: vehicle.id,
+                          vehicle_id: null,
                           transport_date: day.date,
                         });
                       }}
@@ -467,6 +500,10 @@ export default function TransportPlannerBoard() {
                               setHoverCell(null);
                             }}
                             onUpdate={updateTransportJob}
+                            onOpenQuickEdit={() => {
+                              setEditorJob(job);
+                              setEditorOpen(true);
+                            }}
                           />
                         ))
                       )}
@@ -474,11 +511,184 @@ export default function TransportPlannerBoard() {
                   );
                 })}
               </div>
-            ))}
+
+              {data.vehicles.map((vehicle) => (
+                <div key={vehicle.id} style={rowStyle}>
+                  <div style={nameCellStyle}>
+                    <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
+                    <div style={{ fontSize: 11, opacity: 0.72 }}>
+                      {vehicle.reg_number ?? "No registration"}
+                    </div>
+                  </div>
+
+                  {data.days.map((day) => {
+                    const cellKey = `${vehicle.id}__${day.date}`;
+                    const jobs = vehicleDayMap.get(cellKey) ?? [];
+
+                    return (
+                      <DropCell
+                        key={cellKey}
+                        active={hoverCell === cellKey}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setHoverCell(cellKey);
+                        }}
+                        onDragLeave={() => setHoverCell((prev) => (prev === cellKey ? null : prev))}
+                        onDrop={async (e) => {
+                          e.preventDefault();
+                          const jobId = e.dataTransfer.getData("text/plain");
+                          if (!jobId) return;
+                          await updateTransportJob(jobId, {
+                            vehicle_id: vehicle.id,
+                            transport_date: day.date,
+                          });
+                        }}
+                      >
+                        {jobs.length === 0 ? (
+                          <div style={emptyMiniStyle}>—</div>
+                        ) : (
+                          jobs.map((job) => (
+                            <TransportCard
+                              key={job.id}
+                              job={job}
+                              vehicleOptions={vehicleOptions}
+                              saving={savingId === job.id}
+                              dragging={draggingJobId === job.id}
+                              compact
+                              warnings={jobWarnings(job, jobs.length, data.jobs)}
+                              onDragStart={() => setDraggingJobId(job.id)}
+                              onDragEnd={() => {
+                                setDraggingJobId(null);
+                                setHoverCell(null);
+                              }}
+                              onUpdate={updateTransportJob}
+                              onOpenQuickEdit={() => {
+                                setEditorJob(job);
+                                setEditorOpen(true);
+                              }}
+                            />
+                          ))
+                        )}
+                      </DropCell>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {editorOpen && editorJob ? (
+        <div style={drawerBackdrop} onClick={() => setEditorOpen(false)}>
+          <div style={drawerPanel} onClick={(e) => e.stopPropagation()}>
+            <div style={drawerHeader}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 22 }}>
+                  {editorJob.transport_number ?? "Transport Job"}
+                </h3>
+                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
+                  Quick edit panel
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setEditorOpen(false)}
+                style={closeBtn}
+              >
+                Close
+              </button>
+            </div>
+
+            <form onSubmit={saveEditor} style={{ display: "grid", gap: 12, marginTop: 14 }}>
+              <div style={drawerGrid}>
+                <Field label="Date" name="transport_date" type="date" defaultValue={editorJob.transport_date ?? ""} />
+                <Field label="Collection time" name="collection_time" type="time" defaultValue={editorJob.collection_time ?? ""} />
+                <Field label="Delivery time" name="delivery_time" type="time" defaultValue={editorJob.delivery_time ?? ""} />
+
+                <SelectField
+                  label="Driver"
+                  name="operator_id"
+                  defaultValue={editorJob.operator_id ?? ""}
+                  options={[
+                    { value: "", label: "— Unassigned —" },
+                    ...lookupOperators.map((o) => ({
+                      value: o.id,
+                      label: o.full_name ?? "Operator",
+                    })),
+                  ]}
+                />
+
+                <SelectField
+                  label="Vehicle"
+                  name="vehicle_id"
+                  defaultValue={editorJob.vehicle_id ?? ""}
+                  options={[
+                    { value: "", label: "— Unassigned —" },
+                    ...lookupVehicles.map((v) => ({
+                      value: v.id,
+                      label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+                    })),
+                  ]}
+                />
+
+                <SelectField
+                  label="Status"
+                  name="status"
+                  defaultValue={editorJob.status ?? "planned"}
+                  options={[
+                    { value: "planned", label: "planned" },
+                    { value: "confirmed", label: "confirmed" },
+                    { value: "in_progress", label: "in_progress" },
+                    { value: "completed", label: "completed" },
+                    { value: "cancelled", label: "cancelled" },
+                  ]}
+                />
+              </div>
+
+              <TextAreaField
+                label="Collection address"
+                name="collection_address"
+                defaultValue={editorJob.collection_address ?? ""}
+                rows={3}
+              />
+
+              <TextAreaField
+                label="Delivery address"
+                name="delivery_address"
+                defaultValue={editorJob.delivery_address ?? ""}
+                rows={3}
+              />
+
+              <TextAreaField
+                label="Load description"
+                name="load_description"
+                defaultValue={editorJob.load_description ?? ""}
+                rows={3}
+              />
+
+              <TextAreaField
+                label="Notes"
+                name="notes"
+                defaultValue={editorJob.notes ?? ""}
+                rows={4}
+              />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="submit" style={primaryDrawerBtn} disabled={editorSaving}>
+                  {editorSaving ? "Saving..." : "Save changes"}
+                </button>
+
+                <a href={`/transport-jobs/${editorJob.id}`} style={secondaryDrawerLink}>
+                  Open full job
+                </a>
+              </div>
+            </form>
           </div>
         </div>
-      )}
-    </div>
+      ) : null}
+    </>
   );
 }
 
@@ -520,6 +730,7 @@ function TransportCard({
   onDragStart,
   onDragEnd,
   onUpdate,
+  onOpenQuickEdit,
 }: {
   job: PlannerTransportJob;
   vehicleOptions: Array<{ value: string; label: string }>;
@@ -530,6 +741,7 @@ function TransportCard({
   onDragStart: () => void;
   onDragEnd: () => void;
   onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
+  onOpenQuickEdit: () => void;
 }) {
   const client = first(job.clients);
   const vehicle = first(job.vehicles);
@@ -552,9 +764,13 @@ function TransportCard({
       }}
     >
       <div style={{ display: "grid", gap: 4 }}>
-        <div style={{ fontWeight: 1000, fontSize: compact ? 12 : 16, lineHeight: 1.2 }}>
+        <button
+          type="button"
+          onClick={onOpenQuickEdit}
+          style={titleBtn}
+        >
           {job.transport_number ?? "Transport Job"}
-        </div>
+        </button>
 
         <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.2 }}>
           {client?.company_name ?? "Customer"}
@@ -590,7 +806,9 @@ function TransportCard({
               <span
                 key={`${job.id}-${warning}`}
                 style={
-                  warning === "CONFLICT" ? conflictChipStyle : warningChipStyle
+                  warning.toLowerCase().includes("conflict")
+                    ? conflictChipStyle
+                    : warningChipStyle
                 }
               >
                 {warning}
@@ -638,6 +856,74 @@ function TransportCard({
           Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
         </div>
       </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  name,
+  defaultValue,
+  type = "text",
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  type?: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={fieldLabel}>{label}</label>
+      <input name={name} defaultValue={defaultValue} type={type} style={drawerInput} />
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={fieldLabel}>{label}</label>
+      <select name={name} defaultValue={defaultValue} style={drawerInput}>
+        {options.map((o) => (
+          <option key={`${name}-${o.value}`} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  name,
+  defaultValue,
+  rows,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  rows: number;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={fieldLabel}>{label}</label>
+      <textarea
+        name={name}
+        defaultValue={defaultValue}
+        rows={rows}
+        style={drawerTextarea}
+      />
     </div>
   );
 }
@@ -793,6 +1079,20 @@ const miniLinkStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
+const titleBtn: React.CSSProperties = {
+  display: "block",
+  padding: 0,
+  margin: 0,
+  background: "transparent",
+  border: "none",
+  textAlign: "left",
+  fontWeight: 1000,
+  fontSize: 12,
+  lineHeight: 1.2,
+  cursor: "pointer",
+  color: "#111",
+};
+
 const emptyMiniStyle: React.CSSProperties = {
   fontSize: 11,
   opacity: 0.5,
@@ -828,4 +1128,93 @@ const conflictChipStyle: React.CSSProperties = {
   background: "rgba(255,0,0,0.12)",
   border: "1px solid rgba(255,0,0,0.22)",
   color: "#b00020",
+};
+
+const drawerBackdrop: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.32)",
+  zIndex: 1000,
+  display: "flex",
+  justifyContent: "flex-end",
+};
+
+const drawerPanel: React.CSSProperties = {
+  width: "min(560px, 96vw)",
+  height: "100vh",
+  background: "#f6f8fb",
+  padding: 18,
+  boxSizing: "border-box",
+  overflowY: "auto",
+  boxShadow: "-8px 0 30px rgba(0,0,0,0.18)",
+};
+
+const drawerHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const closeBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const drawerGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
+
+const fieldLabel: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.8,
+};
+
+const drawerInput: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#fff",
+  boxSizing: "border-box",
+};
+
+const drawerTextarea: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#fff",
+  boxSizing: "border-box",
+  resize: "vertical",
+};
+
+const primaryDrawerBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const secondaryDrawerLink: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
