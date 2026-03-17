@@ -192,6 +192,7 @@ export default function DashboardPage() {
 
   const tiles = useMemo(
     () => [
+      { label: "Global Search", href: "/search", tone: "neutral" as const },
       { label: "Bookings", href: "/bookings", tone: "warn" as const },
       { label: "Quotes", href: "/quotes", tone: "neutral" as const },
       { label: "Customers", href: "/customers", tone: "good" as const },
@@ -232,7 +233,8 @@ export default function DashboardPage() {
 
           .dash-service-grid,
           .dash-three-col,
-          .dash-two-col {
+          .dash-two-col,
+          .dash-search-shortcuts {
             grid-template-columns: 1fr !important;
           }
 
@@ -370,6 +372,56 @@ export default function DashboardPage() {
 
         <div style={{ marginTop: 14 }}>
           <DashboardSearch />
+        </div>
+
+        <div
+          className="dash-search-shortcuts"
+          style={{
+            marginTop: 14,
+            display: "grid",
+            gridTemplateColumns: "1.3fr 1fr",
+            gap: 14,
+          }}
+        >
+          <Panel
+            title="Search the whole CRM"
+            subtitle="Use one search across customers, jobs, transport, quotes, bookings, equipment and audit log."
+          >
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href="/search" style={searchActionBtn}>
+                Open global search
+              </a>
+              <a href="/search?type=bookings" style={searchGhostBtn}>
+                Search bookings
+              </a>
+              <a href="/search?type=jobs" style={searchGhostBtn}>
+                Search jobs
+              </a>
+              <a href="/search?type=transport" style={searchGhostBtn}>
+                Search transport
+              </a>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Quick links"
+            subtitle="Jump straight into the most-used areas."
+          >
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href="/search?type=customers" style={searchGhostBtn}>
+                Customers
+              </a>
+              <a href="/search?type=quotes" style={searchGhostBtn}>
+                Quotes
+              </a>
+              <a href="/search?type=equipment" style={searchGhostBtn}>
+                Equipment
+              </a>
+              <a href="/search?type=audit" style={searchGhostBtn}>
+                Audit
+              </a>
+            </div>
+          </Panel>
         </div>
 
         <div
@@ -793,6 +845,27 @@ const warningLinkStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   whiteSpace: "nowrap",
+};
+
+const searchActionBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+};
+
+const searchGhostBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 12px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.52)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const smallTitle: React.CSSProperties = {
