@@ -5,6 +5,7 @@ import ClientShell from "../ClientShell";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
 import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
+import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 function fromAuthEmail(email: string | null) {
@@ -308,13 +309,13 @@ export default function DashboardPage() {
           </button>
         </div>
 
-        {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 && (
+        {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 ? (
           <div style={alertBox("warn", false)}>
             Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
           </div>
-        )}
+        ) : null}
 
-        {(stats?.certExpired ?? 0) > 0 && (
+        {(stats?.certExpired ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
             <span>
               ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
@@ -323,9 +324,9 @@ export default function DashboardPage() {
               View expired equipment →
             </a>
           </div>
-        )}
+        ) : null}
 
-        {(stats?.certExpiringSoon ?? 0) > 0 && (
+        {(stats?.certExpiringSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
             <span>
               ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
@@ -334,9 +335,9 @@ export default function DashboardPage() {
               View expiring equipment →
             </a>
           </div>
-        )}
+        ) : null}
 
-        {(stats?.lolerOverdue ?? 0) > 0 && (
+        {(stats?.lolerOverdue ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
             <span>
               ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
@@ -345,9 +346,9 @@ export default function DashboardPage() {
               View overdue LOLER →
             </a>
           </div>
-        )}
+        ) : null}
 
-        {(stats?.lolerDueSoon ?? 0) > 0 && (
+        {(stats?.lolerDueSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
             <span>
               ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
@@ -356,9 +357,9 @@ export default function DashboardPage() {
               View LOLER due soon →
             </a>
           </div>
-        )}
+        ) : null}
 
-        {(stats?.maintenanceEquipment ?? 0) > 0 && (
+        {(stats?.maintenanceEquipment ?? 0) > 0 ? (
           <div
             style={{
               marginTop: 14,
@@ -371,7 +372,7 @@ export default function DashboardPage() {
           >
             ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
           </div>
-        )}
+        ) : null}
 
         <div style={{ marginTop: 14 }}>
           <DashboardSearch />
@@ -431,6 +432,10 @@ export default function DashboardPage() {
           <OperatorQualificationAlertSummary />
         </div>
 
+        <div style={{ marginTop: 14 }}>
+          <OperatorComplianceAlerts />
+        </div>
+
         <div
           style={{
             marginTop: 14,
@@ -439,11 +444,36 @@ export default function DashboardPage() {
             gap: 12,
           }}
         >
-          <StatCard title="Bookings today" value={stats?.bookingsToday ?? "-"} subtext="Jobs starting today" badge={<StatusPill text="Today" />} />
-          <StatCard title="Active hires" value={stats?.activeHires ?? "-"} subtext="Currently live bookings" badge={<StatusPill text="Live" />} />
-          <StatCard title="Equipment available" value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`} subtext="Available vs total fleet" badge={<StatusPill text="Avail" />} />
-          <StatCard title="Invoices outstanding" value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"} subtext="Unpaid or part-paid" badge={<StatusPill text="£" />} />
-          <StatCard title="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"} subtext="Fleet utilisation" badge={<StatusPill text="Use" />} />
+          <StatCard
+            title="Bookings today"
+            value={stats?.bookingsToday ?? "-"}
+            subtext="Jobs starting today"
+            badge={<StatusPill text="Today" />}
+          />
+          <StatCard
+            title="Active hires"
+            value={stats?.activeHires ?? "-"}
+            subtext="Currently live bookings"
+            badge={<StatusPill text="Live" />}
+          />
+          <StatCard
+            title="Equipment available"
+            value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`}
+            subtext="Available vs total fleet"
+            badge={<StatusPill text="Avail" />}
+          />
+          <StatCard
+            title="Invoices outstanding"
+            value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
+            subtext="Unpaid or part-paid"
+            badge={<StatusPill text="£" />}
+          />
+          <StatCard
+            title="Utilisation"
+            value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"}
+            subtext="Fleet utilisation"
+            badge={<StatusPill text="Use" />}
+          />
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -764,7 +794,7 @@ function StatCard({
       <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>
         {value}
       </div>
-      {subtext && <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div>}
+      {subtext ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div> : null}
     </div>
   );
 }
@@ -789,7 +819,7 @@ function Panel({
       }}
     >
       <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
-      {subtitle && <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{subtitle}</div>}
+      {subtitle ? <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{subtitle}</div> : null}
       <div style={{ marginTop: 14 }}>{children}</div>
     </div>
   );
