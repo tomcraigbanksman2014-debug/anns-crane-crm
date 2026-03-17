@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Result = {
   type: "customer" | "job" | "transport" | "quote" | "booking" | "equipment" | "audit";
@@ -49,49 +49,143 @@ export default function DashboardSearch() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Result[]>([]);
+  const [activeIndex, setActiveIndex] = useState(-1);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const trimmed = useMemo(() => q.trim(), [q]);
 
   useEffect(() => {
-    let t: any;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
     if (!trimmed) {
       setResults([]);
       setLoading(false);
+      setActiveIndex(-1);
       return;
     }
 
     setLoading(true);
 
-    t = setTimeout(async () => {
+    timer = setTimeout(async () => {
       try {
         const res = await fetch(
-          `/api/search?q=${encodeURIComponent(trimmed)}&type=all&limit=8`
+          `/api/search?q=${encodeURIComponent(trimmed)}&type=all&limit=8`,
+          { cache: "no-store" }
         );
-        const data = await res.json();
-        setResults(data?.results ?? []);
+        const data = await res.json().catch(() => null);
+
+        if (!cancelled) {
+          setResults(Array.isArray(data?.results) ? data.results : []);
+          setActiveIndex(-1);
+        }
+      } catch {
+        if (!cancelled) {
+          setResults([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }, 250);
 
-    return () => clearTimeout(t);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [trimmed]);
 
+  useEffect(() => {
+    function onPointerDown(event: MouseEvent) {
+      if (!rootRef.current) return;
+      if (!rootRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (!open) return;
+
+      if (event.key === "Escape") {
+        setOpen(false);
+        inputRef.current?.blur();
+      }
+    }
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  function goToIndex(index: number) {
+    const item = results[index];
+    if (!item) return;
+    window.location.href = item.href;
+  }
+
+  function onInputKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (!open) {
+      if (event.key === "ArrowDown" && results.length > 0) {
+        setOpen(true);
+        setActiveIndex(0);
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((prev) => {
+        const next = prev + 1;
+        return next >= results.length ? 0 : next;
+      });
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((prev) => {
+        const next = prev - 1;
+        return next < 0 ? results.length - 1 : next;
+      });
+    }
+
+    if (event.key === "Enter") {
+      if (activeIndex >= 0 && activeIndex < results.length) {
+        event.preventDefault();
+        goToIndex(activeIndex);
+        return;
+      }
+
+      if (trimmed) {
+        event.preventDefault();
+        window.location.href = `/search?q=${encodeURIComponent(trimmed)}&type=all`;
+      }
+    }
+  }
+
   return (
-    <div style={{ position: "relative", width: "min(620px, 92vw)" }}>
+    <div ref={rootRef} style={{ position: "relative", width: "min(620px, 92vw)" }}>
       <input
+        ref={inputRef}
         value={q}
         onChange={(e) => {
           setQ(e.target.value);
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onKeyDown={onInputKeyDown}
         placeholder="Search customers, jobs, transport, bookings, quotes, equipment…"
         style={inputStyle}
       />
 
-      {open && (loading || results.length > 0 || trimmed) && (
+      {open && (loading || results.length > 0 || trimmed) ? (
         <div style={panelStyle}>
           <div style={panelHeaderStyle}>
             <span>{loading ? "Searching…" : `${results.length} result(s)`}</span>
@@ -104,25 +198,29 @@ export default function DashboardSearch() {
             </button>
           </div>
 
-          {!loading && trimmed && (
+          {!loading && trimmed ? (
             <a
               href={`/search?q=${encodeURIComponent(trimmed)}&type=all`}
               style={viewAllLink}
             >
               Open full search results
             </a>
-          )}
+          ) : null}
 
           {!loading && trimmed && results.length === 0 ? (
             <div style={emptyStyle}>No matches.</div>
           ) : null}
 
-          {results.map((r) => (
+          {results.map((r, index) => (
             <a
               key={`${r.type}:${r.id}`}
               href={r.href}
+              onMouseEnter={() => setActiveIndex(index)}
               onClick={() => setOpen(false)}
-              style={itemLink}
+              style={{
+                ...itemLink,
+                ...(activeIndex === index ? itemLinkActive : {}),
+              }}
             >
               <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <span
@@ -145,7 +243,7 @@ export default function DashboardSearch() {
             </a>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -211,4 +309,8 @@ const itemLink: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   borderTop: "1px solid rgba(0,0,0,0.06)",
+};
+
+const itemLinkActive: React.CSSProperties = {
+  background: "rgba(0,0,0,0.04)",
 };
