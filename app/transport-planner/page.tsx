@@ -124,6 +124,13 @@ function toMinutes(value: string | null | undefined) {
   return hours * 60 + mins;
 }
 
+function minutesToTime(value: number) {
+  const clamped = Math.max(0, Math.min(23 * 60 + 59, value));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function overlaps(
   aStart: string | null | undefined,
   aEnd: string | null | undefined,
@@ -150,6 +157,7 @@ function getStatusTheme(status: string | null | undefined) {
       background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
       border: "1px solid rgba(0,0,0,0.12)",
       stripe: "rgba(120,120,120,0.85)",
+      shadow: "0 3px 10px rgba(0,0,0,0.05)",
     };
   }
 
@@ -158,6 +166,7 @@ function getStatusTheme(status: string | null | undefined) {
       background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
       border: "1px solid rgba(255,170,0,0.25)",
       stripe: "rgba(255,170,0,0.95)",
+      shadow: "0 4px 12px rgba(255,170,0,0.10)",
     };
   }
 
@@ -166,6 +175,7 @@ function getStatusTheme(status: string | null | undefined) {
       background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
       border: "1px solid rgba(0,120,255,0.25)",
       stripe: "rgba(0,120,255,0.95)",
+      shadow: "0 4px 12px rgba(0,120,255,0.10)",
     };
   }
 
@@ -174,6 +184,7 @@ function getStatusTheme(status: string | null | undefined) {
       background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
       border: "1px solid rgba(0,180,120,0.25)",
       stripe: "rgba(0,180,120,0.95)",
+      shadow: "0 4px 12px rgba(0,180,120,0.10)",
     };
   }
 
@@ -182,6 +193,7 @@ function getStatusTheme(status: string | null | undefined) {
       background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
       border: "1px solid rgba(255,0,0,0.22)",
       stripe: "rgba(220,0,0,0.90)",
+      shadow: "0 4px 12px rgba(255,0,0,0.08)",
     };
   }
 
@@ -189,6 +201,7 @@ function getStatusTheme(status: string | null | undefined) {
     background: "rgba(255,255,255,0.90)",
     border: "1px solid rgba(0,0,0,0.08)",
     stripe: "rgba(0,0,0,0.18)",
+    shadow: "0 3px 10px rgba(0,0,0,0.05)",
   };
 }
 
@@ -280,6 +293,14 @@ function matchesSearch(job: PlannerTransportJob, q: string) {
   return haystack.includes(text);
 }
 
+type DragState = {
+  jobId: string;
+  startX: number;
+  originalCollection: string | null;
+  originalDelivery: string | null;
+  cellWidth: number;
+} | null;
+
 export default function TransportPlannerPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -299,6 +320,10 @@ export default function TransportPlannerPage() {
   const [driverFilter, setDriverFilter] = useState("all");
   const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
   const [showConflictsOnly, setShowConflictsOnly] = useState(false);
+  const [compactMode, setCompactMode] = useState(false);
+  const [snapMode, setSnapMode] = useState<15 | 30 | 60>(30);
+  const [resizeMode, setResizeMode] = useState<"collection" | "delivery" | null>(null);
+  const [dragAdjust, setDragAdjust] = useState<DragState>(null);
 
   const [data, setData] = useState<{
     week_start: string;
@@ -320,8 +345,8 @@ export default function TransportPlannerPage() {
 
     try {
       const [boardRes, lookupRes] = await Promise.all([
-        fetch(`/api/transport-planner/board?date=${selectedDate}`),
-        fetch(`/api/lookups/transport-form`),
+        fetch(`/api/transport-planner/board?date=${selectedDate}`, { cache: "no-store" }),
+        fetch(`/api/lookups/transport-form`, { cache: "no-store" }),
       ]);
 
       const boardJson = await boardRes.json().catch(() => null);
@@ -355,6 +380,89 @@ export default function TransportPlannerPage() {
     load();
   }, [selectedDate]);
 
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      if (!dragAdjust) return;
+      const originalCollection = toMinutes(dragAdjust.originalCollection);
+      const originalDelivery = toMinutes(dragAdjust.originalDelivery);
+      if (originalCollection === null || originalDelivery === null) return;
+
+      const dayWindowMinutes = 14 * 60;
+      const pxPerMinute = dragAdjust.cellWidth / dayWindowMinutes;
+      if (!pxPerMinute || !Number.isFinite(pxPerMinute)) return;
+
+      const deltaPx = e.clientX - dragAdjust.startX;
+      const rawMinuteShift = deltaPx / pxPerMinute;
+      const snappedShift =
+        Math.round(rawMinuteShift / snapMode) * snapMode;
+
+      let nextCollection = originalCollection;
+      let nextDelivery = originalDelivery;
+
+      if (resizeMode === "collection") {
+        nextCollection = clamp(originalCollection + snappedShift, 0, originalDelivery - 15);
+      } else if (resizeMode === "delivery") {
+        nextDelivery = clamp(originalDelivery + snappedShift, originalCollection + 15, 23 * 60 + 59);
+      }
+
+      setData((prev) => ({
+        ...prev,
+        jobs: prev.jobs.map((job) =>
+          job.id === dragAdjust.jobId
+            ? {
+                ...job,
+                collection_time: minutesToTime(nextCollection),
+                delivery_time: minutesToTime(nextDelivery),
+              }
+            : job
+        ),
+      }));
+    }
+
+    async function onUp() {
+      if (!dragAdjust) return;
+
+      const job = data.jobs.find((j) => j.id === dragAdjust.jobId);
+      const originalCollection = dragAdjust.originalCollection;
+      const originalDelivery = dragAdjust.originalDelivery;
+
+      const clearState = () => {
+        setDragAdjust(null);
+        setResizeMode(null);
+      };
+
+      if (!job) {
+        clearState();
+        return;
+      }
+
+      if (
+        job.collection_time === originalCollection &&
+        job.delivery_time === originalDelivery
+      ) {
+        clearState();
+        return;
+      }
+
+      await updateTransportJob(job.id, {
+        collection_time: job.collection_time,
+        delivery_time: job.delivery_time,
+      });
+
+      clearState();
+    }
+
+    if (dragAdjust) {
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    }
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragAdjust, resizeMode, snapMode, data.jobs]);
+
   async function updateTransportJob(jobId: string, update: Record<string, any>) {
     const current = data.jobs.find((job) => job.id === jobId);
     setSavingId(jobId);
@@ -379,12 +487,14 @@ export default function TransportPlannerPage() {
 
       if (!res.ok) {
         setMsg(json?.error || "Could not update transport job.");
+        await load();
         return;
       }
 
       await load();
     } catch {
       setMsg("Could not update transport job.");
+      await load();
     } finally {
       setSavingId(null);
       setDraggingJobId(null);
@@ -601,13 +711,13 @@ export default function TransportPlannerPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1600px, 99vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1700px, 99vw)", margin: "0 auto" }}>
         <div style={{ display: "grid", gap: 12 }}>
           <div style={toolbarStyle}>
             <div style={{ minWidth: 0 }}>
               <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
               <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-                Filter by vehicle, driver, status or customer/job text while keeping drag/drop and quick actions.
+                Drag jobs between vehicles and days. Resize left/right edges to adjust times.
               </div>
             </div>
 
@@ -685,6 +795,16 @@ export default function TransportPlannerPage() {
               ))}
             </select>
 
+            <select
+              value={String(snapMode)}
+              onChange={(e) => setSnapMode(Number(e.target.value) as 15 | 30 | 60)}
+              style={filterSelectStyle}
+            >
+              <option value="15">15 min snap</option>
+              <option value="30">30 min snap</option>
+              <option value="60">60 min snap</option>
+            </select>
+
             <label style={checkWrapStyle}>
               <input
                 type="checkbox"
@@ -703,6 +823,15 @@ export default function TransportPlannerPage() {
               Conflicts only
             </label>
 
+            <label style={checkWrapStyle}>
+              <input
+                type="checkbox"
+                checked={compactMode}
+                onChange={(e) => setCompactMode(e.target.checked)}
+              />
+              Compact view
+            </label>
+
             <button
               type="button"
               onClick={() => {
@@ -712,6 +841,8 @@ export default function TransportPlannerPage() {
                 setDriverFilter("all");
                 setShowUnassignedOnly(false);
                 setShowConflictsOnly(false);
+                setCompactMode(false);
+                setSnapMode(30);
               }}
               style={clearBtnStyle}
             >
@@ -732,6 +863,10 @@ export default function TransportPlannerPage() {
               <div style={statLabelStyle}>Shown vehicles</div>
               <div style={statValueStyle}>{visibleVehicles.length}</div>
             </div>
+            <div style={statBoxStyle}>
+              <div style={statLabelStyle}>Snap mode</div>
+              <div style={statValueStyle}>{snapMode}m</div>
+            </div>
           </div>
 
           <div style={legendWrap}>
@@ -750,7 +885,15 @@ export default function TransportPlannerPage() {
           ) : (
             <div style={boardShellStyle}>
               <div style={boardScrollerStyle}>
-                <div style={weekHeaderStyle}>
+                <div
+                  style={{
+                    ...weekHeaderStyle,
+                    minWidth: compactMode ? 1320 : 1520,
+                    gridTemplateColumns: compactMode
+                      ? "160px repeat(7, minmax(165px, 1fr))"
+                      : "180px repeat(7, minmax(190px, 1fr))",
+                  }}
+                >
                   <div style={nameColHeaderStyle}>Vehicle</div>
                   {data.days.map((day) => (
                     <div key={day.date} style={dayHeaderStyle}>
@@ -759,8 +902,16 @@ export default function TransportPlannerPage() {
                   ))}
                 </div>
 
-                <div style={rowStyle}>
-                  <div style={nameCellStyle}>
+                <div
+                  style={{
+                    ...rowStyle,
+                    minWidth: compactMode ? 1320 : 1520,
+                    gridTemplateColumns: compactMode
+                      ? "160px repeat(7, minmax(165px, 1fr))"
+                      : "180px repeat(7, minmax(190px, 1fr))",
+                  }}
+                >
+                  <div style={{ ...nameCellStyle, minHeight: compactMode ? 120 : 160 }}>
                     <div style={{ fontWeight: 1000, fontSize: 13 }}>Unassigned</div>
                     <div style={{ fontSize: 11, opacity: 0.72 }}>Needs vehicle</div>
                   </div>
@@ -773,6 +924,7 @@ export default function TransportPlannerPage() {
                       <DropCell
                         key={cellKey}
                         active={hoverCell === cellKey}
+                        compactMode={compactMode}
                         onDragOver={(e) => {
                           e.preventDefault();
                           setHoverCell(cellKey);
@@ -791,13 +943,17 @@ export default function TransportPlannerPage() {
                         {jobs.length === 0 ? (
                           <div style={emptyMiniStyle}>—</div>
                         ) : (
-                          jobs.map((job) => (
+                          jobs.map((job, idx) => (
                             <TransportCard
                               key={job.id}
                               job={job}
                               warnings={jobWarnings(job, jobs.length, filteredJobs)}
                               saving={savingId === job.id}
                               dragging={draggingJobId === job.id}
+                              compactMode={compactMode}
+                              stackIndex={idx}
+                              totalInCell={jobs.length}
+                              dragAdjustActive={dragAdjust?.jobId === job.id}
                               onDragStart={() => setDraggingJobId(job.id)}
                               onDragEnd={() => {
                                 setDraggingJobId(null);
@@ -808,6 +964,16 @@ export default function TransportPlannerPage() {
                                 setEditorJob(job);
                                 setEditorOpen(true);
                               }}
+                              onResizeStart={(mode, startX, cellWidth) => {
+                                setResizeMode(mode);
+                                setDragAdjust({
+                                  jobId: job.id,
+                                  startX,
+                                  originalCollection: job.collection_time ?? null,
+                                  originalDelivery: job.delivery_time ?? null,
+                                  cellWidth,
+                                });
+                              }}
                             />
                           ))
                         )}
@@ -817,8 +983,17 @@ export default function TransportPlannerPage() {
                 </div>
 
                 {visibleVehicles.map((vehicle) => (
-                  <div key={vehicle.id} style={rowStyle}>
-                    <div style={nameCellStyle}>
+                  <div
+                    key={vehicle.id}
+                    style={{
+                      ...rowStyle,
+                      minWidth: compactMode ? 1320 : 1520,
+                      gridTemplateColumns: compactMode
+                        ? "160px repeat(7, minmax(165px, 1fr))"
+                        : "180px repeat(7, minmax(190px, 1fr))",
+                    }}
+                  >
+                    <div style={{ ...nameCellStyle, minHeight: compactMode ? 120 : 160 }}>
                       <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
                       <div style={{ fontSize: 11, opacity: 0.72 }}>
                         {vehicle.reg_number ?? "No registration"}
@@ -833,6 +1008,7 @@ export default function TransportPlannerPage() {
                         <DropCell
                           key={cellKey}
                           active={hoverCell === cellKey}
+                          compactMode={compactMode}
                           onDragOver={(e) => {
                             e.preventDefault();
                             setHoverCell(cellKey);
@@ -848,32 +1024,40 @@ export default function TransportPlannerPage() {
                             });
                           }}
                         >
-                          {jobs.length === 0 ? (
-                            <TimelineGrid />
-                          ) : (
-                            <>
-                              <TimelineGrid />
-                              {jobs.map((job) => (
-                                <TransportCard
-                                  key={job.id}
-                                  job={job}
-                                  warnings={jobWarnings(job, jobs.length, filteredJobs)}
-                                  saving={savingId === job.id}
-                                  dragging={draggingJobId === job.id}
-                                  onDragStart={() => setDraggingJobId(job.id)}
-                                  onDragEnd={() => {
-                                    setDraggingJobId(null);
-                                    setHoverCell(null);
-                                  }}
-                                  onUpdate={updateTransportJob}
-                                  onOpenQuickEdit={() => {
-                                    setEditorJob(job);
-                                    setEditorOpen(true);
-                                  }}
-                                />
-                              ))}
-                            </>
-                          )}
+                          <TimelineGrid />
+                          {jobs.map((job, idx) => (
+                            <TransportCard
+                              key={job.id}
+                              job={job}
+                              warnings={jobWarnings(job, jobs.length, filteredJobs)}
+                              saving={savingId === job.id}
+                              dragging={draggingJobId === job.id}
+                              compactMode={compactMode}
+                              stackIndex={idx}
+                              totalInCell={jobs.length}
+                              dragAdjustActive={dragAdjust?.jobId === job.id}
+                              onDragStart={() => setDraggingJobId(job.id)}
+                              onDragEnd={() => {
+                                setDraggingJobId(null);
+                                setHoverCell(null);
+                              }}
+                              onUpdate={updateTransportJob}
+                              onOpenQuickEdit={() => {
+                                setEditorJob(job);
+                                setEditorOpen(true);
+                              }}
+                              onResizeStart={(mode, startX, cellWidth) => {
+                                setResizeMode(mode);
+                                setDragAdjust({
+                                  jobId: job.id,
+                                  startX,
+                                  originalCollection: job.collection_time ?? null,
+                                  originalDelivery: job.delivery_time ?? null,
+                                  cellWidth,
+                                });
+                              }}
+                            />
+                          ))}
                         </DropCell>
                       );
                     })}
@@ -1000,12 +1184,14 @@ export default function TransportPlannerPage() {
 
 function DropCell({
   active,
+  compactMode,
   onDragOver,
   onDragLeave,
   onDrop,
   children,
 }: {
   active: boolean;
+  compactMode: boolean;
   onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
@@ -1018,6 +1204,7 @@ function DropCell({
       onDrop={onDrop}
       style={{
         ...cellStyle,
+        minHeight: compactMode ? 120 : 160,
         ...(active ? activeCellStyle : {}),
       }}
     >
@@ -1029,7 +1216,7 @@ function DropCell({
 function TimelineGrid() {
   return (
     <div style={timelineGridStyle} aria-hidden="true">
-      {Array.from({ length: 7 }).map((_, i) => (
+      {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} style={timelineGridLineStyle} />
       ))}
     </div>
@@ -1041,19 +1228,29 @@ function TransportCard({
   warnings,
   saving,
   dragging,
+  compactMode,
+  stackIndex,
+  totalInCell,
+  dragAdjustActive,
   onDragStart,
   onDragEnd,
   onUpdate,
   onOpenQuickEdit,
+  onResizeStart,
 }: {
   job: PlannerTransportJob;
   warnings: string[];
   saving: boolean;
   dragging: boolean;
+  compactMode: boolean;
+  stackIndex: number;
+  totalInCell: number;
+  dragAdjustActive: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
   onOpenQuickEdit: () => void;
+  onResizeStart: (mode: "collection" | "delivery", startX: number, cellWidth: number) => void;
 }) {
   const client = first(job.clients);
   const vehicle = first(job.vehicles);
@@ -1061,10 +1258,13 @@ function TransportCard({
   const linkedJob = first(job.jobs);
   const theme = getStatusTheme(job.status);
   const layout = timelineLayout(job.collection_time, job.delivery_time);
+  const topOffset = compactMode ? 8 + stackIndex * 28 : 10 + stackIndex * 34;
+  const cardHeight = compactMode ? 52 : 64;
+  const showDetails = !compactMode || totalInCell <= 2;
 
   return (
     <div
-      draggable
+      draggable={!dragAdjustActive}
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", job.id);
         onDragStart();
@@ -1074,10 +1274,16 @@ function TransportCard({
         ...timelineCardStyle,
         background: theme.background,
         border: theme.border,
+        boxShadow: theme.shadow,
         opacity: dragging ? 0.55 : 1,
         left: `${layout.leftPct}%`,
         width: `${layout.widthPct}%`,
+        top: topOffset,
+        minHeight: cardHeight,
+        padding: compactMode ? "6px 8px 6px 10px" : "8px 10px 8px 12px",
+        zIndex: dragAdjustActive ? 5 : 2,
       }}
+      title={`${job.transport_number ?? "Transport Job"} • ${client?.company_name ?? "Customer"} • ${job.collection_time ?? "—"} → ${job.delivery_time ?? "—"}`}
     >
       <div
         style={{
@@ -1094,24 +1300,34 @@ function TransportCard({
         {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
       </div>
 
-      <div style={timelineMetaStyle}>{client?.company_name ?? "Customer"}</div>
-      <div style={timelineMetaStyle}>{prettyJobType(job.job_type)}</div>
+      {showDetails ? (
+        <>
+          <div style={timelineSubtleStyle}>{client?.company_name ?? "Customer"}</div>
+          {!compactMode ? (
+            <div style={timelineSubtleStyle}>{prettyJobType(job.job_type)}</div>
+          ) : null}
+        </>
+      ) : null}
 
-      <div style={timelineSubtleStyle}>
-        Driver: {operator?.full_name ?? "—"}
-      </div>
+      {!compactMode && showDetails ? (
+        <>
+          <div style={timelineSubtleStyle}>
+            Driver: {operator?.full_name ?? "—"}
+          </div>
 
-      <div style={timelineSubtleStyle}>
-        {vehicle?.name ?? "No vehicle"}
-      </div>
+          <div style={timelineSubtleStyle}>
+            {vehicle?.name ?? "No vehicle"}
+          </div>
 
-      <div style={timelineSubtleStyle}>
-        Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
-      </div>
+          <div style={timelineSubtleStyle}>
+            Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+          </div>
+        </>
+      ) : null}
 
       {warnings.length > 0 ? (
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-          {warnings.map((warning) => (
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+          {(compactMode ? warnings.slice(0, 2) : warnings).map((warning) => (
             <span
               key={`${job.id}-${warning}`}
               style={
@@ -1120,48 +1336,80 @@ function TransportCard({
                   : warningChipStyle
               }
             >
-              {warning}
+              {compactMode ? warning.replace(" conflict", " clash") : warning}
             </span>
           ))}
         </div>
       ) : null}
 
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-        <button
-          type="button"
-          onClick={() => onUpdate(job.id, { status: "in_progress" })}
-          disabled={saving}
-          style={tinyBtn}
-        >
-          Start
-        </button>
+      {!compactMode ? (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+          <button
+            type="button"
+            onClick={() => onUpdate(job.id, { status: "in_progress" })}
+            disabled={saving}
+            style={tinyBtn}
+          >
+            Start
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onUpdate(job.id, { status: "completed" })}
-          disabled={saving}
-          style={tinyBtn}
-        >
-          Complete
-        </button>
+          <button
+            type="button"
+            onClick={() => onUpdate(job.id, { status: "completed" })}
+            disabled={saving}
+            style={tinyBtn}
+          >
+            Complete
+          </button>
 
-        <button
-          type="button"
-          onClick={() => onUpdate(job.id, { vehicle_id: null })}
-          disabled={saving}
-          style={tinyBtn}
-        >
-          Unassign
-        </button>
+          <button
+            type="button"
+            onClick={() => onUpdate(job.id, { vehicle_id: null })}
+            disabled={saving}
+            style={tinyBtn}
+          >
+            Unassign
+          </button>
 
-        <a href={`/transport-jobs/${job.id}`} style={tinyLink}>
-          Open
-        </a>
-      </div>
+          <a href={`/transport-jobs/${job.id}`} style={tinyLink}>
+            Open
+          </a>
+        </div>
+      ) : null}
 
-      <div style={{ marginTop: 6, fontSize: 10, opacity: 0.72 }}>
-        {prettyStatus(job.status)}
-      </div>
+      {!compactMode ? (
+        <div style={{ marginTop: 4, fontSize: 10, opacity: 0.72 }}>
+          {prettyStatus(job.status)}
+        </div>
+      ) : null}
+
+      <div
+        onMouseDown={(e) => {
+          const parent = (e.currentTarget.parentElement?.parentElement ??
+            e.currentTarget.parentElement) as HTMLElement | null;
+          const cell = parent?.closest("[data-drop-cell]") as HTMLElement | null;
+          const cellWidth = cell?.clientWidth ?? 190;
+          e.preventDefault();
+          e.stopPropagation();
+          onResizeStart("collection", e.clientX, cellWidth);
+        }}
+        style={leftResizeHandle}
+        title="Drag to adjust pickup time"
+      />
+
+      <div
+        onMouseDown={(e) => {
+          const parent = (e.currentTarget.parentElement?.parentElement ??
+            e.currentTarget.parentElement) as HTMLElement | null;
+          const cell = parent?.closest("[data-drop-cell]") as HTMLElement | null;
+          const cellWidth = cell?.clientWidth ?? 190;
+          e.preventDefault();
+          e.stopPropagation();
+          onResizeStart("delivery", e.clientX, cellWidth);
+        }}
+        style={rightResizeHandle}
+        title="Drag to adjust delivery time"
+      />
     </div>
   );
 }
@@ -1256,7 +1504,8 @@ const toolbarActionsStyle: React.CSSProperties = {
 
 const filterBarStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(260px, 1.4fr) repeat(3, minmax(170px, 0.8fr)) auto auto auto",
+  gridTemplateColumns:
+    "minmax(260px, 1.4fr) repeat(4, minmax(150px, 0.7fr)) auto auto auto auto",
   gap: 10,
   alignItems: "center",
   background: "rgba(255,255,255,0.18)",
@@ -1365,18 +1614,14 @@ const boardScrollerStyle: React.CSSProperties = {
 
 const weekHeaderStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "170px repeat(7, minmax(180px, 1fr))",
   gap: 10,
   marginBottom: 10,
-  minWidth: 1480,
 };
 
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "170px repeat(7, minmax(180px, 1fr))",
   gap: 10,
   marginBottom: 10,
-  minWidth: 1480,
 };
 
 const nameColHeaderStyle: React.CSSProperties = {
@@ -1404,11 +1649,9 @@ const nameCellStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   alignSelf: "stretch",
-  minHeight: 150,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 150,
   padding: 6,
   borderRadius: 10,
   background: "rgba(255,255,255,0.34)",
@@ -1426,7 +1669,7 @@ const timelineGridStyle: React.CSSProperties = {
   position: "absolute",
   inset: 0,
   display: "grid",
-  gridTemplateColumns: "repeat(7, 1fr)",
+  gridTemplateColumns: "repeat(8, 1fr)",
   pointerEvents: "none",
 };
 
@@ -1436,14 +1679,11 @@ const timelineGridLineStyle: React.CSSProperties = {
 
 const timelineCardStyle: React.CSSProperties = {
   position: "absolute",
-  top: 12,
-  minHeight: 110,
   borderRadius: 10,
-  boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
-  padding: "10px 10px 10px 14px",
   boxSizing: "border-box",
   cursor: "grab",
   overflow: "hidden",
+  minWidth: 54,
 };
 
 const timelineStripeStyle: React.CSSProperties = {
@@ -1463,23 +1703,30 @@ const timelineTitleBtn: React.CSSProperties = {
   textAlign: "left",
   fontWeight: 1000,
   fontSize: 12,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
   cursor: "pointer",
   color: "#111",
+  maxWidth: "calc(100% - 8px)",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 
 const timelineMetaStyle: React.CSSProperties = {
   fontSize: 11,
   opacity: 0.84,
-  marginTop: 4,
-  lineHeight: 1.2,
+  marginTop: 2,
+  lineHeight: 1.15,
 };
 
 const timelineSubtleStyle: React.CSSProperties = {
   fontSize: 10,
   opacity: 0.72,
-  marginTop: 4,
-  lineHeight: 1.2,
+  marginTop: 2,
+  lineHeight: 1.15,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -1555,9 +1802,9 @@ const infoBox: React.CSSProperties = {
 
 const warningChipStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "3px 7px",
+  padding: "2px 6px",
   borderRadius: 999,
-  fontSize: 10,
+  fontSize: 9,
   fontWeight: 900,
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.25)",
@@ -1566,9 +1813,9 @@ const warningChipStyle: React.CSSProperties = {
 
 const conflictChipStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "3px 7px",
+  padding: "2px 6px",
   borderRadius: 999,
-  fontSize: 10,
+  fontSize: 9,
   fontWeight: 900,
   background: "rgba(255,0,0,0.12)",
   border: "1px solid rgba(255,0,0,0.22)",
@@ -1662,4 +1909,22 @@ const secondaryDrawerLink: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const leftResizeHandle: React.CSSProperties = {
+  position: "absolute",
+  left: 0,
+  top: 0,
+  bottom: 0,
+  width: 10,
+  cursor: "ew-resize",
+};
+
+const rightResizeHandle: React.CSSProperties = {
+  position: "absolute",
+  right: 0,
+  top: 0,
+  bottom: 0,
+  width: 10,
+  cursor: "ew-resize",
 };
