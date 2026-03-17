@@ -15,7 +15,13 @@ function getAdminClient() {
 }
 
 function getMasterAdminEmail() {
-  return String(process.env.MASTER_ADMIN_EMAIL ?? "").trim().toLowerCase();
+  return String(
+    process.env.MASTER_ADMIN_EMAIL ??
+      process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
+      ""
+  )
+    .trim()
+    .toLowerCase();
 }
 
 async function requireAdmin() {
@@ -30,7 +36,7 @@ async function requireAdmin() {
   }
 
   const myEmail = String(user.email ?? "").toLowerCase();
-  const myRole = (user.user_metadata as any)?.role ?? "";
+  const myRole = String((user.user_metadata as any)?.role ?? "").toLowerCase();
   const masterAdminEmail = getMasterAdminEmail();
 
   if (myRole !== "admin" && myEmail !== masterAdminEmail) {
