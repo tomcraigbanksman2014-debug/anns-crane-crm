@@ -1,58 +1,23 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import StatusPill from "../components/StatusPill";
 
 type BookingRow = {
   id: string;
   created_at: string | null;
   start_date: string | null;
   end_date: string | null;
-  start_at?: string | null;
-  end_at?: string | null;
+  start_at: string | null;
+  end_at: string | null;
   location: string | null;
   status: string | null;
   invoice_status: string | null;
   hire_price: number | null;
-  vat: number | null;
   total_invoice: number | null;
   payment_received: number | null;
   po_number: string | null;
   job_reference: string | null;
   operator_name: string | null;
-  notes: string | null;
-  driver_notes: string | null;
-  clients:
-    | {
-        id: string;
-        company_name: string | null;
-        contact_name: string | null;
-      }
-    | {
-        id: string;
-        company_name: string | null;
-        contact_name: string | null;
-      }[]
-    | null;
-  equipment:
-    | {
-        id: string;
-        name: string | null;
-        asset_number: string | null;
-        capacity: string | null;
-      }
-    | {
-        id: string;
-        name: string | null;
-        asset_number: string | null;
-        capacity: string | null;
-      }[]
-    | null;
 };
-
-function first<T>(v: T | T[] | null | undefined): T | null {
-  if (!v) return null;
-  return Array.isArray(v) ? (v[0] ?? null) : v;
-}
 
 function fmtMoney(n: number | null | undefined) {
   if (n == null || !Number.isFinite(Number(n))) return "—";
@@ -66,66 +31,79 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-GB");
+}
+
 function fmtDates(row: BookingRow) {
-  if (row.start_at && row.end_at) {
-    const s = new Date(row.start_at);
-    const e = new Date(row.end_at);
-
-    if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) {
-      const sameDay = s.toDateString() === e.toDateString();
-      const date = s.toLocaleDateString("en-GB");
-      const startTime = s.toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-      const endDate = e.toLocaleDateString("en-GB");
-      const endTime = e.toLocaleTimeString("en-GB", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-
-      return sameDay
-        ? `${date} ${startTime} → ${endTime}`
-        : `${date} ${startTime} → ${endDate} ${endTime}`;
-    }
+  if (row.start_at || row.end_at) {
+    return `${fmtDateTime(row.start_at)} → ${fmtDateTime(row.end_at)}`;
   }
 
-  if (row.start_date && row.end_date) {
-    return row.start_date === row.end_date
-      ? row.start_date
-      : `${row.start_date} → ${row.end_date}`;
+  if (row.start_date || row.end_date) {
+    return `${fmtDate(row.start_date)} → ${fmtDate(row.end_date)}`;
   }
 
   return "—";
 }
 
-function shortText(value: string | null | undefined, max = 90) {
-  const text = String(value ?? "").trim();
-  if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max)}…` : text;
+function pillStyle(kind: "neutral" | "good" | "warn" | "bad"): React.CSSProperties {
+  if (kind === "good") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (kind === "warn") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  if (kind === "bad") {
+    return {
+      background: "rgba(255,0,0,0.12)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.45)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.08)",
+  };
 }
 
-function bookingKind(status: string) {
-  const s = (status || "").toLowerCase();
-  if (["confirmed", "booked", "live"].includes(s)) return "good" as const;
-  if (["inquiry", "enquiry", "pending"].includes(s)) return "warn" as const;
-  if (["cancelled", "canceled"].includes(s)) return "bad" as const;
-  if (["completed", "done"].includes(s)) return "info" as const;
-  return "neutral" as const;
+function bookingKind(status: string | null | undefined): "neutral" | "good" | "warn" | "bad" {
+  const s = String(status ?? "").toLowerCase();
+
+  if (["confirmed", "booked", "live", "in_progress"].includes(s)) return "good";
+  if (["pending", "draft", "enquiry", "inquiry"].includes(s)) return "warn";
+  if (["cancelled", "canceled"].includes(s)) return "bad";
+  return "neutral";
 }
 
-function invoiceKind(status: string) {
-  const s = (status || "").toLowerCase();
-  if (["paid"].includes(s)) return "good" as const;
-  if (["sent"].includes(s)) return "warn" as const;
-  if (["overdue"].includes(s)) return "bad" as const;
-  return "neutral" as const;
+function invoiceKind(status: string | null | undefined): "neutral" | "good" | "warn" | "bad" {
+  const s = String(status ?? "").toLowerCase();
+
+  if (["paid"].includes(s)) return "good";
+  if (["sent", "part_paid"].includes(s)) return "warn";
+  if (["overdue"].includes(s)) return "bad";
+  return "neutral";
 }
 
 export default async function BookingsPage() {
   const supabase = createSupabaseServerClient();
 
-  let bookings: BookingRow[] = [];
+  let rows: BookingRow[] = [];
   let loadError = "";
 
   try {
@@ -142,32 +120,18 @@ export default async function BookingsPage() {
         status,
         invoice_status,
         hire_price,
-        vat,
         total_invoice,
         payment_received,
         po_number,
         job_reference,
-        operator_name,
-        notes,
-        driver_notes,
-        clients:client_id (
-          id,
-          company_name,
-          contact_name
-        ),
-        equipment:equipment_id (
-          id,
-          name,
-          asset_number,
-          capacity
-        )
+        operator_name
       `)
-      .order("start_at", { ascending: true });
+      .order("created_at", { ascending: false });
 
     if (error) {
       loadError = error.message;
     } else {
-      bookings = (data ?? []) as BookingRow[];
+      rows = (data ?? []) as BookingRow[];
     }
   } catch (e: any) {
     loadError = e?.message ?? "Could not load bookings.";
@@ -176,15 +140,7 @@ export default async function BookingsPage() {
   return (
     <ClientShell>
       <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+        <div style={headerRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Bookings</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
@@ -200,137 +156,111 @@ export default async function BookingsPage() {
         <div style={panelStyle}>
           {loadError ? <div style={errorBox}>{loadError}</div> : null}
 
-          {!loadError && bookings.length === 0 ? (
-            <p style={{ margin: 0 }}>No bookings yet.</p>
+          {!loadError && rows.length === 0 ? (
+            <div style={emptyBox}>No bookings found.</div>
           ) : null}
 
-          {!loadError && bookings.length > 0 ? (
+          {!loadError && rows.length > 0 ? (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Dates</th>
-                    <th align="left" style={thStyle}>Customer</th>
-                    <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Location</th>
                     <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Invoice</th>
                     <th align="left" style={thStyle}>Financials</th>
                     <th align="left" style={thStyle}>Reference</th>
-                    <th align="left" style={thStyle}>Notes</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.map((b) => {
-                    const client = first(b.clients);
-                    const equip = first(b.equipment);
-                    const noteText = b.notes ?? b.driver_notes;
+                  {rows.map((row) => (
+                    <tr key={row.id}>
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 800 }}>{fmtDates(row)}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                          Created: {fmtDateTime(row.created_at)}
+                        </div>
+                      </td>
 
-                    return (
-                      <tr key={b.id}>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 800 }}>{fmtDates(b)}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            Created: {fmtDate(b.created_at)}
-                          </div>
-                        </td>
+                      <td style={tdStyle}>{row.location || "—"}</td>
 
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 800 }}>
-                            {client?.company_name ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            {client?.contact_name ?? "—"}
-                          </div>
-                        </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...pillStyle(bookingKind(row.status)),
+                          }}
+                        >
+                          {row.status || "—"}
+                        </span>
+                      </td>
 
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 800 }}>
-                            {equip?.name ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            {equip?.asset_number ?? "—"}
-                            {equip?.capacity ? ` • ${equip.capacity}` : ""}
-                          </div>
-                        </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...pillStyle(invoiceKind(row.invoice_status)),
+                          }}
+                        >
+                          {row.invoice_status || "—"}
+                        </span>
+                      </td>
 
-                        <td style={tdStyle}>{b.location ?? "—"}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                          <div><strong>Hire:</strong> {fmtMoney(row.hire_price)}</div>
+                          <div><strong>Total:</strong> {fmtMoney(row.total_invoice)}</div>
+                          <div><strong>Paid:</strong> {fmtMoney(row.payment_received)}</div>
+                        </div>
+                      </td>
 
-                        <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <StatusPill
-                              text={b.status ?? "—"}
-                              kind={bookingKind(String(b.status ?? ""))}
-                            />
-                            <StatusPill
-                              text={b.invoice_status ?? "—"}
-                              kind={invoiceKind(String(b.invoice_status ?? ""))}
-                            />
-                          </div>
-                        </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                          <div><strong>PO:</strong> {row.po_number || "—"}</div>
+                          <div><strong>Ref:</strong> {row.job_reference || "—"}</div>
+                          <div><strong>Driver:</strong> {row.operator_name || "—"}</div>
+                        </div>
+                      </td>
 
-                        <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
-                            <div><strong>Hire:</strong> {fmtMoney(b.hire_price)}</div>
-                            <div><strong>VAT:</strong> {fmtMoney(b.vat)}</div>
-                            <div><strong>Total:</strong> {fmtMoney(b.total_invoice)}</div>
-                            <div><strong>Paid:</strong> {fmtMoney(b.payment_received)}</div>
-                          </div>
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
-                            <div><strong>PO:</strong> {b.po_number ?? "—"}</div>
-                            <div><strong>Ref:</strong> {b.job_reference ?? "—"}</div>
-                            <div><strong>Driver:</strong> {b.operator_name ?? "—"}</div>
-                          </div>
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div style={{ fontSize: 13, lineHeight: 1.4 }}>
-                            {shortText(noteText)}
-                          </div>
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <a href={`/bookings/${b.id}`} style={actionBtn}>
-                              View
-                            </a>
-                            <a href={`/bookings/${b.id}/edit`} style={actionBtn}>
-                              Edit
-                            </a>
-                            <a
-                              href={`/api/bookings/${b.id}/invoice`}
-                              target="_blank"
-                              rel="noreferrer"
-                              style={actionBtn}
-                            >
-                              Invoice
-                            </a>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <a href={`/bookings/${row.id}`} style={actionBtn}>
+                            Open
+                          </a>
+                          <a href={`/bookings/${row.id}/edit`} style={actionBtn}>
+                            Edit
+                          </a>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           ) : null}
         </div>
-
-        <div style={{ marginTop: 14 }}>
-          <a
-            href="/dashboard"
-            style={{ textDecoration: "none", fontWeight: 800, color: "#111" }}
-          >
-            ← Back to dashboard
-          </a>
-        </div>
       </div>
     </ClientShell>
   );
 }
+
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
 
 const panelStyle: React.CSSProperties = {
   marginTop: 16,
@@ -364,7 +294,6 @@ const primaryBtn: React.CSSProperties = {
   background: "#111",
   color: "#fff",
   fontWeight: 900,
-  border: "none",
 };
 
 const actionBtn: React.CSSProperties = {
@@ -384,4 +313,12 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const emptyBox: React.CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.45)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
 };
