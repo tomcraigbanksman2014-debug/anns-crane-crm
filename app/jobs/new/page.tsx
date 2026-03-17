@@ -6,6 +6,40 @@ function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
 }
 
+function safeDecode(value: string | undefined) {
+  const raw = String(value ?? "");
+
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function prettyQuoteStatus(value: string | undefined) {
+  const raw = safeDecode(value).trim();
+  if (!raw) return "—";
+  return raw;
+}
+
+function quoteToJobStatus(value: string | undefined) {
+  const v = safeDecode(value).trim().toLowerCase();
+  if (v === "accepted") return "confirmed";
+  return "draft";
+}
+
+function formatDateLabel(value: string | undefined) {
+  const raw = safeDecode(value).trim();
+  if (!raw) return "—";
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+
+  return parsed.toLocaleDateString("en-GB");
+}
+
 async function createJob(formData: FormData) {
   "use server";
 
@@ -52,6 +86,11 @@ type PageProps = {
     subject?: string;
     amount?: string;
     notes?: string;
+    quote_status?: string;
+    quote_date?: string;
+    valid_until?: string;
+    contact_name?: string;
+    contact_phone?: string;
     error?: string;
   };
 };
@@ -83,11 +122,17 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
   const quoteId = String(searchParams?.quote_id ?? "");
   const prefilledClientId = String(searchParams?.client_id ?? "");
-  const prefilledCompany = decodeURIComponent(String(searchParams?.company ?? ""));
-  const prefilledSubject = decodeURIComponent(String(searchParams?.subject ?? ""));
-  const prefilledAmount = decodeURIComponent(String(searchParams?.amount ?? ""));
-  const prefilledNotes = decodeURIComponent(String(searchParams?.notes ?? ""));
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const prefilledCompany = safeDecode(searchParams?.company);
+  const prefilledSubject = safeDecode(searchParams?.subject);
+  const prefilledAmount = safeDecode(searchParams?.amount);
+  const prefilledNotes = safeDecode(searchParams?.notes);
+  const prefilledQuoteStatus = safeDecode(searchParams?.quote_status);
+  const prefilledQuoteDate = safeDecode(searchParams?.quote_date);
+  const prefilledValidUntil = safeDecode(searchParams?.valid_until);
+  const prefilledContactName = safeDecode(searchParams?.contact_name);
+  const prefilledContactPhone = safeDecode(searchParams?.contact_phone);
+  const defaultStatus = quoteToJobStatus(searchParams?.quote_status);
+  const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
 
   return (
     <ClientShell>
@@ -100,7 +145,12 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
           {quoteId ? (
             <div style={infoBox}>
-              Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
+              <div>
+                Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
+              </div>
+              <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, opacity: 0.86 }}>
+                Quote status: {prettyQuoteStatus(prefilledQuoteStatus)} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
+              </div>
             </div>
           ) : null}
 
@@ -145,12 +195,12 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact name</label>
-                <input name="contact_name" style={inputStyle} />
+                <input name="contact_name" style={inputStyle} defaultValue={prefilledContactName} />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact phone</label>
-                <input name="contact_phone" style={inputStyle} />
+                <input name="contact_phone" style={inputStyle} defaultValue={prefilledContactPhone} />
               </div>
             </div>
 
@@ -162,7 +212,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Status</label>
-                <select name="status" style={inputStyle} defaultValue="draft">
+                <select name="status" style={inputStyle} defaultValue={defaultStatus}>
                   <option value="draft">draft</option>
                   <option value="confirmed">confirmed</option>
                   <option value="in_progress">in_progress</option>
