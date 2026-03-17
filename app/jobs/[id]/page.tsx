@@ -184,14 +184,16 @@ export default async function JobPage({
           asset_number,
           type,
           capacity,
-          status
+          status,
+          archived
         ),
         operators:operator_id (
           id,
           full_name,
           phone,
           email,
-          status
+          status,
+          archived
         ),
         bookings:booking_id (
           id
@@ -240,20 +242,23 @@ export default async function JobPage({
 
     supabase
       .from("equipment")
-      .select("id, name, asset_number")
+      .select("id, name, asset_number, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
-      .select("id, full_name")
+      .select("id, full_name, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("full_name", { ascending: true }),
 
     supabase
       .from("suppliers")
-      .select("id, company_name")
+      .select("id, company_name, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("company_name", { ascending: true }),
 
     supabase
