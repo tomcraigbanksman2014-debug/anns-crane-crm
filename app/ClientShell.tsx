@@ -36,6 +36,7 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/purchase-orders")) return true;
   if (pathname.startsWith("/calendar")) return true;
   if (pathname.startsWith("/planner")) return true;
+  if (pathname.startsWith("/search")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
 }
@@ -152,6 +153,7 @@ export default function ClientShell({
   const officeNav = useMemo<NavItem[]>(
     () => [
       { label: "Dashboard", href: "/" },
+      { label: "Search", href: "/search" },
       { label: "Bookings", href: "/bookings" },
       { label: "Jobs", href: "/jobs" },
       { label: "Transport Jobs", href: "/transport-jobs" },
