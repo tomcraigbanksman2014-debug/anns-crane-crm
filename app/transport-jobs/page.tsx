@@ -1,11 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
-}
-
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -19,15 +14,28 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 function prettyStatus(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
-
-  if (v === "in_progress") return "In Progress";
   if (v === "planned") return "Planned";
   if (v === "confirmed") return "Confirmed";
+  if (v === "in_progress") return "In Progress";
   if (v === "completed") return "Completed";
   if (v === "cancelled") return "Cancelled";
+  return value ?? "—";
+}
 
+function prettyJobType(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "haulage") return "Haulage";
+  if (v === "delivery") return "Delivery";
+  if (v === "collection") return "Collection";
+  if (v === "ballast") return "Ballast";
+  if (v === "crane_support") return "Crane Support";
   return value ?? "—";
 }
 
@@ -75,7 +83,7 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   }
 
   return {
-    background: "rgba(255,255,255,0.55)",
+    background: "rgba(255,255,255,0.35)",
     color: "#111",
     border: "1px solid rgba(0,0,0,0.10)",
   };
@@ -96,16 +104,20 @@ export default async function TransportJobsPage() {
       delivery_address,
       load_description,
       status,
-      price,
       job_type,
+      price,
+      archived,
       vehicles:vehicle_id (
+        id,
         name,
         reg_number
       ),
       operators:operator_id (
+        id,
         full_name
       ),
       clients:client_id (
+        id,
         company_name
       ),
       jobs:linked_job_id (
@@ -114,6 +126,7 @@ export default async function TransportJobsPage() {
         site_name
       )
     `)
+    .eq("archived", false)
     .order("transport_date", { ascending: true })
     .order("collection_time", { ascending: true });
 
@@ -121,22 +134,22 @@ export default async function TransportJobsPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1450px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Transport Jobs</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Manage transport work, vehicle movements and linked crane support jobs.
+                Active transport jobs only. Archived jobs are hidden from this list.
               </p>
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/transport-map" style={secondaryBtn}>
-                Open control map
-              </a>
               <a href="/transport-planner" style={secondaryBtn}>
-                Open transport planner
+                Open planner
+              </a>
+              <a href="/transport-map" style={secondaryBtn}>
+                Open transport map
               </a>
               <a href="/transport-jobs/new" style={primaryBtn}>
                 + New transport job
@@ -147,45 +160,51 @@ export default async function TransportJobsPage() {
           {error ? (
             <div style={errorBox}>{error.message}</div>
           ) : rows.length === 0 ? (
-            <div style={infoBox}>No transport jobs found.</div>
+            <div style={emptyBox}>No active transport jobs found.</div>
           ) : (
-            <div style={{ ...tableWrap, marginTop: 16 }}>
-              <table style={tableStyle}>
+            <div style={{ marginTop: 16, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Ref</th>
-                    <th align="left" style={thStyle}>Customer</th>
                     <th align="left" style={thStyle}>Date</th>
+                    <th align="left" style={thStyle}>Times</th>
+                    <th align="left" style={thStyle}>Customer</th>
                     <th align="left" style={thStyle}>Vehicle</th>
                     <th align="left" style={thStyle}>Driver</th>
-                    <th align="left" style={thStyle}>Pickup</th>
-                    <th align="left" style={thStyle}>Delivery</th>
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Price</th>
+                    <th align="left" style={thStyle}>Value</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((item: any) => {
-                    const client = first(item.clients);
                     const vehicle = first(item.vehicles);
                     const driver = first(item.operators);
+                    const client = first(item.clients);
 
                     return (
                       <tr key={item.id}>
                         <td style={tdStyle}>
-                          <div style={{ fontWeight: 900 }}>
-                            {item.transport_number ?? "—"}
-                          </div>
+                          <div style={{ fontWeight: 900 }}>{item.transport_number ?? "—"}</div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
+                            {item.collection_address ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.72 }}>
+                            → {item.delivery_address ?? "—"}
                           </div>
                         </td>
 
-                        <td style={tdStyle}>{client?.company_name ?? "—"}</td>
-
                         <td style={tdStyle}>{fmtDate(item.transport_date)}</td>
+
+                        <td style={tdStyle}>
+                          {item.collection_time || item.delivery_time
+                            ? `${item.collection_time ?? "—"} - ${item.delivery_time ?? "—"}`
+                            : "—"}
+                        </td>
+
+                        <td style={tdStyle}>{client?.company_name ?? "—"}</td>
 
                         <td style={tdStyle}>
                           {vehicle?.name ?? "—"}
@@ -194,11 +213,7 @@ export default async function TransportJobsPage() {
 
                         <td style={tdStyle}>{driver?.full_name ?? "—"}</td>
 
-                        <td style={tdStyle}>{item.collection_address ?? "—"}</td>
-
-                        <td style={tdStyle}>{item.delivery_address ?? "—"}</td>
-
-                        <td style={tdStyle}>{item.job_type ?? "—"}</td>
+                        <td style={tdStyle}>{prettyJobType(item.job_type)}</td>
 
                         <td style={tdStyle}>
                           <span
@@ -219,12 +234,8 @@ export default async function TransportJobsPage() {
 
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <a href={`/transport-jobs/${item.id}`} style={miniBtn}>
+                            <a href={`/transport-jobs/${item.id}`} style={actionBtn}>
                               Open
-                            </a>
-
-                            <a href="/transport-map" style={miniBtn}>
-                              Map
                             </a>
                           </div>
                         </td>
@@ -257,53 +268,8 @@ const headerRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const primaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-  border: "none",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const miniBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.72)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const tableWrap: React.CSSProperties = {
-  overflowX: "auto",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.28)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const tableStyle: React.CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-};
-
 const thStyle: React.CSSProperties = {
-  padding: "12px 10px",
+  padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
   opacity: 0.78,
@@ -317,13 +283,36 @@ const tdStyle: React.CSSProperties = {
   verticalAlign: "top",
 };
 
-const infoBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.18)",
-  fontWeight: 700,
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  textDecoration: "none",
+  fontWeight: 900,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const actionBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
 };
 
 const errorBox: React.CSSProperties = {
@@ -332,4 +321,13 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const emptyBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.45)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
 };
