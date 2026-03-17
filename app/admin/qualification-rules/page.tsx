@@ -77,7 +77,9 @@ export default function QualificationRulesPage() {
 
       const user = data.user;
       const email = String(user.email ?? "").trim().toLowerCase();
-      const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
         .trim()
         .toLowerCase();
 
