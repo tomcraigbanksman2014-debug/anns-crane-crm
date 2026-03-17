@@ -9,13 +9,16 @@ export async function GET() {
       await Promise.all([
         supabase
           .from("operators")
-          .select("id, full_name")
+          .select("id, full_name, status, archived")
           .eq("status", "active")
+          .eq("archived", false)
           .order("full_name", { ascending: true }),
+
         supabase
           .from("vehicles")
-          .select("id, name, reg_number")
+          .select("id, name, reg_number, status, archived")
           .eq("status", "active")
+          .eq("archived", false)
           .order("name", { ascending: true }),
       ]);
 
