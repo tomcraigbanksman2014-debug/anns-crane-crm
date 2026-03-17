@@ -9,70 +9,74 @@ export default function EquipmentArchiveButton({
   equipmentId: string;
   archived: boolean;
 }) {
-  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  async function runAction() {
-    setLoading(true);
+  async function handleClick() {
+    if (busy) return;
+
+    const action = archived ? "restore" : "archive";
+    const confirmed = window.confirm(
+      archived
+        ? "Restore this equipment?"
+        : "Archive this equipment? It will be hidden from active dropdowns."
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
 
     try {
-      const res = await fetch(
-        archived ? "/api/equipment/restore" : "/api/equipment/archive",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            equipment_id: equipmentId,
-          }),
-        }
-      );
+      const res = await fetch(`/api/equipment/${action}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ equipmentId }),
+      });
 
-      const data = await res.json().catch(() => null);
+      const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        alert(data?.error || "Could not update equipment.");
+        window.alert(json?.error || `Could not ${action} equipment.`);
         return;
       }
 
       window.location.reload();
     } catch {
-      alert("Could not update equipment.");
+      window.alert(`Could not ${action} equipment.`);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
   return (
     <button
       type="button"
-      onClick={runAction}
-      disabled={loading}
+      onClick={handleClick}
+      disabled={busy}
       style={archived ? restoreBtn : archiveBtn}
     >
-      {loading ? "Saving..." : archived ? "Restore" : "Archive"}
+      {busy ? "Working..." : archived ? "Restore" : "Archive"}
     </button>
   );
 }
 
 const archiveBtn: React.CSSProperties = {
-  display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  color: "#b00020",
+  color: "#8b0000",
+  border: "1px solid rgba(255,0,0,0.18)",
   fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.20)",
   cursor: "pointer",
 };
 
 const restoreBtn: React.CSSProperties = {
-  display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
   background: "rgba(0,180,120,0.12)",
   color: "#0b7a4b",
+  border: "1px solid rgba(0,180,120,0.18)",
   fontWeight: 800,
-  border: "1px solid rgba(0,180,120,0.20)",
   cursor: "pointer",
 };
