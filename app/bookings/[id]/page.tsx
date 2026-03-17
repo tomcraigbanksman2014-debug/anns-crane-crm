@@ -1,6 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import StatusPill, { bookingKind, invoiceKind, equipmentKind } from "../../components/StatusPill";
+import StatusPill from "../../components/StatusPill";
 
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
@@ -36,6 +36,31 @@ function hasQuoteContext(text: string | null | undefined) {
   );
 }
 
+function bookingKind(status: string | null | undefined): "good" | "warn" | "bad" | "neutral" | "info" {
+  const s = String(status ?? "").toLowerCase();
+  if (["confirmed", "booked", "live", "in_progress"].includes(s)) return "good";
+  if (["inquiry", "enquiry", "pending", "draft"].includes(s)) return "warn";
+  if (["cancelled", "canceled"].includes(s)) return "bad";
+  if (["completed", "done"].includes(s)) return "info";
+  return "neutral";
+}
+
+function invoiceKind(status: string | null | undefined): "good" | "warn" | "bad" | "neutral" | "info" {
+  const s = String(status ?? "").toLowerCase();
+  if (["paid"].includes(s)) return "good";
+  if (["sent", "part_paid"].includes(s)) return "warn";
+  if (["overdue"].includes(s)) return "bad";
+  return "neutral";
+}
+
+function equipmentKind(status: string | null | undefined): "good" | "warn" | "bad" | "neutral" | "info" {
+  const s = String(status ?? "").toLowerCase();
+  if (["available"].includes(s)) return "good";
+  if (["maintenance", "repair", "out of service"].includes(s)) return "warn";
+  if (["on hire", "booked", "in use"].includes(s)) return "info";
+  return "neutral";
+}
+
 export default async function BookingPage({
   params,
 }: {
@@ -43,59 +68,75 @@ export default async function BookingPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: booking, error }, { data: linkedJob }] = await Promise.all([
-    supabase
-      .from("bookings")
-      .select(`
-        id,
-        created_at,
-        start_date,
-        end_date,
-        start_at,
-        end_at,
-        status,
-        location,
-        po_number,
-        job_reference,
-        operator_name,
-        notes,
-        driver_notes,
-        hire_price,
-        vat,
-        total_invoice,
-        payment_received,
-        invoice_status,
-        client_id,
-        equipment_id,
-        clients:client_id (
-          id,
-          company_name,
-          contact_name,
-          phone,
-          email
-        ),
-        equipment:equipment_id (
-          id,
-          name,
-          asset_number,
-          capacity,
-          status
-        )
-      `)
-      .eq("id", params.id)
-      .single(),
+  let booking: any = null;
+  let linkedJob: any = null;
+  let loadError = "";
 
-    supabase
-      .from("jobs")
-      .select("id, job_number, status")
-      .eq("booking_id", params.id)
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  try {
+    const [{ data: bookingData, error: bookingError }, { data: linkedJobData }] =
+      await Promise.all([
+        supabase
+          .from("bookings")
+          .select(`
+            id,
+            created_at,
+            start_date,
+            end_date,
+            start_at,
+            end_at,
+            status,
+            location,
+            po_number,
+            job_reference,
+            operator_name,
+            notes,
+            driver_notes,
+            hire_price,
+            vat,
+            total_invoice,
+            payment_received,
+            invoice_status,
+            client_id,
+            equipment_id,
+            clients:client_id (
+              id,
+              company_name,
+              contact_name,
+              phone,
+              email
+            ),
+            equipment:equipment_id (
+              id,
+              name,
+              asset_number,
+              capacity,
+              status
+            )
+          `)
+          .eq("id", params.id)
+          .single(),
 
-  const client = first((booking as any)?.clients);
-  const equipment = first((booking as any)?.equipment);
-  const notesText = String((booking as any)?.notes ?? (booking as any)?.driver_notes ?? "").trim();
+        supabase
+          .from("jobs")
+          .select("id, job_number, status")
+          .eq("booking_id", params.id)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    if (bookingError) {
+      loadError = bookingError.message;
+    } else {
+      booking = bookingData;
+      linkedJob = linkedJobData;
+    }
+  } catch (e: any) {
+    loadError = e?.message ?? "Could not load booking.";
+  }
+
+  const client = first(booking?.clients);
+  const equipment = first(booking?.equipment);
+  const notesText = String(booking?.notes ?? booking?.driver_notes ?? "").trim();
 
   return (
     <ClientShell>
@@ -141,16 +182,16 @@ export default async function BookingPage({
               </form>
             )}
 
-            {(booking as any)?.client_id ? (
-              <a href={`/customers/${(booking as any).client_id}`} style={btnStyle}>
+            {booking?.client_id ? (
+              <a href={`/customers/${booking.client_id}`} style={btnStyle}>
                 Open customer
               </a>
             ) : null}
           </div>
         </div>
 
-        {error ? (
-          <div style={errorBox}>{error.message}</div>
+        {loadError ? (
+          <div style={errorBox}>{loadError}</div>
         ) : !booking ? (
           <div style={errorBox}>Booking not found.</div>
         ) : (
@@ -168,25 +209,25 @@ export default async function BookingPage({
                 <h2 style={sectionTitle}>Booking details</h2>
 
                 <div style={gridStyle}>
-                  <InfoRow label="Booking ID" value={(booking as any).id} />
+                  <InfoRow label="Booking ID" value={booking.id} />
                   <InfoRow
                     label="Status"
                     valueNode={
                       <StatusPill
-                        text={(booking as any).status ?? "—"}
-                        kind={bookingKind(String((booking as any).status ?? ""))}
+                        text={booking.status ?? "—"}
+                        kind={bookingKind(booking.status)}
                       />
                     }
                   />
-                  <InfoRow label="Start date" value={fmtDate((booking as any).start_date)} />
-                  <InfoRow label="End date" value={fmtDate((booking as any).end_date)} />
-                  <InfoRow label="Start time" value={fmtDateTime((booking as any).start_at)} />
-                  <InfoRow label="End time" value={fmtDateTime((booking as any).end_at)} />
-                  <InfoRow label="Location" value={(booking as any).location ?? "—"} />
-                  <InfoRow label="PO number" value={(booking as any).po_number ?? "—"} />
-                  <InfoRow label="Job reference" value={(booking as any).job_reference ?? "—"} />
-                  <InfoRow label="Operator name" value={(booking as any).operator_name ?? "—"} />
-                  <InfoRow label="Created" value={fmtDateTime((booking as any).created_at)} />
+                  <InfoRow label="Start date" value={fmtDate(booking.start_date)} />
+                  <InfoRow label="End date" value={fmtDate(booking.end_date)} />
+                  <InfoRow label="Start time" value={fmtDateTime(booking.start_at)} />
+                  <InfoRow label="End time" value={fmtDateTime(booking.end_at)} />
+                  <InfoRow label="Location" value={booking.location ?? "—"} />
+                  <InfoRow label="PO number" value={booking.po_number ?? "—"} />
+                  <InfoRow label="Job reference" value={booking.job_reference ?? "—"} />
+                  <InfoRow label="Operator name" value={booking.operator_name ?? "—"} />
+                  <InfoRow label="Created" value={fmtDateTime(booking.created_at)} />
                 </div>
               </section>
 
@@ -194,16 +235,16 @@ export default async function BookingPage({
                 <h2 style={sectionTitle}>Financials</h2>
 
                 <div style={gridStyle}>
-                  <InfoRow label="Hire price" value={fmtMoney((booking as any).hire_price)} />
-                  <InfoRow label="VAT" value={fmtMoney((booking as any).vat)} />
-                  <InfoRow label="Invoice total" value={fmtMoney((booking as any).total_invoice)} />
-                  <InfoRow label="Payment received" value={fmtMoney((booking as any).payment_received)} />
+                  <InfoRow label="Hire price" value={fmtMoney(booking.hire_price)} />
+                  <InfoRow label="VAT" value={fmtMoney(booking.vat)} />
+                  <InfoRow label="Invoice total" value={fmtMoney(booking.total_invoice)} />
+                  <InfoRow label="Payment received" value={fmtMoney(booking.payment_received)} />
                   <InfoRow
                     label="Invoice status"
                     valueNode={
                       <StatusPill
-                        text={(booking as any).invoice_status ?? "—"}
-                        kind={invoiceKind(String((booking as any).invoice_status ?? ""))}
+                        text={booking.invoice_status ?? "—"}
+                        kind={invoiceKind(booking.invoice_status)}
                       />
                     }
                   />
@@ -240,7 +281,7 @@ export default async function BookingPage({
                       <strong>Status:</strong>
                       <StatusPill
                         text={linkedJob.status ?? "—"}
-                        kind={bookingKind(String(linkedJob.status ?? ""))}
+                        kind={bookingKind(linkedJob.status)}
                       />
                     </div>
                     <a href={`/jobs/${linkedJob.id}`} style={linkBtnStyle}>
@@ -310,7 +351,7 @@ export default async function BookingPage({
                       <strong>Status:</strong>
                       <StatusPill
                         text={equipment.status ?? "—"}
-                        kind={equipmentKind(String(equipment.status ?? ""))}
+                        kind={equipmentKind(equipment.status)}
                       />
                     </div>
 
