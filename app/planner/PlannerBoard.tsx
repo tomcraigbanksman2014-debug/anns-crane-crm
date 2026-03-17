@@ -105,36 +105,36 @@ function statusCardStyle(status: string | null | undefined): React.CSSProperties
 
   if (v === "confirmed") {
     return {
-      background: "rgba(0,180,120,0.12)",
-      border: "1px solid rgba(0,180,120,0.24)",
+      background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
+      border: "1px solid rgba(255,170,0,0.25)",
     };
   }
 
   if (v === "in_progress") {
     return {
-      background: "rgba(255,170,0,0.14)",
-      border: "1px solid rgba(255,170,0,0.28)",
+      background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
+      border: "1px solid rgba(0,120,255,0.25)",
     };
   }
 
   if (v === "draft") {
     return {
-      background: "rgba(0,120,255,0.10)",
-      border: "1px solid rgba(0,120,255,0.22)",
+      background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
+      border: "1px solid rgba(0,0,0,0.12)",
     };
   }
 
   if (v === "completed") {
     return {
-      background: "rgba(120,120,120,0.10)",
-      border: "1px solid rgba(120,120,120,0.20)",
+      background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
+      border: "1px solid rgba(0,180,120,0.25)",
     };
   }
 
   if (v === "cancelled") {
     return {
-      background: "rgba(255,0,0,0.09)",
-      border: "1px solid rgba(255,0,0,0.20)",
+      background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
+      border: "1px solid rgba(255,0,0,0.22)",
     };
   }
 
@@ -142,6 +142,17 @@ function statusCardStyle(status: string | null | undefined): React.CSSProperties
     background: "rgba(255,255,255,0.9)",
     border: "1px solid rgba(0,0,0,0.08)",
   };
+}
+
+function statusStripe(status: string | null | undefined) {
+  const v = String(status ?? "").toLowerCase();
+
+  if (v === "confirmed") return "rgba(255,170,0,0.95)";
+  if (v === "in_progress") return "rgba(0,120,255,0.95)";
+  if (v === "draft") return "rgba(120,120,120,0.85)";
+  if (v === "completed") return "rgba(0,180,120,0.95)";
+  if (v === "cancelled") return "rgba(220,0,0,0.90)";
+  return "rgba(0,0,0,0.18)";
 }
 
 export default function PlannerBoard() {
@@ -396,11 +407,51 @@ export default function PlannerBoard() {
       {msg ? <div style={infoBox}>{msg}</div> : null}
 
       <div style={legendStyle}>
-        <span style={{ ...legendPillStyle, background: "rgba(0,180,120,0.12)", border: "1px solid rgba(0,180,120,0.24)" }}>Confirmed</span>
-        <span style={{ ...legendPillStyle, background: "rgba(255,170,0,0.14)", border: "1px solid rgba(255,170,0,0.28)" }}>In Progress</span>
-        <span style={{ ...legendPillStyle, background: "rgba(0,120,255,0.10)", border: "1px solid rgba(0,120,255,0.22)" }}>Draft</span>
-        <span style={{ ...legendPillStyle, background: "rgba(120,120,120,0.10)", border: "1px solid rgba(120,120,120,0.20)" }}>Completed</span>
-        <span style={{ ...legendPillStyle, background: "rgba(255,0,0,0.09)", border: "1px solid rgba(255,0,0,0.20)" }}>Cancelled</span>
+        <span
+          style={{
+            ...legendPillStyle,
+            background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
+            border: "1px solid rgba(0,0,0,0.12)",
+          }}
+        >
+          Draft
+        </span>
+        <span
+          style={{
+            ...legendPillStyle,
+            background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
+            border: "1px solid rgba(255,170,0,0.25)",
+          }}
+        >
+          Confirmed
+        </span>
+        <span
+          style={{
+            ...legendPillStyle,
+            background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
+            border: "1px solid rgba(0,120,255,0.25)",
+          }}
+        >
+          In Progress
+        </span>
+        <span
+          style={{
+            ...legendPillStyle,
+            background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
+            border: "1px solid rgba(0,180,120,0.25)",
+          }}
+        >
+          Completed
+        </span>
+        <span
+          style={{
+            ...legendPillStyle,
+            background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
+            border: "1px solid rgba(255,0,0,0.22)",
+          }}
+        >
+          Cancelled
+        </span>
         <span style={{ ...legendPillStyle, border: "2px solid #7c3aed" }}>Cross hire</span>
         <span style={{ ...legendPillStyle, border: "2px solid #d97706" }}>Conflict</span>
       </div>
@@ -411,9 +462,7 @@ export default function PlannerBoard() {
         ) : (
           <div style={plannerScrollStyle}>
             <div style={plannerGridStyle}>
-              <div style={cornerHeaderStyle}>
-                {mode === "operator" ? "Lane" : "Crane"}
-              </div>
+              <div style={cornerHeaderStyle}>{mode === "operator" ? "Lane" : "Crane"}</div>
 
               {data.days.map((day) => (
                 <div key={day.date} style={dayHeaderStyle}>
@@ -646,12 +695,8 @@ function EquipmentRow({
   return (
     <>
       <div style={laneHeaderStyle}>
-        <div style={{ fontWeight: 1000 }}>
-          {equipment.name ?? "Equipment"}
-        </div>
-        <div style={{ fontSize: 11, opacity: 0.68 }}>
-          {equipment.asset_number ?? "No asset"}
-        </div>
+        <div style={{ fontWeight: 1000 }}>{equipment.name ?? "Equipment"}</div>
+        <div style={{ fontSize: 11, opacity: 0.68 }}>{equipment.asset_number ?? "No asset"}</div>
       </div>
 
       {days.map((day) => {
@@ -781,13 +826,25 @@ function PlannerCard({
         ...(hasConflict ? conflictCardStyle : {}),
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "grid", gap: 4 }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          background: statusStripe(item.status),
+        }}
+      />
+
+      <div style={{ display: "grid", gap: 4, paddingLeft: 8 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 6, alignItems: "start" }}>
-          <div style={{ fontWeight: 1000, fontSize: 13 }}>
-            Job #{item.job_number ?? "—"}
-          </div>
+          <div style={{ fontWeight: 1000, fontSize: 13 }}>Job #{item.job_number ?? "—"}</div>
           <div style={statusBadgeStyle}>{compactStatus(item.status)}</div>
         </div>
 
