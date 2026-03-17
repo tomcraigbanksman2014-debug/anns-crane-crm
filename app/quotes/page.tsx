@@ -1,6 +1,7 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import QuoteArchiveButton from "./QuoteArchiveButton";
+import StatusBadge from "../components/StatusBadge";
 
 function fmtMoney(value: any) {
   const n = Number(value ?? null);
@@ -112,7 +113,6 @@ export default async function QuotesPage({
                     <th align="left" style={thStyle}>Customer</th>
                     <th align="left" style={thStyle}>Subject</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Archived</th>
                     <th align="left" style={thStyle}>Quote date</th>
                     <th align="left" style={thStyle}>Valid until</th>
                     <th align="left" style={thStyle}>Amount</th>
@@ -124,8 +124,9 @@ export default async function QuotesPage({
                     <tr key={q.id}>
                       <td style={tdStyle}>{q.clients?.company_name ?? "-"}</td>
                       <td style={tdStyle}>{q.subject ?? "-"}</td>
-                      <td style={tdStyle}>{q.status ?? "-"}</td>
-                      <td style={tdStyle}>{q.archived ? "Yes" : "No"}</td>
+                      <td style={tdStyle}>
+                        <StatusBadge value={q.status} archived={!!q.archived} />
+                      </td>
                       <td style={tdStyle}>{fmtDate(q.quote_date)}</td>
                       <td style={tdStyle}>{fmtDate(q.valid_until)}</td>
                       <td style={tdStyle}>{fmtMoney(q.amount)}</td>
