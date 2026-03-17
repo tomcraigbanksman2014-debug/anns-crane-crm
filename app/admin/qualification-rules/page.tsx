@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ClientShell from "../../ClientShell";
+import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
 type QualificationRule = {
   id: string;
@@ -22,9 +23,17 @@ const emptyForm = {
   is_active: true,
 };
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export default function QualificationRulesPage() {
+  const supabase = createSupabaseBrowserClient();
+
   const [rules, setRules] = useState<QualificationRule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorised, setAuthorised] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [form, setForm] = useState<any>(emptyForm);
@@ -54,8 +63,63 @@ export default function QualificationRulesPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    let mounted = true;
+
+    async function checkAccess() {
+      const { data, error } = await supabase.auth.getUser();
+
+      if (!mounted) return;
+
+      if (error || !data.user) {
+        window.location.href = "/login";
+        return;
+      }
+
+      const user = data.user;
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+        .trim()
+        .toLowerCase();
+
+      const metadataRole = String(user.user_metadata?.role ?? "").toLowerCase();
+      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
+
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+      const isAdmin = isMaster || metadataRole === "admin";
+
+      if (!isAdmin) {
+        const { data: operators } = await supabase
+          .from("operators")
+          .select("full_name, email, status")
+          .eq("status", "active");
+
+        const matchedOperator =
+          (operators ?? []).find((op: any) => {
+            const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+            const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+            return (
+              (!!operatorEmail && operatorEmail === email) ||
+              (!!operatorName && operatorName === usernameFromEmail)
+            );
+          }) ?? null;
+
+        if (matchedOperator || metadataRole === "staff") {
+          window.location.href = "/";
+          return;
+        }
+      }
+
+      setAuthorised(true);
+      await load();
+    }
+
+    checkAccess();
+
+    return () => {
+      mounted = false;
+    };
+  }, [supabase]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, QualificationRule[]>();
@@ -184,123 +248,129 @@ export default function QualificationRulesPage() {
             </div>
           </div>
 
-          {message ? <div style={infoBox}>{message}</div> : null}
+          {!authorised ? (
+            <div style={emptyBox}>Checking access...</div>
+          ) : (
+            <>
+              {message ? <div style={infoBox}>{message}</div> : null}
 
-          <section style={sectionCard}>
-            <h2 style={sectionTitle}>
-              {editingId ? "Edit qualification rule" : "Add qualification rule"}
-            </h2>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>
+                  {editingId ? "Edit qualification rule" : "Add qualification rule"}
+                </h2>
 
-            <form onSubmit={submitForm} style={{ display: "grid", gap: 12 }}>
-              <div style={grid5}>
-                <Field
-                  label="Role"
-                  value={form.role}
-                  onChange={(value) => setForm((prev: any) => ({ ...prev, role: value }))}
-                  placeholder="e.g. Crane Operator"
-                />
-                <Field
-                  label="Qualification name"
-                  value={form.qualification_name}
-                  onChange={(value) => setForm((prev: any) => ({ ...prev, qualification_name: value }))}
-                  placeholder="e.g. CPCS"
-                />
-                <Field
-                  label="Validity value"
-                  value={form.validity_value}
-                  onChange={(value) => setForm((prev: any) => ({ ...prev, validity_value: value }))}
-                  placeholder="e.g. 5"
-                  type="number"
-                />
-                <SelectField
-                  label="Validity unit"
-                  value={form.validity_unit}
-                  onChange={(value) => setForm((prev: any) => ({ ...prev, validity_unit: value }))}
-                  options={[
-                    { value: "days", label: "days" },
-                    { value: "months", label: "months" },
-                    { value: "years", label: "years" },
-                  ]}
-                />
-                <Field
-                  label="Warning days"
-                  value={form.warning_days}
-                  onChange={(value) => setForm((prev: any) => ({ ...prev, warning_days: value }))}
-                  placeholder="30"
-                  type="number"
-                />
-              </div>
-
-              <label style={checkWrap}>
-                <input
-                  type="checkbox"
-                  checked={!!form.is_active}
-                  onChange={(e) => setForm((prev: any) => ({ ...prev, is_active: e.target.checked }))}
-                />
-                Rule is active
-              </label>
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="submit" disabled={saving} style={primaryBtn}>
-                  {saving ? "Saving..." : editingId ? "Save rule" : "Add rule"}
-                </button>
-
-                {editingId ? (
-                  <button type="button" onClick={cancelEdit} style={secondaryButtonElement}>
-                    Cancel edit
-                  </button>
-                ) : null}
-              </div>
-            </form>
-          </section>
-
-          <section style={{ ...sectionCard, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Existing rules</h2>
-
-            {loading ? (
-              <div style={emptyBox}>Loading qualification rules...</div>
-            ) : rules.length === 0 ? (
-              <div style={emptyBox}>No qualification rules added yet.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 16 }}>
-                {grouped.map(([role, items]) => (
-                  <div key={role} style={roleCard}>
-                    <div style={{ fontWeight: 1000, fontSize: 18 }}>{role}</div>
-
-                    <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
-                      {items.map((rule) => (
-                        <div key={rule.id} style={ruleRow}>
-                          <div>
-                            <div style={{ fontWeight: 900 }}>{rule.qualification_name}</div>
-                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                              Validity: {rule.validity_value && rule.validity_unit ? `${rule.validity_value} ${rule.validity_unit}` : "Manual expiry"} • Warning: {rule.warning_days} day(s) • {rule.is_active ? "Active" : "Inactive"}
-                            </div>
-                          </div>
-
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <button
-                              type="button"
-                              onClick={() => startEdit(rule)}
-                              style={miniBtn}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => deleteRule(rule.id)}
-                              style={dangerBtn}
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                <form onSubmit={submitForm} style={{ display: "grid", gap: 12 }}>
+                  <div style={grid5}>
+                    <Field
+                      label="Role"
+                      value={form.role}
+                      onChange={(value) => setForm((prev: any) => ({ ...prev, role: value }))}
+                      placeholder="e.g. Crane Operator"
+                    />
+                    <Field
+                      label="Qualification name"
+                      value={form.qualification_name}
+                      onChange={(value) => setForm((prev: any) => ({ ...prev, qualification_name: value }))}
+                      placeholder="e.g. CPCS"
+                    />
+                    <Field
+                      label="Validity value"
+                      value={form.validity_value}
+                      onChange={(value) => setForm((prev: any) => ({ ...prev, validity_value: value }))}
+                      placeholder="e.g. 5"
+                      type="number"
+                    />
+                    <SelectField
+                      label="Validity unit"
+                      value={form.validity_unit}
+                      onChange={(value) => setForm((prev: any) => ({ ...prev, validity_unit: value }))}
+                      options={[
+                        { value: "days", label: "days" },
+                        { value: "months", label: "months" },
+                        { value: "years", label: "years" },
+                      ]}
+                    />
+                    <Field
+                      label="Warning days"
+                      value={form.warning_days}
+                      onChange={(value) => setForm((prev: any) => ({ ...prev, warning_days: value }))}
+                      placeholder="30"
+                      type="number"
+                    />
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
+
+                  <label style={checkWrap}>
+                    <input
+                      type="checkbox"
+                      checked={!!form.is_active}
+                      onChange={(e) => setForm((prev: any) => ({ ...prev, is_active: e.target.checked }))}
+                    />
+                    Rule is active
+                  </label>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button type="submit" disabled={saving} style={primaryBtn}>
+                      {saving ? "Saving..." : editingId ? "Save rule" : "Add rule"}
+                    </button>
+
+                    {editingId ? (
+                      <button type="button" onClick={cancelEdit} style={secondaryButtonElement}>
+                        Cancel edit
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              </section>
+
+              <section style={{ ...sectionCard, marginTop: 16 }}>
+                <h2 style={sectionTitle}>Existing rules</h2>
+
+                {loading ? (
+                  <div style={emptyBox}>Loading qualification rules...</div>
+                ) : rules.length === 0 ? (
+                  <div style={emptyBox}>No qualification rules added yet.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 16 }}>
+                    {grouped.map(([role, items]) => (
+                      <div key={role} style={roleCard}>
+                        <div style={{ fontWeight: 1000, fontSize: 18 }}>{role}</div>
+
+                        <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
+                          {items.map((rule) => (
+                            <div key={rule.id} style={ruleRow}>
+                              <div>
+                                <div style={{ fontWeight: 900 }}>{rule.qualification_name}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                                  Validity: {rule.validity_value && rule.validity_unit ? `${rule.validity_value} ${rule.validity_unit}` : "Manual expiry"} • Warning: {rule.warning_days} day(s) • {rule.is_active ? "Active" : "Inactive"}
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <button
+                                  type="button"
+                                  onClick={() => startEdit(rule)}
+                                  style={miniBtn}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => deleteRule(rule.id)}
+                                  style={dangerBtn}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       </div>
     </ClientShell>
