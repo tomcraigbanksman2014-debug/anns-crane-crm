@@ -12,24 +12,26 @@ function normaliseUnit(value: unknown) {
 }
 
 async function requireAdmin(supabase: ReturnType<typeof createSupabaseServerClient>) {
-  const { data, error } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (error || !data.user) {
-    return { ok: false, response: NextResponse.json({ error: "Unauthorised." }, { status: 401 }) };
+  if (!user) {
+    return { error: "Not signed in", status: 401 as const };
   }
 
-  const user = data.user;
-  const email = String(user.email ?? "").trim().toLowerCase();
-  const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+  const myEmail = String(user.email ?? "").toLowerCase();
+  const myRole = String((user.user_metadata as any)?.role ?? "").toLowerCase();
+  const masterAdminEmail = String(
+    process.env.MASTER_ADMIN_EMAIL ??
+      process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
+      ""
+  )
     .trim()
     .toLowerCase();
-  const metadataRole = String(user.user_metadata?.role ?? "").toLowerCase();
 
-  const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
-  const isAdmin = isMaster || metadataRole === "admin";
-
-  if (!isAdmin) {
-    return { ok: false, response: NextResponse.json({ error: "Forbidden." }, { status: 403 }) };
+  if (myRole !== "admin" && myEmail !== masterAdminEmail) {
+    return { error: "Admin only", status: 403 as const };
   }
 
   return { ok: true as const };
@@ -40,7 +42,9 @@ export async function GET() {
     const supabase = createSupabaseServerClient();
     const auth = await requireAdmin(supabase);
 
-    if (!auth.ok) return auth.response;
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     const { data, error } = await supabase
       .from("operator_required_qualifications")
@@ -66,7 +70,9 @@ export async function POST(req: Request) {
     const supabase = createSupabaseServerClient();
     const auth = await requireAdmin(supabase);
 
-    if (!auth.ok) return auth.response;
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     const body = await req.json().catch(() => null);
 
@@ -118,7 +124,9 @@ export async function PATCH(req: Request) {
     const supabase = createSupabaseServerClient();
     const auth = await requireAdmin(supabase);
 
-    if (!auth.ok) return auth.response;
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     const body = await req.json().catch(() => null);
 
@@ -172,7 +180,9 @@ export async function DELETE(req: Request) {
     const supabase = createSupabaseServerClient();
     const auth = await requireAdmin(supabase);
 
-    if (!auth.ok) return auth.response;
+    if ("error" in auth) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status });
+    }
 
     const body = await req.json().catch(() => null);
     const ruleId = clean(body?.id);
