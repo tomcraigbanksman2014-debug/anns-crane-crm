@@ -16,7 +16,10 @@ type BookingRow = {
   vat: number | null;
   total_invoice: number | null;
   payment_received: number | null;
-  notes: string | null;
+  po_number: string | null;
+  job_reference: string | null;
+  operator_name: string | null;
+  driver_notes: string | null;
   clients:
     | {
         id: string;
@@ -95,10 +98,10 @@ function fmtDates(row: BookingRow) {
   return "—";
 }
 
-function shortNotes(value: string | null | undefined) {
+function shortText(value: string | null | undefined, max = 90) {
   const text = String(value ?? "").trim();
   if (!text) return "—";
-  return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 export default async function BookingsPage() {
@@ -120,7 +123,10 @@ export default async function BookingsPage() {
       vat,
       total_invoice,
       payment_received,
-      notes,
+      po_number,
+      job_reference,
+      operator_name,
+      driver_notes,
       clients:client_id (
         id,
         company_name,
@@ -139,7 +145,7 @@ export default async function BookingsPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1240px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -177,7 +183,8 @@ export default async function BookingsPage() {
                     <th align="left" style={thStyle}>Location</th>
                     <th align="left" style={thStyle}>Status</th>
                     <th align="left" style={thStyle}>Financials</th>
-                    <th align="left" style={thStyle}>Notes</th>
+                    <th align="left" style={thStyle}>Reference</th>
+                    <th align="left" style={thStyle}>Driver / Notes</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -239,8 +246,16 @@ export default async function BookingsPage() {
                         </td>
 
                         <td style={tdStyle}>
-                          <div style={{ fontSize: 13, lineHeight: 1.4 }}>
-                            {shortNotes(b.notes)}
+                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                            <div><strong>PO:</strong> {b.po_number ?? "—"}</div>
+                            <div><strong>Ref:</strong> {b.job_reference ?? "—"}</div>
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                            <div><strong>Driver:</strong> {b.operator_name ?? "—"}</div>
+                            <div>{shortText(b.driver_notes)}</div>
                           </div>
                         </td>
 
