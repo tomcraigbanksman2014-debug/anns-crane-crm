@@ -1,12 +1,38 @@
-import ClientShell from "../ClientShell";
-import TransportPlannerBoard from "./TransportPlannerBoard";
+"use client";
 
-export default function TransportPlannerPage() {
+import { useState } from "react";
+import TransportQuickEditPanel from "@/components/TransportQuickEditPanel";
+
+export default function PlannerClient({ jobs, vehicles, operators }: any) {
+  const [selected, setSelected] = useState<any>(null);
+
   return (
-    <ClientShell>
-      <div style={{ width: "min(1420px, 99vw)", margin: "0 auto" }}>
-        <TransportPlannerBoard />
+    <>
+      <div>
+        {jobs.map((job: any) => (
+          <div
+            key={job.id}
+            onClick={() => setSelected(job)}
+            style={{
+              padding: 10,
+              background: "#fff",
+              borderRadius: 10,
+              cursor: "pointer",
+            }}
+          >
+            {job.transport_number}
+          </div>
+        ))}
       </div>
-    </ClientShell>
+
+      {selected && (
+        <TransportQuickEditPanel
+          job={selected}
+          vehicles={vehicles}
+          operators={operators}
+          onClose={() => setSelected(null)}
+        />
+      )}
+    </>
   );
 }
