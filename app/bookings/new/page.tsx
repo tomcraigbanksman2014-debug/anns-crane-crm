@@ -8,7 +8,6 @@ function clean(v: FormDataEntryValue | null) {
 
 function safeDecode(value: string | undefined) {
   const raw = String(value ?? "");
-
   try {
     return decodeURIComponent(raw);
   } catch {
@@ -21,18 +20,24 @@ function formatDateLabel(value: string | undefined) {
   if (!raw) return "—";
 
   const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return raw;
-  }
+  if (Number.isNaN(parsed.getTime())) return raw;
 
   return parsed.toLocaleDateString("en-GB");
 }
 
 function quoteToBookingStatus(value: string | undefined) {
   const raw = safeDecode(value).trim().toLowerCase();
+  if (raw === "accepted") return "Confirmed";
+  if (raw === "sent") return "Provisional";
+  return "Inquiry";
+}
 
-  if (raw === "accepted") return "confirmed";
-  return "draft";
+function combineDateTime(date: string | null, time: string | null) {
+  if (!date || !time) return null;
+  const iso = `${date}T${time}:00`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
 }
 
 async function createBooking(formData: FormData) {
@@ -40,20 +45,67 @@ async function createBooking(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
+  const clientId = clean(formData.get("client_id")) || null;
+  const equipmentId = clean(formData.get("equipment_id")) || null;
+  const startDate = clean(formData.get("start_date")) || null;
+  const endDate = clean(formData.get("end_date")) || null;
+  const startTime = clean(formData.get("start_time")) || null;
+  const endTime = clean(formData.get("end_time")) || null;
+  const location = clean(formData.get("location")) || null;
+  const siteAddress = clean(formData.get("site_address")) || null;
+  const status = clean(formData.get("status")) || "Inquiry";
+  const hirePrice = Number(formData.get("hire_price") ?? 0) || 0;
+  const paymentReceived = Number(formData.get("payment_received") ?? 0) || 0;
+  const vatRate = Number(formData.get("vat_rate") ?? 20) || 0;
+  const vat = Number(((hirePrice * vatRate) / 100).toFixed(2));
+  const totalInvoice = Number((hirePrice + vat).toFixed(2));
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+
+  const quoteId = clean(formData.get("quote_id")) || "";
+  const quoteAmount = clean(formData.get("quote_amount")) || "";
+  const quoteSubject = clean(formData.get("quote_subject")) || "";
+  const quoteNotes = clean(formData.get("quote_notes")) || "";
+
+  if (!clientId || !equipmentId || !startDate || !endDate) {
+    redirect(
+      `/bookings/new?error=${encodeURIComponent(
+        "Customer, equipment, start date and end date are required."
+      )}`
+    );
+  }
+
+  if (endDate < startDate) {
+    redirect(
+      `/bookings/new?error=${encodeURIComponent(
+        "End date must be the same as or after start date."
+      )}`
+    );
+  }
+
+  const notesParts = [
+    quoteSubject ? `Quote subject: ${quoteSubject}` : "",
+    quoteAmount ? `Quote amount: £${quoteAmount}` : "",
+    quoteId ? `Quote reference: ${quoteId}` : "",
+    quoteNotes ? `Quote notes: ${quoteNotes}` : "",
+  ].filter(Boolean);
+
+  const bookingNotes = notesParts.join("\n");
+
   const payload: Record<string, any> = {
-    client_id: clean(formData.get("client_id")) || null,
-    site_name: clean(formData.get("site_name")) || null,
-    site_address: clean(formData.get("site_address")) || null,
-    contact_name: clean(formData.get("contact_name")) || null,
-    contact_phone: clean(formData.get("contact_phone")) || null,
-    start_date: clean(formData.get("start_date")) || null,
-    start_time: clean(formData.get("start_time")) || null,
-    notes: clean(formData.get("notes")) || null,
-    hire_type: clean(formData.get("hire_type")) || null,
-    status: clean(formData.get("status")) || "draft",
-    quote_id: clean(formData.get("quote_id")) || null,
-    quote_amount: Number(formData.get("quote_amount") ?? 0) || 0,
-    created_at: new Date().toISOString(),
+    client_id: clientId,
+    equipment_id: equipmentId,
+    start_date: startDate,
+    end_date: endDate,
+    start_at: combineDateTime(startDate, startTime),
+    end_at: combineDateTime(endDate, endTime),
+    location: location || siteAddress || null,
+    status,
+    hire_price: hirePrice || null,
+    vat: hirePrice ? vat : null,
+    total_invoice: hirePrice ? totalInvoice : null,
+    payment_received: paymentReceived || 0,
+    invoice_status: invoiceStatus,
+    notes: bookingNotes || null,
     updated_at: new Date().toISOString(),
   };
 
@@ -90,11 +142,20 @@ type PageProps = {
 export default async function NewBookingPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
 
-  const { data: clients } = await supabase
-    .from("clients")
-    .select("id, company_name, archived")
-    .eq("archived", false)
-    .order("company_name", { ascending: true });
+  const [{ data: clients }, { data: equipment }] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, company_name, archived")
+      .eq("archived", false)
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number, capacity, archived, status")
+      .eq("archived", false)
+      .eq("status", "active")
+      .order("name", { ascending: true }),
+  ]);
 
   const quoteId = String(searchParams?.quote_id ?? "");
   const prefilledClientId = String(searchParams?.client_id ?? "");
@@ -105,18 +166,16 @@ export default async function NewBookingPage({ searchParams }: PageProps) {
   const prefilledQuoteStatus = safeDecode(searchParams?.quote_status);
   const prefilledQuoteDate = safeDecode(searchParams?.quote_date);
   const prefilledValidUntil = safeDecode(searchParams?.valid_until);
-  const prefilledContactName = safeDecode(searchParams?.contact_name);
-  const prefilledContactPhone = safeDecode(searchParams?.contact_phone);
   const defaultStatus = quoteToBookingStatus(searchParams?.quote_status);
   const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
 
   return (
     <ClientShell>
-      <div style={{ width: "min(920px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(960px, 95vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <h1 style={{ marginTop: 0, fontSize: 32 }}>New Booking</h1>
           <p style={{ opacity: 0.8, marginTop: 6 }}>
-            Create a booking. Quote values will prefill when opened from a quote.
+            Create a booking using the live booking schema.
           </p>
 
           {quoteId ? (
@@ -134,27 +193,45 @@ export default async function NewBookingPage({ searchParams }: PageProps) {
 
           <form action={createBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
             <input type="hidden" name="quote_id" value={quoteId} />
-            <input type="hidden" name="quote_amount" value={prefilledAmount || "0"} />
+            <input type="hidden" name="quote_amount" value={prefilledAmount || ""} />
+            <input type="hidden" name="quote_subject" value={prefilledSubject || ""} />
+            <input type="hidden" name="quote_notes" value={prefilledNotes || ""} />
 
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Customer</label>
-              <select name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
-                <option value="">— Select customer —</option>
-                {(clients ?? []).map((client: any) => (
-                  <option key={client.id} value={client.id}>
-                    {client.company_name ?? "Customer"}
-                  </option>
-                ))}
-              </select>
+            <div style={twoCol}>
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Customer *</label>
+                <select name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
+                  <option value="">— Select customer —</option>
+                  {(clients ?? []).map((client: any) => (
+                    <option key={client.id} value={client.id}>
+                      {client.company_name ?? "Customer"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Equipment *</label>
+                <select name="equipment_id" style={inputStyle} defaultValue="">
+                  <option value="">— Select equipment —</option>
+                  {(equipment ?? []).map((item: any) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name ?? "Equipment"}
+                      {item.asset_number ? ` (${item.asset_number})` : ""}
+                      {item.capacity ? ` • ${item.capacity}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div style={fieldWrap}>
-              <label style={labelStyle}>Site name</label>
+              <label style={labelStyle}>Location / site</label>
               <input
-                name="site_name"
+                name="location"
                 style={inputStyle}
                 defaultValue={prefilledSubject}
-                placeholder="Site or job title"
+                placeholder="Site / location"
               />
             </div>
 
@@ -164,65 +241,98 @@ export default async function NewBookingPage({ searchParams }: PageProps) {
                 name="site_address"
                 rows={3}
                 style={textareaStyle}
-                placeholder="Site address"
+                placeholder="Optional address"
               />
             </div>
 
             <div style={twoCol}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Contact name</label>
-                <input
-                  name="contact_name"
-                  style={inputStyle}
-                  defaultValue={prefilledContactName}
-                />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Contact phone</label>
-                <input
-                  name="contact_phone"
-                  style={inputStyle}
-                  defaultValue={prefilledContactPhone}
-                />
-              </div>
-            </div>
-
-            <div style={twoCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Start date</label>
+                <label style={labelStyle}>Start date *</label>
                 <input name="start_date" type="date" style={inputStyle} />
               </div>
 
               <div style={fieldWrap}>
-                <label style={labelStyle}>Start time</label>
-                <input name="start_time" type="time" style={inputStyle} />
+                <label style={labelStyle}>End date *</label>
+                <input name="end_date" type="date" style={inputStyle} />
               </div>
             </div>
 
             <div style={twoCol}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Hire type</label>
-                <input name="hire_type" style={inputStyle} placeholder="CPA / Contract lift / etc." />
+                <label style={labelStyle}>Start time</label>
+                <input name="start_time" type="time" style={inputStyle} />
               </div>
 
               <div style={fieldWrap}>
+                <label style={labelStyle}>End time</label>
+                <input name="end_time" type="time" style={inputStyle} />
+              </div>
+            </div>
+
+            <div style={twoCol}>
+              <div style={fieldWrap}>
                 <label style={labelStyle}>Status</label>
                 <select name="status" style={inputStyle} defaultValue={defaultStatus}>
-                  <option value="draft">draft</option>
-                  <option value="confirmed">confirmed</option>
-                  <option value="cancelled">cancelled</option>
+                  <option value="Inquiry">Inquiry</option>
+                  <option value="Provisional">Provisional</option>
+                  <option value="Confirmed">Confirmed</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Invoice status</label>
+                <select name="invoice_status" style={inputStyle} defaultValue="Not Invoiced">
+                  <option value="Not Invoiced">Not Invoiced</option>
+                  <option value="Part Paid">Part Paid</option>
+                  <option value="Paid">Paid</option>
                 </select>
               </div>
             </div>
 
+            <div style={threeCol}>
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Hire price</label>
+                <input
+                  name="hire_price"
+                  type="number"
+                  step="0.01"
+                  style={inputStyle}
+                  defaultValue={prefilledAmount || ""}
+                />
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>VAT %</label>
+                <input
+                  name="vat_rate"
+                  type="number"
+                  step="0.01"
+                  style={inputStyle}
+                  defaultValue="20"
+                />
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Payment received</label>
+                <input
+                  name="payment_received"
+                  type="number"
+                  step="0.01"
+                  style={inputStyle}
+                  defaultValue="0"
+                />
+              </div>
+            </div>
+
             <div style={fieldWrap}>
-              <label style={labelStyle}>Notes</label>
+              <label style={labelStyle}>Quote notes carried into booking notes</label>
               <textarea
-                name="notes"
-                rows={6}
-                style={textareaStyle}
-                defaultValue={prefilledNotes}
+                value={prefilledNotes}
+                readOnly
+                rows={5}
+                style={{ ...textareaStyle, opacity: 0.8 }}
               />
             </div>
 
@@ -257,6 +367,12 @@ const fieldWrap: React.CSSProperties = {
 const twoCol: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
+
+const threeCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
   gap: 12,
 };
 
@@ -321,8 +437,7 @@ const infoBox: React.CSSProperties = {
 const infoMetaStyle: React.CSSProperties = {
   marginTop: 6,
   fontSize: 13,
-  fontWeight: 700,
-  opacity: 0.86,
+  opacity: 0.78,
 };
 
 const errorBox: React.CSSProperties = {
