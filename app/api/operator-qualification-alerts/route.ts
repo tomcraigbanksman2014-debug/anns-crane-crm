@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import {
+  compareQualificationExpiryAsc,
+  getQualificationStatus,
+} from "../../lib/utils/qualificationStatus";
 
 function asArray<T>(value: T | T[] | null | undefined): T[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
-}
-
-function toIsoDate(d: Date) {
-  return d.toISOString().slice(0, 10);
 }
 
 export async function GET() {
@@ -38,13 +38,6 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    const today = new Date();
-    const todayIso = toIsoDate(today);
-
-    const soon = new Date(today);
-    soon.setDate(soon.getDate() + 30);
-    const soonIso = toIsoDate(soon);
-
     const rows = (data ?? []).filter((row: any) => {
       const operator = asArray(row.operators)[0];
       if (!operator) return false;
@@ -53,15 +46,13 @@ export async function GET() {
       return true;
     });
 
-    const expired = rows.filter((row: any) => {
-      const expiry = String(row.expiry_date ?? "").trim();
-      return !!expiry && expiry < todayIso;
-    });
+    const expired = rows
+      .filter((row: any) => getQualificationStatus(row.expiry_date) === "expired")
+      .sort(compareQualificationExpiryAsc);
 
-    const expiringSoon = rows.filter((row: any) => {
-      const expiry = String(row.expiry_date ?? "").trim();
-      return !!expiry && expiry >= todayIso && expiry <= soonIso;
-    });
+    const expiringSoon = rows
+      .filter((row: any) => getQualificationStatus(row.expiry_date) === "expiring")
+      .sort(compareQualificationExpiryAsc);
 
     return NextResponse.json({
       expired_count: expired.length,
