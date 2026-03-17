@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import OperatorArchiveButton from "./OperatorArchiveButton";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -147,9 +148,15 @@ export default async function OperatorsPage({
                     <td style={tdStyle}>{op.archived ? "Yes" : "No"}</td>
                     <td style={tdStyle}>{fmtText(op.notes)}</td>
                     <td style={tdStyle}>
-                      <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
-                        Edit
-                      </a>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
+                          Edit
+                        </a>
+                        <OperatorArchiveButton
+                          operatorId={op.id}
+                          archived={!!op.archived}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
