@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import StatusBadge from "../components/StatusBadge";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -11,66 +12,6 @@ function fmtDate(value: string | null | undefined) {
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
-}
-
-function prettyStatus(value: string | null | undefined) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "draft") return "Draft";
-  if (v === "confirmed") return "Confirmed";
-  if (v === "in_progress") return "In Progress";
-  if (v === "completed") return "Completed";
-  if (v === "cancelled") return "Cancelled";
-  return value ?? "—";
-}
-
-function statusStyle(status: string | null | undefined): React.CSSProperties {
-  const s = String(status ?? "").toLowerCase();
-
-  if (s === "draft") {
-    return {
-      background: "rgba(120,120,120,0.12)",
-      color: "#555",
-      border: "1px solid rgba(120,120,120,0.18)",
-    };
-  }
-
-  if (s === "confirmed") {
-    return {
-      background: "rgba(0,120,255,0.12)",
-      color: "#0b57d0",
-      border: "1px solid rgba(0,120,255,0.20)",
-    };
-  }
-
-  if (s === "in_progress") {
-    return {
-      background: "rgba(255,140,0,0.14)",
-      color: "#8a5200",
-      border: "1px solid rgba(255,140,0,0.22)",
-    };
-  }
-
-  if (s === "completed") {
-    return {
-      background: "rgba(0,180,120,0.12)",
-      color: "#0b7a4b",
-      border: "1px solid rgba(0,180,120,0.20)",
-    };
-  }
-
-  if (s === "cancelled") {
-    return {
-      background: "rgba(255,0,0,0.10)",
-      color: "#b00020",
-      border: "1px solid rgba(255,0,0,0.18)",
-    };
-  }
-
-  return {
-    background: "rgba(255,255,255,0.35)",
-    color: "#111",
-    border: "1px solid rgba(0,0,0,0.10)",
-  };
 }
 
 type JobsPageProps = {
@@ -183,7 +124,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Site</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Archived</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -226,21 +166,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                         </td>
 
                         <td style={tdStyle}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              fontSize: 12,
-                              fontWeight: 900,
-                              ...statusStyle(job.status),
-                            }}
-                          >
-                            {prettyStatus(job.status)}
-                          </span>
+                          <StatusBadge value={job.status} archived={!!job.archived} />
                         </td>
-
-                        <td style={tdStyle}>{job.archived ? "Yes" : "No"}</td>
 
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
