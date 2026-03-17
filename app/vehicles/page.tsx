@@ -58,7 +58,7 @@ export default async function VehiclesPage({
       id,
       name,
       reg_number,
-      type,
+      vehicle_type,
       notes,
       status,
       archived
@@ -130,7 +130,7 @@ export default async function VehiclesPage({
                   <tr>
                     <th align="left" style={thStyle}>Name</th>
                     <th align="left" style={thStyle}>Registration</th>
-                    <th align="left" style={thStyle}>Type</th>
+                    <th align="left" style={thStyle}>Vehicle type</th>
                     <th align="left" style={thStyle}>Status</th>
                     <th align="left" style={thStyle}>Archived</th>
                     <th align="left" style={thStyle}>Notes</th>
@@ -142,7 +142,7 @@ export default async function VehiclesPage({
                     <tr key={vehicle.id}>
                       <td style={tdStyle}>{fmtText(vehicle.name)}</td>
                       <td style={tdStyle}>{fmtText(vehicle.reg_number)}</td>
-                      <td style={tdStyle}>{fmtText(vehicle.type)}</td>
+                      <td style={tdStyle}>{fmtText(vehicle.vehicle_type)}</td>
                       <td style={tdStyle}>
                         <span
                           style={{
