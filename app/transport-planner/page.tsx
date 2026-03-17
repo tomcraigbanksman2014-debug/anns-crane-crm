@@ -142,6 +142,61 @@ function overlaps(
   return startA < endB && startB < endA;
 }
 
+function jobCardColor(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").trim().toLowerCase();
+
+  if (s === "planned") {
+    return {
+      background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
+      border: "1px solid rgba(0,0,0,0.12)",
+    };
+  }
+
+  if (s === "confirmed") {
+    return {
+      background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
+      border: "1px solid rgba(255,170,0,0.25)",
+    };
+  }
+
+  if (s === "in_progress") {
+    return {
+      background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
+      border: "1px solid rgba(0,120,255,0.25)",
+    };
+  }
+
+  if (s === "completed") {
+    return {
+      background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
+      border: "1px solid rgba(0,180,120,0.25)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
+      border: "1px solid rgba(255,0,0,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.90)",
+    border: "1px solid rgba(0,0,0,0.08)",
+  };
+}
+
+function statusStripe(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+
+  if (s === "planned") return "rgba(120,120,120,0.85)";
+  if (s === "confirmed") return "rgba(255,170,0,0.95)";
+  if (s === "in_progress") return "rgba(0,120,255,0.95)";
+  if (s === "completed") return "rgba(0,180,120,0.95)";
+  if (s === "cancelled") return "rgba(220,0,0,0.90)";
+  return "rgba(0,0,0,0.18)";
+}
+
 export default function TransportPlannerPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -393,6 +448,14 @@ export default function TransportPlannerPage() {
               <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
                 Drag transport jobs across the week and between vehicles. Click a card to quick edit.
               </div>
+            </div>
+
+            <div style={legendWrap}>
+              <span style={{ ...legendItem, background: "rgba(245,245,245,0.96)" }}>Planned</span>
+              <span style={{ ...legendItem, background: "rgba(255,236,191,0.96)" }}>Confirmed</span>
+              <span style={{ ...legendItem, background: "rgba(204,226,255,0.96)" }}>In Progress</span>
+              <span style={{ ...legendItem, background: "rgba(205,245,225,0.96)" }}>Completed</span>
+              <span style={{ ...legendItem, background: "rgba(255,220,220,0.96)" }}>Cancelled</span>
             </div>
 
             <div style={toolbarActionsStyle}>
@@ -732,6 +795,8 @@ function TransportCard({
   const vehicle = first(job.vehicles);
   const operator = first(job.operators);
   const linkedJob = first(job.jobs);
+  const colorStyle = jobCardColor(job.status);
+  const stripe = statusStripe(job.status);
 
   return (
     <div
@@ -743,12 +808,27 @@ function TransportCard({
       onDragEnd={onDragEnd}
       style={{
         ...jobCardStyle,
+        ...colorStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
         padding: compact ? 8 : 12,
+        position: "relative",
       }}
     >
-      <div style={{ display: "grid", gap: 4 }}>
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          borderTopLeftRadius: 9,
+          borderBottomLeftRadius: 9,
+          background: stripe,
+        }}
+      />
+
+      <div style={{ display: "grid", gap: 4, paddingLeft: 4 }}>
         <button
           type="button"
           onClick={onOpenQuickEdit}
@@ -926,6 +1006,22 @@ const toolbarStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const legendWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const legendItem: React.CSSProperties = {
+  display: "inline-block",
+  padding: "6px 10px",
+  borderRadius: 999,
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 11,
+  fontWeight: 800,
+};
+
 const toolbarActionsStyle: React.CSSProperties = {
   display: "flex",
   gap: 8,
@@ -1007,8 +1103,6 @@ const activeCellStyle: React.CSSProperties = {
 
 const jobCardStyle: React.CSSProperties = {
   borderRadius: 9,
-  background: "rgba(255,255,255,0.88)",
-  border: "1px solid rgba(0,0,0,0.08)",
   boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
 };
 
