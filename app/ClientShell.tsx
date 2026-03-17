@@ -172,6 +172,7 @@ export default function ClientShell({
       { label: "Calendar", href: "/calendar" },
       { label: "Planner", href: "/planner" },
       { label: "Settings", href: "/settings" },
+      { label: "Qualification Rules", href: "/admin/qualification-rules" },
       { label: "Staff Accounts", href: "/admin/users" },
       { label: "Audit Log", href: "/admin/audit" },
     ],
