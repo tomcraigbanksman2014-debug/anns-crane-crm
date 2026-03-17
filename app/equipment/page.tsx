@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import EquipmentArchiveButton from "./EquipmentArchiveButton";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -39,10 +40,19 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   };
 }
 
-export default async function EquipmentPage() {
-  const supabase = createSupabaseServerClient();
+type EquipmentPageProps = {
+  searchParams?: {
+    view?: string;
+  };
+};
 
-  const { data, error } = await supabase
+export default async function EquipmentPage({
+  searchParams,
+}: EquipmentPageProps) {
+  const supabase = createSupabaseServerClient();
+  const view = String(searchParams?.view ?? "active").toLowerCase();
+
+  let query = supabase
     .from("equipment")
     .select(`
       id,
@@ -50,10 +60,20 @@ export default async function EquipmentPage() {
       asset_number,
       type,
       capacity,
-      status
+      status,
+      archived
     `)
     .order("name", { ascending: true });
 
+  if (view === "archived") {
+    query = query.eq("archived", true);
+  } else if (view === "all") {
+    // no filter
+  } else {
+    query = query.eq("archived", false);
+  }
+
+  const { data, error } = await query;
   const rows = data ?? [];
 
   return (
@@ -78,10 +98,31 @@ export default async function EquipmentPage() {
             </div>
           </div>
 
+          <div style={tabsRow}>
+            <a
+              href="/equipment?view=active"
+              style={view === "active" ? activeTabBtn : tabBtn}
+            >
+              Active
+            </a>
+            <a
+              href="/equipment?view=archived"
+              style={view === "archived" ? activeTabBtn : tabBtn}
+            >
+              Archived
+            </a>
+            <a
+              href="/equipment?view=all"
+              style={view === "all" ? activeTabBtn : tabBtn}
+            >
+              All
+            </a>
+          </div>
+
           {error ? (
             <div style={errorBox}>{error.message}</div>
           ) : rows.length === 0 ? (
-            <div style={emptyBox}>No equipment found.</div>
+            <div style={emptyBox}>No equipment found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -92,6 +133,7 @@ export default async function EquipmentPage() {
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Capacity</th>
                     <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Archived</th>
                     <th align="left" style={thStyle}>Action</th>
                   </tr>
                 </thead>
@@ -116,6 +158,7 @@ export default async function EquipmentPage() {
                           {fmtText(item.status)}
                         </span>
                       </td>
+                      <td style={tdStyle}>{item.archived ? "Yes" : "No"}</td>
                       <td style={tdStyle}>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                           <a href={`/equipment/${item.id}`} style={actionBtn}>
@@ -124,6 +167,10 @@ export default async function EquipmentPage() {
                           <a href={`/equipment/${item.id}/edit`} style={actionBtn}>
                             Edit
                           </a>
+                          <EquipmentArchiveButton
+                            equipmentId={item.id}
+                            archived={!!item.archived}
+                          />
                         </div>
                       </td>
                     </tr>
@@ -152,6 +199,13 @@ const headerRow: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const tabsRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
 };
 
 const thStyle: React.CSSProperties = {
@@ -188,6 +242,24 @@ const secondaryBtn: React.CSSProperties = {
   textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const tabBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "9px 14px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const activeTabBtn: React.CSSProperties = {
+  ...tabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
 };
 
 const actionBtn: React.CSSProperties = {
