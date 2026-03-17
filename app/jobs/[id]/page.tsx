@@ -6,6 +6,8 @@ import LiftPlanForm from "./LiftPlanForm";
 import SignoffForm from "./SignoffForm";
 import JobEquipmentManager from "./JobEquipmentManager";
 import CreateTransportJobButton from "./CreateTransportJobButton";
+import ArchiveJobButton from "./ArchiveJobButton";
+import CreateInvoiceButton from "./CreateInvoiceButton";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -89,6 +91,12 @@ function calcWorkedHours(startedAt: string | null | undefined, completedAt: stri
 
 function hasText(value: any) {
   return String(value ?? "").trim().length > 0;
+}
+
+function fmtMoney(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
 }
 
 async function updateJobStatus(formData: FormData) {
@@ -340,13 +348,15 @@ export default async function JobPage({
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {job?.id ? <CreateTransportJobButton jobId={(job as any).id} /> : null}
-
+            {job?.id ? <CreateInvoiceButton jobId={(job as any).id} /> : null}
+            {job?.id ? (
+              <ArchiveJobButton jobId={(job as any).id} archived={!!(job as any).archived} />
+            ) : null}
             {job?.id ? (
               <a href={`/jobs/${job.id}/edit`} style={actionBtn}>
                 Edit job
               </a>
             ) : null}
-
             <a href="/jobs" style={btnStyle}>
               ← Back
             </a>
@@ -549,8 +559,12 @@ export default async function JobPage({
                 <div style={card}>
                   <h2 style={sectionTitle}>Invoice Status</h2>
                   <Row label="Invoice status" value={(job as any).invoice_status ?? "not_invoiced"} />
+                  <Row label="Invoice #" value={(job as any).invoice_number ?? "—"} />
                   <Row label="Invoice created" value={fmtDateTime((job as any).invoice_created_at)} />
                   <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
+                  <Row label="Subtotal" value={fmtMoney((job as any).invoice_subtotal)} />
+                  <Row label="VAT" value={fmtMoney((job as any).invoice_vat)} />
+                  <Row label="Total" value={fmtMoney((job as any).invoice_total)} />
                   <Block label="Invoice notes" value={(job as any).invoice_notes} />
                 </div>
 
@@ -644,9 +658,7 @@ function PaperworkDashboard({
       >
         <div>
           <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
-          <div style={{ opacity: 0.72 }}>
-            Quick readiness view for lift plan, RAMS and supporting docs.
-          </div>
+          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
         </div>
 
         <span
