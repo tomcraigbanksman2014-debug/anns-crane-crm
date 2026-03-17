@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
+import ArchiveTransportJobButton from "./ArchiveTransportJobButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -165,6 +166,13 @@ export default async function TransportJobDetailPage({
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {item ? <DuplicateTransportJobButton jobId={(item as any).id} /> : null}
+
+              {item ? (
+                <ArchiveTransportJobButton
+                  jobId={(item as any).id}
+                  archived={!!(item as any).archived}
+                />
+              ) : null}
 
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back to transport jobs
@@ -336,6 +344,7 @@ export default async function TransportJobDetailPage({
                   value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
                 />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
+                <InfoRow label="Archived" value={(item as any).archived ? "Yes" : "No"} />
                 <InfoRow label="Price" value={fmtMoney((item as any).price)} />
                 <InfoRow
                   label="Pickup lat/lng"
