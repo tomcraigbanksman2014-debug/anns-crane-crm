@@ -11,9 +11,36 @@ function normaliseUnit(value: unknown) {
   return null;
 }
 
+async function requireAdmin(supabase: ReturnType<typeof createSupabaseServerClient>) {
+  const { data, error } = await supabase.auth.getUser();
+
+  if (error || !data.user) {
+    return { ok: false, response: NextResponse.json({ error: "Unauthorised." }, { status: 401 }) };
+  }
+
+  const user = data.user;
+  const email = String(user.email ?? "").trim().toLowerCase();
+  const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+    .trim()
+    .toLowerCase();
+  const metadataRole = String(user.user_metadata?.role ?? "").toLowerCase();
+
+  const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+  const isAdmin = isMaster || metadataRole === "admin";
+
+  if (!isAdmin) {
+    return { ok: false, response: NextResponse.json({ error: "Forbidden." }, { status: 403 }) };
+  }
+
+  return { ok: true as const };
+}
+
 export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
+    const auth = await requireAdmin(supabase);
+
+    if (!auth.ok) return auth.response;
 
     const { data, error } = await supabase
       .from("operator_required_qualifications")
@@ -37,6 +64,10 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
+    const auth = await requireAdmin(supabase);
+
+    if (!auth.ok) return auth.response;
+
     const body = await req.json().catch(() => null);
 
     const role = clean(body?.role);
@@ -85,6 +116,10 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
+    const auth = await requireAdmin(supabase);
+
+    if (!auth.ok) return auth.response;
+
     const body = await req.json().catch(() => null);
 
     const ruleId = clean(body?.id);
@@ -135,6 +170,10 @@ export async function PATCH(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
+    const auth = await requireAdmin(supabase);
+
+    if (!auth.ok) return auth.response;
+
     const body = await req.json().catch(() => null);
     const ruleId = clean(body?.id);
 
