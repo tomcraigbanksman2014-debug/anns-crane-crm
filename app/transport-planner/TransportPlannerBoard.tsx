@@ -17,10 +17,10 @@ type PlannerTransportJob = {
   delivery_lat?: number | null;
   delivery_lng?: number | null;
   load_description?: string | null;
+  notes?: string | null;
   vehicle_id?: string | null;
   operator_id?: string | null;
   linked_job_id?: string | null;
-  notes?: string | null;
   clients?:
     | { company_name?: string | null }
     | { company_name?: string | null }[]
@@ -69,22 +69,6 @@ function first<T>(value: T | T[] | null | undefined): T | null {
 
 function todayIso() {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-function mondayOf(dateStr: string) {
-  const d = new Date(dateStr);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-
-function isoDate(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
@@ -146,59 +130,100 @@ function overlaps(
   return startA < endB && startB < endA;
 }
 
-function jobCardColor(status: string | null | undefined): React.CSSProperties {
-  const s = String(status ?? "").trim().toLowerCase();
+function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJob) {
+  const nextVehicle = update.vehicle_id !== undefined ? update.vehicle_id : current.vehicle_id;
+  const nextOperator = update.operator_id !== undefined ? update.operator_id : current.operator_id;
+  const nextCollectionTime =
+    update.collection_time !== undefined ? update.collection_time : current.collection_time;
+  const nextDeliveryTime =
+    update.delivery_time !== undefined ? update.delivery_time : current.delivery_time;
+  const nextStatus = update.status !== undefined ? update.status : current.status;
+
+  if (update.status !== undefined) return nextStatus;
+
+  if (
+    String(current.status ?? "").toLowerCase() === "planned" &&
+    nextVehicle &&
+    nextOperator &&
+    nextCollectionTime &&
+    nextDeliveryTime
+  ) {
+    return "confirmed";
+  }
+
+  return nextStatus;
+}
+
+function cardTheme(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").toLowerCase();
 
   if (s === "planned") {
     return {
-      background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
-      border: "1px solid rgba(0,0,0,0.12)",
+      background: "linear-gradient(180deg, rgba(247,247,247,0.98), rgba(236,236,236,0.98))",
+      border: "1px solid rgba(0,0,0,0.10)",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
     };
   }
 
   if (s === "confirmed") {
     return {
-      background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
-      border: "1px solid rgba(255,170,0,0.25)",
+      background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,238,198,0.98))",
+      border: "1px solid rgba(255,170,0,0.22)",
+      boxShadow: "0 2px 8px rgba(255,170,0,0.08)",
     };
   }
 
   if (s === "in_progress") {
     return {
-      background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
-      border: "1px solid rgba(0,120,255,0.25)",
+      background: "linear-gradient(180deg, rgba(234,243,255,0.98), rgba(212,228,255,0.98))",
+      border: "1px solid rgba(0,120,255,0.22)",
+      boxShadow: "0 2px 8px rgba(0,120,255,0.08)",
     };
   }
 
   if (s === "completed") {
     return {
-      background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
-      border: "1px solid rgba(0,180,120,0.25)",
+      background: "linear-gradient(180deg, rgba(234,255,244,0.98), rgba(214,247,228,0.98))",
+      border: "1px solid rgba(0,180,120,0.22)",
+      boxShadow: "0 2px 8px rgba(0,180,120,0.08)",
     };
   }
 
   if (s === "cancelled") {
     return {
-      background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
-      border: "1px solid rgba(255,0,0,0.22)",
+      background: "linear-gradient(180deg, rgba(255,240,240,0.98), rgba(255,223,223,0.98))",
+      border: "1px solid rgba(220,0,0,0.20)",
+      boxShadow: "0 2px 8px rgba(220,0,0,0.06)",
     };
   }
 
   return {
-    background: "rgba(255,255,255,0.90)",
+    background: "rgba(255,255,255,0.92)",
     border: "1px solid rgba(0,0,0,0.08)",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
   };
 }
 
-function statusStripe(status: string | null | undefined) {
-  const s = String(status ?? "").trim().toLowerCase();
+function compactBadge(text: string, kind: "neutral" | "warn" | "bad" | "good") {
+  const base: React.CSSProperties = {
+    display: "inline-block",
+    padding: "4px 8px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 900,
+    lineHeight: 1,
+  };
 
-  if (s === "planned") return "rgba(120,120,120,0.85)";
-  if (s === "confirmed") return "rgba(255,170,0,0.95)";
-  if (s === "in_progress") return "rgba(0,120,255,0.95)";
-  if (s === "completed") return "rgba(0,180,120,0.95)";
-  if (s === "cancelled") return "rgba(220,0,0,0.90)";
-  return "rgba(0,0,0,0.18)";
+  if (kind === "good") {
+    return <span style={{ ...base, background: "rgba(0,180,120,0.12)", color: "#0b7a4b" }}>{text}</span>;
+  }
+  if (kind === "warn") {
+    return <span style={{ ...base, background: "rgba(255,170,0,0.14)", color: "#8a5200" }}>{text}</span>;
+  }
+  if (kind === "bad") {
+    return <span style={{ ...base, background: "rgba(255,0,0,0.10)", color: "#b00020" }}>{text}</span>;
+  }
+  return <span style={{ ...base, background: "rgba(0,0,0,0.06)", color: "#444" }}>{text}</span>;
 }
 
 export default function TransportPlannerBoard() {
@@ -213,6 +238,14 @@ export default function TransportPlannerBoard() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorJob, setEditorJob] = useState<PlannerTransportJob | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
+
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [vehicleFilter, setVehicleFilter] = useState("");
+  const [driverFilter, setDriverFilter] = useState("");
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [conflictsOnly, setConflictsOnly] = useState(false);
+  const [compactMode, setCompactMode] = useState(true);
 
   const [data, setData] = useState<{
     week_start: string;
@@ -234,8 +267,8 @@ export default function TransportPlannerBoard() {
 
     try {
       const [boardRes, lookupRes] = await Promise.all([
-        fetch(`/api/transport-planner/board?date=${selectedDate}`),
-        fetch("/api/lookups/transport-form"),
+        fetch(`/api/transport-planner/board?date=${selectedDate}`, { cache: "no-store" }),
+        fetch("/api/lookups/transport-form", { cache: "no-store" }),
       ]);
 
       const boardJson = await boardRes.json().catch(() => null);
@@ -269,11 +302,25 @@ export default function TransportPlannerBoard() {
     load();
   }, [selectedDate]);
 
+  function moveWeek(offset: number) {
+    const d = new Date(selectedDate);
+    d.setDate(d.getDate() + offset * 7);
+    setSelectedDate(d.toISOString().slice(0, 10));
+  }
+
   async function updateTransportJob(jobId: string, update: Record<string, any>) {
     setSavingId(jobId);
     setMsg("");
 
     try {
+      const current = data.jobs.find((j) => j.id === jobId);
+      const finalPayload = current
+        ? {
+            ...update,
+            status: inferAutoStatus(update, current),
+          }
+        : update;
+
       const res = await fetch("/api/transport-planner/board/update", {
         method: "POST",
         headers: {
@@ -281,7 +328,7 @@ export default function TransportPlannerBoard() {
         },
         body: JSON.stringify({
           transport_job_id: jobId,
-          ...update,
+          ...finalPayload,
         }),
       });
 
@@ -312,21 +359,25 @@ export default function TransportPlannerBoard() {
     setMsg("");
 
     try {
+      const update = {
+        transport_date: String(form.get("transport_date") ?? "").trim() || null,
+        collection_time: String(form.get("collection_time") ?? "").trim() || null,
+        delivery_time: String(form.get("delivery_time") ?? "").trim() || null,
+        operator_id: String(form.get("operator_id") ?? "").trim() || null,
+        vehicle_id: String(form.get("vehicle_id") ?? "").trim() || null,
+        status: String(form.get("status") ?? "").trim() || "planned",
+        collection_address: String(form.get("collection_address") ?? "").trim() || null,
+        delivery_address: String(form.get("delivery_address") ?? "").trim() || null,
+        load_description: String(form.get("load_description") ?? "").trim() || null,
+        notes: String(form.get("notes") ?? "").trim() || null,
+      };
+
       const res = await fetch("/api/transport-planner/board/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           transport_job_id: editorJob.id,
-          transport_date: String(form.get("transport_date") ?? "").trim() || null,
-          collection_time: String(form.get("collection_time") ?? "").trim() || null,
-          delivery_time: String(form.get("delivery_time") ?? "").trim() || null,
-          operator_id: String(form.get("operator_id") ?? "").trim() || null,
-          vehicle_id: String(form.get("vehicle_id") ?? "").trim() || null,
-          status: String(form.get("status") ?? "").trim() || "planned",
-          collection_address: String(form.get("collection_address") ?? "").trim() || null,
-          delivery_address: String(form.get("delivery_address") ?? "").trim() || null,
-          load_description: String(form.get("load_description") ?? "").trim() || null,
-          notes: String(form.get("notes") ?? "").trim() || null,
+          ...update,
         }),
       });
 
@@ -347,91 +398,36 @@ export default function TransportPlannerBoard() {
     }
   }
 
-  function moveWeek(direction: -1 | 1) {
-    const base = mondayOf(selectedDate);
-    base.setDate(base.getDate() + direction * 7);
-    setSelectedDate(isoDate(base));
-  }
+  const vehicleOptions = useMemo(() => {
+    return lookupVehicles.map((v) => ({
+      value: v.id,
+      label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+    }));
+  }, [lookupVehicles]);
 
-  const vehicleOptions = useMemo(
-    () =>
-      data.vehicles.map((v) => ({
-        value: v.id,
-        label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-      })),
-    [data.vehicles]
-  );
+  const operatorOptions = useMemo(() => {
+    return lookupOperators.map((o) => ({
+      value: o.id,
+      label: o.full_name ?? "Operator",
+    }));
+  }, [lookupOperators]);
 
-  const unassignedByDay = useMemo(() => {
-    const map = new Map<string, PlannerTransportJob[]>();
-
-    for (const day of data.days) {
-      map.set(day.date, []);
-    }
-
-    for (const job of data.jobs) {
-      if (!job.vehicle_id && job.transport_date && map.has(job.transport_date)) {
-        map.get(job.transport_date)!.push(job);
-      }
-    }
-
-    return map;
-  }, [data.days, data.jobs]);
-
-  const vehicleDayMap = useMemo(() => {
-    const map = new Map<string, PlannerTransportJob[]>();
-
-    for (const vehicle of data.vehicles) {
-      for (const day of data.days) {
-        map.set(`${vehicle.id}__${day.date}`, []);
-      }
-    }
-
-    for (const job of data.jobs) {
-      if (job.vehicle_id && job.transport_date) {
-        const key = `${job.vehicle_id}__${job.transport_date}`;
-        if (map.has(key)) {
-          map.get(key)!.push(job);
-        }
-      }
-    }
-
-    return map;
-  }, [data.vehicles, data.days, data.jobs]);
-
-  function jobWarnings(
-    job: PlannerTransportJob,
-    totalInCell: number,
-    allJobs: PlannerTransportJob[]
-  ) {
+  function jobWarnings(job: PlannerTransportJob, cellCount: number, allJobs: PlannerTransportJob[]) {
     const warnings: string[] = [];
 
     if (!job.vehicle_id) warnings.push("No vehicle");
     if (!job.operator_id) warnings.push("No driver");
-
-    if (
-      !hasCoords(job.collection_lat, job.collection_lng) ||
-      !hasCoords(job.delivery_lat, job.delivery_lng)
-    ) {
+    if (!hasCoords(job.collection_lat, job.collection_lng) || !hasCoords(job.delivery_lat, job.delivery_lng)) {
       warnings.push("No route coords");
     }
-
-    if (totalInCell > 3) warnings.push("Busy day");
 
     if (job.vehicle_id && job.transport_date) {
       const vehicleConflict = allJobs.some((other) => {
         if (other.id === job.id) return false;
         if (other.vehicle_id !== job.vehicle_id) return false;
         if (other.transport_date !== job.transport_date) return false;
-
-        return overlaps(
-          job.collection_time,
-          job.delivery_time,
-          other.collection_time,
-          other.delivery_time
-        );
+        return overlaps(job.collection_time, job.delivery_time, other.collection_time, other.delivery_time);
       });
-
       if (vehicleConflict) warnings.push("Vehicle conflict");
     }
 
@@ -440,20 +436,102 @@ export default function TransportPlannerBoard() {
         if (other.id === job.id) return false;
         if (other.operator_id !== job.operator_id) return false;
         if (other.transport_date !== job.transport_date) return false;
-
-        return overlaps(
-          job.collection_time,
-          job.delivery_time,
-          other.collection_time,
-          other.delivery_time
-        );
+        return overlaps(job.collection_time, job.delivery_time, other.collection_time, other.delivery_time);
       });
-
       if (driverConflict) warnings.push("Driver conflict");
     }
 
+    if (cellCount > 2) warnings.push("Busy day");
+
     return warnings;
   }
+
+  const filteredJobs = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+
+    return data.jobs.filter((job) => {
+      const client = first(job.clients);
+      const operator = first(job.operators);
+      const vehicle = first(job.vehicles);
+      const linkedJob = first(job.jobs);
+
+      if (statusFilter && String(job.status ?? "") !== statusFilter) return false;
+      if (vehicleFilter && String(job.vehicle_id ?? "") !== vehicleFilter) return false;
+      if (driverFilter && String(job.operator_id ?? "") !== driverFilter) return false;
+      if (unassignedOnly && !!job.vehicle_id) return false;
+
+      const warnings = jobWarnings(job, 1, data.jobs);
+      if (conflictsOnly && !warnings.some((w) => w.toLowerCase().includes("conflict"))) return false;
+
+      if (!q) return true;
+
+      const haystack = [
+        job.transport_number,
+        client?.company_name,
+        job.collection_address,
+        job.delivery_address,
+        operator?.full_name,
+        vehicle?.name,
+        vehicle?.reg_number,
+        linkedJob?.job_number,
+        job.load_description,
+        job.notes,
+      ]
+        .map((v) => String(v ?? "").toLowerCase())
+        .join(" ");
+
+      return haystack.includes(q);
+    });
+  }, [data.jobs, searchText, statusFilter, vehicleFilter, driverFilter, unassignedOnly, conflictsOnly]);
+
+  const vehicleMap = useMemo(() => {
+    const map = new Map<string, PlannerVehicle>();
+    data.vehicles.forEach((v) => map.set(v.id, v));
+    return map;
+  }, [data.vehicles]);
+
+  const shownVehicles = useMemo(() => {
+    if (vehicleFilter) {
+      const one = vehicleMap.get(vehicleFilter);
+      return one ? [one] : [];
+    }
+
+    if (unassignedOnly) return data.vehicles;
+
+    const used = new Set(filteredJobs.map((j) => j.vehicle_id).filter(Boolean) as string[]);
+    const result = data.vehicles.filter((v) => used.has(v.id));
+    return result.length > 0 ? result : data.vehicles;
+  }, [data.vehicles, vehicleFilter, vehicleMap, filteredJobs, unassignedOnly]);
+
+  const unassignedByDay = useMemo(() => {
+    const map = new Map<string, PlannerTransportJob[]>();
+    for (const day of data.days) {
+      const jobs = filteredJobs.filter(
+        (job) => job.transport_date === day.date && !job.vehicle_id
+      );
+      map.set(day.date, jobs);
+    }
+    return map;
+  }, [data.days, filteredJobs]);
+
+  const vehicleDayMap = useMemo(() => {
+    const map = new Map<string, PlannerTransportJob[]>();
+    for (const vehicle of shownVehicles) {
+      for (const day of data.days) {
+        const key = `${vehicle.id}__${day.date}`;
+        const jobs = filteredJobs.filter(
+          (job) => job.transport_date === day.date && job.vehicle_id === vehicle.id
+        );
+        map.set(key, jobs);
+      }
+    }
+    return map;
+  }, [shownVehicles, data.days, filteredJobs]);
+
+  const visibleJobCount = filteredJobs.length;
+  const conflictCount = filteredJobs.filter((job) =>
+    jobWarnings(job, 1, filteredJobs).some((w) => w.toLowerCase().includes("conflict"))
+  ).length;
 
   return (
     <>
@@ -462,7 +540,7 @@ export default function TransportPlannerBoard() {
           <div style={{ minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
             <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-              Drag transport jobs across the week and between vehicles. Click a card to quick edit.
+              Drag jobs between vehicles and days. Resize left/right edges to adjust times.
             </div>
           </div>
 
@@ -492,12 +570,75 @@ export default function TransportPlannerBoard() {
           </div>
         </div>
 
+        <div style={filtersStyle}>
+          <input
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            placeholder="Search ref, customer, address, driver, vehicle, crane job..."
+            style={{ ...inputStyle, minWidth: 220 }}
+          />
+
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={inputStyle}>
+            <option value="">All statuses</option>
+            <option value="planned">Planned</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+
+          <select value={vehicleFilter} onChange={(e) => setVehicleFilter(e.target.value)} style={inputStyle}>
+            <option value="">All vehicles</option>
+            {vehicleOptions.map((v) => (
+              <option key={v.value} value={v.value}>{v.label}</option>
+            ))}
+          </select>
+
+          <select value={driverFilter} onChange={(e) => setDriverFilter(e.target.value)} style={inputStyle}>
+            <option value="">All drivers</option>
+            {operatorOptions.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+
+          <label style={tickLabel}>
+            <input type="checkbox" checked={unassignedOnly} onChange={(e) => setUnassignedOnly(e.target.checked)} />
+            Unassigned only
+          </label>
+
+          <label style={tickLabel}>
+            <input type="checkbox" checked={conflictsOnly} onChange={(e) => setConflictsOnly(e.target.checked)} />
+            Conflicts only
+          </label>
+
+          <label style={tickLabel}>
+            <input type="checkbox" checked={compactMode} onChange={(e) => setCompactMode(e.target.checked)} />
+            Compact view
+          </label>
+        </div>
+
+        <div style={statsStyle}>
+          <StatCard label="Visible jobs" value={visibleJobCount} />
+          <StatCard label="Conflicts" value={conflictCount} />
+          <StatCard label="Shown vehicles" value={shownVehicles.length} />
+          <StatCard label="Week" value={data.week_start ? `${data.week_start} → ${data.week_end}` : "—"} />
+        </div>
+
         {msg ? <div style={infoBox}>{msg}</div> : null}
 
         {loading ? (
           <div style={boardShellStyle}>Loading transport planner...</div>
         ) : (
           <div style={boardShellStyle}>
+            <div style={legendStyle}>
+              {compactBadge("Planned", "neutral")}
+              {compactBadge("Confirmed", "warn")}
+              {compactBadge("In Progress", "neutral")}
+              {compactBadge("Completed", "good")}
+              {compactBadge("Cancelled", "bad")}
+              {compactBadge("Conflict", "bad")}
+            </div>
+
             <div style={boardScrollerStyle}>
               <div style={weekHeaderStyle}>
                 <div style={nameColHeaderStyle}>Vehicle</div>
@@ -544,17 +685,15 @@ export default function TransportPlannerBoard() {
                           <TransportCard
                             key={job.id}
                             job={job}
-                            vehicleOptions={vehicleOptions}
+                            compact={compactMode}
                             saving={savingId === job.id}
                             dragging={draggingJobId === job.id}
-                            compact
-                            warnings={jobWarnings(job, jobs.length, data.jobs)}
+                            warnings={jobWarnings(job, jobs.length, filteredJobs)}
                             onDragStart={() => setDraggingJobId(job.id)}
                             onDragEnd={() => {
                               setDraggingJobId(null);
                               setHoverCell(null);
                             }}
-                            onUpdate={updateTransportJob}
                             onOpenQuickEdit={() => {
                               setEditorJob(job);
                               setEditorOpen(true);
@@ -567,7 +706,7 @@ export default function TransportPlannerBoard() {
                 })}
               </div>
 
-              {data.vehicles.map((vehicle) => (
+              {shownVehicles.map((vehicle) => (
                 <div key={vehicle.id} style={rowStyle}>
                   <div style={nameCellStyle}>
                     <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
@@ -606,17 +745,15 @@ export default function TransportPlannerBoard() {
                             <TransportCard
                               key={job.id}
                               job={job}
-                              vehicleOptions={vehicleOptions}
+                              compact={compactMode}
                               saving={savingId === job.id}
                               dragging={draggingJobId === job.id}
-                              compact
-                              warnings={jobWarnings(job, jobs.length, data.jobs)}
+                              warnings={jobWarnings(job, jobs.length, filteredJobs)}
                               onDragStart={() => setDraggingJobId(job.id)}
                               onDragEnd={() => {
                                 setDraggingJobId(null);
                                 setHoverCell(null);
                               }}
-                              onUpdate={updateTransportJob}
                               onOpenQuickEdit={() => {
                                 setEditorJob(job);
                                 setEditorOpen(true);
@@ -632,118 +769,110 @@ export default function TransportPlannerBoard() {
             </div>
           </div>
         )}
-      </div>
 
-      {editorOpen && editorJob ? (
-        <div style={drawerBackdrop} onClick={() => setEditorOpen(false)}>
-          <div style={drawerPanel} onClick={(e) => e.stopPropagation()}>
-            <div style={drawerHeader}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 22 }}>
-                  {editorJob.transport_number ?? "Transport Job"}
-                </h3>
-                <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-                  Quick edit panel
+        {editorOpen && editorJob ? (
+          <div style={drawerBackdrop} onClick={() => setEditorOpen(false)}>
+            <div style={drawerStyle} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 1000 }}>
+                    {editorJob.transport_number ?? "Transport job"}
+                  </div>
+                  <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
+                    Quick edit
+                  </div>
                 </div>
-              </div>
 
-              <button
-                type="button"
-                onClick={() => setEditorOpen(false)}
-                style={closeBtn}
-              >
-                Close
-              </button>
-            </div>
-
-            <form onSubmit={saveEditor} style={{ display: "grid", gap: 12, marginTop: 14 }}>
-              <div style={drawerGrid}>
-                <Field label="Date" name="transport_date" type="date" defaultValue={editorJob.transport_date ?? ""} />
-                <Field label="Collection time" name="collection_time" type="time" defaultValue={editorJob.collection_time ?? ""} />
-                <Field label="Delivery time" name="delivery_time" type="time" defaultValue={editorJob.delivery_time ?? ""} />
-
-                <SelectField
-                  label="Driver"
-                  name="operator_id"
-                  defaultValue={editorJob.operator_id ?? ""}
-                  options={[
-                    { value: "", label: "— Unassigned —" },
-                    ...lookupOperators.map((o) => ({
-                      value: o.id,
-                      label: o.full_name ?? "Operator",
-                    })),
-                  ]}
-                />
-
-                <SelectField
-                  label="Vehicle"
-                  name="vehicle_id"
-                  defaultValue={editorJob.vehicle_id ?? ""}
-                  options={[
-                    { value: "", label: "— Unassigned —" },
-                    ...lookupVehicles.map((v) => ({
-                      value: v.id,
-                      label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-                    })),
-                  ]}
-                />
-
-                <SelectField
-                  label="Status"
-                  name="status"
-                  defaultValue={editorJob.status ?? "planned"}
-                  options={[
-                    { value: "planned", label: "planned" },
-                    { value: "confirmed", label: "confirmed" },
-                    { value: "in_progress", label: "in_progress" },
-                    { value: "completed", label: "completed" },
-                    { value: "cancelled", label: "cancelled" },
-                  ]}
-                />
-              </div>
-
-              <TextAreaField
-                label="Collection address"
-                name="collection_address"
-                defaultValue={editorJob.collection_address ?? ""}
-                rows={3}
-              />
-
-              <TextAreaField
-                label="Delivery address"
-                name="delivery_address"
-                defaultValue={editorJob.delivery_address ?? ""}
-                rows={3}
-              />
-
-              <TextAreaField
-                label="Load description"
-                name="load_description"
-                defaultValue={editorJob.load_description ?? ""}
-                rows={3}
-              />
-
-              <TextAreaField
-                label="Notes"
-                name="notes"
-                defaultValue={editorJob.notes ?? ""}
-                rows={4}
-              />
-
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="submit" style={primaryDrawerBtn} disabled={editorSaving}>
-                  {editorSaving ? "Saving..." : "Save changes"}
+                <button type="button" style={secondaryBtn} onClick={() => setEditorOpen(false)}>
+                  Close
                 </button>
-
-                <a href={`/transport-jobs/${editorJob.id}`} style={secondaryDrawerLink}>
-                  Open full job
-                </a>
               </div>
-            </form>
+
+              <form onSubmit={saveEditor} style={{ display: "grid", gap: 12, marginTop: 16 }}>
+                <div style={drawerGrid}>
+                  <Field label="Date" name="transport_date" defaultValue={editorJob.transport_date ?? ""} type="date" />
+                  <Field label="Collection time" name="collection_time" defaultValue={editorJob.collection_time ?? ""} type="time" />
+                  <Field label="Delivery time" name="delivery_time" defaultValue={editorJob.delivery_time ?? ""} type="time" />
+
+                  <SelectField
+                    label="Vehicle"
+                    name="vehicle_id"
+                    defaultValue={editorJob.vehicle_id ?? ""}
+                    options={[{ value: "", label: "Unassigned" }, ...vehicleOptions]}
+                  />
+
+                  <SelectField
+                    label="Driver"
+                    name="operator_id"
+                    defaultValue={editorJob.operator_id ?? ""}
+                    options={[{ value: "", label: "Unassigned" }, ...operatorOptions]}
+                  />
+
+                  <SelectField
+                    label="Status"
+                    name="status"
+                    defaultValue={editorJob.status ?? "planned"}
+                    options={[
+                      { value: "planned", label: "Planned" },
+                      { value: "confirmed", label: "Confirmed" },
+                      { value: "in_progress", label: "In Progress" },
+                      { value: "completed", label: "Completed" },
+                      { value: "cancelled", label: "Cancelled" },
+                    ]}
+                  />
+                </div>
+
+                <TextAreaField
+                  label="Collection address"
+                  name="collection_address"
+                  defaultValue={editorJob.collection_address ?? ""}
+                  rows={2}
+                />
+
+                <TextAreaField
+                  label="Delivery address"
+                  name="delivery_address"
+                  defaultValue={editorJob.delivery_address ?? ""}
+                  rows={2}
+                />
+
+                <TextAreaField
+                  label="Load description"
+                  name="load_description"
+                  defaultValue={editorJob.load_description ?? ""}
+                  rows={2}
+                />
+
+                <TextAreaField
+                  label="Notes"
+                  name="notes"
+                  defaultValue={editorJob.notes ?? ""}
+                  rows={3}
+                />
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button type="submit" style={primaryBtn} disabled={editorSaving}>
+                    {editorSaving ? "Saving..." : "Save changes"}
+                  </button>
+                  <a href={`/transport-jobs/${editorJob.id}`} style={secondaryLinkBtn}>
+                    Open transport job
+                  </a>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div style={statCard}>
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 800 }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 20, fontWeight: 1000 }}>{value}</div>
+    </div>
   );
 }
 
@@ -754,10 +883,10 @@ function DropCell({
   onDrop,
   children,
 }: {
-  active: boolean;
-  onDragOver: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragLeave: () => void;
-  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  active?: boolean;
+  onDragOver?: React.DragEventHandler<HTMLDivElement>;
+  onDragLeave?: React.DragEventHandler<HTMLDivElement>;
+  onDrop?: React.DragEventHandler<HTMLDivElement>;
   children: React.ReactNode;
 }) {
   return (
@@ -777,157 +906,78 @@ function DropCell({
 
 function TransportCard({
   job,
-  vehicleOptions,
+  compact,
   saving,
   dragging,
-  compact,
   warnings,
   onDragStart,
   onDragEnd,
-  onUpdate,
   onOpenQuickEdit,
 }: {
   job: PlannerTransportJob;
-  vehicleOptions: Array<{ value: string; label: string }>;
-  saving: boolean;
-  dragging: boolean;
   compact?: boolean;
+  saving?: boolean;
+  dragging?: boolean;
   warnings: string[];
-  onDragStart: () => void;
-  onDragEnd: () => void;
-  onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
-  onOpenQuickEdit: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  onOpenQuickEdit?: () => void;
 }) {
   const client = first(job.clients);
   const vehicle = first(job.vehicles);
-  const operator = first(job.operators);
+  const driver = first(job.operators);
   const linkedJob = first(job.jobs);
-  const colorStyle = jobCardColor(job.status);
-  const stripe = statusStripe(job.status);
 
   return (
     <div
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", job.id);
-        onDragStart();
+        onDragStart?.();
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={() => onDragEnd?.()}
+      onClick={onOpenQuickEdit}
       style={{
-        ...jobCardStyle,
-        ...colorStyle,
-        opacity: dragging ? 0.55 : 1,
-        cursor: "grab",
-        padding: compact ? 8 : 12,
-        position: "relative",
-        overflow: "hidden",
+        ...jobCardBase,
+        ...cardTheme(job.status),
+        opacity: dragging ? 0.55 : saving ? 0.7 : 1,
+        padding: compact ? 8 : 10,
       }}
     >
-      <div
-        aria-hidden="true"
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          bottom: 0,
-          width: 5,
-          background: stripe,
-        }}
-      />
-
-      <div style={{ display: "grid", gap: 4, paddingLeft: 8 }}>
-        <button
-          type="button"
-          onClick={onOpenQuickEdit}
-          style={titleBtn}
-        >
-          {job.transport_number ?? "Transport Job"}
-        </button>
-
-        <div style={{ fontSize: 11, opacity: 0.8, lineHeight: 1.2 }}>
-          {client?.company_name ?? "Customer"}
-        </div>
-
-        <div style={{ fontSize: 11, fontWeight: 800, lineHeight: 1.2 }}>
-          {prettyJobType(job.job_type)}
-        </div>
-
-        <div style={{ fontSize: 11, opacity: 0.75 }}>
-          {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
-        </div>
-
-        <div style={{ fontSize: 10, opacity: 0.75, lineHeight: 1.3 }}>
-          Pickup: {job.collection_address ?? "—"}
-        </div>
-
-        <div style={{ fontSize: 10, opacity: 0.75, lineHeight: 1.3 }}>
-          Delivery: {job.delivery_address ?? "—"}
-        </div>
-
-        <div style={{ fontSize: 10, opacity: 0.75 }}>
-          Driver: {operator?.full_name ?? "—"}
-        </div>
-
-        <div style={{ fontSize: 11, fontWeight: 700 }}>
-          {prettyStatus(job.status)}
-        </div>
-
-        {warnings.length > 0 ? (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-            {warnings.map((warning) => (
-              <span
-                key={`${job.id}-${warning}`}
-                style={
-                  warning.toLowerCase().includes("conflict")
-                    ? conflictChipStyle
-                    : warningChipStyle
-                }
-              >
-                {warning}
-              </span>
-            ))}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 1000, fontSize: compact ? 12 : 13, lineHeight: 1.2 }}>
+            {job.transport_number ?? "Transport job"}
           </div>
-        ) : null}
-
-        <select
-          value={job.vehicle_id ?? ""}
-          onChange={(e) => onUpdate(job.id, { vehicle_id: e.target.value || null })}
-          disabled={saving}
-          style={miniInputStyle}
-        >
-          <option value="">Vehicle</option>
-          {vehicleOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={job.status ?? ""}
-          onChange={(e) => onUpdate(job.id, { status: e.target.value })}
-          disabled={saving}
-          style={miniInputStyle}
-        >
-          <option value="planned">Planned</option>
-          <option value="confirmed">Confirmed</option>
-          <option value="in_progress">In Progress</option>
-          <option value="completed">Completed</option>
-          <option value="cancelled">Cancelled</option>
-        </select>
-
-        <a href={`/transport-jobs/${job.id}`} style={miniLinkStyle}>
-          Open
-        </a>
-
-        <div style={{ fontSize: 10, opacity: 0.68 }}>
-          Vehicle: {vehicle?.name ?? "Unassigned"}
+          <div style={{ marginTop: 3, fontSize: 11, opacity: 0.76 }}>
+            {client?.company_name ?? "No customer"}
+          </div>
         </div>
 
-        <div style={{ fontSize: 10, opacity: 0.68 }}>
-          Crane Job: {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+        <div style={{ flexShrink: 0 }}>
+          {compactBadge(prettyStatus(job.status), warnings.some((w) => w.toLowerCase().includes("conflict")) ? "bad" : "neutral")}
         </div>
       </div>
+
+      <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: compact ? 11 : 12 }}>
+        <div><strong>{prettyJobType(job.job_type)}</strong></div>
+        <div>{job.collection_time ?? "—"} → {job.delivery_time ?? "—"}</div>
+        {!compact ? <div>Pickup: {job.collection_address ?? "—"}</div> : null}
+        {!compact ? <div>Delivery: {job.delivery_address ?? "—"}</div> : null}
+        <div>Driver: {driver?.full_name ?? "Unassigned"}</div>
+        {linkedJob?.job_number ? <div>Crane job: #{linkedJob.job_number}</div> : null}
+        {vehicle?.name ? <div>Vehicle: {vehicle.name}</div> : null}
+      </div>
+
+      {warnings.length > 0 ? (
+        <div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {warnings.slice(0, compact ? 2 : 4).map((warning) => (
+            <span key={warning} style={warningPill}>
+              {warning}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -946,7 +996,7 @@ function Field({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={fieldLabel}>{label}</label>
-      <input name={name} defaultValue={defaultValue} type={type} style={drawerInput} />
+      <input name={name} defaultValue={defaultValue} type={type} style={inputStyle} />
     </div>
   );
 }
@@ -965,10 +1015,10 @@ function SelectField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={fieldLabel}>{label}</label>
-      <select name={name} defaultValue={defaultValue} style={drawerInput}>
-        {options.map((o) => (
-          <option key={`${name}-${o.value}`} value={o.value}>
-            {o.label}
+      <select name={name} defaultValue={defaultValue} style={inputStyle}>
+        {options.map((option) => (
+          <option key={`${name}-${option.value}`} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
@@ -990,12 +1040,7 @@ function TextAreaField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={fieldLabel}>{label}</label>
-      <textarea
-        name={name}
-        defaultValue={defaultValue}
-        rows={rows}
-        style={drawerTextarea}
-      />
+      <textarea name={name} defaultValue={defaultValue} rows={rows} style={drawerTextarea} />
     </div>
   );
 }
@@ -1007,7 +1052,7 @@ const toolbarStyle: React.CSSProperties = {
   alignItems: "center",
   flexWrap: "wrap",
   background: "rgba(255,255,255,0.18)",
-  padding: 14,
+  padding: 12,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -1020,6 +1065,32 @@ const toolbarActionsStyle: React.CSSProperties = {
   alignItems: "center",
 };
 
+const filtersStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  background: "rgba(255,255,255,0.18)",
+  padding: 10,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const statsStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+  gap: 10,
+};
+
+const statCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 12,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
 const boardShellStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 10,
@@ -1028,236 +1099,202 @@ const boardShellStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const legendStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
 const boardScrollerStyle: React.CSSProperties = {
   overflowX: "auto",
+  overflowY: "hidden",
+  paddingBottom: 6,
 };
 
 const weekHeaderStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "175px repeat(7, minmax(165px, 1fr))",
-  gap: 10,
-  marginBottom: 10,
-  minWidth: 1360,
+  gridTemplateColumns: "140px repeat(7, minmax(130px, 1fr))",
+  gap: 8,
+  marginBottom: 8,
+  minWidth: 1060,
 };
 
 const rowStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "175px repeat(7, minmax(165px, 1fr))",
-  gap: 10,
-  marginBottom: 10,
-  minWidth: 1360,
+  gridTemplateColumns: "140px repeat(7, minmax(130px, 1fr))",
+  gap: 8,
+  marginBottom: 8,
+  minWidth: 1060,
 };
 
 const nameColHeaderStyle: React.CSSProperties = {
-  padding: 10,
+  padding: 8,
   borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const dayHeaderStyle: React.CSSProperties = {
-  padding: 10,
+  padding: 8,
   borderRadius: 10,
   background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   textAlign: "center",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const nameCellStyle: React.CSSProperties = {
-  padding: 10,
+  padding: 8,
   borderRadius: 10,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   alignSelf: "stretch",
-  minHeight: 110,
+  minHeight: 88,
 };
 
 const cellStyle: React.CSSProperties = {
-  minHeight: 110,
-  padding: 6,
+  minHeight: 88,
+  padding: 5,
   borderRadius: 10,
   background: "rgba(255,255,255,0.34)",
   border: "1px solid rgba(0,0,0,0.08)",
   display: "grid",
-  gap: 6,
+  gap: 5,
   alignContent: "start",
 };
 
 const activeCellStyle: React.CSSProperties = {
-  outline: "2px dashed rgba(0,120,255,0.55)",
-  background: "rgba(225,238,255,0.65)",
+  outline: "2px dashed rgba(0,120,255,0.45)",
+  background: "rgba(225,238,255,0.55)",
 };
 
-const jobCardStyle: React.CSSProperties = {
-  borderRadius: 9,
-  background: "rgba(255,255,255,0.88)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
+const jobCardBase: React.CSSProperties = {
+  borderRadius: 10,
+  cursor: "pointer",
+  minWidth: 0,
+  userSelect: "none",
 };
 
-const inputStyle: React.CSSProperties = {
-  width: 140,
-  height: 38,
-  padding: "0 10px",
-  borderRadius: 9,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
-  boxSizing: "border-box",
-  fontSize: 13,
+const warningPill: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 10,
+  fontWeight: 900,
+  background: "rgba(255,0,0,0.10)",
+  color: "#b00020",
 };
 
-const miniInputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 28,
-  padding: "0 8px",
-  borderRadius: 7,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
-  boxSizing: "border-box",
-  fontSize: 11,
+const emptyMiniStyle: React.CSSProperties = {
+  opacity: 0.38,
+  fontSize: 16,
+  textAlign: "center",
+  paddingTop: 4,
 };
 
 const secondaryBtn: React.CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 9,
+  display: "inline-block",
+  padding: "9px 12px",
+  borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.70)",
+  background: "rgba(255,255,255,0.52)",
   color: "#111",
   fontWeight: 800,
   cursor: "pointer",
-  fontSize: 12,
+  textDecoration: "none",
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const primaryLinkBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
-  fontSize: 12,
+  textDecoration: "none",
 };
 
-const miniLinkStyle: React.CSSProperties = {
+const secondaryLinkBtn: React.CSSProperties = {
   display: "inline-block",
-  textDecoration: "none",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.52)",
   color: "#111",
   fontWeight: 800,
-  fontSize: 11,
+  textDecoration: "none",
 };
 
-const titleBtn: React.CSSProperties = {
-  display: "block",
-  padding: 0,
-  margin: 0,
-  background: "transparent",
-  border: "none",
-  textAlign: "left",
-  fontWeight: 1000,
-  fontSize: 12,
-  lineHeight: 1.2,
-  cursor: "pointer",
-  color: "#111",
+const inputStyle: React.CSSProperties = {
+  height: 40,
+  minWidth: 120,
+  padding: "0 10px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
 };
 
-const emptyMiniStyle: React.CSSProperties = {
-  fontSize: 11,
-  opacity: 0.5,
-  padding: 4,
+const tickLabel: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  fontSize: 13,
+  fontWeight: 700,
 };
 
 const infoBox: React.CSSProperties = {
   padding: "10px 12px",
-  borderRadius: 12,
-  background: "rgba(255,170,0,0.14)",
-  border: "1px solid rgba(255,170,0,0.24)",
-  fontWeight: 800,
-  fontSize: 13,
-};
-
-const warningChipStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "3px 7px",
-  borderRadius: 999,
-  fontSize: 10,
-  fontWeight: 900,
-  background: "rgba(255,170,0,0.16)",
-  border: "1px solid rgba(255,170,0,0.25)",
-  color: "#8a5200",
-};
-
-const conflictChipStyle: React.CSSProperties = {
-  display: "inline-block",
-  padding: "3px 7px",
-  borderRadius: 999,
-  fontSize: 10,
-  fontWeight: 900,
-  background: "rgba(255,0,0,0.12)",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.22)",
-  color: "#b00020",
 };
 
 const drawerBackdrop: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.32)",
-  zIndex: 1000,
-  display: "flex",
-  justifyContent: "flex-end",
+  background: "rgba(0,0,0,0.26)",
+  zIndex: 50,
+  display: "grid",
+  justifyItems: "end",
 };
 
-const drawerPanel: React.CSSProperties = {
-  width: "min(560px, 96vw)",
+const drawerStyle: React.CSSProperties = {
+  width: "min(520px, 92vw)",
   height: "100vh",
-  background: "#f6f8fb",
+  overflowY: "auto",
+  background: "#eef5fb",
   padding: 18,
   boxSizing: "border-box",
-  overflowY: "auto",
-  boxShadow: "-8px 0 30px rgba(0,0,0,0.18)",
-};
-
-const drawerHeader: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const closeBtn: React.CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 9,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
-  fontWeight: 800,
-  cursor: "pointer",
+  boxShadow: "-12px 0 30px rgba(0,0,0,0.16)",
 };
 
 const drawerGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   gap: 12,
 };
 
 const fieldLabel: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  opacity: 0.8,
-};
-
-const drawerInput: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
-  boxSizing: "border-box",
+  opacity: 0.72,
 };
 
 const drawerTextarea: React.CSSProperties = {
@@ -1265,30 +1302,7 @@ const drawerTextarea: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
-};
-
-const primaryDrawerBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
-};
-
-const secondaryDrawerLink: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#fff",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
 };
