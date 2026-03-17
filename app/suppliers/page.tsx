@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import SupplierArchiveButton from "./SupplierArchiveButton";
 
 function matchesQuery(supplier: any, query: string) {
   const q = query.trim().toLowerCase();
@@ -21,18 +22,31 @@ function matchesQuery(supplier: any, query: string) {
   return haystack.includes(q);
 }
 
+type SuppliersPageProps = {
+  searchParams?: { q?: string; success?: string; error?: string; view?: string };
+};
+
 export default async function SuppliersPage({
   searchParams,
-}: {
-  searchParams?: { q?: string; success?: string; error?: string };
-}) {
+}: SuppliersPageProps) {
   const supabase = createSupabaseServerClient();
   const query = String(searchParams?.q ?? "").trim();
+  const view = String(searchParams?.view ?? "active").trim().toLowerCase();
 
-  const { data: suppliers, error } = await supabase
+  let dbQuery = supabase
     .from("suppliers")
     .select("*")
     .order("company_name", { ascending: true });
+
+  if (view === "archived") {
+    dbQuery = dbQuery.eq("archived", true);
+  } else if (view === "all") {
+    // no filter
+  } else {
+    dbQuery = dbQuery.eq("archived", false);
+  }
+
+  const { data: suppliers, error } = await dbQuery;
 
   const list = (suppliers ?? []).filter((supplier: any) => matchesQuery(supplier, query));
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -55,11 +69,33 @@ export default async function SuppliersPage({
             </a>
           </div>
 
+          <div style={tabsRow}>
+            <a
+              href={`/suppliers?view=active${query ? `&q=${encodeURIComponent(query)}` : ""}`}
+              style={view === "active" ? activeTabBtn : tabBtn}
+            >
+              Active
+            </a>
+            <a
+              href={`/suppliers?view=archived${query ? `&q=${encodeURIComponent(query)}` : ""}`}
+              style={view === "archived" ? activeTabBtn : tabBtn}
+            >
+              Archived
+            </a>
+            <a
+              href={`/suppliers?view=all${query ? `&q=${encodeURIComponent(query)}` : ""}`}
+              style={view === "all" ? activeTabBtn : tabBtn}
+            >
+              All
+            </a>
+          </div>
+
           {successMessage ? <div style={successBox}>{successMessage}</div> : null}
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <section style={sectionCard}>
             <form method="get" action="/suppliers" style={searchRow}>
+              <input type="hidden" name="view" value={view} />
               <input
                 type="text"
                 name="q"
@@ -71,7 +107,7 @@ export default async function SuppliersPage({
                 Search
               </button>
               {query ? (
-                <a href="/suppliers" style={secondaryBtn}>
+                <a href={`/suppliers?view=${view}`} style={secondaryBtn}>
                   Clear
                 </a>
               ) : null}
@@ -103,12 +139,14 @@ export default async function SuppliersPage({
                         <a href={`/suppliers/${supplier.id}`} style={secondaryBtn}>
                           Open
                         </a>
+                        <SupplierArchiveButton id={supplier.id} archived={!!supplier.archived} />
                       </div>
                     </div>
 
                     <div style={metaGrid}>
                       <Meta label="Status" value={supplier.status ?? "—"} />
                       <Meta label="Address" value={supplier.address ?? "—"} />
+                      <Meta label="Archived" value={supplier.archived ? "Yes" : "No"} />
                     </div>
                   </div>
                 ))}
@@ -150,6 +188,32 @@ const headerRow: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const tabsRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+  marginBottom: 16,
+};
+
+const tabBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "9px 14px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const activeTabBtn: React.CSSProperties = {
+  ...tabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
 };
 
 const sectionCard: React.CSSProperties = {
@@ -241,6 +305,7 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
 };
 
 const successBox: React.CSSProperties = {
