@@ -22,13 +22,8 @@ async function updateTransportJob(formData: FormData) {
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
 
-  const pickupCoords = collectionAddress
-    ? await geocodeAddress(collectionAddress)
-    : null;
-
-  const deliveryCoords = deliveryAddress
-    ? await geocodeAddress(deliveryAddress)
-    : null;
+  const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
+  const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
 
   const payload = {
     linked_job_id: clean(formData.get("linked_job_id")) || null,
@@ -133,26 +128,29 @@ export default async function TransportJobDetailPage({
 
     supabase
       .from("clients")
-      .select("id, company_name")
+      .select("id, company_name, archived")
+      .eq("archived", false)
       .order("company_name", { ascending: true }),
 
     supabase
       .from("jobs")
-      .select("id, job_number, site_name")
+      .select("id, job_number, site_name, archived")
       .eq("archived", false)
       .order("created_at", { ascending: false })
       .limit(300),
 
     supabase
       .from("vehicles")
-      .select("id, name, reg_number")
+      .select("id, name, reg_number, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
-      .select("id, full_name")
+      .select("id, full_name, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("full_name", { ascending: true }),
   ]);
 
