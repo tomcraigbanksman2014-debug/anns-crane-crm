@@ -8,7 +8,6 @@ function clean(v: FormDataEntryValue | null) {
 
 function safeDecode(value: string | undefined) {
   const raw = String(value ?? "");
-
   try {
     return decodeURIComponent(raw);
   } catch {
@@ -21,16 +20,13 @@ function formatDateLabel(value: string | undefined) {
   if (!raw) return "—";
 
   const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) {
-    return raw;
-  }
+  if (Number.isNaN(parsed.getTime())) return raw;
 
   return parsed.toLocaleDateString("en-GB");
 }
 
 function quoteToJobStatus(value: string | undefined) {
   const raw = safeDecode(value).trim().toLowerCase();
-
   if (raw === "accepted") return "confirmed";
   return "draft";
 }
@@ -42,6 +38,8 @@ async function createJob(formData: FormData) {
 
   const payload: Record<string, any> = {
     client_id: clean(formData.get("client_id")) || null,
+    equipment_id: clean(formData.get("equipment_id")) || null,
+    operator_id: clean(formData.get("operator_id")) || null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
@@ -54,11 +52,16 @@ async function createJob(formData: FormData) {
     status: clean(formData.get("status")) || "draft",
     notes: clean(formData.get("notes")) || null,
     invoice_subtotal: Number(formData.get("quote_amount") ?? 0) || 0,
-    quote_id: clean(formData.get("quote_id")) || null,
     archived: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
+
+  if (!payload.client_id || !payload.job_date) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent("Customer and job date are required.")}`
+    );
+  }
 
   const { data, error } = await supabase
     .from("jobs")
@@ -135,7 +138,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
         <div style={cardStyle}>
           <h1 style={{ marginTop: 0, fontSize: 32 }}>New Job</h1>
           <p style={{ opacity: 0.8, marginTop: 6 }}>
-            Create a crane job. Quote values will prefill when opened from a quote.
+            Create a crane job using the live jobs schema.
           </p>
 
           {quoteId ? (
@@ -152,11 +155,10 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <form action={createJob} style={{ display: "grid", gap: 14, marginTop: 18 }}>
-            <input type="hidden" name="quote_id" value={quoteId} />
             <input type="hidden" name="quote_amount" value={prefilledAmount || "0"} />
 
             <div style={fieldWrap}>
-              <label style={labelStyle}>Customer</label>
+              <label style={labelStyle}>Customer *</label>
               <select name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
                 <option value="">— Select customer —</option>
                 {(clients ?? []).map((client: any) => (
@@ -209,7 +211,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
             <div style={twoCol}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Job date</label>
+                <label style={labelStyle}>Job date *</label>
                 <input name="job_date" type="date" style={inputStyle} />
               </div>
 
@@ -256,7 +258,8 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                   <option value="">— Optional —</option>
                   {(equipment ?? []).map((item: any) => (
                     <option key={item.id} value={item.id}>
-                      {item.name ?? "Equipment"}{item.asset_number ? ` (${item.asset_number})` : ""}
+                      {item.name ?? "Equipment"}
+                      {item.asset_number ? ` (${item.asset_number})` : ""}
                     </option>
                   ))}
                 </select>
@@ -281,7 +284,15 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                 name="notes"
                 rows={6}
                 style={textareaStyle}
-                defaultValue={prefilledNotes}
+                defaultValue={
+                  [
+                    prefilledNotes ? `Quote notes: ${prefilledNotes}` : "",
+                    prefilledAmount ? `Quote amount: £${prefilledAmount}` : "",
+                    quoteId ? `Quote reference: ${quoteId}` : "",
+                  ]
+                    .filter(Boolean)
+                    .join("\n")
+                }
               />
             </div>
 
@@ -380,8 +391,7 @@ const infoBox: React.CSSProperties = {
 const infoMetaStyle: React.CSSProperties = {
   marginTop: 6,
   fontSize: 13,
-  fontWeight: 700,
-  opacity: 0.86,
+  opacity: 0.78,
 };
 
 const errorBox: React.CSSProperties = {
