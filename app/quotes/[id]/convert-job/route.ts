@@ -1,6 +1,11 @@
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
+function firstRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
@@ -31,9 +36,7 @@ export async function GET(
     redirect(`/quotes/${params.id}?error=${encodeURIComponent("Quote not found.")}`);
   }
 
-  const client = Array.isArray((quote as any)?.clients)
-    ? (quote as any).clients[0]
-    : (quote as any)?.clients;
+  const client = firstRelation((quote as any)?.clients);
 
   const query = new URLSearchParams();
   query.set("quote_id", String((quote as any)?.id ?? ""));
