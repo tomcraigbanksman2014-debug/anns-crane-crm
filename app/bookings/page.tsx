@@ -19,6 +19,7 @@ type BookingRow = {
   po_number: string | null;
   job_reference: string | null;
   operator_name: string | null;
+  notes: string | null;
   driver_notes: string | null;
   clients:
     | {
@@ -126,6 +127,7 @@ export default async function BookingsPage() {
       po_number,
       job_reference,
       operator_name,
+      notes,
       driver_notes,
       clients:client_id (
         id,
@@ -184,7 +186,7 @@ export default async function BookingsPage() {
                     <th align="left" style={thStyle}>Status</th>
                     <th align="left" style={thStyle}>Financials</th>
                     <th align="left" style={thStyle}>Reference</th>
-                    <th align="left" style={thStyle}>Driver / Notes</th>
+                    <th align="left" style={thStyle}>Notes</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -192,6 +194,7 @@ export default async function BookingsPage() {
                   {bookings.map((b) => {
                     const client = first(b.clients);
                     const equip = first(b.equipment);
+                    const noteText = b.notes ?? b.driver_notes;
 
                     return (
                       <tr key={b.id}>
@@ -249,13 +252,13 @@ export default async function BookingsPage() {
                           <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
                             <div><strong>PO:</strong> {b.po_number ?? "—"}</div>
                             <div><strong>Ref:</strong> {b.job_reference ?? "—"}</div>
+                            <div><strong>Driver:</strong> {b.operator_name ?? "—"}</div>
                           </div>
                         </td>
 
                         <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
-                            <div><strong>Driver:</strong> {b.operator_name ?? "—"}</div>
-                            <div>{shortText(b.driver_notes)}</div>
+                          <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+                            {shortText(noteText)}
                           </div>
                         </td>
 
