@@ -21,6 +21,7 @@ function isOperatorArea(pathname: string) {
 function isOfficeOnlyPath(pathname: string) {
   if (pathname === "/") return true;
   if (pathname.startsWith("/dashboard")) return true;
+  if (pathname.startsWith("/search")) return true;
   if (pathname.startsWith("/bookings")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
@@ -36,7 +37,7 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/purchase-orders")) return true;
   if (pathname.startsWith("/calendar")) return true;
   if (pathname.startsWith("/planner")) return true;
-  if (pathname.startsWith("/search")) return true;
+  if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
 }
