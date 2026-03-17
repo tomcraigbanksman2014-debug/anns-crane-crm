@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../lib/audit";
 type Payload = {
   client_id?: string | null;
   equipment_id?: string | null;
+  operator_id?: string | null;
   booking_id?: string | null;
   site_name?: string | null;
   site_address?: string | null;
@@ -17,6 +18,7 @@ type Payload = {
   hire_type?: string | null;
   lift_type?: string | null;
   notes?: string | null;
+  invoice_subtotal?: number | null;
 };
 
 function norm(v: any) {
@@ -39,9 +41,22 @@ export async function POST(req: Request) {
 
     const body = (await req.json().catch(() => ({}))) as Payload;
 
+    const invoiceSubtotalRaw =
+      body.invoice_subtotal != null && String(body.invoice_subtotal).trim() !== ""
+        ? Number(body.invoice_subtotal)
+        : null;
+
+    if (invoiceSubtotalRaw != null && Number.isNaN(invoiceSubtotalRaw)) {
+      return NextResponse.json(
+        { error: "invoice_subtotal must be a number" },
+        { status: 400 }
+      );
+    }
+
     const payload = {
       client_id: norm(body.client_id),
       equipment_id: norm(body.equipment_id),
+      operator_id: norm(body.operator_id),
       booking_id: norm(body.booking_id),
       site_name: norm(body.site_name),
       site_address: norm(body.site_address),
@@ -54,7 +69,10 @@ export async function POST(req: Request) {
       hire_type: norm(body.hire_type),
       lift_type: norm(body.lift_type),
       notes: norm(body.notes),
+      invoice_subtotal: invoiceSubtotalRaw,
       created_by: user.id,
+      archived: false,
+      updated_at: new Date().toISOString(),
     };
 
     if (!payload.job_date) {
@@ -81,6 +99,8 @@ export async function POST(req: Request) {
         job_number: data?.job_number ?? null,
         client_id: payload.client_id,
         equipment_id: payload.equipment_id,
+        operator_id: payload.operator_id,
+        booking_id: payload.booking_id,
         job_date: payload.job_date,
         status: payload.status,
         site_name: payload.site_name,
