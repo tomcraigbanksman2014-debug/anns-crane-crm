@@ -1,6 +1,6 @@
-import ClientShell from "../../../ClientShell";
-import OperatorQualificationInlineSummary from "../../../components/OperatorQualificationInlineSummary";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import ClientShell from "../../ClientShell";
+import OperatorQualificationInlineSummary from "../../components/OperatorQualificationInlineSummary";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
