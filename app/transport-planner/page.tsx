@@ -249,6 +249,37 @@ function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJ
   return current.status ?? "planned";
 }
 
+function matchesSearch(job: PlannerTransportJob, q: string) {
+  const text = q.trim().toLowerCase();
+  if (!text) return true;
+
+  const client = first(job.clients);
+  const vehicle = first(job.vehicles);
+  const operator = first(job.operators);
+  const linkedJob = first(job.jobs);
+
+  const haystack = [
+    job.transport_number,
+    job.collection_address,
+    job.delivery_address,
+    job.load_description,
+    job.notes,
+    job.job_type,
+    job.status,
+    client?.company_name,
+    vehicle?.name,
+    vehicle?.reg_number,
+    operator?.full_name,
+    linkedJob?.job_number != null ? String(linkedJob.job_number) : "",
+    linkedJob?.site_name,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return haystack.includes(text);
+}
+
 export default function TransportPlannerPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -261,6 +292,13 @@ export default function TransportPlannerPage() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorJob, setEditorJob] = useState<PlannerTransportJob | null>(null);
   const [editorSaving, setEditorSaving] = useState(false);
+
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [vehicleFilter, setVehicleFilter] = useState("all");
+  const [driverFilter, setDriverFilter] = useState("all");
+  const [showUnassignedOnly, setShowUnassignedOnly] = useState(false);
+  const [showConflictsOnly, setShowConflictsOnly] = useState(false);
 
   const [data, setData] = useState<{
     week_start: string;
@@ -392,52 +430,6 @@ export default function TransportPlannerPage() {
     setSelectedDate(isoDate(base));
   }
 
-  const vehicleOptions = useMemo(
-    () =>
-      data.vehicles.map((v) => ({
-        value: v.id,
-        label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-      })),
-    [data.vehicles]
-  );
-
-  const unassignedByDay = useMemo(() => {
-    const map = new Map<string, PlannerTransportJob[]>();
-
-    for (const day of data.days) {
-      map.set(day.date, []);
-    }
-
-    for (const job of data.jobs) {
-      if (!job.vehicle_id && job.transport_date && map.has(job.transport_date)) {
-        map.get(job.transport_date)!.push(job);
-      }
-    }
-
-    return map;
-  }, [data.days, data.jobs]);
-
-  const vehicleDayMap = useMemo(() => {
-    const map = new Map<string, PlannerTransportJob[]>();
-
-    for (const vehicle of data.vehicles) {
-      for (const day of data.days) {
-        map.set(`${vehicle.id}__${day.date}`, []);
-      }
-    }
-
-    for (const job of data.jobs) {
-      if (job.vehicle_id && job.transport_date) {
-        const key = `${job.vehicle_id}__${job.transport_date}`;
-        if (map.has(key)) {
-          map.get(key)!.push(job);
-        }
-      }
-    }
-
-    return map;
-  }, [data.vehicles, data.days, data.jobs]);
-
   function jobWarnings(
     job: PlannerTransportJob,
     totalInCell: number,
@@ -492,6 +484,121 @@ export default function TransportPlannerPage() {
     return warnings;
   }
 
+  const filteredJobs = useMemo(() => {
+    return data.jobs.filter((job) => {
+      const warnings = jobWarnings(job, 1, data.jobs);
+      const statusOk =
+        statusFilter === "all" || String(job.status ?? "").toLowerCase() === statusFilter;
+      const vehicleOk =
+        vehicleFilter === "all" || String(job.vehicle_id ?? "") === vehicleFilter;
+      const driverOk =
+        driverFilter === "all" || String(job.operator_id ?? "") === driverFilter;
+      const unassignedOk = !showUnassignedOnly || !job.vehicle_id;
+      const conflictsOk =
+        !showConflictsOnly ||
+        warnings.some((x) => x.toLowerCase().includes("conflict"));
+      const textOk = matchesSearch(job, searchText);
+
+      return statusOk && vehicleOk && driverOk && unassignedOk && conflictsOk && textOk;
+    });
+  }, [
+    data.jobs,
+    searchText,
+    statusFilter,
+    vehicleFilter,
+    driverFilter,
+    showUnassignedOnly,
+    showConflictsOnly,
+  ]);
+
+  const visibleVehicles = useMemo(() => {
+    if (vehicleFilter !== "all") {
+      return data.vehicles.filter((v) => v.id === vehicleFilter);
+    }
+
+    const used = new Set(
+      filteredJobs
+        .map((job) => job.vehicle_id)
+        .filter((x): x is string => !!x)
+    );
+
+    if (!searchText && statusFilter === "all" && driverFilter === "all" && !showUnassignedOnly && !showConflictsOnly) {
+      return data.vehicles;
+    }
+
+    return data.vehicles.filter((v) => used.has(v.id));
+  }, [
+    data.vehicles,
+    filteredJobs,
+    vehicleFilter,
+    searchText,
+    statusFilter,
+    driverFilter,
+    showUnassignedOnly,
+    showConflictsOnly,
+  ]);
+
+  const unassignedByDay = useMemo(() => {
+    const map = new Map<string, PlannerTransportJob[]>();
+
+    for (const day of data.days) {
+      map.set(day.date, []);
+    }
+
+    for (const job of filteredJobs) {
+      if (!job.vehicle_id && job.transport_date && map.has(job.transport_date)) {
+        map.get(job.transport_date)!.push(job);
+      }
+    }
+
+    return map;
+  }, [data.days, filteredJobs]);
+
+  const vehicleDayMap = useMemo(() => {
+    const map = new Map<string, PlannerTransportJob[]>();
+
+    for (const vehicle of visibleVehicles) {
+      for (const day of data.days) {
+        map.set(`${vehicle.id}__${day.date}`, []);
+      }
+    }
+
+    for (const job of filteredJobs) {
+      if (job.vehicle_id && job.transport_date) {
+        const key = `${job.vehicle_id}__${job.transport_date}`;
+        if (map.has(key)) {
+          map.get(key)!.push(job);
+        }
+      }
+    }
+
+    return map;
+  }, [visibleVehicles, data.days, filteredJobs]);
+
+  const driverOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+
+    for (const op of lookupOperators) {
+      if (op.id) {
+        seen.set(op.id, op.full_name ?? "Operator");
+      }
+    }
+
+    return Array.from(seen.entries()).map(([value, label]) => ({ value, label }));
+  }, [lookupOperators]);
+
+  const vehicleOptions = useMemo(() => {
+    return lookupVehicles.map((v) => ({
+      value: v.id,
+      label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+    }));
+  }, [lookupVehicles]);
+
+  const visibleCount = filteredJobs.length;
+  const conflictCount = filteredJobs.filter((job) =>
+    jobWarnings(job, 1, filteredJobs).some((x) => x.toLowerCase().includes("conflict"))
+  ).length;
+
   return (
     <ClientShell>
       <div style={{ width: "min(1600px, 99vw)", margin: "0 auto" }}>
@@ -500,7 +607,7 @@ export default function TransportPlannerPage() {
             <div style={{ minWidth: 0 }}>
               <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
               <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-                Drag jobs between vehicles and days. Timeline bars now show approximate collection-to-delivery windows.
+                Filter by vehicle, driver, status or customer/job text while keeping drag/drop and quick actions.
               </div>
             </div>
 
@@ -527,6 +634,103 @@ export default function TransportPlannerPage() {
               <a href="/transport-jobs/new" style={primaryLinkBtn}>
                 + New transport job
               </a>
+            </div>
+          </div>
+
+          <div style={filterBarStyle}>
+            <input
+              type="text"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="Search ref, customer, address, driver, vehicle, crane job..."
+              style={searchInputStyle}
+            />
+
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              style={filterSelectStyle}
+            >
+              <option value="all">All statuses</option>
+              <option value="planned">Planned</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+
+            <select
+              value={vehicleFilter}
+              onChange={(e) => setVehicleFilter(e.target.value)}
+              style={filterSelectStyle}
+            >
+              <option value="all">All vehicles</option>
+              {vehicleOptions.map((option) => (
+                <option key={`veh-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={driverFilter}
+              onChange={(e) => setDriverFilter(e.target.value)}
+              style={filterSelectStyle}
+            >
+              <option value="all">All drivers</option>
+              {driverOptions.map((option) => (
+                <option key={`drv-${option.value}`} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            <label style={checkWrapStyle}>
+              <input
+                type="checkbox"
+                checked={showUnassignedOnly}
+                onChange={(e) => setShowUnassignedOnly(e.target.checked)}
+              />
+              Unassigned only
+            </label>
+
+            <label style={checkWrapStyle}>
+              <input
+                type="checkbox"
+                checked={showConflictsOnly}
+                onChange={(e) => setShowConflictsOnly(e.target.checked)}
+              />
+              Conflicts only
+            </label>
+
+            <button
+              type="button"
+              onClick={() => {
+                setSearchText("");
+                setStatusFilter("all");
+                setVehicleFilter("all");
+                setDriverFilter("all");
+                setShowUnassignedOnly(false);
+                setShowConflictsOnly(false);
+              }}
+              style={clearBtnStyle}
+            >
+              Clear filters
+            </button>
+          </div>
+
+          <div style={statsWrapStyle}>
+            <div style={statBoxStyle}>
+              <div style={statLabelStyle}>Visible jobs</div>
+              <div style={statValueStyle}>{visibleCount}</div>
+            </div>
+            <div style={statBoxStyle}>
+              <div style={statLabelStyle}>Conflicts</div>
+              <div style={statValueStyle}>{conflictCount}</div>
+            </div>
+            <div style={statBoxStyle}>
+              <div style={statLabelStyle}>Shown vehicles</div>
+              <div style={statValueStyle}>{visibleVehicles.length}</div>
             </div>
           </div>
 
@@ -591,10 +795,9 @@ export default function TransportPlannerPage() {
                             <TransportCard
                               key={job.id}
                               job={job}
-                              allJobs={data.jobs}
+                              warnings={jobWarnings(job, jobs.length, filteredJobs)}
                               saving={savingId === job.id}
                               dragging={draggingJobId === job.id}
-                              warnings={jobWarnings(job, jobs.length, data.jobs)}
                               onDragStart={() => setDraggingJobId(job.id)}
                               onDragEnd={() => {
                                 setDraggingJobId(null);
@@ -613,7 +816,7 @@ export default function TransportPlannerPage() {
                   })}
                 </div>
 
-                {data.vehicles.map((vehicle) => (
+                {visibleVehicles.map((vehicle) => (
                   <div key={vehicle.id} style={rowStyle}>
                     <div style={nameCellStyle}>
                       <div style={{ fontWeight: 1000, fontSize: 13 }}>{vehicle.name ?? "Vehicle"}</div>
@@ -654,10 +857,9 @@ export default function TransportPlannerPage() {
                                 <TransportCard
                                   key={job.id}
                                   job={job}
-                                  allJobs={data.jobs}
+                                  warnings={jobWarnings(job, jobs.length, filteredJobs)}
                                   saving={savingId === job.id}
                                   dragging={draggingJobId === job.id}
-                                  warnings={jobWarnings(job, jobs.length, data.jobs)}
                                   onDragStart={() => setDraggingJobId(job.id)}
                                   onDragEnd={() => {
                                     setDraggingJobId(null);
@@ -836,20 +1038,18 @@ function TimelineGrid() {
 
 function TransportCard({
   job,
-  allJobs,
+  warnings,
   saving,
   dragging,
-  warnings,
   onDragStart,
   onDragEnd,
   onUpdate,
   onOpenQuickEdit,
 }: {
   job: PlannerTransportJob;
-  allJobs: PlannerTransportJob[];
+  warnings: string[];
   saving: boolean;
   dragging: boolean;
-  warnings: string[];
   onDragStart: () => void;
   onDragEnd: () => void;
   onUpdate: (jobId: string, update: Record<string, any>) => Promise<void>;
@@ -1047,6 +1247,94 @@ const toolbarStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const toolbarActionsStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const filterBarStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(260px, 1.4fr) repeat(3, minmax(170px, 0.8fr)) auto auto auto",
+  gap: 10,
+  alignItems: "center",
+  background: "rgba(255,255,255,0.18)",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const searchInputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  padding: "0 12px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+  fontSize: 13,
+};
+
+const filterSelectStyle: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  padding: "0 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+  fontSize: 13,
+};
+
+const checkWrapStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 6,
+  fontSize: 12,
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+};
+
+const clearBtnStyle: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.70)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+  fontSize: 12,
+};
+
+const statsWrapStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const statBoxStyle: React.CSSProperties = {
+  minWidth: 120,
+  background: "rgba(255,255,255,0.18)",
+  padding: 12,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const statLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.72,
+  fontWeight: 800,
+};
+
+const statValueStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 22,
+  fontWeight: 1000,
+};
+
 const legendWrap: React.CSSProperties = {
   display: "flex",
   gap: 8,
@@ -1061,13 +1349,6 @@ const legendItem: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   fontSize: 11,
   fontWeight: 800,
-};
-
-const toolbarActionsStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  alignItems: "center",
 };
 
 const boardShellStyle: React.CSSProperties = {
