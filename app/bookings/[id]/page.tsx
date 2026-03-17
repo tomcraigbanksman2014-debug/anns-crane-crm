@@ -58,6 +58,7 @@ export default async function BookingPage({
         po_number,
         job_reference,
         operator_name,
+        notes,
         driver_notes,
         hire_price,
         vat,
@@ -94,7 +95,7 @@ export default async function BookingPage({
 
   const client = first((booking as any)?.clients);
   const equipment = first((booking as any)?.equipment);
-  const driverNotes = String((booking as any)?.driver_notes ?? "").trim();
+  const notesText = String((booking as any)?.notes ?? (booking as any)?.driver_notes ?? "").trim();
 
   return (
     <ClientShell>
@@ -210,20 +211,20 @@ export default async function BookingPage({
               </section>
 
               <section style={cardStyle}>
-                <h2 style={sectionTitle}>Driver notes</h2>
+                <h2 style={sectionTitle}>Notes</h2>
 
-                {driverNotes ? (
+                {notesText ? (
                   <>
-                    {hasQuoteContext(driverNotes) ? (
+                    {hasQuoteContext(notesText) ? (
                       <div style={quoteOriginBox}>
                         This booking appears to contain carried-over quote information.
                       </div>
                     ) : null}
 
-                    <div style={notesBox}>{driverNotes}</div>
+                    <div style={notesBox}>{notesText}</div>
                   </>
                 ) : (
-                  <p style={{ margin: 0 }}>No driver notes saved.</p>
+                  <p style={{ margin: 0 }}>No notes saved.</p>
                 )}
               </section>
 
