@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { writeAuditLog } from "../../lib/audit";
+import { createSupabaseServerClient } from "../lib/supabase/server";
 
-function cleanText(value: unknown) {
-  const s = String(value ?? "").trim();
-  return s.length ? s : null;
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function normaliseStatus(value: unknown) {
+  const status = clean(value).toLowerCase();
+  if (status === "active" || status === "inactive") return status;
+  return "active";
 }
 
 export async function GET() {
@@ -20,11 +24,11 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json(data ?? []);
+    return NextResponse.json({ operators: data ?? [] });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Could not load operators." },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }
@@ -32,49 +36,48 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
+    const body = await req.json().catch(() => null);
 
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const fullName = clean(body?.full_name);
+    const email = clean(body?.email) || null;
+    const phone = clean(body?.phone) || null;
+    const role = clean(body?.role) || null;
+    const status = normaliseStatus(body?.status);
+    const notes = clean(body?.notes) || null;
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    if (!fullName) {
+      return NextResponse.json(
+        { error: "Full name is required." },
+        { status: 400 }
+      );
     }
 
-    const body = await req.json().catch(() => ({}));
-
     const payload = {
-      full_name: cleanText(body.full_name),
-      email: cleanText(body.email),
-      phone: cleanText(body.phone),
-      status: cleanText(body.status) ?? "active",
+      full_name: fullName,
+      email,
+      phone,
+      role,
+      status,
+      notes,
+      archived: false,
+      updated_at: new Date().toISOString(),
     };
 
     const { data, error } = await supabase
       .from("operators")
       .insert(payload)
-      .select("id")
+      .select("*")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    await writeAuditLog({
-      actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "create",
-      entity_type: "operator",
-      entity_id: data.id,
-      meta: payload,
-    });
-
-    return NextResponse.json({ ok: true, id: data.id });
+    return NextResponse.json({ operator: data });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Could not create operator." },
-      { status: 400 }
+      { status: 500 }
     );
   }
 }
