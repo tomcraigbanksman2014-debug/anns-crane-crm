@@ -32,11 +32,39 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   };
 }
 
+function qualificationBadgeStyle(kind: "ok" | "warn" | "bad"): React.CSSProperties {
+  if (kind === "bad") {
+    return {
+      background: "rgba(255,0,0,0.12)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.22)",
+    };
+  }
+
+  if (kind === "warn") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  return {
+    background: "rgba(0,180,120,0.12)",
+    color: "#0b7a4b",
+    border: "1px solid rgba(0,180,120,0.20)",
+  };
+}
+
 type OperatorsPageProps = {
   searchParams?: {
     view?: string;
   };
 };
+
+function toIsoDate(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
 
 export default async function OperatorsPage({
   searchParams,
@@ -57,12 +85,45 @@ export default async function OperatorsPage({
     query = query.eq("archived", false);
   }
 
-  const { data: operators, error } = await query;
+  const [{ data: operators, error }, { data: qualifications }] = await Promise.all([
+    query,
+    supabase
+      .from("operator_qualifications")
+      .select("id, operator_id, qualification_name, expiry_date")
+      .order("expiry_date", { ascending: true }),
+  ]);
+
   const rows = operators ?? [];
+  const quals = qualifications ?? [];
+
+  const today = new Date();
+  const todayIso = toIsoDate(today);
+  const soon = new Date(today);
+  soon.setDate(soon.getDate() + 30);
+  const soonIso = toIsoDate(soon);
+
+  function summaryFor(operatorId: string) {
+    const items = quals.filter((q: any) => q.operator_id === operatorId);
+    const expired = items.filter((q: any) => {
+      const expiry = String(q.expiry_date ?? "").trim();
+      return !!expiry && expiry < todayIso;
+    }).length;
+
+    const expiringSoon = items.filter((q: any) => {
+      const expiry = String(q.expiry_date ?? "").trim();
+      return !!expiry && expiry >= todayIso && expiry <= soonIso;
+    }).length;
+
+    return {
+      total: items.length,
+      expired,
+      expiringSoon,
+    };
+  }
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1240px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -75,7 +136,7 @@ export default async function OperatorsPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Operators</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Manage operator records inside the CRM.
+              Manage operator records and qualification expiry tracking.
             </p>
           </div>
 
@@ -120,46 +181,100 @@ export default async function OperatorsPage({
                   <th align="left" style={thStyle}>Email</th>
                   <th align="left" style={thStyle}>Phone</th>
                   <th align="left" style={thStyle}>Status</th>
+                  <th align="left" style={thStyle}>Qualifications</th>
                   <th align="left" style={thStyle}>Archived</th>
                   <th align="left" style={thStyle}>Notes</th>
                   <th align="left" style={thStyle}>Action</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((op: any) => (
-                  <tr key={op.id}>
-                    <td style={tdStyle}>{fmtText(op.full_name)}</td>
-                    <td style={tdStyle}>{fmtText(op.email)}</td>
-                    <td style={tdStyle}>{fmtText(op.phone)}</td>
-                    <td style={tdStyle}>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "6px 10px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 900,
-                          ...statusStyle(op.status),
-                        }}
-                      >
-                        {fmtText(op.status)}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>{op.archived ? "Yes" : "No"}</td>
-                    <td style={tdStyle}>{fmtText(op.notes)}</td>
-                    <td style={tdStyle}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
-                          Edit
-                        </a>
-                        <OperatorArchiveButton
-                          operatorId={op.id}
-                          archived={!!op.archived}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((op: any) => {
+                  const summary = summaryFor(op.id);
+
+                  return (
+                    <tr key={op.id}>
+                      <td style={tdStyle}>{fmtText(op.full_name)}</td>
+                      <td style={tdStyle}>{fmtText(op.email)}</td>
+                      <td style={tdStyle}>{fmtText(op.phone)}</td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...statusStyle(op.status),
+                          }}
+                        >
+                          {fmtText(op.status)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 900,
+                              ...qualificationBadgeStyle("ok"),
+                            }}
+                          >
+                            Total {summary.total}
+                          </span>
+
+                          {summary.expiringSoon > 0 ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 900,
+                                ...qualificationBadgeStyle("warn"),
+                              }}
+                            >
+                              Expiring {summary.expiringSoon}
+                            </span>
+                          ) : null}
+
+                          {summary.expired > 0 ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "6px 10px",
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 900,
+                                ...qualificationBadgeStyle("bad"),
+                              }}
+                            >
+                              Expired {summary.expired}
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td style={tdStyle}>{op.archived ? "Yes" : "No"}</td>
+                      <td style={tdStyle}>{fmtText(op.notes)}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
+                            Edit
+                          </a>
+                          <a href={`/operators/${op.id}/qualifications`} style={secondaryBtn}>
+                            Qualifications
+                          </a>
+                          <OperatorArchiveButton
+                            operatorId={op.id}
+                            archived={!!op.archived}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
