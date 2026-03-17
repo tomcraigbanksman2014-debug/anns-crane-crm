@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import ClientShell from "../ClientShell";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
+import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 function fromAuthEmail(email: string | null) {
@@ -197,6 +198,7 @@ export default function DashboardPage() {
       { label: "Quotes", href: "/quotes", tone: "neutral" as const },
       { label: "Customers", href: "/customers", tone: "good" as const },
       { label: "Equipment", href: "/equipment", tone: "good" as const },
+      { label: "Operators", href: "/operators", tone: "neutral" as const },
       { label: "Calendar", href: "/calendar", tone: "neutral" as const },
       { label: "Settings", href: "/settings", tone: "neutral" as const },
     ],
@@ -234,7 +236,8 @@ export default function DashboardPage() {
           .dash-service-grid,
           .dash-three-col,
           .dash-two-col,
-          .dash-search-shortcuts {
+          .dash-search-shortcuts,
+          .dash-operator-alert-grid {
             grid-template-columns: 1fr !important;
           }
 
@@ -422,6 +425,10 @@ export default function DashboardPage() {
               </a>
             </div>
           </Panel>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <OperatorQualificationAlertSummary />
         </div>
 
         <div
