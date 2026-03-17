@@ -1,6 +1,7 @@
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getQualificationStatus } from "../../../lib/utils/qualificationStatus";
 
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -11,20 +12,6 @@ function fmtDate(value: string | null | undefined) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("en-GB");
-}
-
-function expiryKind(expiryDate: string | null | undefined) {
-  const expiry = String(expiryDate ?? "").trim();
-  if (!expiry) return "none";
-
-  const today = new Date().toISOString().slice(0, 10);
-  const soon = new Date();
-  soon.setDate(soon.getDate() + 30);
-  const soonIso = soon.toISOString().slice(0, 10);
-
-  if (expiry < today) return "expired";
-  if (expiry <= soonIso) return "expiring";
-  return "valid";
 }
 
 function expiryStyle(kind: "expired" | "expiring" | "valid" | "none"): React.CSSProperties {
@@ -257,7 +244,7 @@ export default async function OperatorQualificationsPage({
                 ) : (
                   <div style={{ display: "grid", gap: 14 }}>
                     {rows.map((item: any) => {
-                      const kind = expiryKind(item.expiry_date);
+                      const kind = getQualificationStatus(item.expiry_date);
 
                       return (
                         <div key={item.id} style={qualificationCard}>
