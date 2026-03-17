@@ -8,11 +8,23 @@ function getBearer(req: Request) {
   return m?.[1] ?? null;
 }
 
+function norm(v: any) {
+  const s = String(v ?? "").trim();
+  return s.length ? s : null;
+}
+
+function combineDateTime(date: string | null, time: string | null) {
+  if (!date || !time) return null;
+  const iso = `${date}T${time}:00`;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // 1) Authenticate (Bearer first, then cookie)
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
     const bearer = getBearer(req);
@@ -26,59 +38,102 @@ export async function POST(req: Request) {
     } else {
       const sb = createSupabaseServerClient();
       const { data } = await sb.auth.getUser();
-      if (!data.user) return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      if (!data.user) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      }
     }
 
-    // 2) Validate
-    const client_id = String(body?.client_id ?? "").trim();
-    const equipment_id = String(body?.equipment_id ?? "").trim();
-    const start_date = String(body?.start_date ?? "").trim();
-    const end_date = String(body?.end_date ?? "").trim();
+    const clientId = norm(body?.client_id);
+    const equipmentId = norm(body?.equipment_id);
+    const startDate = norm(body?.start_date);
+    const endDate = norm(body?.end_date);
 
-    if (!client_id) return NextResponse.json({ error: "client_id is required" }, { status: 400 });
-    if (!equipment_id) return NextResponse.json({ error: "equipment_id is required" }, { status: 400 });
-    if (!start_date) return NextResponse.json({ error: "start_date is required" }, { status: 400 });
-    if (!end_date) return NextResponse.json({ error: "end_date is required" }, { status: 400 });
-    if (end_date < start_date) return NextResponse.json({ error: "End date cannot be before start date" }, { status: 400 });
-
-    const location = body?.location ? String(body.location).trim() : null;
-    const status = body?.status ? String(body.status).trim() : "Inquiry";
-    const invoice_status = body?.invoice_status ? String(body.invoice_status).trim() : "Not Invoiced";
-
-    const hire_price = Number(body?.hire_price ?? "");
-    if (Number.isNaN(hire_price) || hire_price < 0) {
-      return NextResponse.json({ error: "hire_price must be a valid number" }, { status: 400 });
+    if (!clientId) {
+      return NextResponse.json({ error: "client_id is required" }, { status: 400 });
+    }
+    if (!equipmentId) {
+      return NextResponse.json({ error: "equipment_id is required" }, { status: 400 });
+    }
+    if (!startDate) {
+      return NextResponse.json({ error: "start_date is required" }, { status: 400 });
+    }
+    if (!endDate) {
+      return NextResponse.json({ error: "end_date is required" }, { status: 400 });
+    }
+    if (endDate < startDate) {
+      return NextResponse.json(
+        { error: "End date cannot be before start date" },
+        { status: 400 }
+      );
     }
 
-    const payment_received = Number(body?.payment_received ?? 0);
-    if (Number.isNaN(payment_received) || payment_received < 0) {
-      return NextResponse.json({ error: "payment_received must be a valid number" }, { status: 400 });
+    const hirePrice =
+      body?.hire_price != null && String(body.hire_price).trim() !== ""
+        ? Number(body.hire_price)
+        : null;
+
+    if (hirePrice != null && Number.isNaN(hirePrice)) {
+      return NextResponse.json({ error: "hire_price must be a number" }, { status: 400 });
     }
 
-    // 3) Insert booking
+    const vatRate =
+      body?.vat_rate != null && String(body.vat_rate).trim() !== ""
+        ? Number(body.vat_rate)
+        : 20;
+
+    const vat =
+      body?.vat != null && String(body.vat).trim() !== ""
+        ? Number(body.vat)
+        : hirePrice != null
+          ? Number(((hirePrice * vatRate) / 100).toFixed(2))
+          : null;
+
+    const totalInvoice =
+      body?.total_invoice != null && String(body.total_invoice).trim() !== ""
+        ? Number(body.total_invoice)
+        : hirePrice != null && vat != null
+          ? Number((hirePrice + vat).toFixed(2))
+          : null;
+
+    const paymentReceived =
+      body?.payment_received != null && String(body.payment_received).trim() !== ""
+        ? Number(body.payment_received)
+        : 0;
+
+    const payload = {
+      client_id: clientId,
+      equipment_id: equipmentId,
+      start_date: startDate,
+      end_date: endDate,
+      start_at: combineDateTime(startDate, norm(body?.start_time)),
+      end_at: combineDateTime(endDate, norm(body?.end_time)),
+      location: norm(body?.location) || norm(body?.site_address),
+      status: norm(body?.status) ?? "Inquiry",
+      hire_price: hirePrice,
+      vat: vat,
+      total_invoice: totalInvoice,
+      payment_received: Number.isNaN(paymentReceived) ? 0 : paymentReceived,
+      invoice_status: norm(body?.invoice_status) ?? "Not Invoiced",
+      notes: norm(body?.notes),
+      updated_at: new Date().toISOString(),
+    };
+
     const supabase = createSupabaseServerClient();
-
-    const { data: created, error: insErr } = await supabase
+    const { data, error } = await supabase
       .from("bookings")
-      .insert({
-        client_id,
-        equipment_id,
-        start_date,
-        end_date,
-        location,
-        status,
-        invoice_status,
-        hire_price,
-        payment_received,
-        // vat / total_invoice can be set by your trigger if present
-      })
-      .select("*")
+      .insert([payload])
+      .select("id")
       .single();
 
-    if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
 
-    return NextResponse.json({ success: true, booking: created });
+    return NextResponse.json({ ok: true, id: data?.id ?? null });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: e?.message ?? "Could not save booking." },
+      { status: 400 }
+    );
   }
 }
