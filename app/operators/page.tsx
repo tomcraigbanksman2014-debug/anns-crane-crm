@@ -1,6 +1,5 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import OperatorArchiveButton from "./OperatorArchiveButton";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -32,32 +31,14 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   };
 }
 
-type OperatorsPageProps = {
-  searchParams?: {
-    view?: string;
-  };
-};
-
-export default async function OperatorsPage({
-  searchParams,
-}: OperatorsPageProps) {
+export default async function OperatorsPage() {
   const supabase = createSupabaseServerClient();
-  const view = String(searchParams?.view ?? "active").toLowerCase();
 
-  let query = supabase
+  const { data: operators, error } = await supabase
     .from("operators")
-    .select("id, full_name, email, phone, status, notes, archived")
+    .select("id, full_name, email, phone, status, notes")
     .order("full_name", { ascending: true });
 
-  if (view === "archived") {
-    query = query.eq("archived", true);
-  } else if (view === "all") {
-    // no filter
-  } else {
-    query = query.eq("archived", false);
-  }
-
-  const { data: operators, error } = await query;
   const rows = operators ?? [];
 
   return (
@@ -84,32 +65,11 @@ export default async function OperatorsPage({
           </a>
         </div>
 
-        <div style={tabsRow}>
-          <a
-            href="/operators?view=active"
-            style={view === "active" ? activeTabBtn : tabBtn}
-          >
-            Active
-          </a>
-          <a
-            href="/operators?view=archived"
-            style={view === "archived" ? activeTabBtn : tabBtn}
-          >
-            Archived
-          </a>
-          <a
-            href="/operators?view=all"
-            style={view === "all" ? activeTabBtn : tabBtn}
-          >
-            All
-          </a>
-        </div>
-
         {error ? (
           <div style={errorBox}>{error.message}</div>
         ) : rows.length === 0 ? (
           <div style={cardStyle}>
-            <p style={{ margin: 0 }}>No operators found for this view.</p>
+            <p style={{ margin: 0 }}>No operators found.</p>
           </div>
         ) : (
           <div style={{ ...cardStyle, overflowX: "auto" }}>
@@ -120,7 +80,6 @@ export default async function OperatorsPage({
                   <th align="left" style={thStyle}>Email</th>
                   <th align="left" style={thStyle}>Phone</th>
                   <th align="left" style={thStyle}>Status</th>
-                  <th align="left" style={thStyle}>Archived</th>
                   <th align="left" style={thStyle}>Notes</th>
                   <th align="left" style={thStyle}>Action</th>
                 </tr>
@@ -145,17 +104,12 @@ export default async function OperatorsPage({
                         {fmtText(op.status)}
                       </span>
                     </td>
-                    <td style={tdStyle}>{op.archived ? "Yes" : "No"}</td>
                     <td style={tdStyle}>{fmtText(op.notes)}</td>
                     <td style={tdStyle}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
                           Edit
                         </a>
-                        <OperatorArchiveButton
-                          operatorId={op.id}
-                          archived={!!op.archived}
-                        />
                       </div>
                     </td>
                   </tr>
@@ -168,32 +122,6 @@ export default async function OperatorsPage({
     </ClientShell>
   );
 }
-
-const tabsRow: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 16,
-  marginBottom: 16,
-};
-
-const tabBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "9px 14px",
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.65)",
-  color: "#111",
-  textDecoration: "none",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.12)",
-};
-
-const activeTabBtn: React.CSSProperties = {
-  ...tabBtn,
-  background: "#111",
-  color: "#fff",
-  border: "1px solid #111",
-};
 
 const cardStyle: React.CSSProperties = {
   marginTop: 16,
