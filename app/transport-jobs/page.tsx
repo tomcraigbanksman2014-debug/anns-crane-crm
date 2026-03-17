@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import StatusBadge from "../components/StatusBadge";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -19,16 +20,6 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function prettyStatus(value: string | null | undefined) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "planned") return "Planned";
-  if (v === "confirmed") return "Confirmed";
-  if (v === "in_progress") return "In Progress";
-  if (v === "completed") return "Completed";
-  if (v === "cancelled") return "Cancelled";
-  return value ?? "—";
-}
-
 function prettyJobType(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
   if (v === "haulage") return "Haulage";
@@ -37,56 +28,6 @@ function prettyJobType(value: string | null | undefined) {
   if (v === "ballast") return "Ballast";
   if (v === "crane_support") return "Crane Support";
   return value ?? "—";
-}
-
-function statusStyle(status: string | null | undefined): React.CSSProperties {
-  const s = String(status ?? "").toLowerCase();
-
-  if (s === "planned") {
-    return {
-      background: "rgba(0,120,255,0.10)",
-      color: "#0b57d0",
-      border: "1px solid rgba(0,120,255,0.18)",
-    };
-  }
-
-  if (s === "confirmed") {
-    return {
-      background: "rgba(255,170,0,0.14)",
-      color: "#8a5200",
-      border: "1px solid rgba(255,170,0,0.22)",
-    };
-  }
-
-  if (s === "in_progress") {
-    return {
-      background: "rgba(170,0,255,0.10)",
-      color: "#6a1b9a",
-      border: "1px solid rgba(170,0,255,0.18)",
-    };
-  }
-
-  if (s === "completed") {
-    return {
-      background: "rgba(0,180,120,0.12)",
-      color: "#0b7a4b",
-      border: "1px solid rgba(0,180,120,0.20)",
-    };
-  }
-
-  if (s === "cancelled") {
-    return {
-      background: "rgba(255,0,0,0.10)",
-      color: "#b00020",
-      border: "1px solid rgba(255,0,0,0.18)",
-    };
-  }
-
-  return {
-    background: "rgba(255,255,255,0.35)",
-    color: "#111",
-    border: "1px solid rgba(0,0,0,0.10)",
-  };
 }
 
 type TransportJobsPageProps = {
@@ -212,7 +153,6 @@ export default async function TransportJobsPage({
                     <th align="left" style={thStyle}>Driver</th>
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Archived</th>
                     <th align="left" style={thStyle}>Value</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
@@ -255,21 +195,8 @@ export default async function TransportJobsPage({
                         <td style={tdStyle}>{prettyJobType(item.job_type)}</td>
 
                         <td style={tdStyle}>
-                          <span
-                            style={{
-                              display: "inline-block",
-                              padding: "6px 10px",
-                              borderRadius: 999,
-                              fontSize: 12,
-                              fontWeight: 900,
-                              ...statusStyle(item.status),
-                            }}
-                          >
-                            {prettyStatus(item.status)}
-                          </span>
+                          <StatusBadge value={item.status} archived={!!item.archived} />
                         </td>
-
-                        <td style={tdStyle}>{item.archived ? "Yes" : "No"}</td>
 
                         <td style={tdStyle}>{fmtMoney(item.price)}</td>
 
