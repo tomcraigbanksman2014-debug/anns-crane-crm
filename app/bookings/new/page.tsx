@@ -106,6 +106,7 @@ async function createBooking(formData: FormData) {
     payment_received: paymentReceived || 0,
     invoice_status: invoiceStatus,
     notes: bookingNotes || null,
+    driver_notes: bookingNotes || null,
     updated_at: new Date().toISOString(),
   };
 
