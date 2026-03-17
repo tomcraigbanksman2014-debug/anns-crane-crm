@@ -1,9 +1,10 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import StatusPill from "../components/StatusPill";
+import StatusPill, { bookingKind, invoiceKind } from "../components/StatusPill";
 
 type BookingRow = {
   id: string;
+  created_at: string | null;
   start_date: string | null;
   end_date: string | null;
   start_at?: string | null;
@@ -11,7 +12,11 @@ type BookingRow = {
   location: string | null;
   status: string | null;
   invoice_status: string | null;
+  hire_price: number | null;
+  vat: number | null;
   total_invoice: number | null;
+  payment_received: number | null;
+  notes: string | null;
   clients:
     | {
         id: string;
@@ -46,31 +51,54 @@ function first<T>(v: T | T[] | null | undefined): T | null {
 }
 
 function fmtMoney(n: number | null | undefined) {
-  if (n == null) return "—";
+  if (n == null || !Number.isFinite(Number(n))) return "—";
   return `£${Number(n).toFixed(2)}`;
+}
+
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
 }
 
 function fmtDates(row: BookingRow) {
   if (row.start_at && row.end_at) {
     const s = new Date(row.start_at);
     const e = new Date(row.end_at);
-    const sameDay = s.toDateString() === e.toDateString();
 
-    const date = s.toLocaleDateString("en-GB");
-    const startTime = s.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-    const endDate = e.toLocaleDateString("en-GB");
-    const endTime = e.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    if (!Number.isNaN(s.getTime()) && !Number.isNaN(e.getTime())) {
+      const sameDay = s.toDateString() === e.toDateString();
+      const date = s.toLocaleDateString("en-GB");
+      const startTime = s.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const endDate = e.toLocaleDateString("en-GB");
+      const endTime = e.toLocaleTimeString("en-GB", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
 
-    return sameDay
-      ? `${date} ${startTime} → ${endTime}`
-      : `${date} ${startTime} → ${endDate} ${endTime}`;
+      return sameDay
+        ? `${date} ${startTime} → ${endTime}`
+        : `${date} ${startTime} → ${endDate} ${endTime}`;
+    }
   }
 
   if (row.start_date && row.end_date) {
-    return `${row.start_date} → ${row.end_date}`;
+    return row.start_date === row.end_date
+      ? row.start_date
+      : `${row.start_date} → ${row.end_date}`;
   }
 
   return "—";
+}
+
+function shortNotes(value: string | null | undefined) {
+  const text = String(value ?? "").trim();
+  if (!text) return "—";
+  return text.length > 90 ? `${text.slice(0, 90)}…` : text;
 }
 
 export default async function BookingsPage() {
@@ -80,6 +108,7 @@ export default async function BookingsPage() {
     .from("bookings")
     .select(`
       id,
+      created_at,
       start_date,
       end_date,
       start_at,
@@ -87,7 +116,11 @@ export default async function BookingsPage() {
       location,
       status,
       invoice_status,
+      hire_price,
+      vat,
       total_invoice,
+      payment_received,
+      notes,
       clients:client_id (
         id,
         company_name,
@@ -106,7 +139,7 @@ export default async function BookingsPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1240px, 96vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -143,7 +176,8 @@ export default async function BookingsPage() {
                     <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Location</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Invoice</th>
+                    <th align="left" style={thStyle}>Financials</th>
+                    <th align="left" style={thStyle}>Notes</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -154,26 +188,62 @@ export default async function BookingsPage() {
 
                     return (
                       <tr key={b.id}>
-                        <td style={tdStyle}>{fmtDates(b)}</td>
                         <td style={tdStyle}>
-                          {(client?.company_name ?? "—")}
-                          {client?.contact_name ? ` — ${client.contact_name}` : ""}
-                        </td>
-                        <td style={tdStyle}>
-                          {(equip?.name ?? "—")}
-                          {equip?.asset_number ? ` — ${equip.asset_number}` : ""}
-                          {equip?.capacity ? ` — ${equip.capacity}` : ""}
-                        </td>
-                        <td style={tdStyle}>{b.location ?? "—"}</td>
-                        <td style={tdStyle}>
-                          <StatusPill text={b.status} />
-                        </td>
-                        <td style={tdStyle}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                            <StatusPill text={b.invoice_status} />
-                            <div style={{ fontWeight: 800 }}>{fmtMoney(b.total_invoice)}</div>
+                          <div style={{ fontWeight: 800 }}>{fmtDates(b)}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            Created: {fmtDate(b.created_at)}
                           </div>
                         </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 800 }}>
+                            {client?.company_name ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            {client?.contact_name ?? "—"}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 800 }}>
+                            {equip?.name ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            {equip?.asset_number ?? "—"}
+                            {equip?.capacity ? ` • ${equip.capacity}` : ""}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>{b.location ?? "—"}</td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <StatusPill
+                              text={b.status ?? "—"}
+                              kind={bookingKind(String(b.status ?? ""))}
+                            />
+                            <StatusPill
+                              text={b.invoice_status ?? "—"}
+                              kind={invoiceKind(String(b.invoice_status ?? ""))}
+                            />
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                            <div><strong>Hire:</strong> {fmtMoney(b.hire_price)}</div>
+                            <div><strong>VAT:</strong> {fmtMoney(b.vat)}</div>
+                            <div><strong>Total:</strong> {fmtMoney(b.total_invoice)}</div>
+                            <div><strong>Paid:</strong> {fmtMoney(b.payment_received)}</div>
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontSize: 13, lineHeight: 1.4 }}>
+                            {shortNotes(b.notes)}
+                          </div>
+                        </td>
+
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                             <a href={`/bookings/${b.id}`} style={actionBtn}>
@@ -228,6 +298,7 @@ const thStyle: React.CSSProperties = {
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
   opacity: 0.8,
+  whiteSpace: "nowrap",
 };
 
 const tdStyle: React.CSSProperties = {
