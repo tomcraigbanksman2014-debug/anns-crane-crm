@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import CustomerArchiveButton from "./CustomerArchiveButton";
 
 function daysBetween(from: string | null | undefined, to = new Date()) {
   if (!from) return null;
@@ -45,22 +46,38 @@ function activityMeta(lastBookingDate: string | null | undefined) {
 
 function formatLastBooking(value: string | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleDateString();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-GB");
 }
+
+type CustomersPageProps = {
+  searchParams?: {
+    q?: string;
+    view?: string;
+  };
+};
 
 export default async function CustomersPage({
   searchParams,
-}: {
-  searchParams?: { q?: string };
-}) {
+}: CustomersPageProps) {
   const supabase = createSupabaseServerClient();
 
   const q = String(searchParams?.q ?? "").trim();
+  const view = String(searchParams?.view ?? "active").trim().toLowerCase();
 
   let query = supabase
     .from("clients")
     .select("*")
     .order("created_at", { ascending: false });
+
+  if (view === "archived") {
+    query = query.eq("archived", true);
+  } else if (view === "all") {
+    // no archive filter
+  } else {
+    query = query.eq("archived", false);
+  }
 
   if (q) {
     const escaped = q.replace(/,/g, " ");
@@ -124,6 +141,27 @@ export default async function CustomersPage({
           </a>
         </div>
 
+        <div style={tabsRow}>
+          <a
+            href={`/customers?view=active${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            style={view === "active" ? activeTabBtn : tabBtn}
+          >
+            Active
+          </a>
+          <a
+            href={`/customers?view=archived${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            style={view === "archived" ? activeTabBtn : tabBtn}
+          >
+            Archived
+          </a>
+          <a
+            href={`/customers?view=all${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+            style={view === "all" ? activeTabBtn : tabBtn}
+          >
+            All
+          </a>
+        </div>
+
         <section style={{ ...cardStyle, marginTop: 16 }}>
           <form
             method="get"
@@ -135,6 +173,8 @@ export default async function CustomersPage({
               alignItems: "center",
             }}
           >
+            <input type="hidden" name="view" value={view} />
+
             <input
               type="text"
               name="q"
@@ -147,7 +187,7 @@ export default async function CustomersPage({
               Search
             </button>
 
-            <a href="/customers" style={secondaryBtnStyle}>
+            <a href={`/customers?view=${view}`} style={secondaryBtnStyle}>
               Clear
             </a>
           </form>
@@ -158,7 +198,7 @@ export default async function CustomersPage({
             </p>
           ) : (
             <p style={{ marginTop: 12, marginBottom: 0, fontSize: 14, opacity: 0.8 }}>
-              Showing all customers.
+              Showing {view === "active" ? "active" : view === "archived" ? "archived" : "all"} customers.
             </p>
           )}
         </section>
@@ -192,6 +232,9 @@ export default async function CustomersPage({
                     </th>
                     <th align="left" style={thStyle}>
                       Activity
+                    </th>
+                    <th align="left" style={thStyle}>
+                      Archived
                     </th>
                     <th align="left" style={thStyle}>
                       Created
@@ -228,24 +271,17 @@ export default async function CustomersPage({
                             {activity.label}
                           </span>
                         </td>
+                        <td style={tdStyle}>{c.archived ? "Yes" : "No"}</td>
                         <td style={tdStyle}>
-                          {c.created_at
-                            ? new Date(c.created_at).toLocaleString()
-                            : "-"}
+                          {c.created_at ? new Date(c.created_at).toLocaleString() : "-"}
                         </td>
                         <td style={tdStyle}>
-                          <a
-                            href={`/customers/${c.id}`}
-                            style={{ marginRight: 12, textDecoration: "none" }}
-                          >
-                            Open
-                          </a>
-                          <a
-                            href={`/customers/${c.id}/delete`}
-                            style={{ color: "red", textDecoration: "none" }}
-                          >
-                            Delete
-                          </a>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <a href={`/customers/${c.id}`} style={linkBtnStyle}>
+                              Open
+                            </a>
+                            <CustomerArchiveButton id={c.id} archived={!!c.archived} />
+                          </div>
                         </td>
                       </tr>
                     );
@@ -277,16 +313,52 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const tabsRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+};
+
+const tabBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "9px 14px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const activeTabBtn: React.CSSProperties = {
+  ...tabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
+
 const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
+  height: 44,
+  padding: "0 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.75)",
-  fontSize: 14,
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
 };
 
 const primaryBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#111",
+  textDecoration: "none",
+  color: "#fff",
+  fontWeight: 800,
+};
+
+const secondaryBtnStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -295,18 +367,17 @@ const primaryBtnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-  cursor: "pointer",
 };
 
-const secondaryBtnStyle: React.CSSProperties = {
+const linkBtnStyle: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  padding: "8px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.25)",
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
   color: "#111",
-  fontWeight: 700,
+  fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
@@ -328,4 +399,5 @@ const tdStyle: React.CSSProperties = {
   padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
+  verticalAlign: "top",
 };
