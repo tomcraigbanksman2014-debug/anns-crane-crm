@@ -1,46 +1,47 @@
 import ClientShell from "../../../ClientShell";
+import OperatorQualificationInlineSummary from "../../../components/OperatorQualificationInlineSummary";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+
+function clean(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
+}
 
 async function updateOperator(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
 
-  const id = String(formData.get("id") ?? "").trim();
-  const full_name = String(formData.get("full_name") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const phone = String(formData.get("phone") ?? "").trim();
-  const status = String(formData.get("status") ?? "active").trim();
-
-  if (!id) return;
-
-  const { error } = await supabase
-    .from("operators")
-    .update({
-      full_name: full_name || null,
-      email: email || null,
-      phone: phone || null,
-      status: status || "active",
-    })
-    .eq("id", id);
-
-  if (error) {
-    throw new Error(error.message);
+  const id = clean(formData.get("id"));
+  if (!id) {
+    redirect(`/operators?error=${encodeURIComponent("Operator id missing.")}`);
   }
 
-  revalidatePath("/operators");
-  revalidatePath(`/operators/${id}`);
-  revalidatePath(`/operators/${id}/edit`);
+  const payload = {
+    full_name: clean(formData.get("full_name")) || null,
+    email: clean(formData.get("email")) || null,
+    phone: clean(formData.get("phone")) || null,
+    role: clean(formData.get("role")) || null,
+    status: clean(formData.get("status")) || "active",
+    notes: clean(formData.get("notes")) || null,
+    updated_at: new Date().toISOString(),
+  };
 
-  redirect(`/operators/${id}`);
+  const { error } = await supabase.from("operators").update(payload).eq("id", id);
+
+  if (error) {
+    redirect(`/operators/${id}/edit?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/operators/${id}/edit?success=${encodeURIComponent("Operator updated.")}`);
 }
 
-export default async function EditOperatorPage({
+export default async function OperatorEditPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
@@ -50,77 +51,78 @@ export default async function EditOperatorPage({
     .eq("id", params.id)
     .single();
 
+  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
+  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+
   return (
     <ClientShell>
-      <div style={{ width: "min(760px, 95vw)", margin: "0 auto" }}>
-        <div style={cardStyle}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 12,
-              alignItems: "center",
-              flexWrap: "wrap",
-            }}
-          >
+      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+        <div style={pageCard}>
+          <div style={headerRow}>
             <div>
-              <h1 style={{ margin: 0, fontSize: 32 }}>Edit Operator</h1>
+              <h1 style={{ margin: 0, fontSize: 32 }}>
+                Edit operator
+              </h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Update operator details.
+                Update operator details, role and qualification compliance context.
               </p>
             </div>
 
-            <a href="/operators" style={btnStyle}>
-              ← Back
-            </a>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href="/operators" style={secondaryBtn}>
+                ← Back to operators
+              </a>
+              {operator?.id ? (
+                <a href={`/operators/${operator.id}`} style={secondaryBtn}>
+                  Open operator
+                </a>
+              ) : null}
+            </div>
           </div>
 
-          {error ? (
-            <div style={errorBox}>{error.message}</div>
-          ) : !operator ? (
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+          {error ? <div style={errorBox}>{error.message}</div> : null}
+
+          {!operator ? (
             <div style={errorBox}>Operator not found.</div>
           ) : (
-            <form action={updateOperator} style={{ marginTop: 16 }}>
-              <input type="hidden" name="id" value={operator.id} />
+            <div style={{ display: "grid", gap: 16 }}>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Operator details</h2>
 
-              <div style={gridStyle}>
-                <Field
-                  label="Full name"
-                  name="full_name"
-                  defaultValue={operator.full_name ?? ""}
-                />
-                <Field
-                  label="Email"
-                  name="email"
-                  defaultValue={operator.email ?? ""}
-                />
-                <Field
-                  label="Phone"
-                  name="phone"
-                  defaultValue={operator.phone ?? ""}
-                />
-                <div style={{ display: "grid", gap: 6 }}>
-                  <label style={labelStyle}>Status</label>
-                  <select
-                    name="status"
-                    defaultValue={operator.status ?? "active"}
-                    style={inputStyle}
-                  >
-                    <option value="active">active</option>
-                    <option value="inactive">inactive</option>
-                  </select>
-                </div>
-              </div>
+                <form action={updateOperator} style={{ display: "grid", gap: 12 }}>
+                  <input type="hidden" name="id" value={operator.id} />
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-                <button type="submit" style={saveBtn}>
-                  Save operator
-                </button>
-                <a href={`/operators/${operator.id}`} style={btnStyle}>
-                  Cancel
-                </a>
-              </div>
-            </form>
+                  <div style={grid2}>
+                    <Field label="Full name" name="full_name" defaultValue={operator.full_name ?? ""} />
+                    <Field label="Email" name="email" defaultValue={operator.email ?? ""} type="email" />
+                    <Field label="Phone" name="phone" defaultValue={operator.phone ?? ""} />
+                    <Field label="Role" name="role" defaultValue={operator.role ?? ""} placeholder="e.g. Crane Operator" />
+                    <SelectField
+                      label="Status"
+                      name="status"
+                      defaultValue={operator.status ?? "active"}
+                      options={[
+                        { value: "active", label: "active" },
+                        { value: "inactive", label: "inactive" },
+                      ]}
+                    />
+                    <Field label="Archived" name="archived_readonly" defaultValue={operator.archived ? "Yes" : "No"} disabled />
+                  </div>
+
+                  <TextAreaField label="Notes" name="notes" defaultValue={operator.notes ?? ""} rows={4} />
+
+                  <div>
+                    <button type="submit" style={primaryBtn}>
+                      Save operator
+                    </button>
+                  </div>
+                </form>
+              </section>
+
+              <OperatorQualificationInlineSummary operatorId={params.id} />
+            </div>
           )}
         </div>
       </div>
@@ -132,37 +134,120 @@ function Field({
   label,
   name,
   defaultValue,
+  type = "text",
+  disabled = false,
+  placeholder,
 }: {
   label: string;
   name: string;
-  defaultValue: string;
+  defaultValue?: string;
+  type?: string;
+  disabled?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <input name={name} defaultValue={defaultValue} style={inputStyle} />
+      <input
+        name={name}
+        defaultValue={defaultValue}
+        type={type}
+        disabled={disabled}
+        placeholder={placeholder}
+        style={inputStyle}
+      />
     </div>
   );
 }
 
-const cardStyle: React.CSSProperties = {
+function SelectField({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <select name={name} defaultValue={defaultValue} style={inputStyle}>
+        {options.map((option) => (
+          <option key={`${name}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  name,
+  defaultValue,
+  rows,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  rows: number;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <textarea
+        name={name}
+        defaultValue={defaultValue}
+        rows={rows}
+        style={textareaStyle}
+      />
+    </div>
+  );
+}
+
+const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
+  padding: 20,
+  borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const gridStyle: React.CSSProperties = {
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const sectionCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.24)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
+const sectionTitle: React.CSSProperties = {
+  marginTop: 0,
+  marginBottom: 14,
+  fontSize: 22,
+};
+
+const grid2: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 12,
 };
 
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
-  opacity: 0.75,
   fontWeight: 800,
+  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -171,33 +256,57 @@ const inputStyle: React.CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
 };
 
-const btnStyle: React.CSSProperties = {
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+  resize: "vertical",
+};
+
+const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
   background: "#111",
   color: "#fff",
-  borderRadius: 10,
+  fontWeight: 900,
   border: "none",
   cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 14,
+  marginBottom: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#0b7a4b",
   fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 14,
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
