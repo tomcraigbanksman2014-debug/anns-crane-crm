@@ -3,17 +3,13 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
+    const supabase = createSupabaseServerClient();
     const body = await req.json().catch(() => null);
-    const vehicleId = String(body?.vehicle_id ?? "").trim();
+    const vehicleId = String(body?.vehicleId ?? "").trim();
 
     if (!vehicleId) {
-      return NextResponse.json(
-        { error: "Vehicle ID is required." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Vehicle id is required." }, { status: 400 });
     }
-
-    const supabase = createSupabaseServerClient();
 
     const { error } = await supabase
       .from("vehicles")
@@ -27,10 +23,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message || "Server error." },
+      { error: e?.message ?? "Could not restore vehicle." },
       { status: 500 }
     );
   }
