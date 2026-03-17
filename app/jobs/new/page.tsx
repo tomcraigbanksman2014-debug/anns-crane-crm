@@ -16,18 +16,6 @@ function safeDecode(value: string | undefined) {
   }
 }
 
-function prettyQuoteStatus(value: string | undefined) {
-  const raw = safeDecode(value).trim();
-  if (!raw) return "—";
-  return raw;
-}
-
-function quoteToJobStatus(value: string | undefined) {
-  const v = safeDecode(value).trim().toLowerCase();
-  if (v === "accepted") return "confirmed";
-  return "draft";
-}
-
 function formatDateLabel(value: string | undefined) {
   const raw = safeDecode(value).trim();
   if (!raw) return "—";
@@ -38,6 +26,13 @@ function formatDateLabel(value: string | undefined) {
   }
 
   return parsed.toLocaleDateString("en-GB");
+}
+
+function quoteToJobStatus(value: string | undefined) {
+  const raw = safeDecode(value).trim().toLowerCase();
+
+  if (raw === "accepted") return "confirmed";
+  return "draft";
 }
 
 async function createJob(formData: FormData) {
@@ -148,8 +143,8 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               <div>
                 Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
               </div>
-              <div style={{ marginTop: 6, fontSize: 13, fontWeight: 700, opacity: 0.86 }}>
-                Quote status: {prettyQuoteStatus(prefilledQuoteStatus)} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
+              <div style={infoMetaStyle}>
+                Quote status: {prefilledQuoteStatus || "—"} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
               </div>
             </div>
           ) : null}
@@ -195,12 +190,20 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact name</label>
-                <input name="contact_name" style={inputStyle} defaultValue={prefilledContactName} />
+                <input
+                  name="contact_name"
+                  style={inputStyle}
+                  defaultValue={prefilledContactName}
+                />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact phone</label>
-                <input name="contact_phone" style={inputStyle} defaultValue={prefilledContactPhone} />
+                <input
+                  name="contact_phone"
+                  style={inputStyle}
+                  defaultValue={prefilledContactPhone}
+                />
               </div>
             </div>
 
@@ -372,6 +375,13 @@ const infoBox: React.CSSProperties = {
   background: "rgba(0,120,255,0.10)",
   border: "1px solid rgba(0,120,255,0.18)",
   fontWeight: 700,
+};
+
+const infoMetaStyle: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 13,
+  fontWeight: 700,
+  opacity: 0.86,
 };
 
 const errorBox: React.CSSProperties = {
