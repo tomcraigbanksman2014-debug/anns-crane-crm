@@ -27,9 +27,13 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function hasQuoteContext(notes: string | null | undefined) {
-  const text = String(notes ?? "").toLowerCase();
-  return text.includes("quote subject:") || text.includes("quote reference:");
+function hasQuoteContext(text: string | null | undefined) {
+  const v = String(text ?? "").toLowerCase();
+  return (
+    v.includes("quote subject:") ||
+    v.includes("quote reference:") ||
+    v.includes("quote amount:")
+  );
 }
 
 export default async function BookingPage({
@@ -51,7 +55,10 @@ export default async function BookingPage({
         end_at,
         status,
         location,
-        notes,
+        po_number,
+        job_reference,
+        operator_name,
+        driver_notes,
         hire_price,
         vat,
         total_invoice,
@@ -87,7 +94,7 @@ export default async function BookingPage({
 
   const client = first((booking as any)?.clients);
   const equipment = first((booking as any)?.equipment);
-  const notesText = String((booking as any)?.notes ?? "").trim();
+  const driverNotes = String((booking as any)?.driver_notes ?? "").trim();
 
   return (
     <ClientShell>
@@ -175,6 +182,9 @@ export default async function BookingPage({
                   <InfoRow label="Start time" value={fmtDateTime((booking as any).start_at)} />
                   <InfoRow label="End time" value={fmtDateTime((booking as any).end_at)} />
                   <InfoRow label="Location" value={(booking as any).location ?? "—"} />
+                  <InfoRow label="PO number" value={(booking as any).po_number ?? "—"} />
+                  <InfoRow label="Job reference" value={(booking as any).job_reference ?? "—"} />
+                  <InfoRow label="Operator name" value={(booking as any).operator_name ?? "—"} />
                   <InfoRow label="Created" value={fmtDateTime((booking as any).created_at)} />
                 </div>
               </section>
@@ -200,20 +210,20 @@ export default async function BookingPage({
               </section>
 
               <section style={cardStyle}>
-                <h2 style={sectionTitle}>Notes</h2>
+                <h2 style={sectionTitle}>Driver notes</h2>
 
-                {notesText ? (
+                {driverNotes ? (
                   <>
-                    {hasQuoteContext(notesText) ? (
+                    {hasQuoteContext(driverNotes) ? (
                       <div style={quoteOriginBox}>
-                        This booking appears to have been created from quote information.
+                        This booking appears to contain carried-over quote information.
                       </div>
                     ) : null}
 
-                    <div style={notesBox}>{notesText}</div>
+                    <div style={notesBox}>{driverNotes}</div>
                   </>
                 ) : (
-                  <p style={{ margin: 0 }}>No notes saved.</p>
+                  <p style={{ margin: 0 }}>No driver notes saved.</p>
                 )}
               </section>
 
