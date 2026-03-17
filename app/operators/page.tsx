@@ -1,6 +1,7 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import OperatorArchiveButton from "./OperatorArchiveButton";
+import { getQualificationSummary } from "../lib/utils/qualificationStatus";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -62,10 +63,6 @@ type OperatorsPageProps = {
   };
 };
 
-function toIsoDate(d: Date) {
-  return d.toISOString().slice(0, 10);
-}
-
 export default async function OperatorsPage({
   searchParams,
 }: OperatorsPageProps) {
@@ -96,29 +93,9 @@ export default async function OperatorsPage({
   const rows = operators ?? [];
   const quals = qualifications ?? [];
 
-  const today = new Date();
-  const todayIso = toIsoDate(today);
-  const soon = new Date(today);
-  soon.setDate(soon.getDate() + 30);
-  const soonIso = toIsoDate(soon);
-
   function summaryFor(operatorId: string) {
     const items = quals.filter((q: any) => q.operator_id === operatorId);
-    const expired = items.filter((q: any) => {
-      const expiry = String(q.expiry_date ?? "").trim();
-      return !!expiry && expiry < todayIso;
-    }).length;
-
-    const expiringSoon = items.filter((q: any) => {
-      const expiry = String(q.expiry_date ?? "").trim();
-      return !!expiry && expiry >= todayIso && expiry <= soonIso;
-    }).length;
-
-    return {
-      total: items.length,
-      expired,
-      expiringSoon,
-    };
+    return getQualificationSummary(items);
   }
 
   return (
@@ -225,7 +202,7 @@ export default async function OperatorsPage({
                             Total {summary.total}
                           </span>
 
-                          {summary.expiringSoon > 0 ? (
+                          {summary.expiring > 0 ? (
                             <span
                               style={{
                                 display: "inline-block",
@@ -236,7 +213,7 @@ export default async function OperatorsPage({
                                 ...qualificationBadgeStyle("warn"),
                               }}
                             >
-                              Expiring {summary.expiringSoon}
+                              Expiring {summary.expiring}
                             </span>
                           ) : null}
 
