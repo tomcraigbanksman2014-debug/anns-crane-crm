@@ -146,6 +146,61 @@ function overlaps(
   return startA < endB && startB < endA;
 }
 
+function jobCardColor(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").trim().toLowerCase();
+
+  if (s === "planned") {
+    return {
+      background: "linear-gradient(180deg, rgba(245,245,245,0.98), rgba(232,232,232,0.98))",
+      border: "1px solid rgba(0,0,0,0.12)",
+    };
+  }
+
+  if (s === "confirmed") {
+    return {
+      background: "linear-gradient(180deg, rgba(255,248,230,0.98), rgba(255,236,191,0.98))",
+      border: "1px solid rgba(255,170,0,0.25)",
+    };
+  }
+
+  if (s === "in_progress") {
+    return {
+      background: "linear-gradient(180deg, rgba(232,242,255,0.98), rgba(204,226,255,0.98))",
+      border: "1px solid rgba(0,120,255,0.25)",
+    };
+  }
+
+  if (s === "completed") {
+    return {
+      background: "linear-gradient(180deg, rgba(232,255,244,0.98), rgba(205,245,225,0.98))",
+      border: "1px solid rgba(0,180,120,0.25)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "linear-gradient(180deg, rgba(255,238,238,0.98), rgba(255,220,220,0.98))",
+      border: "1px solid rgba(255,0,0,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.90)",
+    border: "1px solid rgba(0,0,0,0.08)",
+  };
+}
+
+function statusStripe(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+
+  if (s === "planned") return "rgba(120,120,120,0.85)";
+  if (s === "confirmed") return "rgba(255,170,0,0.95)";
+  if (s === "in_progress") return "rgba(0,120,255,0.95)";
+  if (s === "completed") return "rgba(0,180,120,0.95)";
+  if (s === "cancelled") return "rgba(220,0,0,0.90)";
+  return "rgba(0,0,0,0.18)";
+}
+
 export default function TransportPlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [loading, setLoading] = useState(true);
@@ -747,6 +802,8 @@ function TransportCard({
   const vehicle = first(job.vehicles);
   const operator = first(job.operators);
   const linkedJob = first(job.jobs);
+  const colorStyle = jobCardColor(job.status);
+  const stripe = statusStripe(job.status);
 
   return (
     <div
@@ -758,12 +815,27 @@ function TransportCard({
       onDragEnd={onDragEnd}
       style={{
         ...jobCardStyle,
+        ...colorStyle,
         opacity: dragging ? 0.55 : 1,
         cursor: "grab",
         padding: compact ? 8 : 12,
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <div style={{ display: "grid", gap: 4 }}>
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 5,
+          background: stripe,
+        }}
+      />
+
+      <div style={{ display: "grid", gap: 4, paddingLeft: 8 }}>
         <button
           type="button"
           onClick={onOpenQuickEdit}
@@ -1199,12 +1271,14 @@ const drawerTextarea: React.CSSProperties = {
 };
 
 const primaryDrawerBtn: React.CSSProperties = {
+  display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "none",
+  textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
+  border: "none",
   cursor: "pointer",
 };
 
@@ -1213,7 +1287,7 @@ const secondaryDrawerLink: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.82)",
+  background: "#fff",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
