@@ -2,6 +2,7 @@ import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getQualificationStatus } from "../../../lib/utils/qualificationStatus";
+import { addValidityToDate, prettyValidity } from "../../../lib/utils/qualificationRenewal";
 
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -145,6 +146,64 @@ async function deleteQualification(formData: FormData) {
   redirect(`/operators/${operatorId}/qualifications?success=${encodeURIComponent("Qualification deleted.")}`);
 }
 
+async function renewQualification(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const operatorId = clean(formData.get("operator_id"));
+  const qualificationId = clean(formData.get("qualification_id"));
+  const qualificationName = clean(formData.get("qualification_name"));
+  const issuer = clean(formData.get("issuer")) || null;
+  const certificateNumber = clean(formData.get("certificate_number")) || null;
+  const notes = clean(formData.get("notes")) || null;
+  const renewalIssueDate = clean(formData.get("renewal_issue_date"));
+
+  if (!operatorId || !qualificationId || !qualificationName || !renewalIssueDate) {
+    redirect(`/operators/${operatorId}/qualifications?error=${encodeURIComponent("Renewal failed.")}`);
+  }
+
+  const { data: operator } = await supabase
+    .from("operators")
+    .select("role")
+    .eq("id", operatorId)
+    .single();
+
+  const { data: rule } = await supabase
+    .from("operator_required_qualifications")
+    .select("validity_value, validity_unit")
+    .eq("is_active", true)
+    .eq("role", String(operator?.role ?? ""))
+    .eq("qualification_name", qualificationName)
+    .maybeSingle();
+
+  const calculatedExpiry = addValidityToDate(
+    renewalIssueDate,
+    rule?.validity_value ?? null,
+    rule?.validity_unit ?? null
+  );
+
+  const { error } = await supabase
+    .from("operator_qualifications")
+    .update({
+      qualification_name: qualificationName,
+      issuer,
+      certificate_number: certificateNumber,
+      issue_date: renewalIssueDate,
+      expiry_date: calculatedExpiry,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", qualificationId)
+    .eq("operator_id", operatorId);
+
+  if (error) {
+    redirect(`/operators/${operatorId}/qualifications?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/operators/${operatorId}/qualifications?success=${encodeURIComponent("Qualification renewed.")}`);
+}
+
 export default async function OperatorQualificationsPage({
   params,
   searchParams,
@@ -157,10 +216,11 @@ export default async function OperatorQualificationsPage({
   const [
     { data: operator, error: operatorError },
     { data: qualifications, error: qualsError },
+    { data: rules },
   ] = await Promise.all([
     supabase
       .from("operators")
-      .select("id, full_name, email, phone, status, archived")
+      .select("id, full_name, email, phone, status, archived, role")
       .eq("id", params.id)
       .single(),
 
@@ -169,11 +229,20 @@ export default async function OperatorQualificationsPage({
       .select("*")
       .eq("operator_id", params.id)
       .order("expiry_date", { ascending: true }),
+
+    supabase
+      .from("operator_required_qualifications")
+      .select("*")
+      .eq("is_active", true)
+      .order("qualification_name", { ascending: true }),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
   const rows = qualifications ?? [];
+  const roleRules = (rules ?? []).filter(
+    (rule: any) => String(rule.role ?? "").trim().toLowerCase() === String(operator?.role ?? "").trim().toLowerCase()
+  );
 
   return (
     <ClientShell>
@@ -185,7 +254,7 @@ export default async function OperatorQualificationsPage({
                 Operator qualifications
               </h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                {operator?.full_name ?? "Operator"} — manage certificates, tickets and expiry dates.
+                {operator?.full_name ?? "Operator"} — manage certificates, tickets, renewal and expiry dates.
               </p>
             </div>
 
@@ -208,6 +277,25 @@ export default async function OperatorQualificationsPage({
             <div style={errorBox}>Operator not found.</div>
           ) : (
             <div style={{ display: "grid", gap: 18, marginTop: 16 }}>
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Role rules</h2>
+
+                {roleRules.length === 0 ? (
+                  <div style={emptyBox}>No qualification rules found for role: {operator.role ?? "No role"}.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {roleRules.map((rule: any) => (
+                      <div key={rule.id} style={ruleRow}>
+                        <div style={{ fontWeight: 900 }}>{rule.qualification_name}</div>
+                        <div style={{ fontSize: 13, opacity: 0.76 }}>
+                          Renewal: {prettyValidity(rule.validity_value, rule.validity_unit)} • Warning: {rule.warning_days} day(s)
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Add qualification</h2>
 
@@ -245,6 +333,11 @@ export default async function OperatorQualificationsPage({
                   <div style={{ display: "grid", gap: 14 }}>
                     {rows.map((item: any) => {
                       const kind = getQualificationStatus(item.expiry_date);
+                      const matchingRule = roleRules.find(
+                        (rule: any) =>
+                          String(rule.qualification_name ?? "").trim().toLowerCase() ===
+                          String(item.qualification_name ?? "").trim().toLowerCase()
+                      );
 
                       return (
                         <div key={item.id} style={qualificationCard}>
@@ -280,6 +373,7 @@ export default async function OperatorQualificationsPage({
 
                           <div style={{ marginTop: 10, fontSize: 13, opacity: 0.82 }}>
                             Issue: {fmtDate(item.issue_date)} • Expiry: {fmtDate(item.expiry_date)}
+                            {matchingRule ? ` • Renewal rule: ${prettyValidity(matchingRule.validity_value, matchingRule.validity_unit)}` : ""}
                           </div>
 
                           <form action={updateQualification} style={{ display: "grid", gap: 12, marginTop: 14 }}>
@@ -338,6 +432,50 @@ export default async function OperatorQualificationsPage({
                               </button>
                             </div>
                           </form>
+
+                          <div style={renewBox}>
+                            <div style={{ fontWeight: 900, marginBottom: 10 }}>Renew qualification</div>
+
+                            <form action={renewQualification} style={{ display: "grid", gap: 12 }}>
+                              <input type="hidden" name="operator_id" value={operator.id} />
+                              <input type="hidden" name="qualification_id" value={item.id} />
+                              <input type="hidden" name="qualification_name" value={item.qualification_name ?? ""} />
+                              <input type="hidden" name="issuer" value={item.issuer ?? ""} />
+                              <input type="hidden" name="certificate_number" value={item.certificate_number ?? ""} />
+                              <input type="hidden" name="notes" value={item.notes ?? ""} />
+
+                              <div style={grid3}>
+                                <Field
+                                  label="New issue date"
+                                  name="renewal_issue_date"
+                                  type="date"
+                                  defaultValue={new Date().toISOString().slice(0, 10)}
+                                />
+                                <Field
+                                  label="Rule"
+                                  name="renewal_rule_readonly"
+                                  defaultValue={
+                                    matchingRule
+                                      ? prettyValidity(matchingRule.validity_value, matchingRule.validity_unit)
+                                      : "Manual expiry"
+                                  }
+                                  disabled
+                                />
+                                <Field
+                                  label="Current expiry"
+                                  name="current_expiry_readonly"
+                                  defaultValue={item.expiry_date ?? ""}
+                                  disabled
+                                />
+                              </div>
+
+                              <div>
+                                <button type="submit" style={renewBtn}>
+                                  Renew
+                                </button>
+                              </div>
+                            </form>
+                          </div>
 
                           <form action={deleteQualification} style={{ marginTop: 12 }}>
                             <input type="hidden" name="operator_id" value={operator.id} />
@@ -461,6 +599,21 @@ const qualificationHeader: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const ruleRow: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const renewBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(0,120,255,0.06)",
+  border: "1px solid rgba(0,120,255,0.16)",
+};
+
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
@@ -493,6 +646,18 @@ const primaryBtn: React.CSSProperties = {
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  border: "none",
+  cursor: "pointer",
+};
+
+const renewBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#0b57d0",
   color: "#fff",
   fontWeight: 900,
   border: "none",
