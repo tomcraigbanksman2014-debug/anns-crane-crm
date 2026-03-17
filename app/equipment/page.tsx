@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import EquipmentArchiveButton from "./EquipmentArchiveButton";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -159,9 +160,15 @@ export default async function EquipmentPage({
                       </td>
                       <td style={tdStyle}>{item.archived ? "Yes" : "No"}</td>
                       <td style={tdStyle}>
-                        <a href={`/equipment/${item.id}`} style={actionBtn}>
-                          Open
-                        </a>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <a href={`/equipment/${item.id}`} style={actionBtn}>
+                            Open
+                          </a>
+                          <EquipmentArchiveButton
+                            equipmentId={item.id}
+                            archived={!!item.archived}
+                          />
+                        </div>
                       </td>
                     </tr>
                   ))}
