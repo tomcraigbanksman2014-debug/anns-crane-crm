@@ -61,6 +61,31 @@ async function updateTransportJob(formData: FormData) {
   redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
 }
 
+async function archiveJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const id = clean(formData.get("id"));
+
+  if (!id) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      archived: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/transport-jobs?success=${encodeURIComponent("Transport job archived.")}`);
+}
+
 function fmtMoney(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return "£0.00";
@@ -172,6 +197,15 @@ export default async function TransportJobDetailPage({
                   jobId={(item as any).id}
                   archived={!!(item as any).archived}
                 />
+              ) : null}
+
+              {item && !(item as any).archived ? (
+                <form action={archiveJob}>
+                  <input type="hidden" name="id" value={(item as any).id} />
+                  <button type="submit" style={archiveBtn}>
+                    Archive now
+                  </button>
+                </form>
               ) : null}
 
               <a href="/transport-jobs" style={secondaryBtn}>
@@ -591,6 +625,18 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const archiveBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,0,0,0.10)",
+  color: "#b00020",
+  fontWeight: 800,
+  border: "1px solid rgba(255,0,0,0.20)",
+  cursor: "pointer",
 };
 
 const successBox: React.CSSProperties = {
