@@ -16,21 +16,47 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
     };
   }
 
+  if (s === "inactive") {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
   return {
-    background: "rgba(255,170,0,0.14)",
-    color: "#8a5200",
-    border: "1px solid rgba(255,170,0,0.24)",
+    background: "rgba(255,255,255,0.35)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
   };
 }
 
-export default async function OperatorsPage() {
-  const supabase = createSupabaseServerClient();
+type OperatorsPageProps = {
+  searchParams?: {
+    view?: string;
+  };
+};
 
-  const { data: operators, error } = await supabase
+export default async function OperatorsPage({
+  searchParams,
+}: OperatorsPageProps) {
+  const supabase = createSupabaseServerClient();
+  const view = String(searchParams?.view ?? "active").toLowerCase();
+
+  let query = supabase
     .from("operators")
-    .select("id, full_name, email, phone, status, notes")
+    .select("id, full_name, email, phone, status, notes, archived")
     .order("full_name", { ascending: true });
 
+  if (view === "archived") {
+    query = query.eq("archived", true);
+  } else if (view === "all") {
+    // no filter
+  } else {
+    query = query.eq("archived", false);
+  }
+
+  const { data: operators, error } = await query;
   const rows = operators ?? [];
 
   return (
@@ -48,12 +74,33 @@ export default async function OperatorsPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Operators</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Operator accounts are now created from <strong>Admin: Staff Accounts</strong>. Use this page to view and edit operator records only.
+              Manage operator records inside the CRM.
             </p>
           </div>
 
-          <a href="/admin/users" style={primaryBtn}>
-            Create operator account
+          <a href="/operators/new" style={primaryBtn}>
+            + Add operator
+          </a>
+        </div>
+
+        <div style={tabsRow}>
+          <a
+            href="/operators?view=active"
+            style={view === "active" ? activeTabBtn : tabBtn}
+          >
+            Active
+          </a>
+          <a
+            href="/operators?view=archived"
+            style={view === "archived" ? activeTabBtn : tabBtn}
+          >
+            Archived
+          </a>
+          <a
+            href="/operators?view=all"
+            style={view === "all" ? activeTabBtn : tabBtn}
+          >
+            All
           </a>
         </div>
 
@@ -61,7 +108,7 @@ export default async function OperatorsPage() {
           <div style={errorBox}>{error.message}</div>
         ) : rows.length === 0 ? (
           <div style={cardStyle}>
-            <p style={{ margin: 0 }}>No operators added yet.</p>
+            <p style={{ margin: 0 }}>No operators found for this view.</p>
           </div>
         ) : (
           <div style={{ ...cardStyle, overflowX: "auto" }}>
@@ -72,6 +119,7 @@ export default async function OperatorsPage() {
                   <th align="left" style={thStyle}>Email</th>
                   <th align="left" style={thStyle}>Phone</th>
                   <th align="left" style={thStyle}>Status</th>
+                  <th align="left" style={thStyle}>Archived</th>
                   <th align="left" style={thStyle}>Notes</th>
                   <th align="left" style={thStyle}>Action</th>
                 </tr>
@@ -96,6 +144,7 @@ export default async function OperatorsPage() {
                         {fmtText(op.status)}
                       </span>
                     </td>
+                    <td style={tdStyle}>{op.archived ? "Yes" : "No"}</td>
                     <td style={tdStyle}>{fmtText(op.notes)}</td>
                     <td style={tdStyle}>
                       <a href={`/operators/${op.id}/edit`} style={secondaryBtn}>
@@ -112,6 +161,32 @@ export default async function OperatorsPage() {
     </ClientShell>
   );
 }
+
+const tabsRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+  marginBottom: 16,
+};
+
+const tabBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "9px 14px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const activeTabBtn: React.CSSProperties = {
+  ...tabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
 
 const cardStyle: React.CSSProperties = {
   marginTop: 16,
