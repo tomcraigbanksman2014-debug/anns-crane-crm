@@ -1,6 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-import StatusPill, { bookingKind, invoiceKind } from "../components/StatusPill";
+import StatusPill from "../components/StatusPill";
 
 type BookingRow = {
   id: string;
@@ -105,45 +105,73 @@ function shortText(value: string | null | undefined, max = 90) {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
+function bookingKind(status: string) {
+  const s = (status || "").toLowerCase();
+  if (["confirmed", "booked", "live"].includes(s)) return "good" as const;
+  if (["inquiry", "enquiry", "pending"].includes(s)) return "warn" as const;
+  if (["cancelled", "canceled"].includes(s)) return "bad" as const;
+  if (["completed", "done"].includes(s)) return "info" as const;
+  return "neutral" as const;
+}
+
+function invoiceKind(status: string) {
+  const s = (status || "").toLowerCase();
+  if (["paid"].includes(s)) return "good" as const;
+  if (["sent"].includes(s)) return "warn" as const;
+  if (["overdue"].includes(s)) return "bad" as const;
+  return "neutral" as const;
+}
+
 export default async function BookingsPage() {
   const supabase = createSupabaseServerClient();
 
-  const { data, error } = await supabase
-    .from("bookings")
-    .select(`
-      id,
-      created_at,
-      start_date,
-      end_date,
-      start_at,
-      end_at,
-      location,
-      status,
-      invoice_status,
-      hire_price,
-      vat,
-      total_invoice,
-      payment_received,
-      po_number,
-      job_reference,
-      operator_name,
-      notes,
-      driver_notes,
-      clients:client_id (
-        id,
-        company_name,
-        contact_name
-      ),
-      equipment:equipment_id (
-        id,
-        name,
-        asset_number,
-        capacity
-      )
-    `)
-    .order("start_at", { ascending: true });
+  let bookings: BookingRow[] = [];
+  let loadError = "";
 
-  const bookings = ((data ?? []) as BookingRow[]) || [];
+  try {
+    const { data, error } = await supabase
+      .from("bookings")
+      .select(`
+        id,
+        created_at,
+        start_date,
+        end_date,
+        start_at,
+        end_at,
+        location,
+        status,
+        invoice_status,
+        hire_price,
+        vat,
+        total_invoice,
+        payment_received,
+        po_number,
+        job_reference,
+        operator_name,
+        notes,
+        driver_notes,
+        clients:client_id (
+          id,
+          company_name,
+          contact_name
+        ),
+        equipment:equipment_id (
+          id,
+          name,
+          asset_number,
+          capacity
+        )
+      `)
+      .order("start_at", { ascending: true });
+
+    if (error) {
+      loadError = error.message;
+    } else {
+      bookings = (data ?? []) as BookingRow[];
+    }
+  } catch (e: any) {
+    loadError = e?.message ?? "Could not load bookings.";
+  }
 
   return (
     <ClientShell>
@@ -170,11 +198,13 @@ export default async function BookingsPage() {
         </div>
 
         <div style={panelStyle}>
-          {error && <div style={errorBox}>{error.message}</div>}
+          {loadError ? <div style={errorBox}>{loadError}</div> : null}
 
-          {!error && bookings.length === 0 ? (
+          {!loadError && bookings.length === 0 ? (
             <p style={{ margin: 0 }}>No bookings yet.</p>
-          ) : (
+          ) : null}
+
+          {!loadError && bookings.length > 0 ? (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
@@ -286,7 +316,7 @@ export default async function BookingsPage() {
                 </tbody>
               </table>
             </div>
-          )}
+          ) : null}
         </div>
 
         <div style={{ marginTop: 14 }}>
