@@ -1,28 +1,10 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import { runGlobalSearch, type SearchItem, type SearchScope } from "../lib/global-search";
 
 function clean(value: string | string[] | undefined) {
   if (Array.isArray(value)) return String(value[0] ?? "").trim();
   return String(value ?? "").trim();
-}
-
-function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString("en-GB");
-}
-
-function fmtMoney(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
-}
-
-function shortText(value: string | null | undefined, max = 120) {
-  const text = String(value ?? "").trim();
-  if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
 type SearchPageProps = {
@@ -32,120 +14,110 @@ type SearchPageProps = {
   };
 };
 
+function sectionTitle(scope: SearchScope) {
+  if (scope === "customers") return "Customers";
+  if (scope === "jobs") return "Jobs";
+  if (scope === "transport") return "Transport Jobs";
+  if (scope === "quotes") return "Quotes";
+  if (scope === "bookings") return "Bookings";
+  if (scope === "equipment") return "Equipment";
+  if (scope === "audit") return "Audit Log";
+  return "Results";
+}
+
+function typeStyle(type: SearchItem["type"]): React.CSSProperties {
+  const map: Record<SearchItem["type"], React.CSSProperties> = {
+    customer: {
+      background: "rgba(0,120,255,0.10)",
+      border: "1px solid rgba(0,120,255,0.20)",
+    },
+    job: {
+      background: "rgba(170,0,255,0.10)",
+      border: "1px solid rgba(170,0,255,0.18)",
+    },
+    transport: {
+      background: "rgba(0,180,120,0.10)",
+      border: "1px solid rgba(0,180,120,0.20)",
+    },
+    quote: {
+      background: "rgba(255,170,0,0.14)",
+      border: "1px solid rgba(255,170,0,0.22)",
+    },
+    booking: {
+      background: "rgba(255,140,0,0.14)",
+      border: "1px solid rgba(255,140,0,0.22)",
+    },
+    equipment: {
+      background: "rgba(120,120,120,0.10)",
+      border: "1px solid rgba(120,120,120,0.18)",
+    },
+    audit: {
+      background: "rgba(255,0,0,0.10)",
+      border: "1px solid rgba(255,0,0,0.20)",
+    },
+  };
+  return map[type];
+}
+
+function ResultSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: SearchItem[];
+}) {
+  if (items.length === 0) return null;
+
+  return (
+    <section style={sectionCard}>
+      <h2 style={sectionTitleStyle}>{title}</h2>
+      <div style={resultGrid}>
+        {items.map((item) => (
+          <a key={`${item.type}:${item.id}`} href={item.href} style={resultCardLink}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span
+                style={{
+                  ...typeChipStyle,
+                  ...typeStyle(item.type),
+                }}
+              >
+                {item.type.toUpperCase()}
+              </span>
+              <div style={resultTitle}>{item.title}</div>
+            </div>
+
+            <div style={resultMeta}>{item.subtitle}</div>
+          </a>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default async function GlobalSearchPage({
   searchParams,
 }: SearchPageProps) {
   const supabase = createSupabaseServerClient();
 
   const q = clean(searchParams?.q);
-  const type = clean(searchParams?.type).toLowerCase() || "all";
+  const type = (clean(searchParams?.type).toLowerCase() || "all") as SearchScope;
 
-  let customers: any[] = [];
-  let jobs: any[] = [];
-  let transportJobs: any[] = [];
-  let quotes: any[] = [];
+  const { grouped, flat } = q
+    ? await runGlobalSearch(supabase, q, type, 20)
+    : {
+        grouped: {
+          customers: [],
+          jobs: [],
+          transport: [],
+          quotes: [],
+          bookings: [],
+          equipment: [],
+          audit: [],
+        },
+        flat: [],
+      };
 
-  if (q) {
-    const customerQuery = supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, archived, created_at")
-      .eq("archived", false)
-      .or(
-        `company_name.ilike.%${q}%,contact_name.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`
-      )
-      .order("company_name", { ascending: true })
-      .limit(20);
-
-    const jobQuery = supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_number,
-        site_name,
-        site_address,
-        job_date,
-        status,
-        archived,
-        clients:client_id (
-          company_name
-        )
-      `)
-      .eq("archived", false)
-      .or(
-        `site_name.ilike.%${q}%,site_address.ilike.%${q}%,status.ilike.%${q}%`
-      )
-      .order("job_date", { ascending: false })
-      .limit(20);
-
-    const transportQuery = supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_number,
-        transport_date,
-        collection_address,
-        delivery_address,
-        load_description,
-        status,
-        archived,
-        clients:client_id (
-          company_name
-        )
-      `)
-      .eq("archived", false)
-      .or(
-        `transport_number.ilike.%${q}%,collection_address.ilike.%${q}%,delivery_address.ilike.%${q}%,load_description.ilike.%${q}%,status.ilike.%${q}%`
-      )
-      .order("transport_date", { ascending: false })
-      .limit(20);
-
-    const quoteQuery = supabase
-      .from("quotes")
-      .select(`
-        id,
-        subject,
-        amount,
-        status,
-        quote_date,
-        valid_until,
-        archived,
-        clients:client_id (
-          company_name
-        )
-      `)
-      .eq("archived", false)
-      .or(`subject.ilike.%${q}%,status.ilike.%${q}%`)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    const [
-      { data: customersRes },
-      { data: jobsRes },
-      { data: transportRes },
-      { data: quotesRes },
-    ] = await Promise.all([
-      type === "all" || type === "customers"
-        ? customerQuery
-        : Promise.resolve({ data: [] as any[] }),
-      type === "all" || type === "jobs"
-        ? jobQuery
-        : Promise.resolve({ data: [] as any[] }),
-      type === "all" || type === "transport"
-        ? transportQuery
-        : Promise.resolve({ data: [] as any[] }),
-      type === "all" || type === "quotes"
-        ? quoteQuery
-        : Promise.resolve({ data: [] as any[] }),
-    ]);
-
-    customers = customersRes ?? [];
-    jobs = jobsRes ?? [];
-    transportJobs = transportRes ?? [];
-    quotes = quotesRes ?? [];
-  }
-
-  const totalResults =
-    customers.length + jobs.length + transportJobs.length + quotes.length;
+  const totalResults = flat.length;
 
   return (
     <ClientShell>
@@ -155,7 +127,7 @@ export default async function GlobalSearchPage({
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Global Search</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Search customers, jobs, transport jobs and quotes from one place.
+                Search customers, jobs, transport jobs, quotes, bookings, equipment and audit log from one place.
               </p>
             </div>
           </div>
@@ -165,7 +137,7 @@ export default async function GlobalSearchPage({
               type="text"
               name="q"
               defaultValue={q}
-              placeholder="Search customer, job, transport ref, address, quote subject..."
+              placeholder="Search customer, job, transport ref, address, quote, booking, PO, equipment..."
               style={searchInput}
             />
 
@@ -175,6 +147,9 @@ export default async function GlobalSearchPage({
               <option value="jobs">Jobs</option>
               <option value="transport">Transport</option>
               <option value="quotes">Quotes</option>
+              <option value="bookings">Bookings</option>
+              <option value="equipment">Equipment</option>
+              <option value="audit">Audit</option>
             </select>
 
             <button type="submit" style={primaryBtn}>
@@ -193,7 +168,7 @@ export default async function GlobalSearchPage({
                 </div>
                 <div style={summaryBox}>
                   <div style={summaryLabel}>Filter</div>
-                  <div style={summaryValue}>{type}</div>
+                  <div style={summaryValue}>{sectionTitle(type)}</div>
                 </div>
                 <div style={summaryBox}>
                   <div style={summaryLabel}>Results</div>
@@ -203,121 +178,36 @@ export default async function GlobalSearchPage({
 
               {totalResults === 0 ? (
                 <div style={infoBox}>No results found.</div>
+              ) : type === "all" ? (
+                <div style={{ display: "grid", gap: 16 }}>
+                  <ResultSection title="Customers" items={grouped.customers} />
+                  <ResultSection title="Jobs" items={grouped.jobs} />
+                  <ResultSection title="Transport Jobs" items={grouped.transport} />
+                  <ResultSection title="Quotes" items={grouped.quotes} />
+                  <ResultSection title="Bookings" items={grouped.bookings} />
+                  <ResultSection title="Equipment" items={grouped.equipment} />
+                  <ResultSection title="Audit Log" items={grouped.audit} />
+                </div>
               ) : (
                 <div style={{ display: "grid", gap: 16 }}>
-                  {(type === "all" || type === "customers") && customers.length > 0 ? (
-                    <section style={sectionCard}>
-                      <h2 style={sectionTitle}>Customers</h2>
-                      <div style={resultGrid}>
-                        {customers.map((item) => (
-                          <a
-                            key={item.id}
-                            href={`/customers/${item.id}`}
-                            style={resultCardLink}
-                          >
-                            <div style={resultTitle}>
-                              {item.company_name ?? "Customer"}
-                            </div>
-                            <div style={resultMeta}>
-                              Contact: {item.contact_name ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Phone: {item.phone ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Email: {item.email ?? "—"}
-                            </div>
-                            <div style={resultSubtle}>
-                              Created: {fmtDate(item.created_at)}
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {(type === "all" || type === "jobs") && jobs.length > 0 ? (
-                    <section style={sectionCard}>
-                      <h2 style={sectionTitle}>Jobs</h2>
-                      <div style={resultGrid}>
-                        {jobs.map((item) => (
-                          <a key={item.id} href={`/jobs/${item.id}`} style={resultCardLink}>
-                            <div style={resultTitle}>
-                              Job #{item.job_number ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Customer: {item.clients?.company_name ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Site: {item.site_name ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Address: {shortText(item.site_address)}
-                            </div>
-                            <div style={resultSubtle}>
-                              {fmtDate(item.job_date)} • {item.status ?? "—"}
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {(type === "all" || type === "transport") && transportJobs.length > 0 ? (
-                    <section style={sectionCard}>
-                      <h2 style={sectionTitle}>Transport Jobs</h2>
-                      <div style={resultGrid}>
-                        {transportJobs.map((item) => (
-                          <a
-                            key={item.id}
-                            href={`/transport-jobs/${item.id}`}
-                            style={resultCardLink}
-                          >
-                            <div style={resultTitle}>
-                              {item.transport_number ?? "Transport Job"}
-                            </div>
-                            <div style={resultMeta}>
-                              Customer: {item.clients?.company_name ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Pickup: {shortText(item.collection_address)}
-                            </div>
-                            <div style={resultMeta}>
-                              Delivery: {shortText(item.delivery_address)}
-                            </div>
-                            <div style={resultSubtle}>
-                              {fmtDate(item.transport_date)} • {item.status ?? "—"}
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
-
-                  {(type === "all" || type === "quotes") && quotes.length > 0 ? (
-                    <section style={sectionCard}>
-                      <h2 style={sectionTitle}>Quotes</h2>
-                      <div style={resultGrid}>
-                        {quotes.map((item) => (
-                          <a key={item.id} href={`/quotes/${item.id}`} style={resultCardLink}>
-                            <div style={resultTitle}>{item.subject ?? "Quote"}</div>
-                            <div style={resultMeta}>
-                              Customer: {item.clients?.company_name ?? "—"}
-                            </div>
-                            <div style={resultMeta}>
-                              Amount: {fmtMoney(item.amount)}
-                            </div>
-                            <div style={resultMeta}>
-                              Valid until: {fmtDate(item.valid_until)}
-                            </div>
-                            <div style={resultSubtle}>
-                              {fmtDate(item.quote_date)} • {item.status ?? "—"}
-                            </div>
-                          </a>
-                        ))}
-                      </div>
-                    </section>
-                  ) : null}
+                  <ResultSection
+                    title={sectionTitle(type)}
+                    items={
+                      type === "customers"
+                        ? grouped.customers
+                        : type === "jobs"
+                          ? grouped.jobs
+                          : type === "transport"
+                            ? grouped.transport
+                            : type === "quotes"
+                              ? grouped.quotes
+                              : type === "bookings"
+                                ? grouped.bookings
+                                : type === "equipment"
+                                  ? grouped.equipment
+                                  : grouped.audit
+                    }
+                  />
                 </div>
               )}
             </>
@@ -423,7 +313,7 @@ const sectionCard: React.CSSProperties = {
   padding: 16,
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitleStyle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
   fontSize: 22,
@@ -445,18 +335,21 @@ const resultCardLink: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
+const typeChipStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+};
+
 const resultTitle: React.CSSProperties = {
   fontWeight: 1000,
   fontSize: 16,
 };
 
 const resultMeta: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-};
-
-const resultSubtle: React.CSSProperties = {
   marginTop: 8,
-  fontSize: 12,
-  opacity: 0.72,
+  fontSize: 13,
+  lineHeight: 1.45,
 };
