@@ -91,6 +91,18 @@ function money(value: number | null | undefined) {
   return `£${Number.isFinite(n) ? n.toFixed(2) : "0.00"}`;
 }
 
+function toCostString(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n.toFixed(2) : "0.00";
+}
+
+function parseCost(value: string) {
+  const cleaned = String(value ?? "").replace(/,/g, "").trim();
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
@@ -122,6 +134,9 @@ export default function JobEquipmentManager({
   const [message, setMessage] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [costDrafts, setCostDrafts] = useState<Record<string, string>>(
+    Object.fromEntries((initialAllocations ?? []).map((item) => [item.id, toCostString(item.agreed_cost)]))
+  );
 
   const [draft, setDraft] = useState({
     asset_type: "crane",
@@ -178,7 +193,7 @@ export default function JobEquipmentManager({
         body: JSON.stringify({
           job_id: jobId,
           ...draft,
-          agreed_cost: Number(draft.agreed_cost || 0),
+          agreed_cost: parseCost(draft.agreed_cost),
         }),
       });
 
@@ -190,6 +205,10 @@ export default function JobEquipmentManager({
       }
 
       setAllocations((prev) => [...prev, json.allocation]);
+      setCostDrafts((prev) => ({
+        ...prev,
+        [json.allocation.id]: toCostString(json.allocation.agreed_cost),
+      }));
 
       setDraft({
         asset_type: "crane",
@@ -243,12 +262,25 @@ export default function JobEquipmentManager({
         prev.map((item) => (item.id === id ? json.allocation : item))
       );
 
+      setCostDrafts((prev) => ({
+        ...prev,
+        [id]: toCostString(json.allocation.agreed_cost),
+      }));
+
       router.refresh();
     } catch {
       setMessage("Could not update allocation.");
     } finally {
       setSavingId(null);
     }
+  }
+
+  async function commitCost(id: string, item: Allocation) {
+    const raw = costDrafts[id] ?? toCostString(item.agreed_cost);
+    await updateAllocation(id, {
+      ...item,
+      agreed_cost: parseCost(raw),
+    });
   }
 
   async function deleteAllocation(id: string) {
@@ -271,6 +303,11 @@ export default function JobEquipmentManager({
       }
 
       setAllocations((prev) => prev.filter((item) => item.id !== id));
+      setCostDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       router.refresh();
     } catch {
       setMessage("Could not delete allocation.");
@@ -441,15 +478,19 @@ export default function JobEquipmentManager({
 
                   <TextField
                     label="Agreed cost"
-                    value={String(item.agreed_cost ?? 0)}
-                    type="number"
-                    step="0.01"
+                    value={costDrafts[item.id] ?? toCostString(item.agreed_cost)}
+                    type="text"
+                    inputMode="decimal"
                     onChange={(value) =>
-                      updateAllocation(item.id, {
-                        ...item,
-                        agreed_cost: Number(value || 0),
-                      })
+                      setCostDrafts((prev) => ({ ...prev, [item.id]: value }))
                     }
+                    onBlur={() => commitCost(item.id, item)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        await commitCost(item.id, item);
+                      }
+                    }}
                     disabled={savingId === item.id}
                   />
 
@@ -633,8 +674,8 @@ export default function JobEquipmentManager({
           <TextField
             label="Agreed cost"
             value={draft.agreed_cost}
-            type="number"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             onChange={(value) =>
               setDraft((prev) => ({ ...prev, agreed_cost: value }))
             }
@@ -736,15 +777,19 @@ function TextField({
   value,
   onChange,
   type = "text",
-  step,
+  inputMode,
   disabled,
+  onBlur,
+  onKeyDown,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
-  step?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   disabled?: boolean;
+  onBlur?: () => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void | Promise<void>;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -752,8 +797,10 @@ function TextField({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onBlur}
+        onKeyDown={onKeyDown}
         type={type}
-        step={step}
+        inputMode={inputMode}
         style={inputStyle}
         disabled={disabled}
       />
