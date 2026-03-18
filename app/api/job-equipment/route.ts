@@ -12,6 +12,12 @@ function num(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normaliseAssetType(value: unknown) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "crane" || v === "vehicle" || v === "equipment") return v;
+  return "equipment";
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
@@ -21,10 +27,14 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
 
     const body = await req.json().catch(() => ({}));
+    const assetType = normaliseAssetType(body.asset_type);
 
     const payload = {
       job_id: clean(body.job_id),
-      equipment_id: clean(body.equipment_id),
+      asset_type: assetType,
+      crane_id: assetType === "crane" ? clean(body.crane_id) : null,
+      vehicle_id: assetType === "vehicle" ? clean(body.vehicle_id) : null,
+      equipment_id: assetType === "equipment" ? clean(body.equipment_id) : null,
       operator_id: clean(body.operator_id),
       source_type: clean(body.source_type) ?? "owned",
       supplier_id: clean(body.supplier_id),
@@ -44,11 +54,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
     }
 
+    if (
+      (assetType === "crane" && !payload.crane_id) ||
+      (assetType === "vehicle" && !payload.vehicle_id) ||
+      (assetType === "equipment" && !payload.equipment_id)
+    ) {
+      return NextResponse.json({ error: "Please select an asset." }, { status: 400 });
+    }
+
     const { data, error } = await supabase
       .from("job_equipment")
       .insert(payload)
       .select(`
         *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
         equipment:equipment_id (
           id,
           name,
@@ -73,13 +102,6 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-
-    await supabase
-      .from("jobs")
-      .update({
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", payload.job_id);
 
     if (user) {
       await writeAuditLog({
