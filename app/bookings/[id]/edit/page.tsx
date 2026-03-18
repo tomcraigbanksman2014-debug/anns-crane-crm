@@ -184,179 +184,189 @@ export default async function EditBookingPage({
           {!booking ? <div style={errorBox}>Booking not found.</div> : null}
 
           {booking ? (
-            <form action={updateBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
-              <input type="hidden" name="id" value={booking.id} />
+            <>
+              <form action={updateBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
+                <input type="hidden" name="id" value={booking.id} />
 
-              <div style={grid2}>
-                <SelectField
-                  label="Customer *"
-                  name="client_id"
-                  defaultValue={booking.client_id ?? ""}
-                  options={[
-                    { value: "", label: "Select customer..." },
-                    ...(clients ?? []).map((c: any) => ({
-                      value: c.id,
-                      label: `${c.company_name ?? "Customer"}${c.contact_name ? ` — ${c.contact_name}` : ""}`,
-                    })),
-                  ]}
-                />
+                <div style={grid2}>
+                  <SelectField
+                    label="Customer *"
+                    name="client_id"
+                    defaultValue={booking.client_id ?? ""}
+                    options={[
+                      { value: "", label: "Select customer..." },
+                      ...(clients ?? []).map((c: any) => ({
+                        value: c.id,
+                        label: `${c.company_name ?? "Customer"}${c.contact_name ? ` — ${c.contact_name}` : ""}`,
+                      })),
+                    ]}
+                  />
 
-                <SelectField
-                  label="Crane *"
-                  name="crane_id"
-                  defaultValue={booking.crane_id ?? ""}
-                  options={[
-                    { value: "", label: "Select crane..." },
-                    ...activeCranes.map((c: any) => ({
-                      value: c.id,
-                      label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
-                    })),
-                  ]}
-                />
-              </div>
-
-              <div style={grid4}>
-                <Field
-                  label="Start date *"
-                  name="start_date"
-                  type="date"
-                  defaultValue={dateInputValue(booking.start_date ?? booking.start_at)}
-                />
-                <Field
-                  label="Start time *"
-                  name="start_time"
-                  type="time"
-                  defaultValue={timeInputValue(booking.start_at)}
-                />
-                <Field
-                  label="End date *"
-                  name="end_date"
-                  type="date"
-                  defaultValue={dateInputValue(booking.end_date ?? booking.end_at)}
-                />
-                <Field
-                  label="End time *"
-                  name="end_time"
-                  type="time"
-                  defaultValue={timeInputValue(booking.end_at)}
-                />
-              </div>
-
-              <div style={grid2}>
-                <Field
-                  label="Location"
-                  name="location"
-                  defaultValue={booking.location ?? ""}
-                />
-                <SelectField
-                  label="Status"
-                  name="status"
-                  defaultValue={booking.status ?? "Inquiry"}
-                  options={[
-                    { value: "Inquiry", label: "Inquiry" },
-                    { value: "Confirmed", label: "Confirmed" },
-                    { value: "In Progress", label: "In Progress" },
-                    { value: "Completed", label: "Completed" },
-                    { value: "Cancelled", label: "Cancelled" },
-                  ]}
-                />
-              </div>
-
-              <TextAreaField
-                label="Site address"
-                name="site_address"
-                rows={2}
-                defaultValue={booking.site_address ?? ""}
-              />
-
-              <div style={grid4}>
-                <Field
-                  label="PO number"
-                  name="po_number"
-                  defaultValue={booking.po_number ?? ""}
-                  placeholder="Customer PO"
-                />
-                <Field
-                  label="Job reference"
-                  name="job_reference"
-                  defaultValue={booking.job_reference ?? ""}
-                  placeholder="Internal / site ref"
-                />
-                <Field
-                  label="Operator name"
-                  name="operator_name"
-                  defaultValue={booking.operator_name ?? ""}
-                  placeholder="Crane operator"
-                />
-                <SelectField
-                  label="Invoice status"
-                  name="invoice_status"
-                  defaultValue={booking.invoice_status ?? "Not Invoiced"}
-                  options={[
-                    { value: "Not Invoiced", label: "Not Invoiced" },
-                    { value: "Sent", label: "Sent" },
-                    { value: "Part Paid", label: "Part Paid" },
-                    { value: "Paid", label: "Paid" },
-                    { value: "Overdue", label: "Overdue" },
-                  ]}
-                />
-              </div>
-
-              <div style={grid3}>
-                <Field
-                  label="Hire price"
-                  name="hire_price"
-                  type="number"
-                  defaultValue={String(booking.hire_price ?? 0)}
-                />
-                <Field
-                  label="VAT %"
-                  name="vat"
-                  type="number"
-                  defaultValue={String(booking.vat ?? 20)}
-                />
-                <Field
-                  label="Payment received"
-                  name="payment_received"
-                  type="number"
-                  defaultValue={String(booking.payment_received ?? 0)}
-                />
-              </div>
-
-              <TextAreaField
-                label="Booking notes"
-                name="notes"
-                rows={4}
-                defaultValue={booking.notes ?? booking.driver_notes ?? ""}
-                placeholder="Lift notes / site notes / driver notes"
-              />
-
-              <div style={footerBar}>
-                <div style={{ fontSize: 13, opacity: 0.78 }}>
-                  Crane booking edit is active.
+                  <SelectField
+                    label="Crane *"
+                    name="crane_id"
+                    defaultValue={booking.crane_id ?? ""}
+                    options={[
+                      { value: "", label: "Select crane..." },
+                      ...activeCranes.map((c: any) => ({
+                        value: c.id,
+                        label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
+                      })),
+                    ]}
+                  />
                 </div>
-                <div style={{ fontWeight: 900 }}>
-                  VAT: {Number(booking.vat ?? 20).toFixed(2)} | Total: {Number(totalPreview).toFixed(2)}
+
+                <div style={grid4}>
+                  <Field
+                    label="Start date *"
+                    name="start_date"
+                    type="date"
+                    defaultValue={dateInputValue(booking.start_date ?? booking.start_at)}
+                  />
+                  <Field
+                    label="Start time *"
+                    name="start_time"
+                    type="time"
+                    defaultValue={timeInputValue(booking.start_at)}
+                  />
+                  <Field
+                    label="End date *"
+                    name="end_date"
+                    type="date"
+                    defaultValue={dateInputValue(booking.end_date ?? booking.end_at)}
+                  />
+                  <Field
+                    label="End time *"
+                    name="end_time"
+                    type="time"
+                    defaultValue={timeInputValue(booking.end_at)}
+                  />
                 </div>
-              </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="submit" style={primaryBtn}>
-                  Save booking
-                </button>
+                <div style={grid2}>
+                  <Field
+                    label="Location"
+                    name="location"
+                    defaultValue={booking.location ?? ""}
+                  />
+                  <SelectField
+                    label="Status"
+                    name="status"
+                    defaultValue={booking.status ?? "Inquiry"}
+                    options={[
+                      { value: "Inquiry", label: "Inquiry" },
+                      { value: "Confirmed", label: "Confirmed" },
+                      { value: "In Progress", label: "In Progress" },
+                      { value: "Completed", label: "Completed" },
+                      { value: "Cancelled", label: "Cancelled" },
+                    ]}
+                  />
+                </div>
 
-                <a href={`/bookings/${params.id}`} style={secondaryBtn}>
-                  Cancel
-                </a>
+                <TextAreaField
+                  label="Site address"
+                  name="site_address"
+                  rows={2}
+                  defaultValue={booking.site_address ?? ""}
+                />
 
-                <form action={deleteBooking}>
-                  <input type="hidden" name="id" value={booking.id} />
-                  <button type="submit" style={dangerBtn}>
-                    Delete
+                <div style={grid4}>
+                  <Field
+                    label="PO number"
+                    name="po_number"
+                    defaultValue={booking.po_number ?? ""}
+                    placeholder="Customer PO"
+                  />
+                  <Field
+                    label="Job reference"
+                    name="job_reference"
+                    defaultValue={booking.job_reference ?? ""}
+                    placeholder="Internal / site ref"
+                  />
+                  <Field
+                    label="Operator name"
+                    name="operator_name"
+                    defaultValue={booking.operator_name ?? ""}
+                    placeholder="Crane operator"
+                  />
+                  <SelectField
+                    label="Invoice status"
+                    name="invoice_status"
+                    defaultValue={booking.invoice_status ?? "Not Invoiced"}
+                    options={[
+                      { value: "Not Invoiced", label: "Not Invoiced" },
+                      { value: "Sent", label: "Sent" },
+                      { value: "Part Paid", label: "Part Paid" },
+                      { value: "Paid", label: "Paid" },
+                      { value: "Overdue", label: "Overdue" },
+                    ]}
+                  />
+                </div>
+
+                <div style={grid3}>
+                  <Field
+                    label="Hire price"
+                    name="hire_price"
+                    type="number"
+                    defaultValue={String(booking.hire_price ?? 0)}
+                  />
+                  <Field
+                    label="VAT %"
+                    name="vat"
+                    type="number"
+                    defaultValue={String(booking.vat ?? 20)}
+                  />
+                  <Field
+                    label="Payment received"
+                    name="payment_received"
+                    type="number"
+                    defaultValue={String(booking.payment_received ?? 0)}
+                  />
+                </div>
+
+                <TextAreaField
+                  label="Booking notes"
+                  name="notes"
+                  rows={4}
+                  defaultValue={booking.notes ?? booking.driver_notes ?? ""}
+                  placeholder="Lift notes / site notes / driver notes"
+                />
+
+                <div style={footerBar}>
+                  <div style={{ fontSize: 13, opacity: 0.78 }}>
+                    Crane booking edit is active.
+                  </div>
+                  <div style={{ fontWeight: 900 }}>
+                    VAT: {Number(booking.vat ?? 20).toFixed(2)} | Total: {Number(totalPreview).toFixed(2)}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button type="submit" style={primaryBtn}>
+                    Save booking
                   </button>
-                </form>
-              </div>
-            </form>
+
+                  <a href={`/bookings/${params.id}`} style={secondaryBtn}>
+                    Cancel
+                  </a>
+                </div>
+              </form>
+
+              <form action={deleteBooking} style={{ marginTop: 12 }}>
+                <input type="hidden" name="id" value={booking.id} />
+                <button
+                  type="submit"
+                  style={dangerBtn}
+                  onClick={(e) => {
+                    if (!window.confirm("Delete this booking? This cannot be undone.")) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
+                  Delete
+                </button>
+              </form>
+            </>
           ) : null}
         </div>
       </div>
