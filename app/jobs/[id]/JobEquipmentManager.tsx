@@ -434,7 +434,14 @@ export default function JobEquipmentManager({
                       updateAllocation(item.id, {
                         ...item,
                         asset_type: value,
-                        ...normaliseAssetPatch(value || "equipment", ""),
+                        ...(value === "other"
+                          ? {
+                              crane_id: null,
+                              vehicle_id: null,
+                              equipment_id: null,
+                              item_name: item.item_name || "Hired Item",
+                            }
+                          : normaliseAssetPatch(value || "equipment", "")),
                         supplier_id: null,
                       })
                     }
@@ -684,7 +691,14 @@ export default function JobEquipmentManager({
               setDraft((prev) => ({
                 ...prev,
                 asset_type: value || "crane",
-                ...normaliseAssetPatch(value || "crane", ""),
+                ...(value === "other"
+                  ? {
+                      crane_id: "",
+                      vehicle_id: "",
+                      equipment_id: "",
+                      item_name: prev.item_name || "Hired Item",
+                    }
+                  : normaliseAssetPatch(value || "crane", "")),
                 supplier_id: "",
               }))
             }
