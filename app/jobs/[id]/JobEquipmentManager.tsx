@@ -106,22 +106,31 @@ function parseCost(value: string) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function getSupplierCategory(assetType: string) {
-  if (assetType === "crane") return "CRANES";
-  if (assetType === "vehicle") return "VEHICLES";
-  if (assetType === "equipment") return "RIGGING GEAR";
-  return null;
+function normaliseCategory(value: string | null | undefined) {
+  return String(value ?? "").trim().toUpperCase();
 }
 
-function filterSuppliersByAssetType(assetType: string, supplierOptions: Option[]) {
-  const requiredCategory = getSupplierCategory(assetType);
-  if (!requiredCategory) return supplierOptions;
+function getAllowedSupplierCategories(assetType: string) {
+  const type = String(assetType ?? "").trim().toLowerCase();
 
-  const filtered = supplierOptions.filter(
-    (supplier) => String(supplier.category ?? "").toUpperCase() === requiredCategory
+  if (type === "crane") {
+    return ["CRANES", "CRANE REPAIR", "CRANE REPAIRS"];
+  }
+
+  if (type === "vehicle") {
+    return ["TRANSPORT", "VEHICLES", "ESCORT", "ESCORTS", "TYRES", "VEHICLE REPAIRS"];
+  }
+
+  return ["RIGGING GEAR", "LOLER", "PLANT"];
+}
+
+function filterSuppliersByAssetType(assetType: string, options: Option[]) {
+  const allowed = getAllowedSupplierCategories(assetType);
+  const filtered = options.filter((option) =>
+    allowed.includes(normaliseCategory(option.category))
   );
 
-  return filtered.length > 0 ? filtered : supplierOptions;
+  return filtered.length > 0 ? filtered : options;
 }
 
 export default function JobEquipmentManager({
@@ -156,7 +165,12 @@ export default function JobEquipmentManager({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [costDrafts, setCostDrafts] = useState<Record<string, string>>(
-    Object.fromEntries((initialAllocations ?? []).map((item) => [item.id, toCostString(item.agreed_cost ?? item.supplier_cost)]))
+    Object.fromEntries(
+      (initialAllocations ?? []).map((item) => [
+        item.id,
+        toCostString(item.supplier_cost ?? item.agreed_cost),
+      ])
+    )
   );
 
   const [draft, setDraft] = useState({
@@ -186,7 +200,9 @@ export default function JobEquipmentManager({
     );
     const cranes = allocations.filter((a) => a.asset_type === "crane").length;
     const vehicles = allocations.filter((a) => a.asset_type === "vehicle").length;
-    const equipment = allocations.filter((a) => (a.asset_type ?? "equipment") === "equipment").length;
+    const equipment = allocations.filter(
+      (a) => String(a.asset_type ?? "equipment") === "equipment"
+    ).length;
     return { total, cranes, vehicles, equipment };
   }, [allocations]);
 
@@ -210,6 +226,8 @@ export default function JobEquipmentManager({
     setMessage("");
 
     try {
+      const supplierCost = parseCost(draft.supplier_cost || draft.agreed_cost);
+
       const res = await fetch("/api/job-equipment", {
         method: "POST",
         headers: {
@@ -218,8 +236,8 @@ export default function JobEquipmentManager({
         body: JSON.stringify({
           job_id: jobId,
           ...draft,
-          agreed_cost: parseCost(draft.agreed_cost),
-          supplier_cost: parseCost(draft.supplier_cost || draft.agreed_cost),
+          agreed_cost: supplierCost,
+          supplier_cost: supplierCost,
         }),
       });
 
@@ -233,7 +251,9 @@ export default function JobEquipmentManager({
       setAllocations((prev) => [...prev, json.allocation]);
       setCostDrafts((prev) => ({
         ...prev,
-        [json.allocation.id]: toCostString(json.allocation.supplier_cost ?? json.allocation.agreed_cost),
+        [json.allocation.id]: toCostString(
+          json.allocation.supplier_cost ?? json.allocation.agreed_cost
+        ),
       }));
 
       setDraft({
@@ -305,10 +325,11 @@ export default function JobEquipmentManager({
   async function commitCost(id: string, item: Allocation) {
     const raw = costDrafts[id] ?? toCostString(item.supplier_cost ?? item.agreed_cost);
     const parsed = parseCost(raw);
+
     await updateAllocation(id, {
       ...item,
-      supplier_cost: parsed,
       agreed_cost: parsed,
+      supplier_cost: parsed,
     });
   }
 
@@ -337,6 +358,7 @@ export default function JobEquipmentManager({
         delete next[id];
         return next;
       });
+
       router.refresh();
     } catch {
       setMessage("Could not delete allocation.");
@@ -374,7 +396,10 @@ export default function JobEquipmentManager({
           allocations.map((item) => {
             const assetType = String(item.asset_type ?? "equipment");
             const assetOptions = getOptionsForAssetType(assetType);
-            const filteredSupplierOptions = filterSuppliersByAssetType(assetType, supplierOptions);
+            const filteredSupplierOptions = filterSuppliersByAssetType(
+              assetType,
+              supplierOptions
+            );
 
             return (
               <div key={item.id} style={allocationCard}>
@@ -506,7 +531,10 @@ export default function JobEquipmentManager({
 
                   <TextField
                     label="Supplier cost"
-                    value={costDrafts[item.id] ?? toCostString(item.supplier_cost ?? item.agreed_cost)}
+                    value={
+                      costDrafts[item.id] ??
+                      toCostString(item.supplier_cost ?? item.agreed_cost)
+                    }
                     type="text"
                     inputMode="decimal"
                     onChange={(value) =>
@@ -585,7 +613,8 @@ export default function JobEquipmentManager({
                   <div style={{ fontSize: 13, opacity: 0.72 }}>
                     {assetTypeLabel(item.asset_type)} • {selectedAssetName(item)} •{" "}
                     {item.operators?.full_name ?? "No operator"} •{" "}
-                    {item.suppliers?.company_name ?? "No supplier"} • Cost {money(item.supplier_cost ?? item.agreed_cost)}
+                    {item.suppliers?.company_name ?? "No supplier"} • Cost{" "}
+                    {money(item.supplier_cost ?? item.agreed_cost)}
                   </div>
 
                   <button
