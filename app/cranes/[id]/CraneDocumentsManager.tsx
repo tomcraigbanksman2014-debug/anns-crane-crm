@@ -11,6 +11,13 @@ type CraneDocument = {
   uploaded_at: string;
 };
 
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
+}
+
 export default function CraneDocumentsManager({
   craneId,
   initialDocuments,
@@ -166,7 +173,7 @@ export default function CraneDocumentsManager({
               <div>
                 <div style={{ fontWeight: 900 }}>{doc.title}</div>
                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                  {doc.document_type}
+                  {doc.document_type} • {fmtDate(doc.uploaded_at)}
                 </div>
               </div>
 
