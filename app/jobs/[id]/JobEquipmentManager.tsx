@@ -433,6 +433,7 @@ export default function JobEquipmentManager({
                     onChange={(value) =>
                       updateAllocation(item.id, {
                         ...item,
+                        asset_type: value,
                         ...normaliseAssetPatch(value || "equipment", ""),
                         supplier_id: null,
                       })
@@ -682,9 +683,9 @@ export default function JobEquipmentManager({
             onChange={(value) =>
               setDraft((prev) => ({
                 ...prev,
+                asset_type: value || "crane",
                 ...normaliseAssetPatch(value || "crane", ""),
                 supplier_id: "",
-                asset_type: value || "crane",
               }))
             }
           />
@@ -1043,4 +1044,3 @@ const messageBox: React.CSSProperties = {
   color: "#0b57d0",
   fontWeight: 800,
 };
-```
