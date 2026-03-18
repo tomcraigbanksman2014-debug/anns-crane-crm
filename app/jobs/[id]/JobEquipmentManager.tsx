@@ -64,6 +64,7 @@ function assetTypeLabel(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
   if (v === "crane") return "Crane";
   if (v === "vehicle") return "Vehicle";
+  if (v === "other") return "Other";
   return "Lifting Equipment";
 }
 
@@ -76,6 +77,7 @@ function selectedAssetValue(item: {
   const type = String(item.asset_type ?? "equipment").toLowerCase();
   if (type === "crane") return item.crane_id ?? "";
   if (type === "vehicle") return item.vehicle_id ?? "";
+  if (type === "other") return "";
   return item.equipment_id ?? "";
 }
 
@@ -85,6 +87,9 @@ function selectedAssetName(item: Allocation) {
   }
   if (item.asset_type === "vehicle") {
     return item.vehicles?.name ?? item.item_name ?? "Vehicle";
+  }
+  if (item.asset_type === "other") {
+    return item.item_name ?? "Other";
   }
   return item.equipment?.name ?? item.item_name ?? "Equipment";
 }
@@ -121,13 +126,16 @@ function getAllowedSupplierCategories(assetType: string) {
     return ["TRANSPORT", "VEHICLES", "ESCORT", "ESCORTS", "TYRES", "VEHICLE REPAIRS"];
   }
 
-  return ["RIGGING GEAR", "LOLER", "PLANT"];
+  if (type === "equipment") {
+    return ["RIGGING GEAR", "LOLER", "PLANT"];
+  }
+
+  return [];
 }
 
 function filterSuppliersByAssetType(assetType: string, options: Option[]) {
   const type = String(assetType ?? "").toLowerCase();
 
-  // ✅ CRITICAL FIX — show ALL suppliers when "other"
   if (type === "other") {
     return options;
   }
@@ -138,7 +146,6 @@ function filterSuppliersByAssetType(assetType: string, options: Option[]) {
     allowed.includes(normaliseCategory(option.category))
   );
 
-  // fallback to all if nothing matched
   return filtered.length > 0 ? filtered : options;
 }
 
@@ -209,15 +216,15 @@ export default function JobEquipmentManager({
     );
     const cranes = allocations.filter((a) => a.asset_type === "crane").length;
     const vehicles = allocations.filter((a) => a.asset_type === "vehicle").length;
-    const equipment = allocations.filter(
-      (a) => String(a.asset_type ?? "equipment") === "equipment"
-    ).length;
-    return { total, cranes, vehicles, equipment };
+    const equipment = allocations.filter((a) => a.asset_type === "equipment").length;
+    const other = allocations.filter((a) => a.asset_type === "other").length;
+    return { total, cranes, vehicles, equipment, other };
   }, [allocations]);
 
   function getOptionsForAssetType(assetType: string) {
     if (assetType === "crane") return craneOptions;
     if (assetType === "vehicle") return vehicleOptions;
+    if (assetType === "other") return [];
     return equipmentOptions;
   }
 
@@ -384,7 +391,7 @@ export default function JobEquipmentManager({
             Equipment Allocations
           </h2>
           <div style={{ opacity: 0.72 }}>
-            Add multiple cranes, vehicles or lifting equipment to one job.
+            Add multiple cranes, vehicles, lifting equipment or other hired items to one job.
           </div>
         </div>
 
@@ -392,6 +399,7 @@ export default function JobEquipmentManager({
           <div style={totalsText}>Cranes: {totals.cranes}</div>
           <div style={totalsText}>Vehicles: {totals.vehicles}</div>
           <div style={totalsText}>Equipment: {totals.equipment}</div>
+          <div style={totalsText}>Other: {totals.other}</div>
           <div style={totalsStrong}>Allocated cost: {money(totals.total)}</div>
         </div>
       </div>
@@ -420,6 +428,7 @@ export default function JobEquipmentManager({
                       { value: "crane", label: "Crane" },
                       { value: "vehicle", label: "Vehicle" },
                       { value: "equipment", label: "Lifting Equipment" },
+                      { value: "other", label: "Other" },
                     ]}
                     onChange={(value) =>
                       updateAllocation(item.id, {
@@ -431,18 +440,32 @@ export default function JobEquipmentManager({
                     disabled={savingId === item.id}
                   />
 
-                  <SelectField
-                    label={assetTypeLabel(item.asset_type)}
-                    value={selectedAssetValue(item)}
-                    options={assetOptions}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        ...item,
-                        ...normaliseAssetPatch(assetType, value),
-                      })
-                    }
-                    disabled={savingId === item.id}
-                  />
+                  {assetType !== "other" ? (
+                    <SelectField
+                      label={assetTypeLabel(item.asset_type)}
+                      value={selectedAssetValue(item)}
+                      options={assetOptions}
+                      onChange={(value) =>
+                        updateAllocation(item.id, {
+                          ...item,
+                          ...normaliseAssetPatch(assetType, value),
+                        })
+                      }
+                      disabled={savingId === item.id}
+                    />
+                  ) : (
+                    <TextField
+                      label="Other item"
+                      value={item.item_name ?? ""}
+                      onChange={(value) =>
+                        updateAllocation(item.id, {
+                          ...item,
+                          item_name: value || null,
+                        })
+                      }
+                      disabled={savingId === item.id}
+                    />
+                  )}
 
                   <SelectField
                     label="Operator"
@@ -474,17 +497,19 @@ export default function JobEquipmentManager({
                     disabled={savingId === item.id}
                   />
 
-                  <TextField
-                    label="Item name"
-                    value={item.item_name ?? ""}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        ...item,
-                        item_name: value || null,
-                      })
-                    }
-                    disabled={savingId === item.id}
-                  />
+                  {assetType !== "other" ? (
+                    <TextField
+                      label="Item name"
+                      value={item.item_name ?? ""}
+                      onChange={(value) =>
+                        updateAllocation(item.id, {
+                          ...item,
+                          item_name: value || null,
+                        })
+                      }
+                      disabled={savingId === item.id}
+                    />
+                  ) : null}
 
                   <TextField
                     label="Start date"
@@ -652,27 +677,39 @@ export default function JobEquipmentManager({
               { value: "crane", label: "Crane" },
               { value: "vehicle", label: "Vehicle" },
               { value: "equipment", label: "Lifting Equipment" },
+              { value: "other", label: "Other" },
             ]}
             onChange={(value) =>
               setDraft((prev) => ({
                 ...prev,
                 ...normaliseAssetPatch(value || "crane", ""),
                 supplier_id: "",
+                asset_type: value || "crane",
               }))
             }
           />
 
-          <SelectField
-            label={assetTypeLabel(draft.asset_type)}
-            value={selectedAssetValue(draft)}
-            options={getOptionsForAssetType(draft.asset_type)}
-            onChange={(value) =>
-              setDraft((prev) => ({
-                ...prev,
-                ...normaliseAssetPatch(prev.asset_type, value),
-              }))
-            }
-          />
+          {draft.asset_type !== "other" ? (
+            <SelectField
+              label={assetTypeLabel(draft.asset_type)}
+              value={selectedAssetValue(draft)}
+              options={getOptionsForAssetType(draft.asset_type)}
+              onChange={(value) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  ...normaliseAssetPatch(prev.asset_type, value),
+                }))
+              }
+            />
+          ) : (
+            <TextField
+              label="Other item"
+              value={draft.item_name}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, item_name: value }))
+              }
+            />
+          )}
 
           <SelectField
             label="Operator"
@@ -699,13 +736,15 @@ export default function JobEquipmentManager({
             }
           />
 
-          <TextField
-            label="Item name"
-            value={draft.item_name}
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, item_name: value }))
-            }
-          />
+          {draft.asset_type !== "other" ? (
+            <TextField
+              label="Item name"
+              value={draft.item_name}
+              onChange={(value) =>
+                setDraft((prev) => ({ ...prev, item_name: value }))
+              }
+            />
+          ) : null}
 
           <TextField
             label="Start date"
