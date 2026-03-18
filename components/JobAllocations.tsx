@@ -1,113 +1,73 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { createClient } from "../lib/supabase/client";
+import JobEquipmentManager from "../app/jobs/[id]/JobEquipmentManager";
 
-export default function JobAllocations({ jobId }: { jobId: string }) {
-  const supabase = createClient();
+type Option = {
+  value: string;
+  label: string;
+};
 
-  const [assetType, setAssetType] = useState("crane");
-  const [cranes, setCranes] = useState<any[]>([]);
-  const [vehicles, setVehicles] = useState<any[]>([]);
-  const [equipment, setEquipment] = useState<any[]>([]);
-  const [operators, setOperators] = useState<any[]>([]);
+type Allocation = {
+  id: string;
+  asset_type?: string | null;
+  crane_id?: string | null;
+  vehicle_id?: string | null;
+  equipment_id?: string | null;
+  operator_id?: string | null;
+  source_type?: string | null;
+  supplier_id?: string | null;
+  purchase_order_id?: string | null;
+  item_name?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  agreed_cost?: number | null;
+  supplier_reference?: string | null;
+  notes?: string | null;
+  cranes?: {
+    id?: string;
+    name?: string | null;
+    reg_number?: string | null;
+    capacity?: string | null;
+  } | null;
+  vehicles?: {
+    id?: string;
+    name?: string | null;
+    reg_number?: string | null;
+  } | null;
+  equipment?: {
+    id?: string;
+    name?: string | null;
+    asset_number?: string | null;
+  } | null;
+  operators?: {
+    id?: string;
+    full_name?: string | null;
+  } | null;
+  suppliers?: {
+    id?: string;
+    company_name?: string | null;
+  } | null;
+  purchase_orders?: {
+    id?: string;
+    po_number?: string | null;
+    status?: string | null;
+  } | null;
+};
 
-  const [selectedId, setSelectedId] = useState("");
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  async function load() {
-    const [
-      { data: cranes },
-      { data: vehicles },
-      { data: equipment },
-      { data: operators },
-    ] = await Promise.all([
-      supabase.from("cranes").select("*").eq("status", "available"),
-      supabase.from("vehicles").select("*"),
-      supabase.from("equipment").select("*"),
-      supabase.from("operators").select("*"),
-    ]);
-
-    setCranes(cranes || []);
-    setVehicles(vehicles || []);
-    setEquipment(equipment || []);
-    setOperators(operators || []);
-  }
-
-  async function addAllocation(e: any) {
-    e.preventDefault();
-
-    const payload: any = {
-      job_id: jobId,
-      asset_type: assetType,
-    };
-
-    if (assetType === "crane") payload.crane_id = selectedId;
-    if (assetType === "vehicle") payload.vehicle_id = selectedId;
-    if (assetType === "equipment") payload.equipment_id = selectedId;
-
-    const { error } = await supabase.from("job_allocations").insert(payload);
-
-    if (error) {
-      alert(error.message);
-    } else {
-      alert("Added");
-      setSelectedId("");
-    }
-  }
-
-  function getOptions() {
-    if (assetType === "crane") return cranes;
-    if (assetType === "vehicle") return vehicles;
-    return equipment;
-  }
-
-  return (
-    <div style={card}>
-      <h3>Equipment Allocations</h3>
-
-      <form onSubmit={addAllocation} style={{ display: "grid", gap: 10 }}>
-        <select
-          value={assetType}
-          onChange={(e) => setAssetType(e.target.value)}
-        >
-          <option value="crane">Crane</option>
-          <option value="vehicle">Vehicle</option>
-          <option value="equipment">Lifting Equipment</option>
-        </select>
-
-        <select
-          value={selectedId}
-          onChange={(e) => setSelectedId(e.target.value)}
-        >
-          <option value="">Select</option>
-          {getOptions().map((x) => (
-            <option key={x.id} value={x.id}>
-              {x.name || x.asset_number || x.reg_number}
-            </option>
-          ))}
-        </select>
-
-        <button type="submit" style={btn}>
-          Add allocation
-        </button>
-      </form>
-    </div>
-  );
+export default function JobAllocations(props: {
+  jobId: string;
+  initialAllocations: Allocation[];
+  craneOptions: Option[];
+  vehicleOptions: Option[];
+  equipmentOptions: Option[];
+  operatorOptions: Option[];
+  supplierOptions: Option[];
+  purchaseOrderOptions: Option[];
+  defaultDate?: string | null;
+  defaultStartTime?: string | null;
+  defaultEndTime?: string | null;
+}) {
+  return <JobEquipmentManager {...props} />;
 }
-
-const card = {
-  background: "#fff",
-  padding: 16,
-  borderRadius: 10,
-};
-
-const btn = {
-  background: "#111",
-  color: "#fff",
-  padding: 10,
-  borderRadius: 8,
-};
