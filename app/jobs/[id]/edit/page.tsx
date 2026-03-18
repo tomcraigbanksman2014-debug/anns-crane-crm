@@ -4,28 +4,32 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import JobEquipmentManager from "../JobEquipmentManager";
 
+function clean(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
+}
+
 async function updateJob(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
 
-  const id = String(formData.get("id") ?? "").trim();
+  const id = clean(formData.get("id"));
   if (!id) return;
 
-  const client_id = String(formData.get("client_id") ?? "").trim() || null;
-  const job_date = String(formData.get("job_date") ?? "").trim() || null;
-  const start_time = String(formData.get("start_time") ?? "").trim() || null;
-  const end_time = String(formData.get("end_time") ?? "").trim() || null;
-  const site_name = String(formData.get("site_name") ?? "").trim() || null;
-  const site_address = String(formData.get("site_address") ?? "").trim() || null;
-  const contact_name = String(formData.get("contact_name") ?? "").trim() || null;
-  const contact_phone = String(formData.get("contact_phone") ?? "").trim() || null;
-  const hire_type = String(formData.get("hire_type") ?? "").trim() || null;
-  const lift_type = String(formData.get("lift_type") ?? "").trim() || null;
-  const status = String(formData.get("status") ?? "").trim() || "draft";
-  const notes = String(formData.get("notes") ?? "").trim() || null;
-  const equipment_id = String(formData.get("equipment_id") ?? "").trim() || null;
-  const operator_id = String(formData.get("operator_id") ?? "").trim() || null;
+  const client_id = clean(formData.get("client_id")) || null;
+  const job_date = clean(formData.get("job_date")) || null;
+  const start_time = clean(formData.get("start_time")) || null;
+  const end_time = clean(formData.get("end_time")) || null;
+  const site_name = clean(formData.get("site_name")) || null;
+  const site_address = clean(formData.get("site_address")) || null;
+  const contact_name = clean(formData.get("contact_name")) || null;
+  const contact_phone = clean(formData.get("contact_phone")) || null;
+  const hire_type = clean(formData.get("hire_type")) || null;
+  const lift_type = clean(formData.get("lift_type")) || null;
+  const status = clean(formData.get("status")) || "draft";
+  const notes = clean(formData.get("notes")) || null;
+  const equipment_id = clean(formData.get("equipment_id")) || null;
+  const operator_id = clean(formData.get("operator_id")) || null;
 
   const { error } = await supabase
     .from("jobs")
@@ -75,15 +79,42 @@ export default async function EditJobPage({
     { data: allocations },
     { data: suppliers },
     { data: purchaseOrders },
+    { data: cranes },
+    { data: vehicles },
   ] = await Promise.all([
     supabase.from("jobs").select("*").eq("id", params.id).single(),
-    supabase.from("clients").select("id, company_name").order("company_name", { ascending: true }),
-    supabase.from("equipment").select("id, name, asset_number").order("name", { ascending: true }),
-    supabase.from("operators").select("id, full_name").eq("status", "active").order("full_name", { ascending: true }),
+
+    supabase
+      .from("clients")
+      .select("id, company_name")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number")
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("operators")
+      .select("id, full_name")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
+
     supabase
       .from("job_equipment")
       .select(`
         *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
         equipment:equipment_id (
           id,
           name,
@@ -105,8 +136,30 @@ export default async function EditJobPage({
       `)
       .eq("job_id", params.id)
       .order("created_at", { ascending: true }),
-    supabase.from("suppliers").select("id, company_name").eq("status", "active").order("company_name", { ascending: true }),
-    supabase.from("purchase_orders").select("id, po_number").order("created_at", { ascending: false }).limit(300),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name")
+      .eq("status", "active")
+      .order("company_name", { ascending: true }),
+
+    supabase
+      .from("purchase_orders")
+      .select("id, po_number, status")
+      .order("created_at", { ascending: false })
+      .limit(300),
+
+    supabase
+      .from("cranes")
+      .select("id, name, reg_number, capacity, status, archived")
+      .eq("archived", false)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("vehicles")
+      .select("id, name, reg_number, archived")
+      .eq("archived", false)
+      .order("name", { ascending: true }),
   ]);
 
   return (
@@ -194,14 +247,47 @@ export default async function EditJobPage({
                     ]}
                   />
 
-                  <Field label="Job date" name="job_date" type="date" defaultValue={job.job_date ?? ""} />
-                  <Field label="Start time" name="start_time" defaultValue={job.start_time ?? ""} />
-                  <Field label="End time" name="end_time" defaultValue={job.end_time ?? ""} />
-                  <Field label="Site name" name="site_name" defaultValue={job.site_name ?? ""} />
-                  <Field label="Site contact" name="contact_name" defaultValue={job.contact_name ?? ""} />
-                  <Field label="Site phone" name="contact_phone" defaultValue={job.contact_phone ?? ""} />
-                  <Field label="Hire type" name="hire_type" defaultValue={job.hire_type ?? ""} />
-                  <Field label="Lift type" name="lift_type" defaultValue={job.lift_type ?? ""} />
+                  <Field
+                    label="Job date"
+                    name="job_date"
+                    type="date"
+                    defaultValue={job.job_date ?? ""}
+                  />
+                  <Field
+                    label="Start time"
+                    name="start_time"
+                    defaultValue={job.start_time ?? ""}
+                  />
+                  <Field
+                    label="End time"
+                    name="end_time"
+                    defaultValue={job.end_time ?? ""}
+                  />
+                  <Field
+                    label="Site name"
+                    name="site_name"
+                    defaultValue={job.site_name ?? ""}
+                  />
+                  <Field
+                    label="Site contact"
+                    name="contact_name"
+                    defaultValue={job.contact_name ?? ""}
+                  />
+                  <Field
+                    label="Site phone"
+                    name="contact_phone"
+                    defaultValue={job.contact_phone ?? ""}
+                  />
+                  <Field
+                    label="Hire type"
+                    name="hire_type"
+                    defaultValue={job.hire_type ?? ""}
+                  />
+                  <Field
+                    label="Lift type"
+                    name="lift_type"
+                    defaultValue={job.lift_type ?? ""}
+                  />
                 </div>
 
                 <div style={{ marginTop: 12 }}>
@@ -234,6 +320,14 @@ export default async function EditJobPage({
               <JobEquipmentManager
                 jobId={job.id}
                 initialAllocations={allocations ?? []}
+                craneOptions={(cranes ?? []).map((c: any) => ({
+                  value: c.id,
+                  label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
+                }))}
+                vehicleOptions={(vehicles ?? []).map((v: any) => ({
+                  value: v.id,
+                  label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+                }))}
                 equipmentOptions={(equipment ?? []).map((e: any) => ({
                   value: e.id,
                   label: `${e.name ?? "Equipment"}${e.asset_number ? ` (${e.asset_number})` : ""}`,
@@ -248,7 +342,7 @@ export default async function EditJobPage({
                 }))}
                 purchaseOrderOptions={(purchaseOrders ?? []).map((po: any) => ({
                   value: po.id,
-                  label: po.po_number ?? "PO",
+                  label: `${po.po_number ?? "PO"}${po.status ? ` • ${po.status}` : ""}`,
                 }))}
                 defaultDate={job.job_date}
                 defaultStartTime={job.start_time}
@@ -298,7 +392,7 @@ function SelectField({
       <select name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={`${name}-${option.value}`} value={option.value}>
             {option.label}
           </option>
         ))}
@@ -309,22 +403,41 @@ function SelectField({
 
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
+  padding: 20,
+  borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const btnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+  textDecoration: "none",
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
+};
+
 const gridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
   gap: 12,
 };
 
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
-  opacity: 0.75,
   fontWeight: 800,
+  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -333,7 +446,7 @@ const inputStyle: React.CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
 };
 
@@ -342,36 +455,18 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
-const btnStyle: React.CSSProperties = {
+const saveBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
   background: "#111",
   color: "#fff",
-  borderRadius: 10,
+  fontWeight: 900,
   border: "none",
   cursor: "pointer",
-  fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
