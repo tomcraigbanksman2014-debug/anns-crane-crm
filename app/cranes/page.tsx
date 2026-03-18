@@ -35,6 +35,49 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   };
 }
 
+function dueStyle(dateValue: string | null | undefined): React.CSSProperties {
+  if (!dateValue) {
+    return {
+      background: "rgba(255,255,255,0.42)",
+      color: "#555",
+      border: "1px solid rgba(0,0,0,0.08)",
+    };
+  }
+
+  const now = new Date();
+  const due = new Date(dateValue);
+  const diffDays = Math.ceil((due.getTime() - now.getTime()) / 86400000);
+
+  if (diffDays < 0) {
+    return {
+      background: "rgba(255,0,0,0.10)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.20)",
+    };
+  }
+
+  if (diffDays <= 30) {
+    return {
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  return {
+    background: "rgba(0,180,120,0.12)",
+    color: "#0b7a4b",
+    border: "1px solid rgba(0,180,120,0.20)",
+  };
+}
+
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
+}
+
 export default async function CranesPage() {
   const supabase = createSupabaseServerClient();
 
@@ -46,13 +89,13 @@ export default async function CranesPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1240px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1360px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Cranes</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Main hire fleet only. Lifting gear stays in the equipment register.
+                Main hire fleet only. Add service, inspection, LOLER and documents per crane.
               </p>
             </div>
 
@@ -78,6 +121,10 @@ export default async function CranesPage() {
                     <th align="left" style={thStyle}>Make / Model</th>
                     <th align="left" style={thStyle}>Capacity</th>
                     <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Service Due</th>
+                    <th align="left" style={thStyle}>Inspection Due</th>
+                    <th align="left" style={thStyle}>LOLER Due</th>
+                    <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -103,6 +150,58 @@ export default async function CranesPage() {
                         >
                           {crane.status ?? "—"}
                         </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...dueStyle(crane.service_due_on),
+                          }}
+                        >
+                          {fmtDate(crane.service_due_on)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...dueStyle(crane.inspection_due_on),
+                          }}
+                        >
+                          {fmtDate(crane.inspection_due_on)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...dueStyle(crane.loler_due_on),
+                          }}
+                        >
+                          {fmtDate(crane.loler_due_on)}
+                        </span>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <a href={`/cranes/${crane.id}`} style={secondaryBtn}>
+                            Open
+                          </a>
+                          <a href={`/cranes/${crane.id}/edit`} style={secondaryBtn}>
+                            Edit
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -140,6 +239,17 @@ const primaryBtn: React.CSSProperties = {
   background: "#111",
   color: "#fff",
   fontWeight: 900,
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const thStyle: React.CSSProperties = {
