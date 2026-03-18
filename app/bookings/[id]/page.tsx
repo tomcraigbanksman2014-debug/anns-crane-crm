@@ -27,7 +27,9 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-function bookingKind(status: string | null | undefined): "good" | "warn" | "bad" | "neutral" | "info" {
+function bookingKind(
+  status: string | null | undefined
+): "good" | "warn" | "bad" | "neutral" | "info" {
   const s = String(status ?? "").toLowerCase();
   if (["confirmed", "booked", "live", "in progress", "in_progress"].includes(s)) return "good";
   if (["inquiry", "enquiry", "pending", "draft"].includes(s)) return "warn";
@@ -36,7 +38,9 @@ function bookingKind(status: string | null | undefined): "good" | "warn" | "bad"
   return "neutral";
 }
 
-function invoiceKind(status: string | null | undefined): "good" | "warn" | "bad" | "neutral" | "info" {
+function invoiceKind(
+  status: string | null | undefined
+): "good" | "warn" | "bad" | "neutral" | "info" {
   const s = String(status ?? "").toLowerCase();
   if (["paid"].includes(s)) return "good";
   if (["sent", "part paid", "part_paid"].includes(s)) return "warn";
@@ -46,66 +50,88 @@ function invoiceKind(status: string | null | undefined): "good" | "warn" | "bad"
 
 export default async function BookingPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
   let booking: any = null;
+  let linkedJob: any = null;
   let loadError = "";
 
   try {
-    const { data, error } = await supabase
-      .from("bookings")
-      .select(`
-        id,
-        created_at,
-        start_date,
-        end_date,
-        start_at,
-        end_at,
-        status,
-        location,
-        site_address,
-        po_number,
-        job_reference,
-        operator_name,
-        notes,
-        driver_notes,
-        hire_price,
-        vat,
-        total_invoice,
-        payment_received,
-        invoice_status,
-        client_id,
-        crane_id,
-        clients:client_id (
-          id,
-          company_name,
-          contact_name,
-          phone,
-          email
-        ),
-        cranes:crane_id (
-          id,
-          name,
-          reg_number,
-          fleet_number,
-          capacity,
-          status
-        )
-      `)
-      .eq("id", params.id)
-      .single();
+    const [{ data: bookingData, error: bookingError }, { data: linkedJobData }] =
+      await Promise.all([
+        supabase
+          .from("bookings")
+          .select(`
+            id,
+            created_at,
+            updated_at,
+            start_date,
+            end_date,
+            start_at,
+            end_at,
+            status,
+            location,
+            site_address,
+            po_number,
+            job_reference,
+            operator_name,
+            notes,
+            driver_notes,
+            hire_price,
+            vat,
+            total_invoice,
+            payment_received,
+            invoice_status,
+            client_id,
+            crane_id,
+            clients:client_id (
+              id,
+              company_name,
+              contact_name,
+              phone,
+              email
+            ),
+            cranes:crane_id (
+              id,
+              name,
+              reg_number,
+              fleet_number,
+              capacity,
+              status
+            )
+          `)
+          .eq("id", params.id)
+          .single(),
 
-    if (error) {
-      loadError = error.message;
+        supabase
+          .from("jobs")
+          .select("id, job_number, status, booking_id")
+          .eq("booking_id", params.id)
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    if (bookingError) {
+      loadError = bookingError.message;
     } else {
-      booking = data;
+      booking = bookingData;
+      linkedJob = linkedJobData;
     }
   } catch (e: any) {
     loadError = e?.message ?? "Could not load booking.";
   }
+
+  const successMessage = searchParams?.success
+    ? decodeURIComponent(searchParams.success)
+    : "";
+  const errorMessage = searchParams?.error
+    ? decodeURIComponent(searchParams.error)
+    : "";
 
   const client = first(booking?.clients);
   const crane = first(booking?.cranes);
@@ -132,9 +158,27 @@ export default async function BookingPage({
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/bookings" style={btnStyle}>← Back to bookings</a>
             <a href={`/bookings/${params.id}/edit`} style={btnStyle}>Edit booking</a>
+
+            {linkedJob?.id ? (
+              <a href={`/jobs/${linkedJob.id}`} style={primaryBtnStyle}>
+                Open job
+              </a>
+            ) : (
+              <form
+                action={`/api/bookings/${params.id}/convert-to-job`}
+                method="post"
+                style={{ margin: 0 }}
+              >
+                <button type="submit" style={primaryBtnStyle}>
+                  Convert to job
+                </button>
+              </form>
+            )}
           </div>
         </div>
 
+        {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+        {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
         {loadError ? (
           <div style={errorBox}>{loadError}</div>
         ) : !booking ? (
@@ -153,8 +197,24 @@ export default async function BookingPage({
                 <h2 style={sectionTitle}>Booking details</h2>
 
                 <div style={gridStyle}>
-                  <InfoRow label="Status" valueNode={<StatusPill text={booking.status ?? "—"} kind={bookingKind(booking.status)} />} />
-                  <InfoRow label="Invoice status" valueNode={<StatusPill text={booking.invoice_status ?? "—"} kind={invoiceKind(booking.invoice_status)} />} />
+                  <InfoRow
+                    label="Status"
+                    valueNode={
+                      <StatusPill
+                        text={booking.status ?? "—"}
+                        kind={bookingKind(booking.status)}
+                      />
+                    }
+                  />
+                  <InfoRow
+                    label="Invoice status"
+                    valueNode={
+                      <StatusPill
+                        text={booking.invoice_status ?? "—"}
+                        kind={invoiceKind(booking.invoice_status)}
+                      />
+                    }
+                  />
                   <InfoRow label="Start date" value={fmtDate(booking.start_date)} />
                   <InfoRow label="End date" value={fmtDate(booking.end_date)} />
                   <InfoRow label="Start time" value={fmtDateTime(booking.start_at)} />
@@ -163,6 +223,9 @@ export default async function BookingPage({
                   <InfoRow label="Site address" value={booking.site_address ?? "—"} />
                   <InfoRow label="PO number" value={booking.po_number ?? "—"} />
                   <InfoRow label="Job reference" value={booking.job_reference ?? "—"} />
+                  <InfoRow label="Operator name" value={booking.operator_name ?? "—"} />
+                  <InfoRow label="Created" value={fmtDateTime(booking.created_at)} />
+                  <InfoRow label="Updated" value={fmtDateTime(booking.updated_at)} />
                 </div>
               </section>
 
@@ -174,6 +237,36 @@ export default async function BookingPage({
                   <InfoRow label="Total invoice" value={fmtMoney(booking.total_invoice)} />
                   <InfoRow label="Payment received" value={fmtMoney(booking.payment_received)} />
                 </div>
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Convert to job</h2>
+
+                {linkedJob?.id ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ fontSize: 14 }}>
+                      This booking is already linked to a job.
+                    </div>
+                    <a href={`/jobs/${linkedJob.id}`} style={primaryLinkStyle}>
+                      Open linked job
+                    </a>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={{ fontSize: 14 }}>
+                      Create a live job from this booking.
+                    </div>
+                    <form
+                      action={`/api/bookings/${params.id}/convert-to-job`}
+                      method="post"
+                      style={{ margin: 0 }}
+                    >
+                      <button type="submit" style={primaryBtnStyle}>
+                        Convert booking to job
+                      </button>
+                    </form>
+                  </div>
+                )}
               </section>
             </div>
 
@@ -236,6 +329,40 @@ const btnStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
   color: "#111",
+  fontWeight: 800,
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  textDecoration: "none",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const primaryLinkStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  textDecoration: "none",
+  color: "#fff",
+  fontWeight: 900,
+  width: "fit-content",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#0b7a4b",
   fontWeight: 800,
 };
 
