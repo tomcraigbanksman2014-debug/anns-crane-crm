@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Option = {
@@ -76,6 +76,21 @@ function selectedAssetValue(item: {
   return item.equipment_id ?? "";
 }
 
+function selectedAssetName(item: Allocation) {
+  if (item.asset_type === "crane") {
+    return item.cranes?.name ?? item.item_name ?? "Crane";
+  }
+  if (item.asset_type === "vehicle") {
+    return item.vehicles?.name ?? item.item_name ?? "Vehicle";
+  }
+  return item.equipment?.name ?? item.item_name ?? "Equipment";
+}
+
+function money(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return `£${Number.isFinite(n) ? n.toFixed(2) : "0.00"}`;
+}
+
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
@@ -122,10 +137,18 @@ export default function JobEquipmentManager({
     end_date: defaultDate ?? "",
     start_time: defaultStartTime ?? "",
     end_time: defaultEndTime ?? "",
-    agreed_cost: "0",
+    agreed_cost: "0.00",
     supplier_reference: "",
     notes: "",
   });
+
+  const totals = useMemo(() => {
+    const total = allocations.reduce((sum, item) => sum + Number(item.agreed_cost ?? 0), 0);
+    const cranes = allocations.filter((a) => a.asset_type === "crane").length;
+    const vehicles = allocations.filter((a) => a.asset_type === "vehicle").length;
+    const equipment = allocations.filter((a) => (a.asset_type ?? "equipment") === "equipment").length;
+    return { total, cranes, vehicles, equipment };
+  }, [allocations]);
 
   function getOptionsForAssetType(assetType: string) {
     if (assetType === "crane") return craneOptions;
@@ -182,7 +205,7 @@ export default function JobEquipmentManager({
         end_date: defaultDate ?? "",
         start_time: defaultStartTime ?? "",
         end_time: defaultEndTime ?? "",
-        agreed_cost: "0",
+        agreed_cost: "0.00",
         supplier_reference: "",
         notes: "",
       });
@@ -266,6 +289,13 @@ export default function JobEquipmentManager({
           <div style={{ opacity: 0.72 }}>
             Add multiple cranes, vehicles or lifting equipment to one job.
           </div>
+        </div>
+
+        <div style={totalsBox}>
+          <div style={totalsText}>Cranes: {totals.cranes}</div>
+          <div style={totalsText}>Vehicles: {totals.vehicles}</div>
+          <div style={totalsText}>Equipment: {totals.equipment}</div>
+          <div style={totalsStrong}>Allocated cost: {money(totals.total)}</div>
         </div>
       </div>
 
@@ -413,6 +443,7 @@ export default function JobEquipmentManager({
                     label="Agreed cost"
                     value={String(item.agreed_cost ?? 0)}
                     type="number"
+                    step="0.01"
                     onChange={(value) =>
                       updateAllocation(item.id, {
                         ...item,
@@ -483,12 +514,8 @@ export default function JobEquipmentManager({
 
                 <div style={footerRow}>
                   <div style={{ fontSize: 13, opacity: 0.72 }}>
-                    {assetTypeLabel(item.asset_type)} •{" "}
-                    {item.cranes?.name ||
-                      item.vehicles?.name ||
-                      item.equipment?.name ||
-                      item.item_name ||
-                      "No asset selected"}
+                    {assetTypeLabel(item.asset_type)} • {selectedAssetName(item)} •{" "}
+                    {item.operators?.full_name ?? "No operator"} • Cost {money(item.agreed_cost)}
                   </div>
 
                   <button
@@ -607,6 +634,7 @@ export default function JobEquipmentManager({
             label="Agreed cost"
             value={draft.agreed_cost}
             type="number"
+            step="0.01"
             onChange={(value) =>
               setDraft((prev) => ({ ...prev, agreed_cost: value }))
             }
@@ -708,12 +736,14 @@ function TextField({
   value,
   onChange,
   type = "text",
+  step,
   disabled,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: string;
+  step?: string;
   disabled?: boolean;
 }) {
   return (
@@ -723,6 +753,7 @@ function TextField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         type={type}
+        step={step}
         style={inputStyle}
         disabled={disabled}
       />
@@ -744,6 +775,24 @@ const topRow: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const totalsBox: React.CSSProperties = {
+  display: "flex",
+  gap: 14,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const totalsText: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  opacity: 0.78,
+};
+
+const totalsStrong: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 900,
 };
 
 const allocationCard: React.CSSProperties = {
