@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Option = {
@@ -10,6 +10,9 @@ type Option = {
 
 type Allocation = {
   id: string;
+  asset_type?: string | null;
+  crane_id?: string | null;
+  vehicle_id?: string | null;
   equipment_id?: string | null;
   operator_id?: string | null;
   source_type?: string | null;
@@ -23,15 +26,61 @@ type Allocation = {
   agreed_cost?: number | null;
   supplier_reference?: string | null;
   notes?: string | null;
-  equipment?: { name?: string | null; asset_number?: string | null } | null;
-  operators?: { full_name?: string | null } | null;
-  suppliers?: { company_name?: string | null } | null;
-  purchase_orders?: { po_number?: string | null; status?: string | null } | null;
+  cranes?: {
+    id?: string;
+    name?: string | null;
+    reg_number?: string | null;
+    capacity?: string | null;
+  } | null;
+  vehicles?: {
+    id?: string;
+    name?: string | null;
+    reg_number?: string | null;
+  } | null;
+  equipment?: {
+    id?: string;
+    name?: string | null;
+    asset_number?: string | null;
+  } | null;
+  operators?: {
+    id?: string;
+    full_name?: string | null;
+  } | null;
+  suppliers?: {
+    id?: string;
+    company_name?: string | null;
+  } | null;
+  purchase_orders?: {
+    id?: string;
+    po_number?: string | null;
+    status?: string | null;
+  } | null;
 };
+
+function assetTypeLabel(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "crane") return "Crane";
+  if (v === "vehicle") return "Vehicle";
+  return "Lifting Equipment";
+}
+
+function selectedAssetValue(item: {
+  asset_type?: string | null;
+  crane_id?: string | null;
+  vehicle_id?: string | null;
+  equipment_id?: string | null;
+}) {
+  const type = String(item.asset_type ?? "equipment").toLowerCase();
+  if (type === "crane") return item.crane_id ?? "";
+  if (type === "vehicle") return item.vehicle_id ?? "";
+  return item.equipment_id ?? "";
+}
 
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
+  craneOptions,
+  vehicleOptions,
   equipmentOptions,
   operatorOptions,
   supplierOptions,
@@ -42,6 +91,8 @@ export default function JobEquipmentManager({
 }: {
   jobId: string;
   initialAllocations: Allocation[];
+  craneOptions: Option[];
+  vehicleOptions: Option[];
   equipmentOptions: Option[];
   operatorOptions: Option[];
   supplierOptions: Option[];
@@ -51,12 +102,16 @@ export default function JobEquipmentManager({
   defaultEndTime?: string | null;
 }) {
   const router = useRouter();
+
   const [allocations, setAllocations] = useState<Allocation[]>(initialAllocations ?? []);
   const [message, setMessage] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
   const [draft, setDraft] = useState({
+    asset_type: "crane",
+    crane_id: "",
+    vehicle_id: "",
     equipment_id: "",
     operator_id: "",
     source_type: "owned",
@@ -72,10 +127,20 @@ export default function JobEquipmentManager({
     notes: "",
   });
 
-  const purchaseOrderOptionsFiltered = useMemo(() => {
-    if (!draft.supplier_id) return purchaseOrderOptions;
-    return purchaseOrderOptions;
-  }, [draft.supplier_id, purchaseOrderOptions]);
+  function getOptionsForAssetType(assetType: string) {
+    if (assetType === "crane") return craneOptions;
+    if (assetType === "vehicle") return vehicleOptions;
+    return equipmentOptions;
+  }
+
+  function normaliseAssetPatch(assetType: string, selectedId: string) {
+    return {
+      asset_type: assetType,
+      crane_id: assetType === "crane" ? selectedId || null : null,
+      vehicle_id: assetType === "vehicle" ? selectedId || null : null,
+      equipment_id: assetType === "equipment" ? selectedId || null : null,
+    };
+  }
 
   async function addAllocation() {
     setAdding(true);
@@ -97,12 +162,16 @@ export default function JobEquipmentManager({
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setMessage(json?.error || "Could not add equipment allocation.");
+        setMessage(json?.error || "Could not add allocation.");
         return;
       }
 
       setAllocations((prev) => [...prev, json.allocation]);
+
       setDraft({
+        asset_type: "crane",
+        crane_id: "",
+        vehicle_id: "",
         equipment_id: "",
         operator_id: "",
         source_type: "owned",
@@ -117,10 +186,11 @@ export default function JobEquipmentManager({
         supplier_reference: "",
         notes: "",
       });
-      setMessage("Equipment allocation added.");
+
+      setMessage("Allocation added.");
       router.refresh();
     } catch {
-      setMessage("Could not add equipment allocation.");
+      setMessage("Could not add allocation.");
     } finally {
       setAdding(false);
     }
@@ -149,6 +219,7 @@ export default function JobEquipmentManager({
       setAllocations((prev) =>
         prev.map((item) => (item.id === id ? json.allocation : item))
       );
+
       router.refresh();
     } catch {
       setMessage("Could not update allocation.");
@@ -158,7 +229,7 @@ export default function JobEquipmentManager({
   }
 
   async function deleteAllocation(id: string) {
-    const ok = window.confirm("Delete this equipment allocation?");
+    const ok = window.confirm("Delete this allocation?");
     if (!ok) return;
 
     setSavingId(id);
@@ -193,7 +264,7 @@ export default function JobEquipmentManager({
             Equipment Allocations
           </h2>
           <div style={{ opacity: 0.72 }}>
-            Add multiple cranes, HIABs or cross-hired equipment to a single job.
+            Add multiple cranes, vehicles or lifting equipment to one job.
           </div>
         </div>
       </div>
@@ -204,147 +275,278 @@ export default function JobEquipmentManager({
         {allocations.length === 0 ? (
           <div style={emptyStyle}>No equipment allocations added yet.</div>
         ) : (
-          allocations.map((item) => (
-            <div key={item.id} style={allocationCard}>
-              <div style={gridStyle}>
-                <SelectField
-                  label="Equipment"
-                  value={item.equipment_id ?? ""}
-                  options={equipmentOptions}
-                  onChange={(value) => updateAllocation(item.id, { ...item, equipment_id: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <SelectField
-                  label="Operator"
-                  value={item.operator_id ?? ""}
-                  options={operatorOptions}
-                  onChange={(value) => updateAllocation(item.id, { ...item, operator_id: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <SelectField
-                  label="Source"
-                  value={item.source_type ?? "owned"}
-                  options={[
-                    { value: "owned", label: "Owned" },
-                    { value: "cross_hire", label: "Cross Hire" },
-                  ]}
-                  onChange={(value) => updateAllocation(item.id, { ...item, source_type: value || "owned" })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="Item name"
-                  value={item.item_name ?? ""}
-                  onChange={(value) => updateAllocation(item.id, { ...item, item_name: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="Start date"
-                  value={item.start_date ?? ""}
-                  type="date"
-                  onChange={(value) => updateAllocation(item.id, { ...item, start_date: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="End date"
-                  value={item.end_date ?? ""}
-                  type="date"
-                  onChange={(value) => updateAllocation(item.id, { ...item, end_date: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="Start time"
-                  value={item.start_time ?? ""}
-                  onChange={(value) => updateAllocation(item.id, { ...item, start_time: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="End time"
-                  value={item.end_time ?? ""}
-                  onChange={(value) => updateAllocation(item.id, { ...item, end_time: value || null })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="Agreed cost"
-                  value={String(item.agreed_cost ?? 0)}
-                  type="number"
-                  onChange={(value) => updateAllocation(item.id, { ...item, agreed_cost: Number(value || 0) })}
-                  disabled={savingId === item.id}
-                />
-                <TextField
-                  label="Supplier reference"
-                  value={item.supplier_reference ?? ""}
-                  onChange={(value) => updateAllocation(item.id, { ...item, supplier_reference: value || null })}
-                  disabled={savingId === item.id}
-                />
+          allocations.map((item) => {
+            const assetOptions = getOptionsForAssetType(
+              String(item.asset_type ?? "equipment")
+            );
 
-                {(item.source_type ?? "owned") === "cross_hire" ? (
-                  <>
-                    <SelectField
-                      label="Supplier"
-                      value={item.supplier_id ?? ""}
-                      options={supplierOptions}
-                      onChange={(value) => updateAllocation(item.id, { ...item, supplier_id: value || null })}
-                      disabled={savingId === item.id}
-                    />
-                    <SelectField
-                      label="Purchase order"
-                      value={item.purchase_order_id ?? ""}
-                      options={purchaseOrderOptions}
-                      onChange={(value) => updateAllocation(item.id, { ...item, purchase_order_id: value || null })}
-                      disabled={savingId === item.id}
-                    />
-                  </>
-                ) : null}
-
-                <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
-                  <label style={labelStyle}>Notes</label>
-                  <textarea
-                    value={item.notes ?? ""}
-                    onChange={(e) => updateAllocation(item.id, { ...item, notes: e.target.value || null })}
-                    rows={3}
-                    style={textareaStyle}
+            return (
+              <div key={item.id} style={allocationCard}>
+                <div style={gridStyle}>
+                  <SelectField
+                    label="Asset type"
+                    value={item.asset_type ?? "equipment"}
+                    options={[
+                      { value: "crane", label: "Crane" },
+                      { value: "vehicle", label: "Vehicle" },
+                      { value: "equipment", label: "Lifting Equipment" },
+                    ]}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        ...normaliseAssetPatch(value || "equipment", ""),
+                      })
+                    }
                     disabled={savingId === item.id}
                   />
+
+                  <SelectField
+                    label={assetTypeLabel(item.asset_type)}
+                    value={selectedAssetValue(item)}
+                    options={assetOptions}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        ...normaliseAssetPatch(
+                          String(item.asset_type ?? "equipment"),
+                          value
+                        ),
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <SelectField
+                    label="Operator"
+                    value={item.operator_id ?? ""}
+                    options={operatorOptions}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        operator_id: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <SelectField
+                    label="Source"
+                    value={item.source_type ?? "owned"}
+                    options={[
+                      { value: "owned", label: "Owned" },
+                      { value: "cross_hire", label: "Cross Hire" },
+                    ]}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        source_type: value || "owned",
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Item name"
+                    value={item.item_name ?? ""}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        item_name: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Start date"
+                    value={item.start_date ?? ""}
+                    type="date"
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        start_date: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="End date"
+                    value={item.end_date ?? ""}
+                    type="date"
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        end_date: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Start time"
+                    value={item.start_time ?? ""}
+                    type="time"
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        start_time: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="End time"
+                    value={item.end_time ?? ""}
+                    type="time"
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        end_time: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Agreed cost"
+                    value={String(item.agreed_cost ?? 0)}
+                    type="number"
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        agreed_cost: Number(value || 0),
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Supplier reference"
+                    value={item.supplier_reference ?? ""}
+                    onChange={(value) =>
+                      updateAllocation(item.id, {
+                        ...item,
+                        supplier_reference: value || null,
+                      })
+                    }
+                    disabled={savingId === item.id}
+                  />
+
+                  {(item.source_type ?? "owned") === "cross_hire" ? (
+                    <>
+                      <SelectField
+                        label="Supplier"
+                        value={item.supplier_id ?? ""}
+                        options={supplierOptions}
+                        onChange={(value) =>
+                          updateAllocation(item.id, {
+                            ...item,
+                            supplier_id: value || null,
+                          })
+                        }
+                        disabled={savingId === item.id}
+                      />
+
+                      <SelectField
+                        label="Purchase order"
+                        value={item.purchase_order_id ?? ""}
+                        options={purchaseOrderOptions}
+                        onChange={(value) =>
+                          updateAllocation(item.id, {
+                            ...item,
+                            purchase_order_id: value || null,
+                          })
+                        }
+                        disabled={savingId === item.id}
+                      />
+                    </>
+                  ) : null}
+
+                  <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
+                    <label style={labelStyle}>Notes</label>
+                    <textarea
+                      value={item.notes ?? ""}
+                      onChange={(e) =>
+                        updateAllocation(item.id, {
+                          ...item,
+                          notes: e.target.value || null,
+                        })
+                      }
+                      rows={3}
+                      style={textareaStyle}
+                      disabled={savingId === item.id}
+                    />
+                  </div>
+                </div>
+
+                <div style={footerRow}>
+                  <div style={{ fontSize: 13, opacity: 0.72 }}>
+                    {assetTypeLabel(item.asset_type)} •{" "}
+                    {item.cranes?.name ||
+                      item.vehicles?.name ||
+                      item.equipment?.name ||
+                      item.item_name ||
+                      "No asset selected"}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => deleteAllocation(item.id)}
+                    style={deleteBtn}
+                    disabled={savingId === item.id}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
-
-              <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 13, opacity: 0.72 }}>
-                  {item.equipment?.name ?? item.item_name ?? "Equipment"} •{" "}
-                  {item.operators?.full_name ?? "No operator"} •{" "}
-                  {item.suppliers?.company_name ?? "Owned"}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => deleteAllocation(item.id)}
-                  style={deleteBtn}
-                  disabled={savingId === item.id}
-                >
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
       <div style={{ ...allocationCard, marginTop: 16 }}>
-        <h3 style={{ marginTop: 0, marginBottom: 10 }}>Add equipment allocation</h3>
+        <h3 style={{ marginTop: 0, marginBottom: 10 }}>Add allocation</h3>
 
         <div style={gridStyle}>
           <SelectField
-            label="Equipment"
-            value={draft.equipment_id}
-            options={equipmentOptions}
-            onChange={(value) => setDraft((prev) => ({ ...prev, equipment_id: value }))}
+            label="Asset type"
+            value={draft.asset_type}
+            options={[
+              { value: "crane", label: "Crane" },
+              { value: "vehicle", label: "Vehicle" },
+              { value: "equipment", label: "Lifting Equipment" },
+            ]}
+            onChange={(value) =>
+              setDraft((prev) => ({
+                ...prev,
+                ...normaliseAssetPatch(value || "crane", ""),
+              }))
+            }
           />
+
+          <SelectField
+            label={assetTypeLabel(draft.asset_type)}
+            value={selectedAssetValue(draft)}
+            options={getOptionsForAssetType(draft.asset_type)}
+            onChange={(value) =>
+              setDraft((prev) => ({
+                ...prev,
+                ...normaliseAssetPatch(prev.asset_type, value),
+              }))
+            }
+          />
+
           <SelectField
             label="Operator"
             value={draft.operator_id}
             options={operatorOptions}
-            onChange={(value) => setDraft((prev) => ({ ...prev, operator_id: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, operator_id: value }))
+            }
           />
+
           <SelectField
             label="Source"
             value={draft.source_type}
@@ -352,45 +554,70 @@ export default function JobEquipmentManager({
               { value: "owned", label: "Owned" },
               { value: "cross_hire", label: "Cross Hire" },
             ]}
-            onChange={(value) => setDraft((prev) => ({ ...prev, source_type: value || "owned" }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, source_type: value || "owned" }))
+            }
           />
+
           <TextField
             label="Item name"
             value={draft.item_name}
-            onChange={(value) => setDraft((prev) => ({ ...prev, item_name: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, item_name: value }))
+            }
           />
+
           <TextField
             label="Start date"
             value={draft.start_date}
             type="date"
-            onChange={(value) => setDraft((prev) => ({ ...prev, start_date: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, start_date: value }))
+            }
           />
+
           <TextField
             label="End date"
             value={draft.end_date}
             type="date"
-            onChange={(value) => setDraft((prev) => ({ ...prev, end_date: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, end_date: value }))
+            }
           />
+
           <TextField
             label="Start time"
             value={draft.start_time}
-            onChange={(value) => setDraft((prev) => ({ ...prev, start_time: value }))}
+            type="time"
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, start_time: value }))
+            }
           />
+
           <TextField
             label="End time"
             value={draft.end_time}
-            onChange={(value) => setDraft((prev) => ({ ...prev, end_time: value }))}
+            type="time"
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, end_time: value }))
+            }
           />
+
           <TextField
             label="Agreed cost"
             value={draft.agreed_cost}
             type="number"
-            onChange={(value) => setDraft((prev) => ({ ...prev, agreed_cost: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, agreed_cost: value }))
+            }
           />
+
           <TextField
             label="Supplier reference"
             value={draft.supplier_reference}
-            onChange={(value) => setDraft((prev) => ({ ...prev, supplier_reference: value }))}
+            onChange={(value) =>
+              setDraft((prev) => ({ ...prev, supplier_reference: value }))
+            }
           />
 
           {draft.source_type === "cross_hire" ? (
@@ -399,13 +626,18 @@ export default function JobEquipmentManager({
                 label="Supplier"
                 value={draft.supplier_id}
                 options={supplierOptions}
-                onChange={(value) => setDraft((prev) => ({ ...prev, supplier_id: value }))}
+                onChange={(value) =>
+                  setDraft((prev) => ({ ...prev, supplier_id: value }))
+                }
               />
+
               <SelectField
                 label="Purchase order"
                 value={draft.purchase_order_id}
-                options={purchaseOrderOptionsFiltered}
-                onChange={(value) => setDraft((prev) => ({ ...prev, purchase_order_id: value }))}
+                options={purchaseOrderOptions}
+                onChange={(value) =>
+                  setDraft((prev) => ({ ...prev, purchase_order_id: value }))
+                }
               />
             </>
           ) : null}
@@ -415,14 +647,21 @@ export default function JobEquipmentManager({
             <textarea
               rows={3}
               value={draft.notes}
-              onChange={(e) => setDraft((prev) => ({ ...prev, notes: e.target.value }))}
+              onChange={(e) =>
+                setDraft((prev) => ({ ...prev, notes: e.target.value }))
+              }
               style={textareaStyle}
             />
           </div>
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button type="button" onClick={addAllocation} style={saveBtn} disabled={adding}>
+          <button
+            type="button"
+            onClick={addAllocation}
+            style={saveBtn}
+            disabled={adding}
+          >
             {adding ? "Adding..." : "Add allocation"}
           </button>
         </div>
@@ -454,9 +693,9 @@ function SelectField({
         disabled={disabled}
       >
         <option value="">— Select —</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
+        {options.map((option) => (
+          <option key={`${label}-${option.value}`} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
@@ -520,10 +759,18 @@ const gridStyle: React.CSSProperties = {
   gap: 12,
 };
 
+const footerRow: React.CSSProperties = {
+  marginTop: 12,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
-  opacity: 0.75,
   fontWeight: 800,
+  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -532,7 +779,7 @@ const inputStyle: React.CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
 };
 
@@ -541,40 +788,47 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
+  background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
 const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
   background: "#111",
   color: "#fff",
-  borderRadius: 10,
+  fontWeight: 900,
   border: "none",
   cursor: "pointer",
-  fontWeight: 800,
 };
 
 const deleteBtn: React.CSSProperties = {
-  padding: "10px 14px",
+  display: "inline-block",
+  padding: "8px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(255,0,0,0.16)",
-  background: "rgba(255,0,0,0.06)",
-  color: "#b00020",
-  fontWeight: 800,
+  background: "rgba(255,0,0,0.10)",
+  color: "#8b0000",
+  fontWeight: 900,
+  border: "1px solid rgba(255,0,0,0.20)",
   cursor: "pointer",
 };
 
-const messageBox: React.CSSProperties = {
-  marginTop: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,170,0,0.14)",
-  border: "1px solid rgba(255,170,0,0.24)",
+const emptyStyle: React.CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.45)",
+  border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 700,
 };
 
-const emptyStyle: React.CSSProperties = {
-  opacity: 0.65,
+const messageBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.20)",
+  color: "#0b57d0",
+  fontWeight: 800,
 };
