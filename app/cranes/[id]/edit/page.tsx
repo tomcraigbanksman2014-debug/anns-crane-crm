@@ -1,7 +1,6 @@
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
-import CraneDocumentsManager from "../CraneDocumentsManager";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -68,7 +67,7 @@ async function updateCrane(formData: FormData) {
   redirect(`/cranes/${id}?success=${encodeURIComponent("Crane updated.")}`);
 }
 
-async function deleteCrane(formData: FormData) {
+async function archiveCrane(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
@@ -78,13 +77,19 @@ async function deleteCrane(formData: FormData) {
     redirect(`/cranes?error=${encodeURIComponent("Crane id missing.")}`);
   }
 
-  const { error } = await supabase.from("cranes").delete().eq("id", id);
+  const { error } = await supabase
+    .from("cranes")
+    .update({
+      archived: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
 
   if (error) {
     redirect(`/cranes/${id}/edit?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect(`/cranes?success=${encodeURIComponent("Crane deleted.")}`);
+  redirect(`/cranes?success=${encodeURIComponent("Crane archived.")}`);
 }
 
 export default async function EditCranePage({
@@ -96,25 +101,22 @@ export default async function EditCranePage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: crane, error }, { data: docs }] = await Promise.all([
-    supabase.from("cranes").select("*").eq("id", params.id).single(),
-    supabase
-      .from("crane_documents")
-      .select("*")
-      .eq("crane_id", params.id)
-      .order("uploaded_at", { ascending: false }),
-  ]);
+  const { data: crane, error } = await supabase
+    .from("cranes")
+    .select("*")
+    .eq("id", params.id)
+    .single();
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1320px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div style={pageHeader}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit Crane</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Edit crane details, service dates, LOLER dates and documents.
+              Update fleet, service, inspection and LOLER information.
             </p>
           </div>
 
@@ -129,81 +131,70 @@ export default async function EditCranePage({
         {!crane ? <div style={errorBox}>Crane not found.</div> : null}
 
         {crane ? (
-          <>
-            <div style={pageCard}>
-              <form action={updateCrane} style={{ display: "grid", gap: 14 }}>
-                <input type="hidden" name="id" value={crane.id} />
+          <div style={pageCard}>
+            <form action={updateCrane} style={{ display: "grid", gap: 14 }}>
+              <input type="hidden" name="id" value={crane.id} />
 
-                <div style={grid3}>
-                  <Field label="Crane name *" name="name" defaultValue={crane.name ?? ""} />
-                  <Field label="Reg number" name="reg_number" defaultValue={crane.reg_number ?? ""} />
-                  <Field label="Fleet number" name="fleet_number" defaultValue={crane.fleet_number ?? ""} />
-                  <Field label="Make" name="make" defaultValue={crane.make ?? ""} />
-                  <Field label="Model" name="model" defaultValue={crane.model ?? ""} />
-                  <Field label="Capacity" name="capacity" defaultValue={crane.capacity ?? ""} />
-                </div>
+              <div style={grid3}>
+                <Field label="Crane name *" name="name" defaultValue={crane.name ?? ""} />
+                <Field label="Reg number" name="reg_number" defaultValue={crane.reg_number ?? ""} />
+                <Field label="Fleet number" name="fleet_number" defaultValue={crane.fleet_number ?? ""} />
+                <Field label="Make" name="make" defaultValue={crane.make ?? ""} />
+                <Field label="Model" name="model" defaultValue={crane.model ?? ""} />
+                <Field label="Capacity" name="capacity" defaultValue={crane.capacity ?? ""} />
+              </div>
 
-                <div style={{ maxWidth: 260 }}>
-                  <SelectField
-                    label="Status"
-                    name="status"
-                    defaultValue={crane.status ?? "available"}
-                    options={[
-                      { value: "available", label: "available" },
-                      { value: "on_hire", label: "on_hire" },
-                      { value: "maintenance", label: "maintenance" },
-                      { value: "inactive", label: "inactive" },
-                    ]}
-                  />
-                </div>
-
-                <div style={grid3}>
-                  <Field label="Registration expires" name="registration_expires_on" type="date" defaultValue={crane.registration_expires_on ?? ""} />
-                  <Field label="MOT due" name="mot_due_on" type="date" defaultValue={crane.mot_due_on ?? ""} />
-                  <Field label="Insurance due" name="insurance_due_on" type="date" defaultValue={crane.insurance_due_on ?? ""} />
-                  <Field label="Tax due" name="tax_due_on" type="date" defaultValue={crane.tax_due_on ?? ""} />
-                  <Field label="Last service" name="last_service_on" type="date" defaultValue={crane.last_service_on ?? ""} />
-                  <Field label="Service due" name="service_due_on" type="date" defaultValue={crane.service_due_on ?? ""} />
-                  <Field label="Last inspection" name="last_inspection_on" type="date" defaultValue={crane.last_inspection_on ?? ""} />
-                  <Field label="Inspection due" name="inspection_due_on" type="date" defaultValue={crane.inspection_due_on ?? ""} />
-                  <Field label="Last LOLER" name="last_loler_on" type="date" defaultValue={crane.last_loler_on ?? ""} />
-                  <Field label="LOLER due" name="loler_due_on" type="date" defaultValue={crane.loler_due_on ?? ""} />
-                </div>
-
-                <TextAreaField
-                  label="Notes"
-                  name="notes"
-                  rows={4}
-                  defaultValue={crane.notes ?? ""}
+              <div style={{ maxWidth: 260 }}>
+                <SelectField
+                  label="Status"
+                  name="status"
+                  defaultValue={crane.status ?? "available"}
+                  options={[
+                    { value: "available", label: "available" },
+                    { value: "on_hire", label: "on_hire" },
+                    { value: "maintenance", label: "maintenance" },
+                    { value: "inactive", label: "inactive" },
+                  ]}
                 />
+              </div>
 
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={primaryBtn}>
-                    Save crane
-                  </button>
-                </div>
-              </form>
+              <div style={grid3}>
+                <Field label="Registration expires" name="registration_expires_on" type="date" defaultValue={crane.registration_expires_on ?? ""} />
+                <Field label="MOT due" name="mot_due_on" type="date" defaultValue={crane.mot_due_on ?? ""} />
+                <Field label="Insurance due" name="insurance_due_on" type="date" defaultValue={crane.insurance_due_on ?? ""} />
+                <Field label="Tax due" name="tax_due_on" type="date" defaultValue={crane.tax_due_on ?? ""} />
+                <Field label="Last service" name="last_service_on" type="date" defaultValue={crane.last_service_on ?? ""} />
+                <Field label="Service due" name="service_due_on" type="date" defaultValue={crane.service_due_on ?? ""} />
+                <Field label="Last inspection" name="last_inspection_on" type="date" defaultValue={crane.last_inspection_on ?? ""} />
+                <Field label="Inspection due" name="inspection_due_on" type="date" defaultValue={crane.inspection_due_on ?? ""} />
+                <Field label="Last LOLER" name="last_loler_on" type="date" defaultValue={crane.last_loler_on ?? ""} />
+                <Field label="LOLER due" name="loler_due_on" type="date" defaultValue={crane.loler_due_on ?? ""} />
+              </div>
 
-              <form action={deleteCrane} style={{ marginTop: 14 }}>
-                <input type="hidden" name="id" value={crane.id} />
-                <button
-                  type="submit"
-                  style={dangerBtn}
-                  onClick={(e) => {
-                    if (!window.confirm("Delete this crane? This cannot be undone.")) {
-                      e.preventDefault();
-                    }
-                  }}
-                >
-                  Delete crane
+              <TextAreaField
+                label="Notes"
+                name="notes"
+                rows={5}
+                defaultValue={crane.notes ?? ""}
+              />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="submit" style={primaryBtn}>
+                  Save crane
                 </button>
-              </form>
-            </div>
+                <a href={`/cranes/${params.id}`} style={secondaryBtn}>
+                  Cancel
+                </a>
+              </div>
+            </form>
 
-            <div style={{ marginTop: 18 }}>
-              <CraneDocumentsManager craneId={crane.id} initialDocuments={docs ?? []} />
-            </div>
-          </>
+            <form action={archiveCrane} style={{ marginTop: 14 }}>
+              <input type="hidden" name="id" value={crane.id} />
+              <button type="submit" style={dangerBtn}>
+                Archive crane
+              </button>
+            </form>
+          </div>
         ) : null}
       </div>
     </ClientShell>
