@@ -2,42 +2,8 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
-function clean(v: FormDataEntryValue | null) {
-  return String(v ?? "").trim();
-}
-
-function safeDecode(value: string | undefined) {
-  const raw = String(value ?? "");
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return raw;
-  }
-}
-
-function formatDateLabel(value: string | undefined) {
-  const raw = safeDecode(value).trim();
-  if (!raw) return "—";
-
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-
-  return parsed.toLocaleDateString("en-GB");
-}
-
-function quoteToBookingStatus(value: string | undefined) {
-  const raw = safeDecode(value).trim().toLowerCase();
-  if (raw === "accepted") return "Confirmed";
-  if (raw === "sent") return "Provisional";
-  return "Inquiry";
-}
-
-function combineDateTime(date: string | null, time: string | null) {
-  if (!date || !time) return null;
-  const iso = `${date}T${time}:00`;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
+function clean(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
 }
 
 async function createBooking(formData: FormData) {
@@ -45,297 +11,173 @@ async function createBooking(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  const clientId = clean(formData.get("client_id")) || null;
-  const equipmentId = clean(formData.get("equipment_id")) || null;
-  const startDate = clean(formData.get("start_date")) || null;
-  const endDate = clean(formData.get("end_date")) || null;
-  const startTime = clean(formData.get("start_time")) || null;
-  const endTime = clean(formData.get("end_time")) || null;
+  const clientId = clean(formData.get("client_id"));
+  const craneId = clean(formData.get("crane_id")) || null;
   const location = clean(formData.get("location")) || null;
   const siteAddress = clean(formData.get("site_address")) || null;
+  const startDate = clean(formData.get("start_date"));
+  const endDate = clean(formData.get("end_date"));
+  const startTime = clean(formData.get("start_time")) || null;
+  const endTime = clean(formData.get("end_time")) || null;
   const status = clean(formData.get("status")) || "Inquiry";
-  const hirePrice = Number(formData.get("hire_price") ?? 0) || 0;
-  const paymentReceived = Number(formData.get("payment_received") ?? 0) || 0;
-  const vatRate = Number(formData.get("vat_rate") ?? 20) || 0;
-  const vat = Number(((hirePrice * vatRate) / 100).toFixed(2));
-  const totalInvoice = Number((hirePrice + vat).toFixed(2));
   const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+  const hirePrice = clean(formData.get("hire_price"));
+  const vat = clean(formData.get("vat"));
+  const paymentReceived = clean(formData.get("payment_received"));
+  const notes = clean(formData.get("notes")) || null;
 
-  const quoteId = clean(formData.get("quote_id")) || "";
-  const quoteAmount = clean(formData.get("quote_amount")) || "";
-  const quoteSubject = clean(formData.get("quote_subject")) || "";
-  const quoteNotes = clean(formData.get("quote_notes")) || "";
-
-  if (!clientId || !equipmentId || !startDate || !endDate) {
-    redirect(
-      `/bookings/new?error=${encodeURIComponent(
-        "Customer, equipment, start date and end date are required."
-      )}`
-    );
+  if (!clientId || !craneId || !startDate || !endDate) {
+    redirect(`/bookings/new?error=${encodeURIComponent("Customer, crane, start date and end date are required.")}`);
   }
 
-  if (endDate < startDate) {
-    redirect(
-      `/bookings/new?error=${encodeURIComponent(
-        "End date must be the same as or after start date."
-      )}`
-    );
-  }
+  const startAt =
+    startDate && startTime ? `${startDate}T${startTime}:00` : null;
+  const endAt =
+    endDate && endTime ? `${endDate}T${endTime}:00` : null;
 
-  const notesParts = [
-    quoteSubject ? `Quote subject: ${quoteSubject}` : "",
-    quoteAmount ? `Quote amount: £${quoteAmount}` : "",
-    quoteId ? `Quote reference: ${quoteId}` : "",
-    quoteNotes ? `Quote notes: ${quoteNotes}` : "",
-  ].filter(Boolean);
+  const hirePriceNum = hirePrice ? Number(hirePrice) : 0;
+  const vatNum = vat ? Number(vat) : 20;
+  const paymentReceivedNum = paymentReceived ? Number(paymentReceived) : 0;
+  const totalInvoice =
+    Number.isFinite(hirePriceNum) ? hirePriceNum + hirePriceNum * (vatNum / 100) : 0;
 
-  const bookingNotes = notesParts.join("\n");
-
-  const payload: Record<string, any> = {
+  const { error } = await supabase.from("bookings").insert({
     client_id: clientId,
-    equipment_id: equipmentId,
+    crane_id: craneId,
+    equipment_id: null,
+    location,
+    site_address: siteAddress,
     start_date: startDate,
     end_date: endDate,
-    start_at: combineDateTime(startDate, startTime),
-    end_at: combineDateTime(endDate, endTime),
-    location: location || siteAddress || null,
+    start_at: startAt,
+    end_at: endAt,
     status,
-    hire_price: hirePrice || null,
-    vat: hirePrice ? vat : null,
-    total_invoice: hirePrice ? totalInvoice : null,
-    payment_received: paymentReceived || 0,
     invoice_status: invoiceStatus,
-    notes: bookingNotes || null,
-    driver_notes: bookingNotes || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { data, error } = await supabase
-    .from("bookings")
-    .insert(payload)
-    .select("id")
-    .single();
+    hire_price: Number.isFinite(hirePriceNum) ? hirePriceNum : 0,
+    vat: Number.isFinite(vatNum) ? vatNum : 20,
+    total_invoice: Number.isFinite(totalInvoice) ? totalInvoice : 0,
+    payment_received: Number.isFinite(paymentReceivedNum) ? paymentReceivedNum : 0,
+    notes,
+  });
 
   if (error) {
     redirect(`/bookings/new?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect(`/bookings/${data.id}`);
+  redirect(`/bookings?success=${encodeURIComponent("Booking created.")}`);
 }
 
-type PageProps = {
-  searchParams?: {
-    quote_id?: string;
-    client_id?: string;
-    company?: string;
-    subject?: string;
-    amount?: string;
-    notes?: string;
-    quote_status?: string;
-    quote_date?: string;
-    valid_until?: string;
-    contact_name?: string;
-    contact_phone?: string;
-    error?: string;
-  };
-};
-
-export default async function NewBookingPage({ searchParams }: PageProps) {
+export default async function NewBookingPage({
+  searchParams,
+}: {
+  searchParams?: { error?: string };
+}) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }] = await Promise.all([
+  const [{ data: clients }, { data: cranes }] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, company_name, archived")
-      .eq("archived", false)
+      .select("id, company_name")
       .order("company_name", { ascending: true }),
-
     supabase
-      .from("equipment")
-      .select("id, name, asset_number, capacity, archived, status")
+      .from("cranes")
+      .select("id, name, reg_number, capacity, status, archived")
       .eq("archived", false)
-      .eq("status", "active")
+      .eq("status", "available")
       .order("name", { ascending: true }),
   ]);
 
-  const quoteId = String(searchParams?.quote_id ?? "");
-  const prefilledClientId = String(searchParams?.client_id ?? "");
-  const prefilledCompany = safeDecode(searchParams?.company);
-  const prefilledSubject = safeDecode(searchParams?.subject);
-  const prefilledAmount = safeDecode(searchParams?.amount);
-  const prefilledNotes = safeDecode(searchParams?.notes);
-  const prefilledQuoteStatus = safeDecode(searchParams?.quote_status);
-  const prefilledQuoteDate = safeDecode(searchParams?.quote_date);
-  const prefilledValidUntil = safeDecode(searchParams?.valid_until);
-  const defaultStatus = quoteToBookingStatus(searchParams?.quote_status);
-  const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
+  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
   return (
     <ClientShell>
-      <div style={{ width: "min(960px, 95vw)", margin: "0 auto" }}>
-        <div style={cardStyle}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
+        <div style={pageCard}>
           <h1 style={{ marginTop: 0, fontSize: 32 }}>New Booking</h1>
-          <p style={{ opacity: 0.8, marginTop: 6 }}>
-            Create a booking using the live booking schema.
+          <p style={{ marginTop: 6, opacity: 0.8 }}>
+            Create a booking using cranes only. LOLER lifting gear stays separate.
           </p>
-
-          {quoteId ? (
-            <div style={infoBox}>
-              <div>
-                Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
-              </div>
-              <div style={infoMetaStyle}>
-                Quote status: {prefilledQuoteStatus || "—"} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
-              </div>
-            </div>
-          ) : null}
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <form action={createBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
-            <input type="hidden" name="quote_id" value={quoteId} />
-            <input type="hidden" name="quote_amount" value={prefilledAmount || ""} />
-            <input type="hidden" name="quote_subject" value={prefilledSubject || ""} />
-            <input type="hidden" name="quote_notes" value={prefilledNotes || ""} />
+            <div style={grid2}>
+              <SelectField
+                label="Customer *"
+                name="client_id"
+                options={[
+                  { value: "", label: "— Select customer —" },
+                  ...(clients ?? []).map((c: any) => ({
+                    value: c.id,
+                    label: c.company_name ?? "Customer",
+                  })),
+                ]}
+              />
 
-            <div style={twoCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Customer *</label>
-                <select name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
-                  <option value="">— Select customer —</option>
-                  {(clients ?? []).map((client: any) => (
-                    <option key={client.id} value={client.id}>
-                      {client.company_name ?? "Customer"}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Equipment *</label>
-                <select name="equipment_id" style={inputStyle} defaultValue="">
-                  <option value="">— Select equipment —</option>
-                  {(equipment ?? []).map((item: any) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name ?? "Equipment"}
-                      {item.asset_number ? ` (${item.asset_number})` : ""}
-                      {item.capacity ? ` • ${item.capacity}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Location / site</label>
-              <input
-                name="location"
-                style={inputStyle}
-                defaultValue={prefilledSubject}
-                placeholder="Site / location"
+              <SelectField
+                label="Crane *"
+                name="crane_id"
+                options={[
+                  { value: "", label: "— Select crane —" },
+                  ...(cranes ?? []).map((c: any) => ({
+                    value: c.id,
+                    label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
+                  })),
+                ]}
               />
             </div>
 
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Site address</label>
-              <textarea
-                name="site_address"
-                rows={3}
-                style={textareaStyle}
-                placeholder="Optional address"
+            <Field label="Location / site" name="location" placeholder="Site / location" />
+            <TextAreaField label="Site address" name="site_address" rows={2} placeholder="Optional address" />
+
+            <div style={grid2}>
+              <Field label="Start date *" name="start_date" type="date" />
+              <Field label="End date *" name="end_date" type="date" />
+            </div>
+
+            <div style={grid2}>
+              <Field label="Start time" name="start_time" type="time" />
+              <Field label="End time" name="end_time" type="time" />
+            </div>
+
+            <div style={grid2}>
+              <SelectField
+                label="Status"
+                name="status"
+                options={[
+                  { value: "Inquiry", label: "Inquiry" },
+                  { value: "Confirmed", label: "Confirmed" },
+                  { value: "In Progress", label: "In Progress" },
+                  { value: "Completed", label: "Completed" },
+                  { value: "Cancelled", label: "Cancelled" },
+                ]}
+              />
+
+              <SelectField
+                label="Invoice status"
+                name="invoice_status"
+                options={[
+                  { value: "Not Invoiced", label: "Not Invoiced" },
+                  { value: "Sent", label: "Sent" },
+                  { value: "Part Paid", label: "Part Paid" },
+                  { value: "Paid", label: "Paid" },
+                  { value: "Overdue", label: "Overdue" },
+                ]}
               />
             </div>
 
-            <div style={twoCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Start date *</label>
-                <input name="start_date" type="date" style={inputStyle} />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>End date *</label>
-                <input name="end_date" type="date" style={inputStyle} />
-              </div>
+            <div style={grid3}>
+              <Field label="Hire price" name="hire_price" type="number" placeholder="0.00" />
+              <Field label="VAT %" name="vat" type="number" defaultValue="20" />
+              <Field label="Payment received" name="payment_received" type="number" defaultValue="0" />
             </div>
 
-            <div style={twoCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Start time</label>
-                <input name="start_time" type="time" style={inputStyle} />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>End time</label>
-                <input name="end_time" type="time" style={inputStyle} />
-              </div>
-            </div>
-
-            <div style={twoCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Status</label>
-                <select name="status" style={inputStyle} defaultValue={defaultStatus}>
-                  <option value="Inquiry">Inquiry</option>
-                  <option value="Provisional">Provisional</option>
-                  <option value="Confirmed">Confirmed</option>
-                  <option value="Completed">Completed</option>
-                  <option value="Cancelled">Cancelled</option>
-                </select>
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Invoice status</label>
-                <select name="invoice_status" style={inputStyle} defaultValue="Not Invoiced">
-                  <option value="Not Invoiced">Not Invoiced</option>
-                  <option value="Part Paid">Part Paid</option>
-                  <option value="Paid">Paid</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={threeCol}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Hire price</label>
-                <input
-                  name="hire_price"
-                  type="number"
-                  step="0.01"
-                  style={inputStyle}
-                  defaultValue={prefilledAmount || ""}
-                />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>VAT %</label>
-                <input
-                  name="vat_rate"
-                  type="number"
-                  step="0.01"
-                  style={inputStyle}
-                  defaultValue="20"
-                />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Payment received</label>
-                <input
-                  name="payment_received"
-                  type="number"
-                  step="0.01"
-                  style={inputStyle}
-                  defaultValue="0"
-                />
-              </div>
-            </div>
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Quote notes carried into booking notes</label>
-              <textarea
-                value={prefilledNotes}
-                readOnly
-                rows={5}
-                style={{ ...textareaStyle, opacity: 0.8 }}
-              />
-            </div>
+            <TextAreaField
+              label="Booking notes"
+              name="notes"
+              rows={4}
+              placeholder="Notes for this crane booking"
+            />
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
@@ -352,7 +194,81 @@ export default async function NewBookingPage({ searchParams }: PageProps) {
   );
 }
 
-const cardStyle: React.CSSProperties = {
+function Field({
+  label,
+  name,
+  type = "text",
+  placeholder,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  type?: string;
+  placeholder?: string;
+  defaultValue?: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <input
+        name={name}
+        type={type}
+        placeholder={placeholder}
+        defaultValue={defaultValue}
+        style={inputStyle}
+      />
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  name,
+  rows,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  rows: number;
+  placeholder?: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <textarea
+        name={name}
+        rows={rows}
+        placeholder={placeholder}
+        style={textareaStyle}
+      />
+    </div>
+  );
+}
+
+function SelectField({
+  label,
+  name,
+  options,
+}: {
+  label: string;
+  name: string;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <select name={name} style={inputStyle} defaultValue="">
+        {options.map((option) => (
+          <option key={`${name}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 20,
   borderRadius: 16,
@@ -360,21 +276,16 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const fieldWrap: React.CSSProperties = {
+const grid2: React.CSSProperties = {
   display: "grid",
-  gap: 6,
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 14,
 };
 
-const twoCol: React.CSSProperties = {
+const grid3: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-};
-
-const threeCol: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
-  gap: 12,
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 14,
 };
 
 const labelStyle: React.CSSProperties = {
@@ -385,7 +296,7 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
+  height: 44,
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
@@ -405,9 +316,8 @@ const textareaStyle: React.CSSProperties = {
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
@@ -419,26 +329,11 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const infoBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.18)",
-  fontWeight: 700,
-};
-
-const infoMetaStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  opacity: 0.78,
+  textDecoration: "none",
 };
 
 const errorBox: React.CSSProperties = {
