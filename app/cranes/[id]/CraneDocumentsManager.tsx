@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createSupabaseBrowserClient } from "../../../lib/supabase/browser";
+import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
 
 type CraneDocument = {
   id: string;
@@ -37,7 +37,9 @@ export default function CraneDocumentsManager({
       }
 
       const ext = file.name.split(".").pop() || "pdf";
-      const fileName = `${craneId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const fileName = `${craneId}/${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2)}.${ext}`;
 
       const { error: uploadError } = await supabase.storage
         .from("crane-documents")
