@@ -111,6 +111,13 @@ export default async function JobPage({
           phone,
           email
         ),
+        suppliers:supplier_id (
+          id,
+          company_name,
+          phone,
+          email,
+          category
+        ),
         bookings:booking_id (
           id,
           location,
@@ -159,7 +166,8 @@ export default async function JobPage({
         ),
         suppliers:supplier_id (
           id,
-          company_name
+          company_name,
+          category
         ),
         purchase_orders:purchase_order_id (
           id,
@@ -196,7 +204,8 @@ export default async function JobPage({
 
     supabase
       .from("suppliers")
-      .select("id, company_name")
+      .select("id, company_name, category")
+      .eq("status", "active")
       .order("company_name", { ascending: true }),
 
     supabase
@@ -206,6 +215,7 @@ export default async function JobPage({
   ]);
 
   const client = first((job as any)?.clients);
+  const linkedSupplier = first((job as any)?.suppliers);
   const linkedBooking = first((job as any)?.bookings);
   const linkedCrane = first((linkedBooking as any)?.cranes);
   const allocationList = (allocations as any[]) ?? [];
@@ -217,7 +227,7 @@ export default async function JobPage({
   );
 
   const allocatedSubtotal = allocationList.reduce(
-    (sum, item) => sum + Number(item.agreed_cost ?? 0),
+    (sum, item) => sum + Number(item.supplier_cost ?? item.agreed_cost ?? 0),
     0
   );
   const allocatedVat = 0;
@@ -232,13 +242,16 @@ export default async function JobPage({
               Job {job?.job_number ? `#${job.job_number}` : ""}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Manage live job details, allocations and activity.
+              Manage live job details, allocations and supplier costs.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/jobs" style={secondaryBtn}>
               ← Back to jobs
+            </a>
+            <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
+              Edit job
             </a>
             {job?.booking_id ? (
               <a href={`/bookings/${job.booking_id}`} style={secondaryBtn}>
@@ -300,7 +313,7 @@ export default async function JobPage({
                     title="Cranes"
                     items={cranesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
                     }))}
                   />
 
@@ -308,7 +321,7 @@ export default async function JobPage({
                     title="Vehicles"
                     items={vehiclesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
                     }))}
                   />
 
@@ -316,7 +329,7 @@ export default async function JobPage({
                     title="Lifting Equipment"
                     items={equipmentAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
                     }))}
                   />
                 </div>
@@ -355,6 +368,7 @@ export default async function JobPage({
                 supplierOptions={((supplierList as any[]) ?? []).map((s: any) => ({
                   value: s.id,
                   label: s.company_name ?? "Supplier",
+                  category: s.category ?? "",
                 }))}
                 purchaseOrderOptions={((poList as any[]) ?? []).map((p: any) => ({
                   value: p.id,
@@ -367,6 +381,19 @@ export default async function JobPage({
             </div>
 
             <div style={{ display: "grid", gap: 18 }}>
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Primary Supplier</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Supplier" value={linkedSupplier?.company_name ?? "—"} />
+                  <Row label="Phone" value={linkedSupplier?.phone ?? "—"} />
+                  <Row label="Email" value={linkedSupplier?.email ?? "—"} />
+                  <Row label="Category" value={linkedSupplier?.category ?? "—"} />
+                  <Row label="Reference" value={job.supplier_reference ?? "—"} />
+                  <Row label="Supplier cost" value={money(job.supplier_cost)} />
+                </div>
+              </section>
+
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Linked Booking</h2>
 
