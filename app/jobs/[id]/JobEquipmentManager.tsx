@@ -125,11 +125,20 @@ function getAllowedSupplierCategories(assetType: string) {
 }
 
 function filterSuppliersByAssetType(assetType: string, options: Option[]) {
-  const allowed = getAllowedSupplierCategories(assetType);
+  const type = String(assetType ?? "").toLowerCase();
+
+  // ✅ CRITICAL FIX — show ALL suppliers when "other"
+  if (type === "other") {
+    return options;
+  }
+
+  const allowed = getAllowedSupplierCategories(type);
+
   const filtered = options.filter((option) =>
     allowed.includes(normaliseCategory(option.category))
   );
 
+  // fallback to all if nothing matched
   return filtered.length > 0 ? filtered : options;
 }
 
