@@ -12,6 +12,12 @@ function num(value: unknown) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normaliseAssetType(value: unknown) {
+  const v = String(value ?? "").trim().toLowerCase();
+  if (v === "crane" || v === "vehicle" || v === "equipment") return v;
+  return "equipment";
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -24,9 +30,13 @@ export async function PATCH(
     } = await supabase.auth.getUser();
 
     const body = await req.json().catch(() => ({}));
+    const assetType = normaliseAssetType(body.asset_type);
 
     const payload = {
-      equipment_id: clean(body.equipment_id),
+      asset_type: assetType,
+      crane_id: assetType === "crane" ? clean(body.crane_id) : null,
+      vehicle_id: assetType === "vehicle" ? clean(body.vehicle_id) : null,
+      equipment_id: assetType === "equipment" ? clean(body.equipment_id) : null,
       operator_id: clean(body.operator_id),
       source_type: clean(body.source_type) ?? "owned",
       supplier_id: clean(body.supplier_id),
@@ -48,6 +58,17 @@ export async function PATCH(
       .eq("id", params.id)
       .select(`
         *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
         equipment:equipment_id (
           id,
           name,
@@ -87,7 +108,7 @@ export async function PATCH(
     return NextResponse.json({ allocation: data });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message ?? "Could not update job equipment." },
+      { error: e?.message ?? "Could not update allocation." },
       { status: 400 }
     );
   }
@@ -104,7 +125,10 @@ export async function DELETE(
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from("job_equipment").delete().eq("id", params.id);
+    const { error } = await supabase
+      .from("job_equipment")
+      .delete()
+      .eq("id", params.id);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -124,7 +148,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message ?? "Could not delete job equipment." },
+      { error: e?.message ?? "Could not delete allocation." },
       { status: 400 }
     );
   }
