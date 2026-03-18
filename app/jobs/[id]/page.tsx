@@ -76,6 +76,13 @@ function Row({
   );
 }
 
+function allocatedAssetName(item: any) {
+  const type = String(item.asset_type ?? "equipment").toLowerCase();
+  if (type === "crane") return item.cranes?.name ?? item.item_name ?? "Crane";
+  if (type === "vehicle") return item.vehicles?.name ?? item.item_name ?? "Vehicle";
+  return item.equipment?.name ?? item.item_name ?? "Equipment";
+}
+
 export default async function JobPage({
   params,
 }: {
@@ -201,6 +208,20 @@ export default async function JobPage({
   const client = first((job as any)?.clients);
   const linkedBooking = first((job as any)?.bookings);
   const linkedCrane = first((linkedBooking as any)?.cranes);
+  const allocationList = (allocations as any[]) ?? [];
+
+  const cranesAllocated = allocationList.filter((a) => a.asset_type === "crane");
+  const vehiclesAllocated = allocationList.filter((a) => a.asset_type === "vehicle");
+  const equipmentAllocated = allocationList.filter(
+    (a) => String(a.asset_type ?? "equipment") === "equipment"
+  );
+
+  const allocatedSubtotal = allocationList.reduce(
+    (sum, item) => sum + Number(item.agreed_cost ?? 0),
+    0
+  );
+  const allocatedVat = 0;
+  const allocatedTotal = allocatedSubtotal + allocatedVat;
 
   return (
     <ClientShell>
@@ -265,6 +286,43 @@ export default async function JobPage({
               </section>
 
               <section style={cardStyle}>
+                <h2 style={sectionTitle}>Allocated Assets Summary</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Cranes" value={cranesAllocated.length} />
+                  <Row label="Vehicles" value={vehiclesAllocated.length} />
+                  <Row label="Lifting equipment" value={equipmentAllocated.length} />
+                  <Row label="Allocated cost" value={money(allocatedSubtotal)} />
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                  <AssetListBlock
+                    title="Cranes"
+                    items={cranesAllocated.map((item) => ({
+                      name: allocatedAssetName(item),
+                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                    }))}
+                  />
+
+                  <AssetListBlock
+                    title="Vehicles"
+                    items={vehiclesAllocated.map((item) => ({
+                      name: allocatedAssetName(item),
+                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                    }))}
+                  />
+
+                  <AssetListBlock
+                    title="Lifting Equipment"
+                    items={equipmentAllocated.map((item) => ({
+                      name: allocatedAssetName(item),
+                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${Number(item.agreed_cost ?? 0) ? ` • ${money(item.agreed_cost)}` : ""}`,
+                    }))}
+                  />
+                </div>
+              </section>
+
+              <section style={cardStyle}>
                 <h2 style={sectionTitle}>Customer</h2>
 
                 <div style={summaryGrid}>
@@ -277,7 +335,7 @@ export default async function JobPage({
 
               <JobEquipmentManager
                 jobId={job.id}
-                initialAllocations={(allocations as any[]) ?? []}
+                initialAllocations={allocationList}
                 craneOptions={((craneList as any[]) ?? []).map((c: any) => ({
                   value: c.id,
                   label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
@@ -365,9 +423,9 @@ export default async function JobPage({
                   <Row label="Invoice #" value={job.invoice_number ?? "—"} />
                   <Row label="Invoice created" value={fmtDate(job.invoice_created_at)} />
                   <Row label="Invoice due" value={fmtDate(job.invoice_due_at)} />
-                  <Row label="Subtotal" value={money(job.subtotal)} />
-                  <Row label="VAT" value={money(job.vat_total)} />
-                  <Row label="Total" value={money(job.invoice_total)} />
+                  <Row label="Allocated subtotal" value={money(allocatedSubtotal)} />
+                  <Row label="VAT" value={money(allocatedVat)} />
+                  <Row label="Allocated total" value={money(allocatedTotal)} />
                   <Row label="Invoice notes" value={job.invoice_notes ?? "—"} />
                 </div>
               </section>
@@ -376,6 +434,33 @@ export default async function JobPage({
         ) : null}
       </div>
     </ClientShell>
+  );
+}
+
+function AssetListBlock({
+  title,
+  items,
+}: {
+  title: string;
+  items: Array<{ name: string; meta: string }>;
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>{title}</div>
+
+      {items.length === 0 ? (
+        <div style={listEmptyStyle}>None added.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {items.map((item, index) => (
+            <div key={`${title}-${index}`} style={listItemStyle}>
+              <div style={{ fontWeight: 800 }}>{item.name}</div>
+              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.74 }}>{item.meta}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -432,6 +517,21 @@ const rowLabel: React.CSSProperties = {
 const rowValue: React.CSSProperties = {
   fontWeight: 800,
   textAlign: "right",
+};
+
+const listItemStyle: React.CSSProperties = {
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.48)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const listEmptyStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.40)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
 };
 
 const secondaryBtn: React.CSSProperties = {
