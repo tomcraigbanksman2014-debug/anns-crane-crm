@@ -30,6 +30,9 @@ async function updateJob(formData: FormData) {
   const notes = clean(formData.get("notes")) || null;
   const equipment_id = clean(formData.get("equipment_id")) || null;
   const operator_id = clean(formData.get("operator_id")) || null;
+  const supplier_id = clean(formData.get("supplier_id")) || null;
+  const supplier_reference = clean(formData.get("supplier_reference")) || null;
+  const supplier_cost = Number(clean(formData.get("supplier_cost")) || "0");
 
   const { error } = await supabase
     .from("jobs")
@@ -49,6 +52,9 @@ async function updateJob(formData: FormData) {
       equipment_id,
       operator_id,
       main_operator_id: operator_id,
+      supplier_id,
+      supplier_reference,
+      supplier_cost: Number.isFinite(supplier_cost) ? supplier_cost : 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -126,7 +132,8 @@ export default async function EditJobPage({
         ),
         suppliers:supplier_id (
           id,
-          company_name
+          company_name,
+          category
         ),
         purchase_orders:purchase_order_id (
           id,
@@ -139,7 +146,7 @@ export default async function EditJobPage({
 
     supabase
       .from("suppliers")
-      .select("id, company_name")
+      .select("id, company_name, category")
       .eq("status", "active")
       .order("company_name", { ascending: true }),
 
@@ -178,7 +185,7 @@ export default async function EditJobPage({
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Edit Job</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Update main job details and manage multiple equipment allocations.
+                Update main job details, supplier details and manage multiple equipment allocations.
               </p>
             </div>
 
@@ -215,7 +222,7 @@ export default async function EditJobPage({
                   />
 
                   <SelectField
-                    label="Legacy primary crane"
+                    label="Legacy primary equipment"
                     name="equipment_id"
                     defaultValue={job.equipment_id ?? ""}
                     options={(equipment ?? []).map((e: any) => ({
@@ -290,6 +297,29 @@ export default async function EditJobPage({
                   />
                 </div>
 
+                <div style={grid3Style}>
+                  <SelectField
+                    label="Primary supplier"
+                    name="supplier_id"
+                    defaultValue={job.supplier_id ?? ""}
+                    options={(suppliers ?? []).map((s: any) => ({
+                      value: s.id,
+                      label: `${s.company_name ?? "Supplier"}${s.category ? ` • ${s.category}` : ""}`,
+                    }))}
+                  />
+                  <Field
+                    label="Supplier reference"
+                    name="supplier_reference"
+                    defaultValue={job.supplier_reference ?? ""}
+                  />
+                  <Field
+                    label="Supplier cost"
+                    name="supplier_cost"
+                    type="number"
+                    defaultValue={String(job.supplier_cost ?? 0)}
+                  />
+                </div>
+
                 <div style={{ marginTop: 12 }}>
                   <label style={labelStyle}>Site address</label>
                   <textarea
@@ -339,6 +369,7 @@ export default async function EditJobPage({
                 supplierOptions={(suppliers ?? []).map((s: any) => ({
                   value: s.id,
                   label: s.company_name ?? "Supplier",
+                  category: s.category ?? "",
                 }))}
                 purchaseOrderOptions={(purchaseOrders ?? []).map((po: any) => ({
                   value: po.id,
@@ -432,6 +463,13 @@ const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
   gap: 12,
+};
+
+const grid3Style: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
 };
 
 const labelStyle: React.CSSProperties = {
