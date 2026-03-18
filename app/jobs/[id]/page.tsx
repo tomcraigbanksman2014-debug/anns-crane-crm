@@ -1,53 +1,36 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import DocumentUploadForm from "./DocumentUploadForm";
-import DocumentDeleteButton from "./DocumentDeleteButton";
-import LiftPlanForm from "./LiftPlanForm";
-import SignoffForm from "./SignoffForm";
 import JobEquipmentManager from "./JobEquipmentManager";
-import CreateTransportJobButton from "./CreateTransportJobButton";
-import ArchiveJobButton from "./ArchiveJobButton";
-import CreateInvoiceButton from "./CreateInvoiceButton";
-
-function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB");
-}
 
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
+  if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleString("en-GB");
 }
 
-function prettyDocumentType(value: string | null | undefined) {
-  const map: Record<string, string> = {
-    rams: "RAMS",
-    lift_plan: "Lift Plan",
-    site_drawing: "Site Drawing",
-    photo: "Photo",
-    delivery_note: "Delivery Note",
-    other: "Other",
-  };
-
-  return map[String(value ?? "").toLowerCase()] ?? "Other";
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
 }
 
-function documentTypeStyle(value: string | null | undefined): React.CSSProperties {
-  const v = String(value ?? "").toLowerCase();
+function money(value: number | null | undefined) {
+  const n = Number(value ?? null);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
+}
 
-  if (v === "rams") {
-    return {
-      background: "rgba(0,120,255,0.12)",
-      color: "#0b57d0",
-      border: "1px solid rgba(0,120,255,0.20)",
-    };
-  }
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
 
-  if (v === "lift_plan") {
+function statusPillStyle(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").toLowerCase();
+
+  if (["confirmed", "in progress", "in_progress", "active"].includes(s)) {
     return {
       background: "rgba(0,180,120,0.12)",
       color: "#0b7a4b",
@@ -55,65 +38,42 @@ function documentTypeStyle(value: string | null | undefined): React.CSSPropertie
     };
   }
 
-  if (v === "site_drawing") {
+  if (["planned", "draft", "pending"].includes(s)) {
     return {
-      background: "rgba(255,140,0,0.14)",
+      background: "rgba(255,170,0,0.14)",
       color: "#8a5200",
-      border: "1px solid rgba(255,140,0,0.22)",
+      border: "1px solid rgba(255,170,0,0.24)",
     };
   }
 
-  if (v === "photo") {
+  if (["cancelled", "canceled"].includes(s)) {
     return {
-      background: "rgba(170,0,255,0.10)",
-      color: "#6a1b9a",
-      border: "1px solid rgba(170,0,255,0.18)",
+      background: "rgba(255,0,0,0.10)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.20)",
     };
   }
 
   return {
-    background: "rgba(255,255,255,0.35)",
+    background: "rgba(255,255,255,0.45)",
     color: "#111",
     border: "1px solid rgba(0,0,0,0.10)",
   };
 }
 
-function calcWorkedHours(startedAt: string | null | undefined, completedAt: string | null | undefined) {
-  if (!startedAt || !completedAt) return "—";
-  const start = new Date(startedAt);
-  const end = new Date(completedAt);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return "—";
-  const diffMs = end.getTime() - start.getTime();
-  if (diffMs < 0) return "—";
-  const hours = diffMs / (1000 * 60 * 60);
-  return `${hours.toFixed(2)} hrs`;
-}
-
-function hasText(value: any) {
-  return String(value ?? "").trim().length > 0;
-}
-
-function fmtMoney(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
-}
-
-async function updateJobStatus(formData: FormData) {
-  "use server";
-
-  const id = String(formData.get("id") ?? "");
-  const status = String(formData.get("status") ?? "");
-  if (!id || !status) return;
-
-  const supabase = createSupabaseServerClient();
-  await supabase
-    .from("jobs")
-    .update({
-      status,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div style={rowStyle}>
+      <div style={rowLabel}>{label}</div>
+      <div style={rowValue}>{value}</div>
+    </div>
+  );
 }
 
 export default async function JobPage({
@@ -124,10 +84,10 @@ export default async function JobPage({
   const supabase = createSupabaseServerClient();
 
   const [
-    { data: job, error },
-    { data: documents },
-    { data: liftPlan },
+    { data: job, error: jobError },
     { data: allocations },
+    { data: craneList },
+    { data: vehicleList },
     { data: equipmentList },
     { data: operatorList },
     { data: supplierList },
@@ -136,41 +96,7 @@ export default async function JobPage({
     supabase
       .from("jobs")
       .select(`
-        id,
-        job_number,
-        site_name,
-        site_address,
-        contact_name,
-        contact_phone,
-        job_date,
-        start_time,
-        end_time,
-        status,
-        archived,
-        hire_type,
-        lift_type,
-        notes,
-        created_at,
-        updated_at,
-        operator_id,
-        started_at,
-        arrived_on_site_at,
-        lift_completed_at,
-        completed_at,
-        customer_signature_name,
-        operator_signature_name,
-        signed_off_at,
-        invoice_status,
-        invoice_number,
-        invoice_created_at,
-        invoice_due_date,
-        invoice_notes,
-        invoice_subtotal,
-        invoice_vat,
-        invoice_total,
-        portal_token,
-        cross_hire_cost_total,
-        equipment_count,
+        *,
         clients:client_id (
           id,
           company_name,
@@ -178,46 +104,43 @@ export default async function JobPage({
           phone,
           email
         ),
-        equipment:equipment_id (
-          id,
-          name,
-          asset_number,
-          type,
-          capacity,
-          status,
-          archived
-        ),
-        operators:operator_id (
-          id,
-          full_name,
-          phone,
-          email,
-          status,
-          archived
-        ),
         bookings:booking_id (
-          id
+          id,
+          location,
+          site_address,
+          start_date,
+          end_date,
+          start_at,
+          end_at,
+          status,
+          cranes:crane_id (
+            id,
+            name,
+            reg_number,
+            fleet_number,
+            capacity,
+            status
+          )
         )
       `)
       .eq("id", params.id)
       .single(),
 
     supabase
-      .from("job_documents")
-      .select("id, file_name, file_path, file_type, document_type, created_at")
-      .eq("job_id", params.id)
-      .order("created_at", { ascending: false }),
-
-    supabase
-      .from("lift_plans")
-      .select("*")
-      .eq("job_id", params.id)
-      .maybeSingle(),
-
-    supabase
       .from("job_equipment")
       .select(`
         *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
         equipment:equipment_id (
           id,
           name,
@@ -241,693 +164,238 @@ export default async function JobPage({
       .order("created_at", { ascending: true }),
 
     supabase
+      .from("cranes")
+      .select("id, name, reg_number, capacity, status, archived")
+      .eq("archived", false)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("vehicles")
+      .select("id, name, reg_number")
+      .eq("archived", false)
+      .order("name", { ascending: true }),
+
+    supabase
       .from("equipment")
-      .select("id, name, asset_number, status, archived")
-      .eq("status", "active")
+      .select("id, name, asset_number")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
-      .select("id, full_name, status, archived")
-      .eq("status", "active")
+      .select("id, full_name")
       .eq("archived", false)
       .order("full_name", { ascending: true }),
 
     supabase
       .from("suppliers")
-      .select("id, company_name, status, archived")
-      .eq("status", "active")
-      .eq("archived", false)
+      .select("id, company_name")
       .order("company_name", { ascending: true }),
 
     supabase
       .from("purchase_orders")
-      .select("id, po_number")
-      .order("created_at", { ascending: false })
-      .limit(300),
+      .select("id, po_number, status")
+      .order("created_at", { ascending: false }),
   ]);
 
-  const client = Array.isArray((job as any)?.clients)
-    ? (job as any).clients[0] ?? null
-    : (job as any)?.clients ?? null;
-
-  const equipment = Array.isArray((job as any)?.equipment)
-    ? (job as any).equipment[0] ?? null
-    : (job as any)?.equipment ?? null;
-
-  const operator = Array.isArray((job as any)?.operators)
-    ? (job as any).operators[0] ?? null
-    : (job as any)?.operators ?? null;
-
-  const booking = Array.isArray((job as any)?.bookings)
-    ? (job as any).bookings[0] ?? null
-    : (job as any)?.bookings ?? null;
-
-  const docs = documents ?? [];
-  const photos = docs.filter((doc: any) => String(doc.document_type ?? "") === "photo");
-  const ramsDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "rams");
-  const liftPlanDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "lift_plan");
-  const siteDrawingDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "site_drawing");
-  const deliveryNoteDocs = docs.filter((doc: any) => String(doc.document_type ?? "") === "delivery_note");
-
-  const liftPlanPresent =
-    !!liftPlan &&
-    (
-      hasText(liftPlan.load_description) ||
-      liftPlan.load_weight !== null ||
-      liftPlan.lift_radius !== null ||
-      liftPlan.lift_height !== null
-    );
-
-  const ramsPresent =
-    !!liftPlan &&
-    (
-      hasText(liftPlan.method_statement) ||
-      hasText(liftPlan.risk_assessment) ||
-      hasText(liftPlan.site_hazards) ||
-      hasText(liftPlan.control_measures)
-    );
-
-  const personnelPresent =
-    !!liftPlan &&
-    (
-      hasText(liftPlan.lift_supervisor) ||
-      hasText(liftPlan.appointed_person) ||
-      hasText(liftPlan.crane_operator)
-    );
-
-  const paperworkReady =
-    !!liftPlan?.lift_plan_complete &&
-    !!liftPlan?.rams_complete &&
-    hasText(liftPlan?.approved_by) &&
-    !!liftPlan?.approved_at;
-
-  const portalUrl = (job as any)?.portal_token ? `/portal/job/${(job as any).portal_token}` : null;
-
-  const suggestedLiftPlan = {
-    ...liftPlan,
-    crane_operator: liftPlan?.crane_operator || operator?.full_name || "",
-  };
+  const client = first((job as any)?.clients);
+  const linkedBooking = first((job as any)?.bookings);
+  const linkedCrane = first((linkedBooking as any)?.cranes);
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1200px, 95vw)", margin: "0 auto" }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+      <div style={{ width: "min(1380px, 96vw)", margin: "0 auto" }}>
+        <div style={pageHeader}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>
-              Job #{(job as any)?.job_number ?? "—"}
+              Job {job?.job_number ? `#${job.job_number}` : ""}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View crane hire job details, multiple equipment allocations and cross-hire items.
+              Manage live job details, allocations and activity.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {job?.id ? <CreateTransportJobButton jobId={(job as any).id} /> : null}
-            {job?.id ? <CreateInvoiceButton jobId={(job as any).id} /> : null}
-            {job?.id ? (
-              <ArchiveJobButton jobId={(job as any).id} archived={!!(job as any).archived} />
-            ) : null}
-            {job?.id ? (
-              <a href={`/jobs/${job.id}/edit`} style={actionBtn}>
-                Edit job
+            <a href="/jobs" style={secondaryBtn}>
+              ← Back to jobs
+            </a>
+            {job?.booking_id ? (
+              <a href={`/bookings/${job.booking_id}`} style={secondaryBtn}>
+                Open booking
               </a>
             ) : null}
-            <a href="/jobs" style={btnStyle}>
-              ← Back
-            </a>
           </div>
         </div>
 
-        {error ? (
-          <div style={errorBox}>{error.message}</div>
-        ) : !job ? (
-          <div style={errorBox}>Job not found.</div>
-        ) : (
-          <>
-            <div style={{ ...card, marginTop: 16 }}>
-              <h2 style={sectionTitle}>Quick status update</h2>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                {[
-                  ["draft", "Draft"],
-                  ["confirmed", "Confirmed"],
-                  ["in_progress", "In Progress"],
-                  ["completed", "Completed"],
-                  ["cancelled", "Cancelled"],
-                ].map(([value, label]) => (
-                  <form action={updateJobStatus} key={value}>
-                    <input type="hidden" name="id" value={(job as any).id} />
-                    <input type="hidden" name="status" value={value} />
-                    <button
-                      type="submit"
-                      style={
-                        (job as any).status === value
-                          ? activeStatusBtn
-                          : statusBtn
-                      }
-                    >
-                      {label}
-                    </button>
-                  </form>
-                ))}
-              </div>
-            </div>
+        {jobError ? <div style={errorBox}>{jobError.message}</div> : null}
+        {!job ? <div style={errorBox}>Job not found.</div> : null}
 
-            <div style={{ marginTop: 16 }}>
-              <PaperworkDashboard
-                liftPlanPresent={liftPlanPresent}
-                ramsPresent={ramsPresent}
-                personnelPresent={personnelPresent}
-                liftPlanComplete={!!liftPlan?.lift_plan_complete}
-                ramsComplete={!!liftPlan?.rams_complete}
-                approvedBy={liftPlan?.approved_by ?? null}
-                approvedAt={liftPlan?.approved_at ?? null}
-                approvalNotes={liftPlan?.approval_notes ?? null}
-                paperworkReady={paperworkReady}
-                photoCount={photos.length}
-                ramsDocCount={ramsDocs.length}
-                liftPlanDocCount={liftPlanDocs.length}
-                siteDrawingCount={siteDrawingDocs.length}
-                deliveryNoteCount={deliveryNoteDocs.length}
+        {job ? (
+          <div style={layoutGrid}>
+            <div style={{ display: "grid", gap: 18 }}>
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Job Summary</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Job #" value={job.job_number ?? "—"} />
+                  <Row
+                    label="Status"
+                    value={
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "6px 10px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 900,
+                          ...statusPillStyle(job.status),
+                        }}
+                      >
+                        {job.status ?? "—"}
+                      </span>
+                    }
+                  />
+                  <Row label="Job date" value={fmtDate(job.job_date)} />
+                  <Row label="Start time" value={job.start_time ?? "—"} />
+                  <Row label="End time" value={job.end_time ?? "—"} />
+                  <Row label="Site" value={job.site_name ?? linkedBooking?.location ?? "—"} />
+                  <Row label="Address" value={job.site_address ?? linkedBooking?.site_address ?? "—"} />
+                  <Row label="Created" value={fmtDateTime(job.created_at)} />
+                </div>
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Customer</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Company" value={client?.company_name ?? "—"} />
+                  <Row label="Contact" value={client?.contact_name ?? "—"} />
+                  <Row label="Phone" value={client?.phone ?? "—"} />
+                  <Row label="Email" value={client?.email ?? "—"} />
+                </div>
+              </section>
+
+              <JobEquipmentManager
+                jobId={job.id}
+                initialAllocations={(allocations as any[]) ?? []}
+                craneOptions={((craneList as any[]) ?? []).map((c: any) => ({
+                  value: c.id,
+                  label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
+                }))}
+                vehicleOptions={((vehicleList as any[]) ?? []).map((v: any) => ({
+                  value: v.id,
+                  label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+                }))}
+                equipmentOptions={((equipmentList as any[]) ?? []).map((e: any) => ({
+                  value: e.id,
+                  label: `${e.name ?? "Equipment"}${e.asset_number ? ` (${e.asset_number})` : ""}`,
+                }))}
+                operatorOptions={((operatorList as any[]) ?? []).map((o: any) => ({
+                  value: o.id,
+                  label: o.full_name ?? "Operator",
+                }))}
+                supplierOptions={((supplierList as any[]) ?? []).map((s: any) => ({
+                  value: s.id,
+                  label: s.company_name ?? "Supplier",
+                }))}
+                purchaseOrderOptions={((poList as any[]) ?? []).map((p: any) => ({
+                  value: p.id,
+                  label: `${p.po_number ?? "PO"}${p.status ? ` • ${p.status}` : ""}`,
+                }))}
+                defaultDate={job.job_date}
+                defaultStartTime={job.start_time}
+                defaultEndTime={job.end_time}
               />
             </div>
 
-            <div
-              style={{
-                marginTop: 16,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 16,
-                alignItems: "start",
-              }}
-            >
-              <div style={{ display: "grid", gap: 16 }}>
-                <div style={card}>
-                  <h2 style={sectionTitle}>Job details</h2>
-                  <Row label="Job #" value={(job as any).job_number} />
-                  <Row label="Status" value={(job as any).status} />
-                  <Row label="Archived" value={(job as any).archived ? "Yes" : "No"} />
-                  <Row label="Job date" value={fmtDate((job as any).job_date)} />
-                  <Row
-                    label="Time"
-                    value={
-                      (job as any).start_time || (job as any).end_time
-                        ? `${(job as any).start_time ?? "—"} - ${(job as any).end_time ?? "—"}`
-                        : "—"
-                    }
-                  />
-                  <Row label="Site name" value={(job as any).site_name} />
-                  <Row label="Site address" value={(job as any).site_address} />
-                  <Row label="Site contact" value={(job as any).contact_name} />
-                  <Row label="Site phone" value={(job as any).contact_phone} />
-                  <Row label="Equipment count" value={(allocations ?? []).length} />
-                  <Row
-                    label="Cross-hire cost total"
-                    value={`£${Number((job as any).cross_hire_cost_total ?? 0).toFixed(2)}`}
-                  />
-                  <Block label="Notes" value={(job as any).notes} />
+            <div style={{ display: "grid", gap: 18 }}>
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Linked Booking</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Booking ID" value={linkedBooking?.id ?? "—"} />
+                  <Row label="Booking status" value={linkedBooking?.status ?? "—"} />
+                  <Row label="Start date" value={fmtDate(linkedBooking?.start_date)} />
+                  <Row label="End date" value={fmtDate(linkedBooking?.end_date)} />
+                  <Row label="Start time" value={fmtDateTime(linkedBooking?.start_at)} />
+                  <Row label="End time" value={fmtDateTime(linkedBooking?.end_at)} />
                 </div>
+              </section>
 
-                <JobEquipmentManager
-                  jobId={(job as any).id}
-                  initialAllocations={allocations ?? []}
-                  equipmentOptions={(equipmentList ?? []).map((e: any) => ({
-                    value: e.id,
-                    label: `${e.name ?? "Equipment"}${e.asset_number ? ` (${e.asset_number})` : ""}`,
-                  }))}
-                  operatorOptions={(operatorList ?? []).map((o: any) => ({
-                    value: o.id,
-                    label: o.full_name ?? "Operator",
-                  }))}
-                  supplierOptions={(supplierList ?? []).map((s: any) => ({
-                    value: s.id,
-                    label: s.company_name ?? "Supplier",
-                  }))}
-                  purchaseOrderOptions={(poList ?? []).map((po: any) => ({
-                    value: po.id,
-                    label: po.po_number ?? "PO",
-                  }))}
-                  defaultDate={(job as any).job_date}
-                  defaultStartTime={(job as any).start_time}
-                  defaultEndTime={(job as any).end_time}
-                />
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Primary Crane From Booking</h2>
 
-                <div style={card}>
-                  <h2 style={sectionTitle}>Documents</h2>
-                  <DocumentUploadForm jobId={(job as any).id} />
-                  <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-                    {docs.length === 0 ? (
-                      <p style={{ margin: 0 }}>No documents uploaded yet.</p>
-                    ) : (
-                      docs.map((doc: any) => (
-                        <DocumentRow
-                          key={doc.id}
-                          jobId={(job as any).id}
-                          documentId={doc.id}
-                          fileName={doc.file_name}
-                          filePath={doc.file_path}
-                          documentType={doc.document_type}
-                          createdAt={doc.created_at}
-                        />
-                      ))
-                    )}
-                  </div>
+                <div style={summaryGrid}>
+                  <Row label="Crane" value={linkedCrane?.name ?? "—"} />
+                  <Row label="Registration" value={linkedCrane?.reg_number ?? "—"} />
+                  <Row label="Fleet" value={linkedCrane?.fleet_number ?? "—"} />
+                  <Row label="Capacity" value={linkedCrane?.capacity ?? "—"} />
+                  <Row label="Status" value={linkedCrane?.status ?? "—"} />
                 </div>
+              </section>
 
-                <LiftPlanForm
-                  jobId={(job as any).id}
-                  initial={suggestedLiftPlan ?? null}
-                />
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Legacy primary operator</h2>
 
-                <SignoffForm
-                  jobId={(job as any).id}
-                  initialCustomerSignatureName={(job as any).customer_signature_name}
-                  initialOperatorSignatureName={(job as any).operator_signature_name}
-                  initialSignedOffAt={(job as any).signed_off_at}
-                />
-              </div>
-
-              <div style={{ display: "grid", gap: 16 }}>
-                <div style={card}>
-                  <h2 style={sectionTitle}>Customer</h2>
-                  <Row label="Company" value={client?.company_name} />
-                  <Row label="Contact" value={client?.contact_name} />
-                  <Row label="Phone" value={client?.phone} />
-                  <Row label="Email" value={client?.email} />
-                  {client?.id ? (
-                    <div style={{ marginTop: 12 }}>
-                      <a href={`/customers/${client.id}`} style={actionBtn}>
-                        Open customer
-                      </a>
-                    </div>
-                  ) : null}
+                <div style={summaryGrid}>
+                  <Row label="Operator" value={job.operator_name ?? "—"} />
+                  <Row label="Phone" value={job.operator_phone ?? "—"} />
+                  <Row label="Email" value={job.operator_email ?? "—"} />
+                  <Row label="Status" value={job.operator_status ?? "—"} />
                 </div>
+              </section>
 
-                <div style={card}>
-                  <h2 style={sectionTitle}>Legacy primary equipment</h2>
-                  <Row label="Crane" value={equipment?.name} />
-                  <Row label="Asset #" value={equipment?.asset_number} />
-                  <Row label="Type" value={equipment?.type} />
-                  <Row label="Capacity" value={equipment?.capacity} />
-                  <Row label="Status" value={equipment?.status} />
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Operator Activity</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Started" value={fmtDateTime(job.started_at)} />
+                  <Row label="Arrived on site" value={fmtDateTime(job.arrived_on_site_at)} />
+                  <Row label="Lift completed" value={fmtDateTime(job.lift_completed_at)} />
+                  <Row label="Job completed" value={fmtDateTime(job.completed_at)} />
+                  <Row label="Worked time" value={job.worked_time ?? "—"} />
                 </div>
+              </section>
 
-                <div style={card}>
-                  <h2 style={sectionTitle}>Legacy primary operator</h2>
-                  <Row label="Operator" value={operator?.full_name} />
-                  <Row label="Phone" value={operator?.phone} />
-                  <Row label="Email" value={operator?.email} />
-                  <Row label="Status" value={operator?.status} />
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Invoice Status</h2>
+
+                <div style={summaryGrid}>
+                  <Row label="Invoice status" value={job.invoice_status ?? "Not Invoiced"} />
+                  <Row label="Invoice #" value={job.invoice_number ?? "—"} />
+                  <Row label="Invoice created" value={fmtDate(job.invoice_created_at)} />
+                  <Row label="Invoice due" value={fmtDate(job.invoice_due_at)} />
+                  <Row label="Subtotal" value={money(job.subtotal)} />
+                  <Row label="VAT" value={money(job.vat_total)} />
+                  <Row label="Total" value={money(job.invoice_total)} />
+                  <Row label="Invoice notes" value={job.invoice_notes ?? "—"} />
                 </div>
-
-                <div style={card}>
-                  <h2 style={sectionTitle}>Operator Activity</h2>
-                  <Row label="Started" value={fmtDateTime((job as any).started_at)} />
-                  <Row label="Arrived on site" value={fmtDateTime((job as any).arrived_on_site_at)} />
-                  <Row label="Lift completed" value={fmtDateTime((job as any).lift_completed_at)} />
-                  <Row label="Job completed" value={fmtDateTime((job as any).completed_at)} />
-                  <Row
-                    label="Worked time"
-                    value={calcWorkedHours((job as any).started_at, (job as any).completed_at)}
-                  />
-                </div>
-
-                <div style={card}>
-                  <h2 style={sectionTitle}>Invoice Status</h2>
-                  <Row label="Invoice status" value={(job as any).invoice_status ?? "not_invoiced"} />
-                  <Row label="Invoice #" value={(job as any).invoice_number ?? "—"} />
-                  <Row label="Invoice created" value={fmtDateTime((job as any).invoice_created_at)} />
-                  <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
-                  <Row label="Subtotal" value={fmtMoney((job as any).invoice_subtotal)} />
-                  <Row label="VAT" value={fmtMoney((job as any).invoice_vat)} />
-                  <Row label="Total" value={fmtMoney((job as any).invoice_total)} />
-                  <Block label="Invoice notes" value={(job as any).invoice_notes} />
-                </div>
-
-                <div style={card}>
-                  <h2 style={sectionTitle}>Site Photos</h2>
-                  {photos.length === 0 ? (
-                    <p style={{ margin: 0 }}>No site photos uploaded yet.</p>
-                  ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {photos.map((doc: any) => (
-                        <PhotoRow
-                          key={doc.id}
-                          fileName={doc.file_name}
-                          filePath={doc.file_path}
-                          createdAt={doc.created_at}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div style={card}>
-                  <h2 style={sectionTitle}>Linked records</h2>
-                  <Row label="Booking linked" value={booking?.id ? "Yes" : "No"} />
-                  {booking?.id ? (
-                    <div style={{ marginTop: 12 }}>
-                      <a href={`/bookings/${booking.id}`} style={actionBtn}>
-                        Open booking
-                      </a>
-                    </div>
-                  ) : null}
-
-                  {portalUrl ? (
-                    <div style={{ marginTop: 12 }}>
-                      <a href={portalUrl} target="_blank" style={actionBtn}>
-                        Open customer portal
-                      </a>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
+              </section>
             </div>
-          </>
-        )}
+          </div>
+        ) : null}
       </div>
     </ClientShell>
   );
 }
 
-function PaperworkDashboard({
-  liftPlanPresent,
-  ramsPresent,
-  personnelPresent,
-  liftPlanComplete,
-  ramsComplete,
-  approvedBy,
-  approvedAt,
-  approvalNotes,
-  paperworkReady,
-  photoCount,
-  ramsDocCount,
-  liftPlanDocCount,
-  siteDrawingCount,
-  deliveryNoteCount,
-}: {
-  liftPlanPresent: boolean;
-  ramsPresent: boolean;
-  personnelPresent: boolean;
-  liftPlanComplete: boolean;
-  ramsComplete: boolean;
-  approvedBy: string | null;
-  approvedAt: string | null;
-  approvalNotes: string | null;
-  paperworkReady: boolean;
-  photoCount: number;
-  ramsDocCount: number;
-  liftPlanDocCount: number;
-  siteDrawingCount: number;
-  deliveryNoteCount: number;
-}) {
-  return (
-    <div style={card}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <h2 style={{ ...sectionTitle, marginBottom: 4 }}>Paperwork Dashboard</h2>
-          <div style={{ opacity: 0.72 }}>Quick readiness view for lift plan, RAMS and supporting docs.</div>
-        </div>
+const pageHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 18,
+};
 
-        <span
-          style={{
-            display: "inline-block",
-            padding: "8px 12px",
-            borderRadius: 999,
-            fontWeight: 900,
-            ...(paperworkReady
-              ? {
-                  background: "rgba(0,180,120,0.12)",
-                  color: "#0b7a4b",
-                  border: "1px solid rgba(0,180,120,0.20)",
-                }
-              : {
-                  background: "rgba(255,170,0,0.14)",
-                  color: "#8a5200",
-                  border: "1px solid rgba(255,170,0,0.24)",
-                }),
-          }}
-        >
-          {paperworkReady ? "Paperwork Ready" : "Paperwork Incomplete"}
-        </span>
-      </div>
+const layoutGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.05fr 0.95fr",
+  gap: 18,
+  alignItems: "start",
+};
 
-      <div
-        style={{
-          marginTop: 14,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-        }}
-      >
-        <StatusBox label="Lift plan data" ok={liftPlanPresent} />
-        <StatusBox label="RAMS data" ok={ramsPresent} />
-        <StatusBox label="Personnel filled" ok={personnelPresent} />
-        <StatusBox label="Lift plan complete" ok={liftPlanComplete} />
-        <StatusBox label="RAMS complete" ok={ramsComplete} />
-        <StatusBox label="Approved" ok={!!approvedBy && !!approvedAt} />
-      </div>
-
-      <div
-        style={{
-          marginTop: 14,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-          gap: 12,
-        }}
-      >
-        <CountBox label="Lift plan docs" count={liftPlanDocCount} />
-        <CountBox label="RAMS docs" count={ramsDocCount} />
-        <CountBox label="Site drawings" count={siteDrawingCount} />
-        <CountBox label="Delivery notes" count={deliveryNoteCount} />
-        <CountBox label="Site photos" count={photoCount} />
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <Row label="Approved by" value={approvedBy || "—"} />
-        <Row label="Approved at" value={fmtDateTime(approvedAt)} />
-        <Block label="Approval notes" value={approvalNotes} />
-      </div>
-    </div>
-  );
-}
-
-function StatusBox({
-  label,
-  ok,
-}: {
-  label: string;
-  ok: boolean;
-}) {
-  return (
-    <div
-      style={{
-        padding: 14,
-        borderRadius: 12,
-        background: ok ? "rgba(0,180,120,0.12)" : "rgba(255,170,0,0.14)",
-        border: ok
-          ? "1px solid rgba(0,180,120,0.20)"
-          : "1px solid rgba(255,170,0,0.24)",
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 1000 }}>
-        {ok ? "Complete" : "Missing"}
-      </div>
-    </div>
-  );
-}
-
-function CountBox({
-  label,
-  count,
-}: {
-  label: string;
-  count: number;
-}) {
-  return (
-    <div
-      style={{
-        padding: 14,
-        borderRadius: 12,
-        background: "rgba(255,255,255,0.42)",
-        border: "1px solid rgba(0,0,0,0.08)",
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 1000 }}>{count}</div>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        gap: 12,
-        padding: "8px 0",
-        borderBottom: "1px solid rgba(0,0,0,0.06)",
-      }}
-    >
-      <div style={{ opacity: 0.7 }}>{label}</div>
-      <div style={{ fontWeight: 800, textAlign: "right" }}>
-        {value || "—"}
-      </div>
-    </div>
-  );
-}
-
-function Block({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
-  return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ opacity: 0.7, marginBottom: 6 }}>{label}</div>
-      <div
-        style={{
-          padding: 12,
-          borderRadius: 10,
-          background: "rgba(255,255,255,0.42)",
-          border: "1px solid rgba(0,0,0,0.08)",
-          whiteSpace: "pre-wrap",
-        }}
-      >
-        {value || "—"}
-      </div>
-    </div>
-  );
-}
-
-function DocumentRow({
-  jobId,
-  documentId,
-  fileName,
-  filePath,
-  documentType,
-  createdAt,
-}: {
-  jobId: string;
-  documentId: string;
-  fileName: string;
-  filePath: string;
-  documentType: string | null;
-  createdAt: string | null;
-}) {
-  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
-
-  return (
-    <div
-      style={{
-        padding: 12,
-        borderRadius: 10,
-        background: "rgba(255,255,255,0.42)",
-        border: "1px solid rgba(0,0,0,0.08)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          alignItems: "flex-start",
-          flexWrap: "wrap",
-        }}
-      >
-        <div>
-          <div style={{ fontWeight: 800 }}>{fileName}</div>
-          <div style={{ marginTop: 6 }}>
-            <span
-              style={{
-                display: "inline-block",
-                padding: "4px 9px",
-                borderRadius: 999,
-                fontSize: 12,
-                fontWeight: 900,
-                ...documentTypeStyle(documentType),
-              }}
-            >
-              {prettyDocumentType(documentType)}
-            </span>
-          </div>
-          <div style={{ fontSize: 13, opacity: 0.72, marginTop: 6 }}>
-            Uploaded: {fmtDateTime(createdAt)}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <a href={href} target="_blank" style={actionBtn}>
-            Open
-          </a>
-          <DocumentDeleteButton jobId={jobId} documentId={documentId} />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PhotoRow({
-  fileName,
-  filePath,
-  createdAt,
-}: {
-  fileName: string;
-  filePath: string;
-  createdAt: string | null;
-}) {
-  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
-
-  return (
-    <a
-      href={href}
-      target="_blank"
-      style={{
-        display: "block",
-        padding: 12,
-        borderRadius: 10,
-        textDecoration: "none",
-        color: "#111",
-        background: "rgba(255,255,255,0.42)",
-        border: "1px solid rgba(0,0,0,0.08)",
-      }}
-    >
-      <div style={{ fontWeight: 800 }}>{fileName}</div>
-      <div style={{ fontSize: 13, opacity: 0.72, marginTop: 4 }}>
-        Uploaded: {fmtDateTime(createdAt)}
-      </div>
-    </a>
-  );
-}
-
-const card: React.CSSProperties = {
+const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -937,51 +405,48 @@ const card: React.CSSProperties = {
 
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
-  marginBottom: 12,
+  marginBottom: 14,
   fontSize: 22,
 };
 
-const btnStyle: React.CSSProperties = {
+const summaryGrid: React.CSSProperties = {
+  display: "grid",
+  gap: 2,
+};
+
+const rowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  padding: "10px 0",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+};
+
+const rowLabel: React.CSSProperties = {
+  fontSize: 14,
+  opacity: 0.72,
+  minWidth: 140,
+};
+
+const rowValue: React.CSSProperties = {
+  fontWeight: 800,
+  textAlign: "right",
+};
+
+const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
-};
-
-const actionBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.52)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const statusBtn: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.45)",
-  cursor: "pointer",
-  fontWeight: 800,
-  color: "#111",
-};
-
-const activeStatusBtn: React.CSSProperties = {
-  ...statusBtn,
-  background: "#111",
-  color: "#fff",
-  border: "1px solid #111",
+  textDecoration: "none",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
