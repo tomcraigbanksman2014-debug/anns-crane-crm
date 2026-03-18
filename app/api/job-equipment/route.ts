@@ -14,7 +14,12 @@ function num(value: unknown) {
 
 function normaliseAssetType(value: unknown) {
   const v = String(value ?? "").trim().toLowerCase();
-  if (v === "crane" || v === "vehicle" || v === "equipment") return v;
+
+  if (v === "crane") return "crane";
+  if (v === "vehicle") return "vehicle";
+  if (v === "equipment") return "equipment";
+  if (v === "other") return "other";
+
   return "equipment";
 }
 
@@ -45,6 +50,7 @@ export async function POST(req: Request) {
       start_time: clean(body.start_time),
       end_time: clean(body.end_time),
       agreed_cost: num(body.agreed_cost),
+      supplier_cost: num(body.supplier_cost ?? body.agreed_cost),
       supplier_reference: clean(body.supplier_reference),
       notes: clean(body.notes),
       updated_at: new Date().toISOString(),
@@ -54,12 +60,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
     }
 
-    if (
-      (assetType === "crane" && !payload.crane_id) ||
-      (assetType === "vehicle" && !payload.vehicle_id) ||
-      (assetType === "equipment" && !payload.equipment_id)
-    ) {
-      return NextResponse.json({ error: "Please select an asset." }, { status: 400 });
+    if (assetType === "crane" && !payload.crane_id) {
+      return NextResponse.json({ error: "Please select a crane." }, { status: 400 });
+    }
+
+    if (assetType === "vehicle" && !payload.vehicle_id) {
+      return NextResponse.json({ error: "Please select a vehicle." }, { status: 400 });
+    }
+
+    if (assetType === "equipment" && !payload.equipment_id) {
+      return NextResponse.json({ error: "Please select lifting equipment." }, { status: 400 });
+    }
+
+    if (assetType === "other" && !payload.item_name) {
+      return NextResponse.json({ error: "Please enter an item name for Other." }, { status: 400 });
     }
 
     const { data, error } = await supabase
@@ -89,7 +103,8 @@ export async function POST(req: Request) {
         ),
         suppliers:supplier_id (
           id,
-          company_name
+          company_name,
+          category
         ),
         purchase_orders:purchase_order_id (
           id,
