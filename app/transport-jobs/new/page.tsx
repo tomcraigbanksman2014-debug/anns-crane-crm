@@ -40,6 +40,21 @@ const INVOICE_STATUSES = [
   "Paid",
 ];
 
+function buildTimeOptions() {
+  const options: Array<{ value: string; label: string }> = [];
+  const mins = ["00", "15", "30", "45"];
+
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    for (const mm of mins) {
+      const value = `${hh}:${mm}`;
+      options.push({ value, label: value });
+    }
+  }
+
+  return options;
+}
+
 async function createTransportJob(formData: FormData) {
   "use server";
 
@@ -167,6 +182,7 @@ export default async function NewTransportJobPage({
   const defaultInvoiceSubtotal = money(defaultSellRate);
   const defaultInvoiceVat = money(defaultInvoiceSubtotal * 0.2);
   const defaultInvoiceTotal = money(defaultInvoiceSubtotal + defaultInvoiceVat);
+  const timeOptions = buildTimeOptions();
 
   const [
     { data: clients },
@@ -286,8 +302,18 @@ export default async function NewTransportJobPage({
                 />
 
                 <Field label="Transport date" name="transport_date" type="date" />
-                <Field label="Collection time" name="collection_time" type="time" step={900} />
-                <Field label="Delivery time" name="delivery_time" type="time" step={900} />
+
+                <SelectField
+                  label="Collection time"
+                  name="collection_time"
+                  options={timeOptions}
+                />
+
+                <SelectField
+                  label="Delivery time"
+                  name="delivery_time"
+                  options={timeOptions}
+                />
 
                 <Field
                   label="Charge rate"
@@ -461,13 +487,11 @@ function Field({
   name,
   defaultValue,
   type = "text",
-  step,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
-  step?: number;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -476,7 +500,6 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         type={type}
-        step={step}
         style={inputStyle}
       />
     </div>
@@ -500,7 +523,7 @@ function SelectField({
       <select name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={`${name}-${option.value}`} value={option.value}>
             {option.label}
           </option>
         ))}
