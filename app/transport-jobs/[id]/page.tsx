@@ -3,7 +3,6 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
-import ArchiveTransportJobButton from "./ArchiveTransportJobButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -54,31 +53,6 @@ async function updateTransportJob(formData: FormData) {
   }
 
   redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
-}
-
-async function archiveJob(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-  const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  const { error } = await supabase
-    .from("transport_jobs")
-    .update({
-      archived: true,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
-  if (error) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect(`/transport-jobs?success=${encodeURIComponent("Transport job archived.")}`);
 }
 
 async function cancelJob(formData: FormData) {
@@ -215,27 +189,11 @@ export default async function TransportJobDetailPage({
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               {item ? <DuplicateTransportJobButton jobId={(item as any).id} /> : null}
 
-              {item ? (
-                <ArchiveTransportJobButton
-                  jobId={(item as any).id}
-                  archived={!!(item as any).archived}
-                />
-              ) : null}
-
-              {item && !(item as any).archived && String((item as any).status ?? "").toLowerCase() !== "cancelled" ? (
+              {item && String((item as any).status ?? "").toLowerCase() !== "cancelled" ? (
                 <form action={cancelJob}>
                   <input type="hidden" name="id" value={(item as any).id} />
                   <button type="submit" style={cancelBtn}>
                     Cancel transport job
-                  </button>
-                </form>
-              ) : null}
-
-              {item && !(item as any).archived ? (
-                <form action={archiveJob}>
-                  <input type="hidden" name="id" value={(item as any).id} />
-                  <button type="submit" style={archiveBtn}>
-                    Archive now
                   </button>
                 </form>
               ) : null}
@@ -410,7 +368,6 @@ export default async function TransportJobDetailPage({
                   value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
                 />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Archived" value={(item as any).archived ? "Yes" : "No"} />
                 <InfoRow label="Price" value={fmtMoney((item as any).price)} />
                 <InfoRow
                   label="Pickup lat/lng"
@@ -657,18 +614,6 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const archiveBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,0,0,0.10)",
-  color: "#b00020",
-  fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.20)",
-  cursor: "pointer",
 };
 
 const cancelBtn: React.CSSProperties = {
