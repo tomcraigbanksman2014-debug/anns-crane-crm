@@ -81,6 +81,31 @@ async function archiveJob(formData: FormData) {
   redirect(`/transport-jobs?success=${encodeURIComponent("Transport job archived.")}`);
 }
 
+async function cancelJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const id = clean(formData.get("id"));
+
+  if (!id) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      status: "cancelled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job cancelled.")}`);
+}
+
 function fmtMoney(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return "£0.00";
@@ -195,6 +220,15 @@ export default async function TransportJobDetailPage({
                   jobId={(item as any).id}
                   archived={!!(item as any).archived}
                 />
+              ) : null}
+
+              {item && !(item as any).archived && String((item as any).status ?? "").toLowerCase() !== "cancelled" ? (
+                <form action={cancelJob}>
+                  <input type="hidden" name="id" value={(item as any).id} />
+                  <button type="submit" style={cancelBtn}>
+                    Cancel transport job
+                  </button>
+                </form>
               ) : null}
 
               {item && !(item as any).archived ? (
@@ -634,6 +668,18 @@ const archiveBtn: React.CSSProperties = {
   color: "#b00020",
   fontWeight: 800,
   border: "1px solid rgba(255,0,0,0.20)",
+  cursor: "pointer",
+};
+
+const cancelBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#ef4444",
+  color: "#fff",
+  fontWeight: 800,
+  border: "none",
   cursor: "pointer",
 };
 
