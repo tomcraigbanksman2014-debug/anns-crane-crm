@@ -91,6 +91,7 @@ export async function GET(req: Request) {
         `)
         .gte("job_date", from)
         .lte("job_date", to)
+        .not("status", "eq", "cancelled")
         .order("job_date", { ascending: true })
         .order("start_time", { ascending: true }),
 
@@ -134,6 +135,7 @@ export async function GET(req: Request) {
         `)
         .gte("start_date", from)
         .lte("start_date", to)
+        .not("jobs.status", "eq", "cancelled")
         .order("start_date", { ascending: true })
         .order("start_time", { ascending: true })
         .order("created_at", { ascending: true }),
@@ -231,11 +233,15 @@ export async function GET(req: Request) {
         equipment: job.equipment ?? null,
       }));
 
+    const visibleItems = [...allocationItems, ...legacyItems].filter(
+      (item) => String(item.status ?? "").toLowerCase() !== "cancelled"
+    );
+
     return NextResponse.json({
       week_start: from,
       week_end: to,
       days,
-      items: [...allocationItems, ...legacyItems],
+      items: visibleItems,
       operators: operators ?? [],
       equipment: equipment ?? [],
     });
