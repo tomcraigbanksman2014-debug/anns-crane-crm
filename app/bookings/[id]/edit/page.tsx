@@ -357,11 +357,6 @@ export default async function EditBookingPage({
                 <button
                   type="submit"
                   style={dangerBtn}
-                  onClick={(e) => {
-                    if (!window.confirm("Delete this booking? This cannot be undone.")) {
-                      e.preventDefault();
-                    }
-                  }}
                 >
                   Delete
                 </button>
