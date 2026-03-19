@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+const ACTIVE_JOB_STATUSES = ["planned", "confirmed", "in_progress"];
+
 type PlannerTransportJob = {
   id: string;
   transport_number?: string | null;
@@ -423,6 +425,7 @@ export default function TransportPlannerBoard() {
 
     if (job.vehicle_id && job.transport_date) {
       const vehicleConflict = allJobs.some((other) => {
+        if (!ACTIVE_JOB_STATUSES.includes(String(other.status ?? "").toLowerCase())) return false;
         if (other.id === job.id) return false;
         if (other.vehicle_id !== job.vehicle_id) return false;
         if (other.transport_date !== job.transport_date) return false;
@@ -433,6 +436,7 @@ export default function TransportPlannerBoard() {
 
     if (job.operator_id && job.transport_date) {
       const driverConflict = allJobs.some((other) => {
+        if (!ACTIVE_JOB_STATUSES.includes(String(other.status ?? "").toLowerCase())) return false;
         if (other.id === job.id) return false;
         if (other.operator_id !== job.operator_id) return false;
         if (other.transport_date !== job.transport_date) return false;
