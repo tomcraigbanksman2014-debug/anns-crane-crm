@@ -6,6 +6,16 @@ function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
 }
 
+function isoDate(d = new Date()) {
+  return d.toISOString().slice(0, 10);
+}
+
+function plusDaysDate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return isoDate(d);
+}
+
 function statusStyle(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
@@ -43,14 +53,50 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
 type EquipmentPageProps = {
   searchParams?: {
     view?: string;
+    cert?: string;
+    loler?: string;
+    q?: string;
   };
 };
+
+function makeHref(params: {
+  view?: string;
+  cert?: string;
+  loler?: string;
+  q?: string;
+}) {
+  const sp = new URLSearchParams();
+
+  if (params.view) sp.set("view", params.view);
+  if (params.cert) sp.set("cert", params.cert);
+  if (params.loler) sp.set("loler", params.loler);
+  if (params.q) sp.set("q", params.q);
+
+  const qs = sp.toString();
+  return `/equipment${qs ? `?${qs}` : ""}`;
+}
+
+function activeFilterText(cert: string, loler: string) {
+  if (cert === "expired") return "Showing expired certification only";
+  if (cert === "expiring") return "Showing certification expiring within 30 days";
+  if (loler === "overdue") return "Showing overdue LOLER only";
+  if (loler === "due") return "Showing LOLER due within 30 days";
+  if (loler === "indate") return "Showing LOLER in date only";
+  return "";
+}
 
 export default async function EquipmentPage({
   searchParams,
 }: EquipmentPageProps) {
   const supabase = createSupabaseServerClient();
+
   const view = String(searchParams?.view ?? "active").toLowerCase();
+  const cert = String(searchParams?.cert ?? "").toLowerCase();
+  const loler = String(searchParams?.loler ?? "").toLowerCase();
+  const q = String(searchParams?.q ?? "").trim();
+
+  const today = isoDate();
+  const in30Days = plusDaysDate(30);
 
   let query = supabase
     .from("equipment")
@@ -61,20 +107,48 @@ export default async function EquipmentPage({
       type,
       capacity,
       status,
-      archived
+      archived,
+      certification_expires_on,
+      loler_due_on
     `)
     .order("name", { ascending: true });
 
   if (view === "archived") {
     query = query.eq("archived", true);
   } else if (view === "all") {
-    // no filter
+    // no archived filter
   } else {
     query = query.eq("archived", false);
   }
 
+  if (cert === "expired") {
+    query = query.lt("certification_expires_on", today);
+  } else if (cert === "expiring") {
+    query = query
+      .gte("certification_expires_on", today)
+      .lte("certification_expires_on", in30Days);
+  }
+
+  if (loler === "overdue") {
+    query = query.lt("loler_due_on", today);
+  } else if (loler === "due") {
+    query = query
+      .gte("loler_due_on", today)
+      .lte("loler_due_on", in30Days);
+  } else if (loler === "indate") {
+    query = query.gte("loler_due_on", today);
+  }
+
+  if (q) {
+    const escaped = q.replace(/[%_]/g, "");
+    query = query.or(
+      `name.ilike.%${escaped}%,asset_number.ilike.%${escaped}%,type.ilike.%${escaped}%,capacity.ilike.%${escaped}%,status.ilike.%${escaped}%`
+    );
+  }
+
   const { data, error } = await query;
   const rows = data ?? [];
+  const filterText = activeFilterText(cert, loler);
 
   return (
     <ClientShell>
@@ -100,29 +174,72 @@ export default async function EquipmentPage({
 
           <div style={tabsRow}>
             <a
-              href="/equipment?view=active"
+              href={makeHref({ view: "active", cert, loler, q })}
               style={view === "active" ? activeTabBtn : tabBtn}
             >
               Active
             </a>
             <a
-              href="/equipment?view=archived"
+              href={makeHref({ view: "archived", cert, loler, q })}
               style={view === "archived" ? activeTabBtn : tabBtn}
             >
               Archived
             </a>
             <a
-              href="/equipment?view=all"
+              href={makeHref({ view: "all", cert, loler, q })}
               style={view === "all" ? activeTabBtn : tabBtn}
             >
               All
             </a>
           </div>
 
+          <form method="get" style={searchRow}>
+            <input type="hidden" name="view" value={view} />
+            {cert ? <input type="hidden" name="cert" value={cert} /> : null}
+            {loler ? <input type="hidden" name="loler" value={loler} /> : null}
+
+            <input
+              type="text"
+              name="q"
+              defaultValue={q}
+              placeholder="Search name, asset number, type, capacity or status..."
+              style={searchInput}
+            />
+
+            <button type="submit" style={primaryBtn}>
+              Search
+            </button>
+
+            <a
+              href={makeHref({ view, cert, loler })}
+              style={secondaryBtn}
+            >
+              Clear search
+            </a>
+
+            {(cert || loler) ? (
+              <a
+                href={makeHref({ view, q })}
+                style={warningBtn}
+              >
+                Clear alert filter
+              </a>
+            ) : null}
+          </form>
+
+          {filterText ? (
+            <div style={filterInfoBox}>
+              <div style={{ fontWeight: 900 }}>{filterText}</div>
+              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                Matching items: {rows.length}
+              </div>
+            </div>
+          ) : null}
+
           {error ? (
             <div style={errorBox}>{error.message}</div>
           ) : rows.length === 0 ? (
-            <div style={emptyBox}>No equipment found for this view.</div>
+            <div style={emptyBox}>No equipment found for this view/filter.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -208,6 +325,25 @@ const tabsRow: React.CSSProperties = {
   marginTop: 16,
 };
 
+const searchRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 16,
+};
+
+const searchInput: React.CSSProperties = {
+  flex: "1 1 360px",
+  minWidth: 260,
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+};
+
 const thStyle: React.CSSProperties = {
   padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
@@ -231,6 +367,7 @@ const primaryBtn: React.CSSProperties = {
   color: "#fff",
   textDecoration: "none",
   fontWeight: 900,
+  border: "none",
 };
 
 const secondaryBtn: React.CSSProperties = {
@@ -242,6 +379,17 @@ const secondaryBtn: React.CSSProperties = {
   textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const warningBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,170,0,0.14)",
+  color: "#8a5200",
+  textDecoration: "none",
+  fontWeight: 900,
+  border: "1px solid rgba(255,170,0,0.24)",
 };
 
 const tabBtn: React.CSSProperties = {
@@ -279,6 +427,14 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const filterInfoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,170,0,0.10)",
+  border: "1px solid rgba(255,170,0,0.22)",
 };
 
 const emptyBox: React.CSSProperties = {
