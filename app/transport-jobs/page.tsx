@@ -59,6 +59,7 @@ export default async function TransportJobsPage({
       job_type,
       price,
       agreed_sell_rate,
+      supplier_id,
       supplier_cost,
       invoice_status,
       total_invoice,
@@ -80,10 +81,6 @@ export default async function TransportJobsPage({
         id,
         job_number,
         site_name
-      ),
-      suppliers:supplier_id (
-        id,
-        company_name
       )
     `)
     .order("transport_date", { ascending: true })
@@ -114,7 +111,16 @@ export default async function TransportJobsPage({
     }
   }
 
-  const { data, error } = await query;
+  const [{ data, error }, { data: suppliers }] = await Promise.all([
+    query,
+    supabase.from("suppliers").select("id, company_name"),
+  ]);
+
+  const supplierMap = new Map<string, string>();
+  (suppliers ?? []).forEach((s: any) => {
+    supplierMap.set(s.id, s.company_name ?? "Supplier");
+  });
+
   const rows = data ?? [];
 
   const activeCount = rows.filter((r: any) => String(r.status ?? "").toLowerCase() !== "cancelled").length;
@@ -231,7 +237,7 @@ export default async function TransportJobsPage({
                     const driver = first(item.operators);
                     const client = first(item.clients);
                     const linkedJob = first(item.jobs);
-                    const supplier = first(item.suppliers);
+                    const supplierName = item.supplier_id ? supplierMap.get(item.supplier_id) ?? "Supplier" : null;
 
                     return (
                       <tr key={item.id}>
@@ -270,29 +276,22 @@ export default async function TransportJobsPage({
                         <td style={tdStyle}>{prettyJobType(item.job_type)}</td>
 
                         <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <StatusBadge value={item.status} archived={!!item.archived} />
-                          </div>
+                          <StatusBadge value={item.status} archived={!!item.archived} />
                         </td>
 
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 900 }}>
                             {fmtMoney(item.agreed_sell_rate ?? item.price)}
                           </div>
-                          {(item.agreed_sell_rate ?? null) !== null && Number(item.price ?? 0) !== Number(item.agreed_sell_rate ?? 0) ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                              Old price: {fmtMoney(item.price)}
-                            </div>
-                          ) : null}
                         </td>
 
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 900 }}>
                             {item.supplier_cost != null ? fmtMoney(item.supplier_cost) : "—"}
                           </div>
-                          {supplier?.company_name ? (
+                          {supplierName ? (
                             <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                              {supplier.company_name}
+                              {supplierName}
                             </div>
                           ) : null}
                         </td>
