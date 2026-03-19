@@ -16,12 +16,37 @@ function numberOrNull(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : null;
 }
 
+function money(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
 const INVOICE_STATUSES = [
   "Not Invoiced",
   "Invoiced",
   "Part Paid",
   "Paid",
 ];
+
+function looksLikeCrossHire(job: any) {
+  const combined = [
+    job?.hire_type,
+    job?.lift_type,
+    job?.supplier_id,
+    job?.supplier_reference,
+    job?.supplier_cost,
+  ]
+    .map((v) => String(v ?? "").toLowerCase())
+    .join(" ");
+
+  return (
+    combined.includes("cross") ||
+    combined.includes("cross hire") ||
+    combined.includes("cpa") ||
+    !!job?.supplier_id ||
+    Number(job?.supplier_cost ?? 0) > 0
+  );
+}
 
 export default async function EditJobPage({
   params,
@@ -51,18 +76,19 @@ export default async function EditJobPage({
     const start_time = clean(formData.get("start_time"));
     const end_time = clean(formData.get("end_time"));
     const site_name = clean(formData.get("site_name"));
-    const site_contact = clean(formData.get("site_contact"));
-    const site_phone = clean(formData.get("site_phone"));
+    const site_address = clean(formData.get("site_address"));
+    const contact_name = clean(formData.get("contact_name"));
+    const contact_phone = clean(formData.get("contact_phone"));
     const hire_type = clean(formData.get("hire_type"));
     const lift_type = clean(formData.get("lift_type"));
-    const supplier_id = clean(formData.get("supplier_id"));
-    const supplier_reference = clean(formData.get("supplier_reference"));
-    const supplier_cost = numberOrNull(formData.get("supplier_cost"));
-    const site_address = clean(formData.get("site_address"));
     const notes = clean(formData.get("notes"));
 
-    const invoice_status =
-      clean(formData.get("invoice_status")) ?? "Not Invoiced";
+    const supplier_enabled = String(formData.get("supplier_enabled") ?? "") === "yes";
+    const supplier_id = supplier_enabled ? clean(formData.get("supplier_id")) : null;
+    const supplier_reference = supplier_enabled ? clean(formData.get("supplier_reference")) : null;
+    const supplier_cost = supplier_enabled ? numberOrNull(formData.get("supplier_cost")) : null;
+
+    const invoice_status = clean(formData.get("invoice_status")) ?? "Not Invoiced";
     const invoice_number = clean(formData.get("invoice_number"));
     const invoice_created_at = clean(formData.get("invoice_created_at"));
     const invoice_due_at = clean(formData.get("invoice_due_at"));
@@ -72,15 +98,11 @@ export default async function EditJobPage({
     const total_invoice = numberOrNull(formData.get("total_invoice"));
 
     if (!job_date) {
-      redirect(
-        `/jobs/${params.id}/edit?error=${encodeURIComponent("Job date is required.")}`
-      );
+      redirect(`/jobs/${params.id}/edit?error=${encodeURIComponent("Job date is required.")}`);
     }
 
     if (!INVOICE_STATUSES.includes(invoice_status)) {
-      redirect(
-        `/jobs/${params.id}/edit?error=${encodeURIComponent("Invalid invoice status.")}`
-      );
+      redirect(`/jobs/${params.id}/edit?error=${encodeURIComponent("Invalid invoice status.")}`);
     }
 
     const payload: Record<string, any> = {
@@ -91,15 +113,15 @@ export default async function EditJobPage({
       start_time,
       end_time,
       site_name,
-      site_contact,
-      site_phone,
+      site_address,
+      contact_name,
+      contact_phone,
       hire_type,
       lift_type,
+      notes,
       supplier_id,
       supplier_reference,
       supplier_cost,
-      site_address,
-      notes,
       invoice_status,
       invoice_number,
       invoice_created_at,
@@ -108,6 +130,7 @@ export default async function EditJobPage({
       invoice_subtotal,
       invoice_vat,
       total_invoice,
+      updated_at: new Date().toISOString(),
     };
 
     const { error } = await supabase
@@ -116,9 +139,7 @@ export default async function EditJobPage({
       .eq("id", params.id);
 
     if (error) {
-      redirect(
-        `/jobs/${params.id}/edit?error=${encodeURIComponent(error.message)}`
-      );
+      redirect(`/jobs/${params.id}/edit?error=${encodeURIComponent(error.message)}`);
     }
 
     await writeAuditLog({
@@ -130,12 +151,14 @@ export default async function EditJobPage({
       meta: {
         client_id,
         operator_id,
-        job_date,
         status,
+        job_date,
         site_name,
         invoice_status,
-        invoice_number,
         total_invoice,
+        supplier_enabled,
+        supplier_id,
+        supplier_cost,
       },
     });
 
@@ -184,6 +207,22 @@ export default async function EditJobPage({
     );
   }
 
+  const allocationList = (allocations as any[]) ?? [];
+  const allocatedSubtotal = money(
+    allocationList.reduce(
+      (sum, item) => sum + Number(item.supplier_cost ?? item.agreed_cost ?? 0),
+      0
+    )
+  );
+  const suggestedSubtotal = money(job.invoice_subtotal ?? allocatedSubtotal);
+  const suggestedVat = money(
+    job.invoice_vat ?? (suggestedSubtotal > 0 ? suggestedSubtotal * 0.2 : 0)
+  );
+  const suggestedTotal = money(
+    job.total_invoice ?? (suggestedSubtotal + suggestedVat)
+  );
+  const showSupplierSection = looksLikeCrossHire(job);
+
   return (
     <ClientShell>
       <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
@@ -200,21 +239,15 @@ export default async function EditJobPage({
           <div>
             <h1 style={{ margin: 0 }}>Edit Job</h1>
             <div style={{ opacity: 0.75, marginTop: 6 }}>
-              Update main job details, invoice details, supplier details and manage multiple equipment allocations.
+              Update job details, invoice details and manage equipment allocations.
             </div>
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
-            <a
-              href={`/jobs/${params.id}`}
-              style={secondaryLinkStyle}
-            >
+            <a href={`/jobs/${params.id}`} style={secondaryLinkStyle}>
               View job
             </a>
-            <a
-              href="/jobs"
-              style={secondaryLinkStyle}
-            >
+            <a href="/jobs" style={secondaryLinkStyle}>
               ← Back
             </a>
           </div>
@@ -299,12 +332,12 @@ export default async function EditJobPage({
 
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={labelStyle}>Site contact</label>
-                  <input type="text" name="site_contact" defaultValue={job.site_contact ?? job.contact_name ?? ""} style={inputStyle} />
+                  <input type="text" name="contact_name" defaultValue={job.contact_name ?? ""} style={inputStyle} />
                 </div>
 
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={labelStyle}>Site phone</label>
-                  <input type="text" name="site_phone" defaultValue={job.site_phone ?? job.contact_phone ?? ""} style={inputStyle} />
+                  <input type="text" name="contact_phone" defaultValue={job.contact_phone ?? ""} style={inputStyle} />
                 </div>
 
                 <div style={{ display: "grid", gap: 6 }}>
@@ -316,7 +349,55 @@ export default async function EditJobPage({
                   <label style={labelStyle}>Lift type</label>
                   <input type="text" name="lift_type" defaultValue={job.lift_type ?? ""} style={inputStyle} />
                 </div>
+              </div>
 
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={labelStyle}>Site address</label>
+                <textarea
+                  name="site_address"
+                  defaultValue={job.site_address ?? ""}
+                  rows={3}
+                  style={textareaStyle}
+                />
+              </div>
+
+              <div style={{ display: "grid", gap: 6 }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea name="notes" defaultValue={job.notes ?? ""} rows={4} style={textareaStyle} />
+              </div>
+            </section>
+
+            <details
+              open={showSupplierSection}
+              style={{
+                border: "1px solid rgba(0,0,0,0.08)",
+                borderRadius: 12,
+                padding: 12,
+                background: "rgba(255,255,255,0.22)",
+              }}
+            >
+              <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                Cross-hire / supplier details
+              </summary>
+
+              <div style={{ marginTop: 10, fontSize: 13, opacity: 0.78 }}>
+                Only use this section when the job is actually cross-hired or supplier-backed.
+              </div>
+
+              <input
+                type="hidden"
+                name="supplier_enabled"
+                value={showSupplierSection ? "yes" : "no"}
+              />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+                  gap: 12,
+                  marginTop: 12,
+                }}
+              >
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={labelStyle}>Primary supplier</label>
                   <select name="supplier_id" defaultValue={job.supplier_id ?? ""} style={inputStyle}>
@@ -350,25 +431,22 @@ export default async function EditJobPage({
                   />
                 </div>
               </div>
-
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={labelStyle}>Site address</label>
-                <textarea
-                  name="site_address"
-                  defaultValue={job.site_address ?? ""}
-                  rows={3}
-                  style={textareaStyle}
-                />
-              </div>
-
-              <div style={{ display: "grid", gap: 6 }}>
-                <label style={labelStyle}>Notes</label>
-                <textarea name="notes" defaultValue={job.notes ?? ""} rows={4} style={textareaStyle} />
-              </div>
-            </section>
+            </details>
 
             <section style={{ display: "grid", gap: 12 }}>
               <div style={sectionTitleStyle}>Invoice Details</div>
+
+              <div
+                style={{
+                  padding: 12,
+                  borderRadius: 12,
+                  background: "rgba(255,255,255,0.22)",
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  fontSize: 13,
+                }}
+              >
+                Allocated subtotal currently showing from job allocations: <strong>£{allocatedSubtotal.toFixed(2)}</strong>
+              </div>
 
               <div
                 style={{
@@ -408,9 +486,7 @@ export default async function EditJobPage({
                     type="date"
                     name="invoice_created_at"
                     defaultValue={
-                      job.invoice_created_at
-                        ? String(job.invoice_created_at).slice(0, 10)
-                        : ""
+                      job.invoice_created_at ? String(job.invoice_created_at).slice(0, 10) : ""
                     }
                     style={inputStyle}
                   />
@@ -434,7 +510,7 @@ export default async function EditJobPage({
                     type="number"
                     step="0.01"
                     name="invoice_subtotal"
-                    defaultValue={job.invoice_subtotal ?? ""}
+                    defaultValue={suggestedSubtotal}
                     style={inputStyle}
                   />
                 </div>
@@ -445,7 +521,7 @@ export default async function EditJobPage({
                     type="number"
                     step="0.01"
                     name="invoice_vat"
-                    defaultValue={job.invoice_vat ?? ""}
+                    defaultValue={suggestedVat}
                     style={inputStyle}
                   />
                 </div>
@@ -456,7 +532,7 @@ export default async function EditJobPage({
                     type="number"
                     step="0.01"
                     name="total_invoice"
-                    defaultValue={job.total_invoice ?? ""}
+                    defaultValue={suggestedTotal}
                     style={inputStyle}
                   />
                 </div>
