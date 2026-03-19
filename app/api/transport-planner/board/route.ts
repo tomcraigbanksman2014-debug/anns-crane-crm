@@ -51,6 +51,10 @@ export async function GET(req: Request) {
           job_type,
           collection_address,
           delivery_address,
+          collection_lat,
+          collection_lng,
+          delivery_lat,
+          delivery_lng,
           load_description,
           vehicle_id,
           operator_id,
@@ -80,8 +84,8 @@ export async function GET(req: Request) {
 
       supabase
         .from("vehicles")
-        .select("id, name, reg_number, status")
-        .eq("status", "active")
+        .select("id, name, reg_number, status, archived")
+        .eq("archived", false)
         .order("name", { ascending: true }),
     ]);
 
