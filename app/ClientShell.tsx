@@ -22,7 +22,6 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname === "/") return true;
   if (pathname.startsWith("/dashboard")) return true;
   if (pathname.startsWith("/search")) return true;
-  if (pathname.startsWith("/bookings")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
   if (pathname.startsWith("/transport-planner")) return true;
@@ -156,7 +155,6 @@ export default function ClientShell({
     () => [
       { label: "Dashboard", href: "/" },
       { label: "Search", href: "/search" },
-      { label: "Bookings", href: "/bookings" },
       { label: "Jobs", href: "/jobs" },
       { label: "Transport Jobs", href: "/transport-jobs" },
       { label: "Transport Planner", href: "/transport-planner" },
