@@ -60,7 +60,6 @@ async function updateTransportJob(formData: FormData) {
   const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
   const invoiceVat = numberOrZero(formData.get("invoice_vat"));
   const totalInvoice = numberOrZero(formData.get("total_invoice"));
-  const supplierEnabled = clean(formData.get("supplier_enabled")) === "yes";
 
   const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
 
@@ -73,9 +72,9 @@ async function updateTransportJob(formData: FormData) {
     client_id: clean(formData.get("client_id")) || null,
     vehicle_id: clean(formData.get("vehicle_id")) || null,
     operator_id: clean(formData.get("operator_id")) || null,
-    supplier_id: supplierEnabled ? clean(formData.get("supplier_id")) || null : null,
-    supplier_reference: supplierEnabled ? clean(formData.get("supplier_reference")) || null : null,
-    supplier_cost: supplierEnabled ? numberOrNull(formData.get("supplier_cost")) : null,
+    supplier_id: clean(formData.get("supplier_id")) || null,
+    supplier_reference: clean(formData.get("supplier_reference")) || null,
+    supplier_cost: numberOrNull(formData.get("supplier_cost")),
     job_type: clean(formData.get("job_type")) || null,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
@@ -167,9 +166,6 @@ export default async function TransportJobDetailPage({
         operators:operator_id (
           full_name
         ),
-        suppliers:supplier_id (
-          company_name
-        ),
         jobs:linked_job_id (
           id,
           job_number,
@@ -195,14 +191,12 @@ export default async function TransportJobDetailPage({
     supabase
       .from("vehicles")
       .select("id, name, reg_number, status, archived")
-      .eq("status", "active")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
       .select("id, full_name, status, archived")
-      .eq("status", "active")
       .eq("archived", false)
       .order("full_name", { ascending: true }),
 
@@ -227,13 +221,12 @@ export default async function TransportJobDetailPage({
     ? (item as any).operators[0]
     : (item as any)?.operators;
 
-  const supplier = Array.isArray((item as any)?.suppliers)
-    ? (item as any).suppliers[0]
-    : (item as any)?.suppliers;
-
   const linkedJob = Array.isArray((item as any)?.jobs)
     ? (item as any).jobs[0]
     : (item as any)?.jobs;
+
+  const supplier =
+    (suppliers ?? []).find((s: any) => s.id === (item as any)?.supplier_id) ?? null;
 
   const suggestedSellRate = money((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0);
   const suggestedInvoiceSubtotal = money((item as any)?.invoice_subtotal ?? suggestedSellRate);
@@ -294,7 +287,6 @@ export default async function TransportJobDetailPage({
 
                 <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
                   <input type="hidden" name="id" value={(item as any).id} />
-                  <input type="hidden" name="supplier_enabled" value={showSupplierSection ? "yes" : "no"} />
 
                   <div style={gridStyle}>
                     <Field
@@ -368,6 +360,7 @@ export default async function TransportJobDetailPage({
                       label="Collection time"
                       name="collection_time"
                       type="time"
+                      step={900}
                       defaultValue={(item as any).collection_time ?? ""}
                     />
 
@@ -375,6 +368,7 @@ export default async function TransportJobDetailPage({
                       label="Delivery time"
                       name="delivery_time"
                       type="time"
+                      step={900}
                       defaultValue={(item as any).delivery_time ?? ""}
                     />
 
@@ -579,42 +573,6 @@ export default async function TransportJobDetailPage({
                 <InfoRow label="Invoice subtotal" value={fmtMoney((item as any).invoice_subtotal ?? suggestedInvoiceSubtotal)} />
                 <InfoRow label="Invoice VAT" value={fmtMoney((item as any).invoice_vat ?? suggestedInvoiceVat)} />
                 <InfoRow label="Total invoice" value={fmtMoney((item as any).total_invoice ?? suggestedInvoiceTotal)} />
-                <InfoRow
-                  label="Pickup lat/lng"
-                  value={
-                    (item as any).collection_lat != null &&
-                    (item as any).collection_lng != null
-                      ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Delivery lat/lng"
-                  value={
-                    (item as any).delivery_lat != null &&
-                    (item as any).delivery_lng != null
-                      ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
-                      : "—"
-                  }
-                />
-
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <a href="/transport-map" style={miniLinkBtn}>
-                    Open control map
-                  </a>
-
-                  {linkedJob?.id ? (
-                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
-                      Open linked crane job
-                    </a>
-                  ) : null}
-
-                  {(item as any).vehicle_id ? (
-                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
-                      Open vehicle
-                    </a>
-                  ) : null}
-                </div>
               </section>
             </div>
           )}
@@ -630,12 +588,14 @@ function Field({
   defaultValue,
   type = "text",
   disabled = false,
+  step,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
   disabled?: boolean;
+  step?: number;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -644,6 +604,7 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         type={type}
+        step={step}
         style={inputStyle}
         disabled={disabled}
       />
@@ -764,17 +725,6 @@ const infoLabel: React.CSSProperties = {
 const infoValue: React.CSSProperties = {
   marginTop: 4,
   fontWeight: 900,
-};
-
-const miniLinkBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.72)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const labelStyle: React.CSSProperties = {
