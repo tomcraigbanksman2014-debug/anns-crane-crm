@@ -17,7 +17,6 @@ export async function GET() {
         supabase
           .from("vehicles")
           .select("id, name, reg_number, status, archived")
-          .eq("status", "active")
           .eq("archived", false)
           .order("name", { ascending: true }),
       ]);
