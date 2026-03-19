@@ -7,6 +7,23 @@ function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
 
+function numberOrZero(value: FormDataEntryValue | null) {
+  const n = Number(String(value ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+function numberOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function money(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
 function generateTransportNumber() {
   const d = new Date();
   const y = d.getFullYear();
@@ -16,6 +33,13 @@ function generateTransportNumber() {
   return `TR-${y}${m}${day}-${stamp}`;
 }
 
+const INVOICE_STATUSES = [
+  "Not Invoiced",
+  "Invoiced",
+  "Part Paid",
+  "Paid",
+];
+
 async function createTransportJob(formData: FormData) {
   "use server";
 
@@ -23,10 +47,14 @@ async function createTransportJob(formData: FormData) {
 
   const transportNumber =
     clean(formData.get("transport_number")) || generateTransportNumber();
+
   const linkedJobId = clean(formData.get("linked_job_id")) || null;
   const clientId = clean(formData.get("client_id")) || null;
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
+  const supplierId = clean(formData.get("supplier_id")) || null;
+  const supplierReference = clean(formData.get("supplier_reference")) || null;
+  const supplierCost = numberOrNull(formData.get("supplier_cost"));
   const jobType = clean(formData.get("job_type")) || null;
 
   const collectionAddress = clean(formData.get("collection_address")) || null;
@@ -37,8 +65,16 @@ async function createTransportJob(formData: FormData) {
   const loadDescription = clean(formData.get("load_description")) || null;
   const status = clean(formData.get("status")) || "planned";
   const notes = clean(formData.get("notes")) || null;
-  const priceRaw = clean(formData.get("price"));
-  const price = priceRaw ? Number(priceRaw) : 0;
+
+  const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+  const invoiceNumber = clean(formData.get("invoice_number")) || null;
+  const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
+  const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
+  const invoiceNotes = clean(formData.get("invoice_notes")) || null;
+  const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceVat = numberOrZero(formData.get("invoice_vat"));
+  const totalInvoice = numberOrZero(formData.get("total_invoice"));
 
   if (!collectionAddress || !deliveryAddress || !transportDate) {
     redirect(
@@ -48,9 +84,18 @@ async function createTransportJob(formData: FormData) {
     );
   }
 
+  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
+    redirect(
+      `/transport-jobs/new?error=${encodeURIComponent(
+        "Invalid invoice status."
+      )}`
+    );
+  }
+
   const pickupCoords = collectionAddress
     ? await geocodeAddress(collectionAddress)
     : null;
+
   const deliveryCoords = deliveryAddress
     ? await geocodeAddress(deliveryAddress)
     : null;
@@ -61,6 +106,9 @@ async function createTransportJob(formData: FormData) {
     client_id: clientId,
     vehicle_id: vehicleId,
     operator_id: operatorId,
+    supplier_id: supplierId,
+    supplier_reference: supplierReference,
+    supplier_cost: supplierCost,
     job_type: jobType,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
@@ -73,7 +121,16 @@ async function createTransportJob(formData: FormData) {
     delivery_time: deliveryTime,
     load_description: loadDescription,
     status,
-    price: Number.isFinite(price) ? price : 0,
+    price: agreedSellRate,
+    agreed_sell_rate: agreedSellRate,
+    invoice_status: invoiceStatus,
+    invoice_number: invoiceNumber,
+    invoice_created_at: invoiceCreatedAt,
+    invoice_due_at: invoiceDueAt,
+    invoice_notes: invoiceNotes,
+    invoice_subtotal: invoiceSubtotal,
+    invoice_vat: invoiceVat,
+    total_invoice: totalInvoice,
     notes,
     updated_at: new Date().toISOString(),
   };
@@ -110,42 +167,60 @@ export default async function NewTransportJobPage({
     ? decodeURIComponent(searchParams.error)
     : "";
 
+  const defaultSellRate = 0;
+  const defaultInvoiceSubtotal = money(defaultSellRate);
+  const defaultInvoiceVat = money(defaultInvoiceSubtotal * 0.2);
+  const defaultInvoiceTotal = money(defaultInvoiceSubtotal + defaultInvoiceVat);
+
   const [
     { data: clients },
     { data: jobs },
     { data: vehicles },
     { data: operators },
+    { data: suppliers },
   ] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, company_name")
+      .select("id, company_name, archived")
+      .eq("archived", false)
       .order("company_name", { ascending: true }),
+
     supabase
       .from("jobs")
-      .select("id, job_number, site_name")
+      .select("id, job_number, site_name, archived")
+      .eq("archived", false)
       .order("created_at", { ascending: false })
       .limit(300),
+
     supabase
       .from("vehicles")
-      .select("id, name, reg_number")
+      .select("id, name, reg_number, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("name", { ascending: true }),
+
     supabase
       .from("operators")
-      .select("id, full_name")
+      .select("id, full_name, status, archived")
       .eq("status", "active")
+      .eq("archived", false)
       .order("full_name", { ascending: true }),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name, category")
+      .order("company_name", { ascending: true }),
   ]);
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1200px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <div style={topRow}>
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Create Transport Job</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Create haulage, delivery, collection or crane support transport work.
+                Create haulage, delivery, collection or crane support transport work with sell rate, supplier cost and invoice details.
               </p>
             </div>
 
@@ -156,127 +231,225 @@ export default async function NewTransportJobPage({
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form action={createTransportJob} style={{ marginTop: 18 }}>
-            <div style={gridStyle}>
-              <Field
-                label="Transport number"
-                name="transport_number"
-                defaultValue={generateTransportNumber()}
-              />
+          <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Transport job details</div>
 
-              <SelectField
-                label="Linked crane job"
-                name="linked_job_id"
-                options={(jobs ?? []).map((j: any) => ({
-                  value: j.id,
-                  label: `Job #${j.job_number ?? "—"}${
-                    j.site_name ? ` • ${j.site_name}` : ""
-                  }`,
-                }))}
-              />
+              <div style={gridStyle}>
+                <Field
+                  label="Transport number"
+                  name="transport_number"
+                  defaultValue={generateTransportNumber()}
+                />
 
-              <SelectField
-                label="Customer"
-                name="client_id"
-                options={(clients ?? []).map((c: any) => ({
-                  value: c.id,
-                  label: c.company_name ?? "Customer",
-                }))}
-              />
+                <SelectField
+                  label="Linked crane job"
+                  name="linked_job_id"
+                  options={(jobs ?? []).map((j: any) => ({
+                    value: j.id,
+                    label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                  }))}
+                />
 
-              <SelectField
-                label="Vehicle"
-                name="vehicle_id"
-                options={(vehicles ?? []).map((v: any) => ({
-                  value: v.id,
-                  label: `${v.name ?? "Vehicle"}${
-                    v.reg_number ? ` (${v.reg_number})` : ""
-                  }`,
-                }))}
-              />
+                <SelectField
+                  label="Customer"
+                  name="client_id"
+                  options={(clients ?? []).map((c: any) => ({
+                    value: c.id,
+                    label: c.company_name ?? "Customer",
+                  }))}
+                />
 
-              <SelectField
-                label="Driver / Operator"
-                name="operator_id"
-                options={(operators ?? []).map((o: any) => ({
-                  value: o.id,
-                  label: o.full_name ?? "Operator",
-                }))}
-              />
+                <SelectField
+                  label="Vehicle"
+                  name="vehicle_id"
+                  options={(vehicles ?? []).map((v: any) => ({
+                    value: v.id,
+                    label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
+                  }))}
+                />
 
-              <SelectField
-                label="Job type"
-                name="job_type"
-                defaultValue="haulage"
-                options={[
-                  { value: "haulage", label: "haulage" },
-                  { value: "delivery", label: "delivery" },
-                  { value: "collection", label: "collection" },
-                  { value: "ballast", label: "ballast" },
-                  { value: "crane_support", label: "crane_support" },
-                ]}
-              />
+                <SelectField
+                  label="Driver / Operator"
+                  name="operator_id"
+                  options={(operators ?? []).map((o: any) => ({
+                    value: o.id,
+                    label: o.full_name ?? "Operator",
+                  }))}
+                />
 
-              <Field label="Transport date" name="transport_date" type="date" />
-              <Field label="Collection time" name="collection_time" type="time" />
-              <Field label="Delivery time" name="delivery_time" type="time" />
-              <Field label="Price" name="price" type="number" defaultValue="0" />
+                <SelectField
+                  label="Job type"
+                  name="job_type"
+                  defaultValue="haulage"
+                  options={[
+                    { value: "haulage", label: "haulage" },
+                    { value: "delivery", label: "delivery" },
+                    { value: "collection", label: "collection" },
+                    { value: "ballast", label: "ballast" },
+                    { value: "crane_support", label: "crane_support" },
+                  ]}
+                />
 
-              <SelectField
-                label="Status"
-                name="status"
-                defaultValue="planned"
-                options={[
-                  { value: "planned", label: "planned" },
-                  { value: "confirmed", label: "confirmed" },
-                  { value: "in_progress", label: "in_progress" },
-                  { value: "completed", label: "completed" },
-                  { value: "cancelled", label: "cancelled" },
-                ]}
-              />
-            </div>
+                <Field label="Transport date" name="transport_date" type="date" />
+                <Field label="Collection time" name="collection_time" type="time" />
+                <Field label="Delivery time" name="delivery_time" type="time" />
+                <Field
+                  label="Charge rate"
+                  name="agreed_sell_rate"
+                  type="number"
+                  defaultValue={String(defaultSellRate)}
+                />
 
-            <div style={{ marginTop: 12 }}>
-              <label style={labelStyle}>Pickup address</label>
-              <textarea
-                name="collection_address"
-                rows={3}
-                style={textareaStyle}
-                placeholder="Enter pickup address"
-              />
-            </div>
+                <SelectField
+                  label="Status"
+                  name="status"
+                  defaultValue="planned"
+                  options={[
+                    { value: "planned", label: "planned" },
+                    { value: "confirmed", label: "confirmed" },
+                    { value: "in_progress", label: "in_progress" },
+                    { value: "completed", label: "completed" },
+                    { value: "cancelled", label: "cancelled" },
+                  ]}
+                />
+              </div>
 
-            <div style={{ marginTop: 12 }}>
-              <label style={labelStyle}>Delivery address</label>
-              <textarea
-                name="delivery_address"
-                rows={3}
-                style={textareaStyle}
-                placeholder="Enter delivery address"
-              />
-            </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Pickup address</label>
+                <textarea
+                  name="collection_address"
+                  rows={3}
+                  style={textareaStyle}
+                  placeholder="Enter pickup address"
+                />
+              </div>
 
-            <div style={{ marginTop: 12 }}>
-              <label style={labelStyle}>Load description</label>
-              <textarea
-                name="load_description"
-                rows={3}
-                style={textareaStyle}
-                placeholder="Describe the load, crane parts, ballast, equipment or haulage item"
-              />
-            </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Delivery address</label>
+                <textarea
+                  name="delivery_address"
+                  rows={3}
+                  style={textareaStyle}
+                  placeholder="Enter delivery address"
+                />
+              </div>
 
-            <div style={{ marginTop: 12 }}>
-              <label style={labelStyle}>Notes</label>
-              <textarea
-                name="notes"
-                rows={5}
-                style={textareaStyle}
-                placeholder="Extra transport instructions"
-              />
-            </div>
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Load description</label>
+                <textarea
+                  name="load_description"
+                  rows={3}
+                  style={textareaStyle}
+                  placeholder="Describe the load, crane parts, ballast, equipment or haulage item"
+                />
+              </div>
 
-            <div style={{ marginTop: 18 }}>
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea
+                  name="notes"
+                  rows={5}
+                  style={textareaStyle}
+                  placeholder="Extra transport instructions"
+                />
+              </div>
+            </section>
+
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Cross-hire / supplier details</div>
+              <div style={{ fontSize: 13, opacity: 0.78, marginBottom: 12 }}>
+                Only fill this in when the transport job is supplier-backed or cross-hired.
+              </div>
+
+              <div style={gridStyle}>
+                <SelectField
+                  label="Supplier"
+                  name="supplier_id"
+                  options={(suppliers ?? []).map((s: any) => ({
+                    value: s.id,
+                    label: s.company_name ?? "Supplier",
+                  }))}
+                />
+
+                <Field
+                  label="Supplier reference"
+                  name="supplier_reference"
+                />
+
+                <Field
+                  label="Supplier cost"
+                  name="supplier_cost"
+                  type="number"
+                />
+              </div>
+            </section>
+
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Invoice details</div>
+
+              <div style={gridStyle}>
+                <SelectField
+                  label="Invoice status"
+                  name="invoice_status"
+                  defaultValue="Not Invoiced"
+                  options={INVOICE_STATUSES.map((status) => ({
+                    value: status,
+                    label: status,
+                  }))}
+                />
+
+                <Field
+                  label="Invoice number"
+                  name="invoice_number"
+                />
+
+                <Field
+                  label="Invoice created"
+                  name="invoice_created_at"
+                  type="date"
+                />
+
+                <Field
+                  label="Invoice due"
+                  name="invoice_due_at"
+                  type="date"
+                />
+
+                <Field
+                  label="Invoice subtotal"
+                  name="invoice_subtotal"
+                  type="number"
+                  defaultValue={String(defaultInvoiceSubtotal)}
+                />
+
+                <Field
+                  label="Invoice VAT"
+                  name="invoice_vat"
+                  type="number"
+                  defaultValue={String(defaultInvoiceVat)}
+                />
+
+                <Field
+                  label="Total invoice"
+                  name="total_invoice"
+                  type="number"
+                  defaultValue={String(defaultInvoiceTotal)}
+                />
+              </div>
+
+              <div style={{ marginTop: 12 }}>
+                <label style={labelStyle}>Invoice notes</label>
+                <textarea
+                  name="invoice_notes"
+                  rows={3}
+                  style={textareaStyle}
+                  placeholder="Internal invoice notes"
+                />
+              </div>
+            </section>
+
+            <div>
               <button type="submit" style={saveBtn}>
                 Save transport job
               </button>
@@ -344,6 +517,19 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const sectionCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 900,
+  marginBottom: 12,
 };
 
 const topRow: React.CSSProperties = {
