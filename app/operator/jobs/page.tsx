@@ -483,7 +483,7 @@ export default async function OperatorJobsPage() {
                       </div>
 
                       <div style={{ marginTop: 12 }}>
-                        <a href={`/transport-jobs/${job.id}`} style={openBtn}>
+                        <a href="/operator/transport" style={openBtn}>
                           Open transport sheet
                         </a>
                       </div>
