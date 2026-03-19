@@ -33,6 +33,7 @@ function prettyJobType(value: string | null | undefined) {
 type TransportJobsPageProps = {
   searchParams?: {
     view?: string;
+    q?: string;
   };
 };
 
@@ -41,6 +42,7 @@ export default async function TransportJobsPage({
 }: TransportJobsPageProps) {
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
+  const q = String(searchParams?.q ?? "").trim();
 
   let query = supabase
     .from("transport_jobs")
@@ -56,6 +58,10 @@ export default async function TransportJobsPage({
       status,
       job_type,
       price,
+      agreed_sell_rate,
+      supplier_cost,
+      invoice_status,
+      total_invoice,
       archived,
       vehicles:vehicle_id (
         id,
@@ -74,6 +80,10 @@ export default async function TransportJobsPage({
         id,
         job_number,
         site_name
+      ),
+      suppliers:supplier_id (
+        id,
+        company_name
       )
     `)
     .order("transport_date", { ascending: true })
@@ -87,18 +97,58 @@ export default async function TransportJobsPage({
     query = query.eq("archived", false);
   }
 
+  if (q) {
+    const safe = q.replace(/[%_]/g, "").trim();
+    if (safe) {
+      query = query.or(
+        [
+          `transport_number.ilike.%${safe}%`,
+          `collection_address.ilike.%${safe}%`,
+          `delivery_address.ilike.%${safe}%`,
+          `load_description.ilike.%${safe}%`,
+          `job_type.ilike.%${safe}%`,
+          `status.ilike.%${safe}%`,
+          `invoice_status.ilike.%${safe}%`,
+        ].join(",")
+      );
+    }
+  }
+
   const { data, error } = await query;
   const rows = data ?? [];
 
+  const activeCount = rows.filter((r: any) => String(r.status ?? "").toLowerCase() !== "cancelled").length;
+  const chargeTotal = rows.reduce(
+    (sum: number, item: any) => sum + Number(item.agreed_sell_rate ?? item.price ?? 0),
+    0
+  );
+  const supplierTotal = rows.reduce(
+    (sum: number, item: any) => sum + Number(item.supplier_cost ?? 0),
+    0
+  );
+
+  function viewHref(nextView: string) {
+    const params = new URLSearchParams();
+    params.set("view", nextView);
+    if (q) params.set("q", q);
+    return `/transport-jobs?${params.toString()}`;
+  }
+
+  function clearSearchHref() {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    return `/transport-jobs?${params.toString()}`;
+  }
+
   return (
     <ClientShell>
-      <div style={{ width: "min(1450px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Transport Jobs</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Manage transport allocations, drivers, vehicles and delivery details.
+                Manage transport allocations, drivers, vehicles, sell rates, supplier costs and invoice status.
               </p>
             </div>
 
@@ -116,24 +166,39 @@ export default async function TransportJobsPage({
           </div>
 
           <div style={tabsRow}>
-            <a
-              href="/transport-jobs?view=active"
-              style={view === "active" ? activeTabBtn : tabBtn}
-            >
+            <a href={viewHref("active")} style={view === "active" ? activeTabBtn : tabBtn}>
               Active
             </a>
-            <a
-              href="/transport-jobs?view=archived"
-              style={view === "archived" ? activeTabBtn : tabBtn}
-            >
+            <a href={viewHref("archived")} style={view === "archived" ? activeTabBtn : tabBtn}>
               Archived
             </a>
-            <a
-              href="/transport-jobs?view=all"
-              style={view === "all" ? activeTabBtn : tabBtn}
-            >
+            <a href={viewHref("all")} style={view === "all" ? activeTabBtn : tabBtn}>
               All
             </a>
+          </div>
+
+          <form method="get" style={searchRow}>
+            <input type="hidden" name="view" value={view} />
+            <input
+              type="text"
+              name="q"
+              defaultValue={q}
+              placeholder="Search ref, address, load, status or invoice status..."
+              style={searchInput}
+            />
+            <button type="submit" style={primaryBtn}>
+              Search
+            </button>
+            <a href={clearSearchHref()} style={secondaryBtn}>
+              Clear
+            </a>
+          </form>
+
+          <div style={statsRow}>
+            <MiniStat label="Visible jobs" value={rows.length} />
+            <MiniStat label="Active jobs" value={activeCount} />
+            <MiniStat label="Charge total" value={fmtMoney(chargeTotal)} />
+            <MiniStat label="Supplier total" value={fmtMoney(supplierTotal)} />
           </div>
 
           {error ? (
@@ -142,7 +207,7 @@ export default async function TransportJobsPage({
             <div style={emptyBox}>No transport jobs found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1440 }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Ref</th>
@@ -153,7 +218,10 @@ export default async function TransportJobsPage({
                     <th align="left" style={thStyle}>Driver</th>
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Value</th>
+                    <th align="left" style={thStyle}>Charge</th>
+                    <th align="left" style={thStyle}>Supplier Cost</th>
+                    <th align="left" style={thStyle}>Invoice</th>
+                    <th align="left" style={thStyle}>Linked Job</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -162,6 +230,8 @@ export default async function TransportJobsPage({
                     const vehicle = first(item.vehicles);
                     const driver = first(item.operators);
                     const client = first(item.clients);
+                    const linkedJob = first(item.jobs);
+                    const supplier = first(item.suppliers);
 
                     return (
                       <tr key={item.id}>
@@ -173,6 +243,11 @@ export default async function TransportJobsPage({
                           <div style={{ marginTop: 2, fontSize: 12, opacity: 0.72 }}>
                             → {item.delivery_address ?? "—"}
                           </div>
+                          {item.load_description ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+                              {item.load_description}
+                            </div>
+                          ) : null}
                         </td>
 
                         <td style={tdStyle}>{fmtDate(item.transport_date)}</td>
@@ -195,10 +270,54 @@ export default async function TransportJobsPage({
                         <td style={tdStyle}>{prettyJobType(item.job_type)}</td>
 
                         <td style={tdStyle}>
-                          <StatusBadge value={item.status} archived={!!item.archived} />
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <StatusBadge value={item.status} archived={!!item.archived} />
+                          </div>
                         </td>
 
-                        <td style={tdStyle}>{fmtMoney(item.price)}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 900 }}>
+                            {fmtMoney(item.agreed_sell_rate ?? item.price)}
+                          </div>
+                          {(item.agreed_sell_rate ?? null) !== null && Number(item.price ?? 0) !== Number(item.agreed_sell_rate ?? 0) ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                              Old price: {fmtMoney(item.price)}
+                            </div>
+                          ) : null}
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 900 }}>
+                            {item.supplier_cost != null ? fmtMoney(item.supplier_cost) : "—"}
+                          </div>
+                          {supplier?.company_name ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                              {supplier.company_name}
+                            </div>
+                          ) : null}
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 6 }}>
+                            <span style={invoicePill(item.invoice_status)}>
+                              {item.invoice_status ?? "Not Invoiced"}
+                            </span>
+                            <div style={{ fontSize: 12, opacity: 0.8 }}>
+                              Total: {fmtMoney(item.total_invoice ?? item.agreed_sell_rate ?? item.price)}
+                            </div>
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          {linkedJob?.job_number ? (
+                            <a href={`/jobs/${linkedJob.id}`} style={inlineLinkStyle}>
+                              #{linkedJob.job_number}
+                              {linkedJob.site_name ? ` • ${linkedJob.site_name}` : ""}
+                            </a>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
 
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -218,6 +337,75 @@ export default async function TransportJobsPage({
       </div>
     </ClientShell>
   );
+}
+
+function MiniStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div style={miniStatCard}>
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 800 }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 22, fontWeight: 1000 }}>{value}</div>
+    </div>
+  );
+}
+
+function invoicePill(value: string | null | undefined): React.CSSProperties {
+  const v = String(value ?? "").toLowerCase();
+
+  if (v === "paid") {
+    return {
+      display: "inline-block",
+      padding: "6px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (v === "part paid") {
+    return {
+      display: "inline-block",
+      padding: "6px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  if (v === "invoiced") {
+    return {
+      display: "inline-block",
+      padding: "6px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  return {
+    display: "inline-block",
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 900,
+    background: "rgba(120,120,120,0.12)",
+    color: "#555",
+    border: "1px solid rgba(120,120,120,0.18)",
+  };
 }
 
 const pageCard: React.CSSProperties = {
@@ -243,6 +431,39 @@ const tabsRow: React.CSSProperties = {
   marginTop: 16,
 };
 
+const searchRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 16,
+};
+
+const searchInput: React.CSSProperties = {
+  flex: "1 1 360px",
+  minWidth: 260,
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+};
+
+const statsRow: React.CSSProperties = {
+  marginTop: 16,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 12,
+};
+
+const miniStatCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.28)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
 const thStyle: React.CSSProperties = {
   padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
@@ -266,6 +487,8 @@ const primaryBtn: React.CSSProperties = {
   color: "#fff",
   textDecoration: "none",
   fontWeight: 900,
+  border: "none",
+  cursor: "pointer",
 };
 
 const secondaryBtn: React.CSSProperties = {
@@ -306,6 +529,12 @@ const actionBtn: React.CSSProperties = {
   textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const inlineLinkStyle: React.CSSProperties = {
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
