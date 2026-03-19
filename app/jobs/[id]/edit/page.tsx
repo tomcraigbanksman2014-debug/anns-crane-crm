@@ -221,18 +221,22 @@ export default async function EditJobPage({
                     }))}
                   />
 
-                  <SelectField
-                    label="Legacy primary equipment"
-                    name="equipment_id"
-                    defaultValue={job.equipment_id ?? ""}
-                    options={(equipment ?? []).map((e: any) => ({
-                      value: e.id,
-                      label: `${e.name ?? "Equipment"}${e.asset_number ? ` (${e.asset_number})` : ""}`,
-                    }))}
-                  />
+                  <div style={{ display: "grid", gap: 6 }}>
+                    <label style={labelStyle}>Primary crane</label>
+                    <input
+                      value={
+                        (allocations ?? []).find((a: any) => a.asset_type === "crane")?.cranes?.name
+                          ? `${(allocations ?? []).find((a: any) => a.asset_type === "crane")?.cranes?.name}${(allocations ?? []).find((a: any) => a.asset_type === "crane")?.cranes?.reg_number ? ` (${(allocations ?? []).find((a: any) => a.asset_type === "crane")?.cranes?.reg_number})` : ""}`
+                          : "Set below in Equipment Allocations"
+                      }
+                      style={{ ...inputStyle, opacity: 0.85 }}
+                      readOnly
+                    />
+                    <input type="hidden" name="equipment_id" value={job.equipment_id ?? ""} />
+                  </div>
 
                   <SelectField
-                    label="Legacy primary operator"
+                    label="Primary operator"
                     name="operator_id"
                     defaultValue={job.operator_id ?? ""}
                     options={(operators ?? []).map((o: any) => ({
