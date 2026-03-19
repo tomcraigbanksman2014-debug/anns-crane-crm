@@ -1,75 +1,32 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
-import { geocodeAddress } from "../../lib/geocode";
-import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
-import ArchiveTransportJobButton from "./ArchiveTransportJobButton";
 
-function clean(value: FormDataEntryValue | null) {
-  return String(value ?? "").trim();
+function clean(v: any) {
+  return String(v ?? "").trim();
 }
 
-async function updateTransportJob(formData: FormData) {
+// ✅ UPDATE
+async function updateJob(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
   const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  const collectionAddress = clean(formData.get("collection_address")) || null;
-  const deliveryAddress = clean(formData.get("delivery_address")) || null;
-
-  const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
-  const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
-
-  const payload = {
-    linked_job_id: clean(formData.get("linked_job_id")) || null,
-    client_id: clean(formData.get("client_id")) || null,
-    vehicle_id: clean(formData.get("vehicle_id")) || null,
-    operator_id: clean(formData.get("operator_id")) || null,
-    job_type: clean(formData.get("job_type")) || null,
-    collection_address: collectionAddress,
-    delivery_address: deliveryAddress,
-    collection_lat: pickupCoords?.lat ?? null,
-    collection_lng: pickupCoords?.lng ?? null,
-    delivery_lat: deliveryCoords?.lat ?? null,
-    delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: clean(formData.get("transport_date")) || null,
-    collection_time: clean(formData.get("collection_time")) || null,
-    delivery_time: clean(formData.get("delivery_time")) || null,
-    load_description: clean(formData.get("load_description")) || null,
-    status: clean(formData.get("status")) || "planned",
-    price: Number(formData.get("price") ?? 0) || 0,
-    notes: clean(formData.get("notes")) || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase.from("transport_jobs").update(payload).eq("id", id);
-
-  if (error) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
-  }
-
-  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
-}
-
-async function archiveJob(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-  const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
 
   const { error } = await supabase
     .from("transport_jobs")
     .update({
-      archived: true,
+      vehicle_id: clean(formData.get("vehicle_id")),
+      operator_id: clean(formData.get("operator_id")),
+      transport_date: clean(formData.get("transport_date")),
+      collection_time: clean(formData.get("collection_time")),
+      delivery_time: clean(formData.get("delivery_time")),
+      collection_address: clean(formData.get("collection_address")),
+      delivery_address: clean(formData.get("delivery_address")),
+      load_description: clean(formData.get("load_description")),
+      notes: clean(formData.get("notes")),
+      price: Number(formData.get("price") || 0),
+      status: clean(formData.get("status")) || "planned",
       updated_at: new Date().toISOString(),
     })
     .eq("id", id);
@@ -78,581 +35,159 @@ async function archiveJob(formData: FormData) {
     redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect(`/transport-jobs?success=${encodeURIComponent("Transport job archived.")}`);
+  redirect(`/transport-jobs/${id}?success=Saved`);
 }
 
-function fmtMoney(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
+// ✅ CANCEL (same pattern as crane jobs)
+async function cancelJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const id = clean(formData.get("id"));
+
+  await supabase
+    .from("transport_jobs")
+    .update({
+      status: "cancelled",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  redirect(`/transport-jobs/${id}?success=Cancelled`);
 }
 
-export default async function TransportJobDetailPage({
-  params,
-  searchParams,
-}: {
-  params: { id: string };
-  searchParams?: { success?: string; error?: string };
-}) {
+export default async function Page({ params, searchParams }: any) {
   const supabase = createSupabaseServerClient();
 
-  const [
-    { data: item, error },
-    { data: clients },
-    { data: jobs },
-    { data: vehicles },
-    { data: operators },
-  ] = await Promise.all([
-    supabase
-      .from("transport_jobs")
-      .select(`
-        *,
-        clients:client_id (
-          company_name
-        ),
-        vehicles:vehicle_id (
-          name,
-          reg_number
-        ),
-        operators:operator_id (
-          full_name
-        ),
-        jobs:linked_job_id (
-          id,
-          job_number,
-          site_name
-        )
-      `)
-      .eq("id", params.id)
-      .single(),
+  const { data: job } = await supabase
+    .from("transport_jobs")
+    .select("*")
+    .eq("id", params.id)
+    .single();
 
-    supabase
-      .from("clients")
-      .select("id, company_name, archived")
-      .eq("archived", false)
-      .order("company_name", { ascending: true }),
+  const { data: vehicles } = await supabase
+    .from("vehicles")
+    .select("id, name, reg_number")
+    .eq("archived", false);
 
-    supabase
-      .from("jobs")
-      .select("id, job_number, site_name, archived")
-      .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(300),
+  const { data: operators } = await supabase
+    .from("operators")
+    .select("id, full_name")
+    .eq("archived", false);
 
-    supabase
-      .from("vehicles")
-      .select("id, name, reg_number, status, archived")
-      .eq("status", "active")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-
-    supabase
-      .from("operators")
-      .select("id, full_name, status, archived")
-      .eq("status", "active")
-      .eq("archived", false)
-      .order("full_name", { ascending: true }),
-  ]);
-
-  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
-
-  const client = Array.isArray((item as any)?.clients)
-    ? (item as any).clients[0]
-    : (item as any)?.clients;
-
-  const vehicle = Array.isArray((item as any)?.vehicles)
-    ? (item as any).vehicles[0]
-    : (item as any)?.vehicles;
-
-  const driver = Array.isArray((item as any)?.operators)
-    ? (item as any).operators[0]
-    : (item as any)?.operators;
-
-  const linkedJob = Array.isArray((item as any)?.jobs)
-    ? (item as any).jobs[0]
-    : (item as any)?.jobs;
+  if (!job) {
+    return <ClientShell>Job not found</ClientShell>;
+  }
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
-        <div style={cardStyle}>
-          <div style={headerRow}>
-            <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>
-                {(item as any)?.transport_number ?? "Transport Job"}
-              </h1>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>
-                View and update transport allocation details.
-              </p>
-            </div>
+      <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        <h1>Transport Job</h1>
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {item ? <DuplicateTransportJobButton jobId={(item as any).id} /> : null}
-
-              {item ? (
-                <ArchiveTransportJobButton
-                  jobId={(item as any).id}
-                  archived={!!(item as any).archived}
-                />
-              ) : null}
-
-              {item && !(item as any).archived ? (
-                <form action={archiveJob}>
-                  <input type="hidden" name="id" value={(item as any).id} />
-                  <button type="submit" style={archiveBtn}>
-                    Archive now
-                  </button>
-                </form>
-              ) : null}
-
-              <a href="/transport-jobs" style={secondaryBtn}>
-                ← Back to transport jobs
-              </a>
-
-              <a href="/transport-map" style={secondaryBtn}>
-                Open control map
-              </a>
-            </div>
+        {/* ✅ SUCCESS / ERROR */}
+        {searchParams?.success && (
+          <div style={{ color: "green" }}>
+            {decodeURIComponent(searchParams.success)}
           </div>
+        )}
+        {searchParams?.error && (
+          <div style={{ color: "red" }}>
+            {decodeURIComponent(searchParams.error)}
+          </div>
+        )}
 
-          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
-          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
-          {error ? <div style={errorBox}>{error.message}</div> : null}
+        {/* ✅ FORM */}
+        <form action={updateJob} style={{ display: "grid", gap: 12 }}>
+          <input type="hidden" name="id" value={job.id} />
 
-          {!item ? (
-            <div style={errorBox}>Transport job not found.</div>
-          ) : (
-            <div style={pageGrid}>
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Transport job details</h2>
+          <select name="vehicle_id" defaultValue={job.vehicle_id || ""}>
+            <option value="">Select vehicle</option>
+            {(vehicles || []).map((v: any) => (
+              <option key={v.id} value={v.id}>
+                {v.name} ({v.reg_number})
+              </option>
+            ))}
+          </select>
 
-                <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
-                  <input type="hidden" name="id" value={(item as any).id} />
+          <select name="operator_id" defaultValue={job.operator_id || ""}>
+            <option value="">Select driver</option>
+            {(operators || []).map((o: any) => (
+              <option key={o.id} value={o.id}>
+                {o.full_name}
+              </option>
+            ))}
+          </select>
 
-                  <div style={gridStyle}>
-                    <Field
-                      label="Reference"
-                      name="transport_number_readonly"
-                      defaultValue={(item as any).transport_number ?? ""}
-                      disabled
-                    />
+          <input
+            type="date"
+            name="transport_date"
+            defaultValue={job.transport_date || ""}
+          />
 
-                    <SelectField
-                      label="Linked crane job"
-                      name="linked_job_id"
-                      defaultValue={(item as any).linked_job_id ?? ""}
-                      options={(jobs ?? []).map((j: any) => ({
-                        value: j.id,
-                        label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
-                      }))}
-                    />
+          <input
+            type="time"
+            name="collection_time"
+            defaultValue={job.collection_time || ""}
+          />
 
-                    <SelectField
-                      label="Customer"
-                      name="client_id"
-                      defaultValue={(item as any).client_id ?? ""}
-                      options={(clients ?? []).map((c: any) => ({
-                        value: c.id,
-                        label: c.company_name ?? "Customer",
-                      }))}
-                    />
+          <input
+            type="time"
+            name="delivery_time"
+            defaultValue={job.delivery_time || ""}
+          />
 
-                    <SelectField
-                      label="Vehicle"
-                      name="vehicle_id"
-                      defaultValue={(item as any).vehicle_id ?? ""}
-                      options={(vehicles ?? []).map((v: any) => ({
-                        value: v.id,
-                        label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-                      }))}
-                    />
+          <input
+            name="collection_address"
+            defaultValue={job.collection_address || ""}
+            placeholder="Collection address"
+          />
 
-                    <SelectField
-                      label="Driver"
-                      name="operator_id"
-                      defaultValue={(item as any).operator_id ?? ""}
-                      options={(operators ?? []).map((o: any) => ({
-                        value: o.id,
-                        label: o.full_name ?? "Driver",
-                      }))}
-                    />
+          <input
+            name="delivery_address"
+            defaultValue={job.delivery_address || ""}
+            placeholder="Delivery address"
+          />
 
-                    <SelectField
-                      label="Job type"
-                      name="job_type"
-                      defaultValue={(item as any).job_type ?? ""}
-                      options={[
-                        { value: "haulage", label: "haulage" },
-                        { value: "delivery", label: "delivery" },
-                        { value: "collection", label: "collection" },
-                        { value: "ballast", label: "ballast" },
-                        { value: "crane_support", label: "crane_support" },
-                      ]}
-                    />
+          <textarea
+            name="load_description"
+            defaultValue={job.load_description || ""}
+            placeholder="Load description"
+          />
 
-                    <Field
-                      label="Transport date"
-                      name="transport_date"
-                      type="date"
-                      defaultValue={(item as any).transport_date ?? ""}
-                    />
+          <textarea
+            name="notes"
+            defaultValue={job.notes || ""}
+            placeholder="Notes"
+          />
 
-                    <Field
-                      label="Collection time"
-                      name="collection_time"
-                      type="time"
-                      defaultValue={(item as any).collection_time ?? ""}
-                    />
+          <input
+            type="number"
+            step="0.01"
+            name="price"
+            defaultValue={job.price || 0}
+          />
 
-                    <Field
-                      label="Delivery time"
-                      name="delivery_time"
-                      type="time"
-                      defaultValue={(item as any).delivery_time ?? ""}
-                    />
+          <select name="status" defaultValue={job.status || "planned"}>
+            <option value="planned">Planned</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
 
-                    <SelectField
-                      label="Status"
-                      name="status"
-                      defaultValue={(item as any).status ?? "planned"}
-                      options={[
-                        { value: "planned", label: "planned" },
-                        { value: "confirmed", label: "confirmed" },
-                        { value: "in_progress", label: "in_progress" },
-                        { value: "completed", label: "completed" },
-                        { value: "cancelled", label: "cancelled" },
-                      ]}
-                    />
+          <button type="submit">Save</button>
+        </form>
 
-                    <Field
-                      label="Price"
-                      name="price"
-                      type="number"
-                      defaultValue={String((item as any).price ?? 0)}
-                    />
-                  </div>
-
-                  <FullWidthField
-                    label="Collection address"
-                    name="collection_address"
-                    defaultValue={(item as any).collection_address ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Delivery address"
-                    name="delivery_address"
-                    defaultValue={(item as any).delivery_address ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Load description"
-                    name="load_description"
-                    defaultValue={(item as any).load_description ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Notes"
-                    name="notes"
-                    defaultValue={(item as any).notes ?? ""}
-                  />
-
-                  <div>
-                    <button type="submit" style={primaryBtn}>
-                      Update transport job
-                    </button>
-                  </div>
-                </form>
-              </section>
-
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Quick summary</h2>
-
-                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
-                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
-                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
-                <InfoRow
-                  label="Linked crane job"
-                  value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
-                />
-                <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Archived" value={(item as any).archived ? "Yes" : "No"} />
-                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
-                <InfoRow
-                  label="Pickup lat/lng"
-                  value={
-                    (item as any).collection_lat != null &&
-                    (item as any).collection_lng != null
-                      ? `${(item as any).collection_lat}, ${(item as any).collection_lng}`
-                      : "—"
-                  }
-                />
-                <InfoRow
-                  label="Delivery lat/lng"
-                  value={
-                    (item as any).delivery_lat != null &&
-                    (item as any).delivery_lng != null
-                      ? `${(item as any).delivery_lat}, ${(item as any).delivery_lng}`
-                      : "—"
-                  }
-                />
-
-                <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <a href="/transport-map" style={miniLinkBtn}>
-                    Open control map
-                  </a>
-
-                  {linkedJob?.id ? (
-                    <a href={`/jobs/${linkedJob.id}`} style={miniLinkBtn}>
-                      Open linked crane job
-                    </a>
-                  ) : null}
-
-                  {(item as any).vehicle_id ? (
-                    <a href={`/vehicles/${(item as any).vehicle_id}`} style={miniLinkBtn}>
-                      Open vehicle
-                    </a>
-                  ) : null}
-                </div>
-              </section>
-            </div>
-          )}
-        </div>
+        {/* ✅ CANCEL BUTTON */}
+        {job.status !== "cancelled" && (
+          <form action={cancelJob} style={{ marginTop: 20 }}>
+            <input type="hidden" name="id" value={job.id} />
+            <button style={{ background: "red", color: "white" }}>
+              Cancel Job
+            </button>
+          </form>
+        )}
       </div>
     </ClientShell>
   );
 }
-
-function Field({
-  label,
-  name,
-  defaultValue,
-  type = "text",
-  disabled = false,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  type?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        name={name}
-        defaultValue={defaultValue}
-        type={type}
-        style={inputStyle}
-        disabled={disabled}
-      />
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  name,
-  defaultValue,
-  options,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  options: Array<{ value: string; label: string }>;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <select name={name} defaultValue={defaultValue} style={inputStyle}>
-        <option value="">— Select —</option>
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
-}
-
-function FullWidthField({
-  label,
-  name,
-  defaultValue,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
-    </div>
-  );
-}
-
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div style={infoRow}>
-      <div style={infoLabel}>{label}</div>
-      <div style={infoValue}>{value}</div>
-    </div>
-  );
-}
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
-  padding: 20,
-  borderRadius: 16,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const pageGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.15fr 0.85fr",
-  gap: 16,
-};
-
-const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 14,
-  padding: 16,
-};
-
-const sectionTitle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 14,
-  fontSize: 22,
-};
-
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-};
-
-const infoRow: React.CSSProperties = {
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
-};
-
-const infoLabel: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
-  fontWeight: 800,
-};
-
-const infoValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
-};
-
-const miniLinkBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.72)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.75,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-};
-
-const textareaStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-  resize: "vertical",
-};
-
-const primaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "12px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const archiveBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,0,0,0.10)",
-  color: "#b00020",
-  fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.20)",
-  cursor: "pointer",
-};
-
-const successBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
-  color: "#0b7a4b",
-  fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
-};
