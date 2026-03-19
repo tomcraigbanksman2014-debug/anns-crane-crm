@@ -56,6 +56,11 @@ type DashboardStats = {
   activeHires?: number;
   availableEquipment?: number;
   totalEquipment?: number;
+  totalCranes?: number;
+  totalVehicles?: number;
+  availableCranesNow?: number;
+  reservedCranesLater?: number;
+  availableVehiclesNow?: number;
   outstandingInvoices?: number;
   utilisationPct?: number | null;
   onHireEquipment?: number;
@@ -457,10 +462,10 @@ export default function DashboardPage() {
             badge={<StatusPill text="Live" />}
           />
           <StatCard
-            title="Equipment available"
-            value={`${stats?.availableEquipment ?? "-"} / ${stats?.totalEquipment ?? "-"}`}
-            subtext="Available vs total fleet"
-            badge={<StatusPill text="Avail" />}
+            title="Fleet available"
+            value={`${stats?.availableCranesNow ?? 0} cranes • ${stats?.availableVehiclesNow ?? 0} trucks`}
+            subtext={`${stats?.totalCranes ?? 0} cranes total • ${stats?.totalVehicles ?? 0} trucks total`}
+            badge={<StatusPill text="Fleet" />}
           />
           <StatCard
             title="Invoices outstanding"
@@ -657,11 +662,14 @@ export default function DashboardPage() {
             )}
           </Panel>
 
-          <Panel title="Fleet status" subtitle="Derived from live and future bookings">
+          <Panel title="Fleet status" subtitle="Cranes and trucks only">
             <div style={{ display: "grid", gap: 10 }}>
-              <MiniStat label="On hire now" value={stats?.onHireEquipment ?? 0} />
-              <MiniStat label="Reserved later" value={stats?.reservedEquipment ?? 0} />
-              <MiniStat label="Available now" value={stats?.availableEquipment ?? 0} />
+              <MiniStat label="Cranes on hire now" value={stats?.onHireEquipment ?? 0} />
+              <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
+              <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
+              <MiniStat label="Total cranes" value={stats?.totalCranes ?? 0} />
+              <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
+              <MiniStat label="Total vehicles" value={stats?.totalVehicles ?? 0} />
             </div>
           </Panel>
 
