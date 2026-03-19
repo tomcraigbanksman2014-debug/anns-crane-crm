@@ -117,24 +117,6 @@ export default async function JobPage({
           phone,
           email,
           category
-        ),
-        bookings:booking_id (
-          id,
-          location,
-          site_address,
-          start_date,
-          end_date,
-          start_at,
-          end_at,
-          status,
-          cranes:crane_id (
-            id,
-            name,
-            reg_number,
-            fleet_number,
-            capacity,
-            status
-          )
         )
       `)
       .eq("id", params.id)
@@ -216,8 +198,6 @@ export default async function JobPage({
 
   const client = first((job as any)?.clients);
   const linkedSupplier = first((job as any)?.suppliers);
-  const linkedBooking = first((job as any)?.bookings);
-  const linkedCrane = first((linkedBooking as any)?.cranes);
   const allocationList = (allocations as any[]) ?? [];
 
   const cranesAllocated = allocationList.filter((a) => a.asset_type === "crane");
@@ -253,10 +233,12 @@ export default async function JobPage({
             <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
               Edit job
             </a>
-            {job?.booking_id ? (
-              <a href={`/bookings/${job.booking_id}`} style={secondaryBtn}>
-                Open booking
-              </a>
+            {String(job?.status ?? "").toLowerCase() !== "cancelled" ? (
+              <form action={`/api/jobs/${params.id}/cancel`} method="POST">
+                <button type="submit" style={cancelBtn}>
+                  Cancel job
+                </button>
+              </form>
             ) : null}
           </div>
         </div>
@@ -292,8 +274,8 @@ export default async function JobPage({
                   <Row label="Job date" value={fmtDate(job.job_date)} />
                   <Row label="Start time" value={job.start_time ?? "—"} />
                   <Row label="End time" value={job.end_time ?? "—"} />
-                  <Row label="Site" value={job.site_name ?? linkedBooking?.location ?? "—"} />
-                  <Row label="Address" value={job.site_address ?? linkedBooking?.site_address ?? "—"} />
+                  <Row label="Site" value={job.site_name ?? "—"} />
+                  <Row label="Address" value={job.site_address ?? "—"} />
                   <Row label="Created" value={fmtDateTime(job.created_at)} />
                 </div>
               </section>
@@ -394,30 +376,6 @@ export default async function JobPage({
                 </div>
               </section>
 
-              <section style={cardStyle}>
-                <h2 style={sectionTitle}>Linked Booking</h2>
-
-                <div style={summaryGrid}>
-                  <Row label="Booking ID" value={linkedBooking?.id ?? "—"} />
-                  <Row label="Booking status" value={linkedBooking?.status ?? "—"} />
-                  <Row label="Start date" value={fmtDate(linkedBooking?.start_date)} />
-                  <Row label="End date" value={fmtDate(linkedBooking?.end_date)} />
-                  <Row label="Start time" value={fmtDateTime(linkedBooking?.start_at)} />
-                  <Row label="End time" value={fmtDateTime(linkedBooking?.end_at)} />
-                </div>
-              </section>
-
-              <section style={cardStyle}>
-                <h2 style={sectionTitle}>Primary Crane From Booking</h2>
-
-                <div style={summaryGrid}>
-                  <Row label="Crane" value={linkedCrane?.name ?? "—"} />
-                  <Row label="Registration" value={linkedCrane?.reg_number ?? "—"} />
-                  <Row label="Fleet" value={linkedCrane?.fleet_number ?? "—"} />
-                  <Row label="Capacity" value={linkedCrane?.capacity ?? "—"} />
-                  <Row label="Status" value={linkedCrane?.status ?? "—"} />
-                </div>
-              </section>
 
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Legacy primary operator</h2>
@@ -570,6 +528,17 @@ const secondaryBtn: React.CSSProperties = {
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
   textDecoration: "none",
+};
+
+const cancelBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#b42318",
+  color: "#fff",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
 };
 
 const errorBox: React.CSSProperties = {
