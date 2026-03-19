@@ -40,7 +40,8 @@ export async function GET() {
   const [
     bookingsToday,
     activeHires,
-    equipmentAll,
+    cranesAll,
+    vehiclesAll,
     invoicesOutstanding,
     upcomingTimed,
     upcomingDated,
@@ -62,14 +63,20 @@ export async function GET() {
 
     supabase
       .from("bookings")
-      .select("id,equipment_id", { count: "exact" })
+      .select("id,crane_id", { count: "exact" })
       .lte("start_date", today)
       .gte("end_date", today)
       .neq("status", "Cancelled"),
 
     supabase
-      .from("equipment")
-      .select("id,status,certification_expires_on,loler_due_on", { count: "exact" }),
+      .from("cranes")
+      .select("id,status,archived", { count: "exact" })
+      .eq("archived", false),
+
+    supabase
+      .from("vehicles")
+      .select("id,status,archived", { count: "exact" })
+      .eq("archived", false),
 
     supabase
       .from("bookings")
@@ -199,52 +206,58 @@ export async function GET() {
 
   const activeCount = activeHires.count ?? 0;
 
-  const activeEquipmentIds = new Set(
+  const activeCraneIds = new Set(
     (activeHires.data ?? [])
-      .map((b: any) => b.equipment_id)
+      .map((b: any) => b.crane_id)
       .filter(Boolean)
   );
 
-  const totalEquipment = equipmentAll.count ?? 0;
+  const totalCranes = cranesAll.count ?? 0;
+  const totalVehicles = vehiclesAll.count ?? 0;
 
-  let availableNow = 0;
-  let reservedLater = 0;
+  let availableCranesNow = 0;
+  let reservedCranesLater = 0;
 
-  const equipmentIds = Array.from(
-    new Set((equipmentAll.data ?? []).map((e: any) => e.id).filter(Boolean))
+  const craneIds = Array.from(
+    new Set((cranesAll.data ?? []).map((c: any) => c.id).filter(Boolean))
   );
 
   const { data: futureBookings } = await supabase
     .from("bookings")
-    .select("equipment_id")
+    .select("crane_id")
     .gt("start_date", today)
     .neq("status", "Cancelled");
 
-  const futureEquipmentIds = new Set(
+  const futureCraneIds = new Set(
     (futureBookings ?? [])
-      .map((b: any) => b.equipment_id)
+      .map((b: any) => b.crane_id)
       .filter(Boolean)
   );
 
-  for (const id of equipmentIds) {
-    const row = (equipmentAll.data ?? []).find((e: any) => e.id === id);
+  for (const id of craneIds) {
+    const row = (cranesAll.data ?? []).find((c: any) => c.id === id);
     const status = String(row?.status ?? "").toLowerCase();
 
     if (status === "maintenance" || status === "out_of_service") {
       continue;
     }
 
-    const isBookedNow = activeEquipmentIds.has(id);
-    const isReservedLater = futureEquipmentIds.has(id);
+    const isBookedNow = activeCraneIds.has(id);
+    const isReservedLater = futureCraneIds.has(id);
 
     if (!isBookedNow) {
-      availableNow++;
+      availableCranesNow++;
     }
 
     if (!isBookedNow && isReservedLater) {
-      reservedLater++;
+      reservedCranesLater++;
     }
   }
+
+  const availableVehiclesNow = (vehiclesAll.data ?? []).filter((v: any) => {
+    const status = String(v?.status ?? "").toLowerCase();
+    return status !== "maintenance" && status !== "out_of_service";
+  }).length;
 
   const outstandingTotal =
     (invoicesOutstanding.data ?? []).reduce((acc: number, r: any) => {
@@ -264,8 +277,8 @@ export async function GET() {
     .slice(0, 10);
 
   const utilisationPct =
-    totalEquipment > 0
-      ? Math.round((activeEquipmentIds.size / totalEquipment) * 100)
+    totalCranes > 0
+      ? Math.round((activeCraneIds.size / totalCranes) * 100)
       : 0;
 
   const servicedEquipmentIds = new Set(
@@ -277,23 +290,28 @@ export async function GET() {
   const equipmentWithServiceHistory = servicedEquipmentIds.size;
   const equipmentWithoutServiceHistory = Math.max(
     0,
-    totalEquipment - equipmentWithServiceHistory
+    totalCranes - equipmentWithServiceHistory
   );
 
   return NextResponse.json({
     today,
     bookingsToday: bookingsToday.count ?? 0,
     activeHires: activeCount,
-    availableEquipment: availableNow,
-    totalEquipment,
+    availableEquipment: availableCranesNow,
+    totalEquipment: totalCranes,
+    totalCranes,
+    totalVehicles,
+    availableCranesNow,
+    reservedCranesLater,
+    availableVehiclesNow,
     outstandingInvoices: outstandingTotal,
     upcomingBookings,
     overdueInvoices: overdueInvoices.data ?? [],
     utilisationPct,
     recentAudit: recentAudit.data ?? [],
     todayJobs: todayJobs.data ?? [],
-    onHireEquipment: activeEquipmentIds.size,
-    reservedEquipment: reservedLater,
+    onHireEquipment: activeCraneIds.size,
+    reservedEquipment: reservedCranesLater,
     certExpiringSoon: certExpiringSoon.data?.length ?? 0,
     certExpired: certExpired.data?.length ?? 0,
     maintenanceEquipment: maintenanceEquipment.count ?? 0,
