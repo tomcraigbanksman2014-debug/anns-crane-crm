@@ -1,22 +1,15 @@
-import ClientShell from "../../ClientShell";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { redirect } from "next/navigation";
-import { geocodeAddress } from "../../lib/geocode";
+"use client";
 
-function clean(value: FormDataEntryValue | null) {
+import ClientShell from "../../ClientShell";
+import { useMemo, useState } from "react";
+
+function clean(value: string | null | undefined) {
   return String(value ?? "").trim();
 }
 
-function numberOrZero(value: FormDataEntryValue | null) {
+function numberOrZero(value: string | number | null | undefined) {
   const n = Number(String(value ?? "").trim());
   return Number.isFinite(n) ? n : 0;
-}
-
-function numberOrNull(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : null;
 }
 
 function money(value: number | string | null | undefined) {
@@ -40,177 +33,129 @@ const INVOICE_STATUSES = [
   "Paid",
 ];
 
-async function createTransportJob(formData: FormData) {
-  "use server";
+type Option = {
+  value: string;
+  label: string;
+};
 
-  const supabase = createSupabaseServerClient();
+export default function NewTransportJobPage() {
+  const transportNumber = useMemo(() => generateTransportNumber(), []);
 
-  const transportNumber =
-    clean(formData.get("transport_number")) || generateTransportNumber();
+  const [linkedJobId, setLinkedJobId] = useState("");
+  const [clientId, setClientId] = useState("");
+  const [vehicleId, setVehicleId] = useState("");
+  const [operatorId, setOperatorId] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+  const [supplierReference, setSupplierReference] = useState("");
+  const [supplierCost, setSupplierCost] = useState("");
+  const [jobType, setJobType] = useState("haulage");
+  const [collectionAddress, setCollectionAddress] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [transportDate, setTransportDate] = useState("");
+  const [collectionTime, setCollectionTime] = useState("");
+  const [deliveryTime, setDeliveryTime] = useState("");
+  const [loadDescription, setLoadDescription] = useState("");
+  const [status, setStatus] = useState("planned");
+  const [notes, setNotes] = useState("");
 
-  const linkedJobId = clean(formData.get("linked_job_id")) || null;
-  const clientId = clean(formData.get("client_id")) || null;
-  const vehicleId = clean(formData.get("vehicle_id")) || null;
-  const operatorId = clean(formData.get("operator_id")) || null;
-  const supplierId = clean(formData.get("supplier_id")) || null;
-  const supplierReference = clean(formData.get("supplier_reference")) || null;
-  const supplierCost = numberOrNull(formData.get("supplier_cost"));
-  const jobType = clean(formData.get("job_type")) || null;
+  const [agreedSellRate, setAgreedSellRate] = useState("0");
+  const [invoiceStatus, setInvoiceStatus] = useState("Not Invoiced");
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  const [invoiceCreatedAt, setInvoiceCreatedAt] = useState("");
+  const [invoiceDueAt, setInvoiceDueAt] = useState("");
+  const [invoiceNotes, setInvoiceNotes] = useState("");
 
-  const collectionAddress = clean(formData.get("collection_address")) || null;
-  const deliveryAddress = clean(formData.get("delivery_address")) || null;
-  const transportDate = clean(formData.get("transport_date")) || null;
-  const collectionTime = clean(formData.get("collection_time")) || null;
-  const deliveryTime = clean(formData.get("delivery_time")) || null;
-  const loadDescription = clean(formData.get("load_description")) || null;
-  const status = clean(formData.get("status")) || "planned";
-  const notes = clean(formData.get("notes")) || null;
+  const [invoiceSubtotal, setInvoiceSubtotal] = useState("0");
+  const [invoiceVat, setInvoiceVat] = useState("0");
+  const [totalInvoice, setTotalInvoice] = useState("0");
 
-  const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
-  const invoiceNumber = clean(formData.get("invoice_number")) || null;
-  const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
-  const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
-  const invoiceNotes = clean(formData.get("invoice_notes")) || null;
-  const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
-  const invoiceVat = numberOrZero(formData.get("invoice_vat"));
-  const totalInvoice = numberOrZero(formData.get("total_invoice"));
+  const [subtotalTouched, setSubtotalTouched] = useState(false);
+  const [vatTouched, setVatTouched] = useState(false);
+  const [totalTouched, setTotalTouched] = useState(false);
 
-  if (!collectionAddress || !deliveryAddress || !transportDate) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent(
-        "Pickup address, delivery address and transport date are required."
-      )}`
-    );
+  const [errorMessage, setErrorMessage] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const clients: Option[] = [];
+  const jobs: Option[] = [];
+  const vehicles: Option[] = [];
+  const operators: Option[] = [];
+  const suppliers: Option[] = [];
+
+  function updateFromCharge(nextCharge: string) {
+    const charge = money(numberOrZero(nextCharge));
+    const autoSubtotal = charge;
+    const autoVat = money(autoSubtotal * 0.2);
+    const autoTotal = money(autoSubtotal + autoVat);
+
+    if (!subtotalTouched) setInvoiceSubtotal(String(autoSubtotal));
+    if (!vatTouched) setInvoiceVat(String(autoVat));
+    if (!totalTouched) setTotalInvoice(String(autoTotal));
   }
 
-  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent(
-        "Invalid invoice status."
-      )}`
-    );
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setSaving(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/transport-jobs/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          transport_number: clean(transportNumber),
+          linked_job_id: clean(linkedJobId) || null,
+          client_id: clean(clientId) || null,
+          vehicle_id: clean(vehicleId) || null,
+          operator_id: clean(operatorId) || null,
+          supplier_id: clean(supplierId) || null,
+          supplier_reference: clean(supplierReference) || null,
+          supplier_cost: clean(supplierCost) ? numberOrZero(supplierCost) : null,
+          job_type: clean(jobType) || null,
+          collection_address: clean(collectionAddress) || null,
+          delivery_address: clean(deliveryAddress) || null,
+          transport_date: clean(transportDate) || null,
+          collection_time: clean(collectionTime) || null,
+          delivery_time: clean(deliveryTime) || null,
+          load_description: clean(loadDescription) || null,
+          status: clean(status) || "planned",
+          price: numberOrZero(agreedSellRate),
+          agreed_sell_rate: numberOrZero(agreedSellRate),
+          invoice_status: clean(invoiceStatus) || "Not Invoiced",
+          invoice_number: clean(invoiceNumber) || null,
+          invoice_created_at: clean(invoiceCreatedAt) || null,
+          invoice_due_at: clean(invoiceDueAt) || null,
+          invoice_notes: clean(invoiceNotes) || null,
+          invoice_subtotal: numberOrZero(invoiceSubtotal),
+          invoice_vat: numberOrZero(invoiceVat),
+          total_invoice: numberOrZero(totalInvoice),
+          notes: clean(notes) || null,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        setErrorMessage(json?.error || "Could not create transport job.");
+        return;
+      }
+
+      if (json?.id) {
+        window.location.href = `/transport-jobs/${json.id}?success=${encodeURIComponent(
+          `${json.transport_number ?? transportNumber} saved.`
+        )}`;
+        return;
+      }
+
+      window.location.href = "/transport-jobs";
+    } catch {
+      setErrorMessage("Could not create transport job.");
+    } finally {
+      setSaving(false);
+    }
   }
-
-  const pickupCoords = collectionAddress
-    ? await geocodeAddress(collectionAddress)
-    : null;
-
-  const deliveryCoords = deliveryAddress
-    ? await geocodeAddress(deliveryAddress)
-    : null;
-
-  const payload = {
-    transport_number: transportNumber,
-    linked_job_id: linkedJobId,
-    client_id: clientId,
-    vehicle_id: vehicleId,
-    operator_id: operatorId,
-    supplier_id: supplierId,
-    supplier_reference: supplierReference,
-    supplier_cost: supplierCost,
-    job_type: jobType,
-    collection_address: collectionAddress,
-    delivery_address: deliveryAddress,
-    collection_lat: pickupCoords?.lat ?? null,
-    collection_lng: pickupCoords?.lng ?? null,
-    delivery_lat: deliveryCoords?.lat ?? null,
-    delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: transportDate,
-    collection_time: collectionTime,
-    delivery_time: deliveryTime,
-    load_description: loadDescription,
-    status,
-    price: agreedSellRate,
-    agreed_sell_rate: agreedSellRate,
-    invoice_status: invoiceStatus,
-    invoice_number: invoiceNumber,
-    invoice_created_at: invoiceCreatedAt,
-    invoice_due_at: invoiceDueAt,
-    invoice_notes: invoiceNotes,
-    invoice_subtotal: invoiceSubtotal,
-    invoice_vat: invoiceVat,
-    total_invoice: totalInvoice,
-    notes,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { data, error } = await supabase
-    .from("transport_jobs")
-    .insert(payload)
-    .select("id, transport_number")
-    .single();
-
-  if (error || !data?.id) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent(
-        error?.message ?? "Could not create transport job."
-      )}`
-    );
-  }
-
-  redirect(
-    `/transport-jobs/${data.id}?success=${encodeURIComponent(
-      `${data.transport_number} saved.`
-    )}`
-  );
-}
-
-export default async function NewTransportJobPage({
-  searchParams,
-}: {
-  searchParams?: { error?: string };
-}) {
-  const supabase = createSupabaseServerClient();
-
-  const errorMessage = searchParams?.error
-    ? decodeURIComponent(searchParams.error)
-    : "";
-
-  const defaultSellRate = 0;
-  const defaultInvoiceSubtotal = money(defaultSellRate);
-  const defaultInvoiceVat = money(defaultInvoiceSubtotal * 0.2);
-  const defaultInvoiceTotal = money(defaultInvoiceSubtotal + defaultInvoiceVat);
-
-  const [
-    { data: clients },
-    { data: jobs },
-    { data: vehicles },
-    { data: operators },
-    { data: suppliers },
-  ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, archived")
-      .eq("archived", false)
-      .order("company_name", { ascending: true }),
-
-    supabase
-      .from("jobs")
-      .select("id, job_number, site_name, archived")
-      .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(300),
-
-    supabase
-      .from("vehicles")
-      .select("id, name, reg_number, status, archived")
-      .eq("status", "active")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-
-    supabase
-      .from("operators")
-      .select("id, full_name, status, archived")
-      .eq("status", "active")
-      .eq("archived", false)
-      .order("full_name", { ascending: true }),
-
-    supabase
-      .from("suppliers")
-      .select("id, company_name, category")
-      .order("company_name", { ascending: true }),
-  ]);
 
   return (
     <ClientShell>
@@ -231,7 +176,7 @@ export default async function NewTransportJobPage({
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+          <form onSubmit={handleSubmit} style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
@@ -239,49 +184,48 @@ export default async function NewTransportJobPage({
                 <Field
                   label="Transport number"
                   name="transport_number"
-                  defaultValue={generateTransportNumber()}
+                  value={transportNumber}
+                  onChange={() => {}}
+                  disabled
                 />
 
                 <SelectField
                   label="Linked crane job"
                   name="linked_job_id"
-                  options={(jobs ?? []).map((j: any) => ({
-                    value: j.id,
-                    label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
-                  }))}
+                  value={linkedJobId}
+                  onChange={setLinkedJobId}
+                  options={jobs}
                 />
 
                 <SelectField
                   label="Customer"
                   name="client_id"
-                  options={(clients ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.company_name ?? "Customer",
-                  }))}
+                  value={clientId}
+                  onChange={setClientId}
+                  options={clients}
                 />
 
                 <SelectField
                   label="Vehicle"
                   name="vehicle_id"
-                  options={(vehicles ?? []).map((v: any) => ({
-                    value: v.id,
-                    label: `${v.name ?? "Vehicle"}${v.reg_number ? ` (${v.reg_number})` : ""}`,
-                  }))}
+                  value={vehicleId}
+                  onChange={setVehicleId}
+                  options={vehicles}
                 />
 
                 <SelectField
                   label="Driver / Operator"
                   name="operator_id"
-                  options={(operators ?? []).map((o: any) => ({
-                    value: o.id,
-                    label: o.full_name ?? "Operator",
-                  }))}
+                  value={operatorId}
+                  onChange={setOperatorId}
+                  options={operators}
                 />
 
                 <SelectField
                   label="Job type"
                   name="job_type"
-                  defaultValue="haulage"
+                  value={jobType}
+                  onChange={setJobType}
                   options={[
                     { value: "haulage", label: "haulage" },
                     { value: "delivery", label: "delivery" },
@@ -291,20 +235,46 @@ export default async function NewTransportJobPage({
                   ]}
                 />
 
-                <Field label="Transport date" name="transport_date" type="date" />
-                <Field label="Collection time" name="collection_time" type="time" />
-                <Field label="Delivery time" name="delivery_time" type="time" />
+                <Field
+                  label="Transport date"
+                  name="transport_date"
+                  type="date"
+                  value={transportDate}
+                  onChange={setTransportDate}
+                />
+
+                <Field
+                  label="Collection time"
+                  name="collection_time"
+                  type="time"
+                  value={collectionTime}
+                  onChange={setCollectionTime}
+                />
+
+                <Field
+                  label="Delivery time"
+                  name="delivery_time"
+                  type="time"
+                  value={deliveryTime}
+                  onChange={setDeliveryTime}
+                />
+
                 <Field
                   label="Charge rate"
                   name="agreed_sell_rate"
                   type="number"
-                  defaultValue={String(defaultSellRate)}
+                  value={agreedSellRate}
+                  onChange={(value) => {
+                    setAgreedSellRate(value);
+                    updateFromCharge(value);
+                  }}
                 />
 
                 <SelectField
                   label="Status"
                   name="status"
-                  defaultValue="planned"
+                  value={status}
+                  onChange={setStatus}
                   options={[
                     { value: "planned", label: "planned" },
                     { value: "confirmed", label: "confirmed" },
@@ -318,7 +288,8 @@ export default async function NewTransportJobPage({
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Pickup address</label>
                 <textarea
-                  name="collection_address"
+                  value={collectionAddress}
+                  onChange={(e) => setCollectionAddress(e.target.value)}
                   rows={3}
                   style={textareaStyle}
                   placeholder="Enter pickup address"
@@ -328,7 +299,8 @@ export default async function NewTransportJobPage({
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Delivery address</label>
                 <textarea
-                  name="delivery_address"
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
                   rows={3}
                   style={textareaStyle}
                   placeholder="Enter delivery address"
@@ -338,7 +310,8 @@ export default async function NewTransportJobPage({
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Load description</label>
                 <textarea
-                  name="load_description"
+                  value={loadDescription}
+                  onChange={(e) => setLoadDescription(e.target.value)}
                   rows={3}
                   style={textareaStyle}
                   placeholder="Describe the load, crane parts, ballast, equipment or haulage item"
@@ -348,7 +321,8 @@ export default async function NewTransportJobPage({
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Notes</label>
                 <textarea
-                  name="notes"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
                   rows={5}
                   style={textareaStyle}
                   placeholder="Extra transport instructions"
@@ -366,21 +340,24 @@ export default async function NewTransportJobPage({
                 <SelectField
                   label="Supplier"
                   name="supplier_id"
-                  options={(suppliers ?? []).map((s: any) => ({
-                    value: s.id,
-                    label: s.company_name ?? "Supplier",
-                  }))}
+                  value={supplierId}
+                  onChange={setSupplierId}
+                  options={suppliers}
                 />
 
                 <Field
                   label="Supplier reference"
                   name="supplier_reference"
+                  value={supplierReference}
+                  onChange={setSupplierReference}
                 />
 
                 <Field
                   label="Supplier cost"
                   name="supplier_cost"
                   type="number"
+                  value={supplierCost}
+                  onChange={setSupplierCost}
                 />
               </div>
             </section>
@@ -392,7 +369,8 @@ export default async function NewTransportJobPage({
                 <SelectField
                   label="Invoice status"
                   name="invoice_status"
-                  defaultValue="Not Invoiced"
+                  value={invoiceStatus}
+                  onChange={setInvoiceStatus}
                   options={INVOICE_STATUSES.map((status) => ({
                     value: status,
                     label: status,
@@ -402,46 +380,65 @@ export default async function NewTransportJobPage({
                 <Field
                   label="Invoice number"
                   name="invoice_number"
+                  value={invoiceNumber}
+                  onChange={setInvoiceNumber}
                 />
 
                 <Field
                   label="Invoice created"
                   name="invoice_created_at"
                   type="date"
+                  value={invoiceCreatedAt}
+                  onChange={setInvoiceCreatedAt}
                 />
 
                 <Field
                   label="Invoice due"
                   name="invoice_due_at"
                   type="date"
+                  value={invoiceDueAt}
+                  onChange={setInvoiceDueAt}
                 />
 
                 <Field
                   label="Invoice subtotal"
                   name="invoice_subtotal"
                   type="number"
-                  defaultValue={String(defaultInvoiceSubtotal)}
+                  value={invoiceSubtotal}
+                  onChange={(value) => {
+                    setSubtotalTouched(true);
+                    setInvoiceSubtotal(value);
+                  }}
                 />
 
                 <Field
                   label="Invoice VAT"
                   name="invoice_vat"
                   type="number"
-                  defaultValue={String(defaultInvoiceVat)}
+                  value={invoiceVat}
+                  onChange={(value) => {
+                    setVatTouched(true);
+                    setInvoiceVat(value);
+                  }}
                 />
 
                 <Field
                   label="Total invoice"
                   name="total_invoice"
                   type="number"
-                  defaultValue={String(defaultInvoiceTotal)}
+                  value={totalInvoice}
+                  onChange={(value) => {
+                    setTotalTouched(true);
+                    setTotalInvoice(value);
+                  }}
                 />
               </div>
 
               <div style={{ marginTop: 12 }}>
                 <label style={labelStyle}>Invoice notes</label>
                 <textarea
-                  name="invoice_notes"
+                  value={invoiceNotes}
+                  onChange={(e) => setInvoiceNotes(e.target.value)}
                   rows={3}
                   style={textareaStyle}
                   placeholder="Internal invoice notes"
@@ -450,8 +447,8 @@ export default async function NewTransportJobPage({
             </section>
 
             <div>
-              <button type="submit" style={saveBtn}>
-                Save transport job
+              <button type="submit" style={saveBtn} disabled={saving}>
+                {saving ? "Saving..." : "Save transport job"}
               </button>
             </div>
           </form>
@@ -464,22 +461,28 @@ export default async function NewTransportJobPage({
 function Field({
   label,
   name,
-  defaultValue,
+  value,
+  onChange,
   type = "text",
+  disabled = false,
 }: {
   label: string;
   name: string;
-  defaultValue?: string;
+  value?: string;
+  onChange: (value: string) => void;
   type?: string;
+  disabled?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
       <input
         name={name}
-        defaultValue={defaultValue}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
         type={type}
         style={inputStyle}
+        disabled={disabled}
       />
     </div>
   );
@@ -488,18 +491,25 @@ function Field({
 function SelectField({
   label,
   name,
-  defaultValue,
+  value,
+  onChange,
   options,
 }: {
   label: string;
   name: string;
-  defaultValue?: string;
+  value?: string;
+  onChange: (value: string) => void;
   options: Array<{ value: string; label: string }>;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <select name={name} defaultValue={defaultValue} style={inputStyle}>
+      <select
+        name={name}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={inputStyle}
+      >
         <option value="">— Select —</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
