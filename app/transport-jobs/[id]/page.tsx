@@ -8,6 +8,38 @@ function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
 
+function numberOrZero(value: FormDataEntryValue | null) {
+  const n = Number(String(value ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+function numberOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function money(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function fmtMoney(value: number | string | null | undefined) {
+  return `£${money(value).toFixed(2)}`;
+}
+
+const INVOICE_STATUSES = [
+  "Not Invoiced",
+  "Invoiced",
+  "Part Paid",
+  "Paid",
+];
+
+function looksLikeCrossHire(item: any) {
+  return !!item?.supplier_id || Number(item?.supplier_cost ?? 0) > 0;
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -24,11 +56,26 @@ async function updateTransportJob(formData: FormData) {
   const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
   const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
 
+  const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
+  const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceVat = numberOrZero(formData.get("invoice_vat"));
+  const totalInvoice = numberOrZero(formData.get("total_invoice"));
+  const supplierEnabled = clean(formData.get("supplier_enabled")) === "yes";
+
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+
+  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Invalid invoice status.")}`);
+  }
+
   const payload = {
     linked_job_id: clean(formData.get("linked_job_id")) || null,
     client_id: clean(formData.get("client_id")) || null,
     vehicle_id: clean(formData.get("vehicle_id")) || null,
     operator_id: clean(formData.get("operator_id")) || null,
+    supplier_id: supplierEnabled ? clean(formData.get("supplier_id")) || null : null,
+    supplier_reference: supplierEnabled ? clean(formData.get("supplier_reference")) || null : null,
+    supplier_cost: supplierEnabled ? numberOrNull(formData.get("supplier_cost")) : null,
     job_type: clean(formData.get("job_type")) || null,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
@@ -41,7 +88,16 @@ async function updateTransportJob(formData: FormData) {
     delivery_time: clean(formData.get("delivery_time")) || null,
     load_description: clean(formData.get("load_description")) || null,
     status: clean(formData.get("status")) || "planned",
-    price: Number(formData.get("price") ?? 0) || 0,
+    price: agreedSellRate,
+    agreed_sell_rate: agreedSellRate,
+    invoice_status: invoiceStatus,
+    invoice_number: clean(formData.get("invoice_number")) || null,
+    invoice_created_at: clean(formData.get("invoice_created_at")) || null,
+    invoice_due_at: clean(formData.get("invoice_due_at")) || null,
+    invoice_notes: clean(formData.get("invoice_notes")) || null,
+    invoice_subtotal: invoiceSubtotal,
+    invoice_vat: invoiceVat,
+    total_invoice: totalInvoice,
     notes: clean(formData.get("notes")) || null,
     updated_at: new Date().toISOString(),
   };
@@ -80,12 +136,6 @@ async function cancelJob(formData: FormData) {
   redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job cancelled.")}`);
 }
 
-function fmtMoney(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
-}
-
 export default async function TransportJobDetailPage({
   params,
   searchParams,
@@ -101,6 +151,7 @@ export default async function TransportJobDetailPage({
     { data: jobs },
     { data: vehicles },
     { data: operators },
+    { data: suppliers },
   ] = await Promise.all([
     supabase
       .from("transport_jobs")
@@ -115,6 +166,9 @@ export default async function TransportJobDetailPage({
         ),
         operators:operator_id (
           full_name
+        ),
+        suppliers:supplier_id (
+          company_name
         ),
         jobs:linked_job_id (
           id,
@@ -151,6 +205,11 @@ export default async function TransportJobDetailPage({
       .eq("status", "active")
       .eq("archived", false)
       .order("full_name", { ascending: true }),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name, category")
+      .order("company_name", { ascending: true }),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -168,9 +227,23 @@ export default async function TransportJobDetailPage({
     ? (item as any).operators[0]
     : (item as any)?.operators;
 
+  const supplier = Array.isArray((item as any)?.suppliers)
+    ? (item as any).suppliers[0]
+    : (item as any)?.suppliers;
+
   const linkedJob = Array.isArray((item as any)?.jobs)
     ? (item as any).jobs[0]
     : (item as any)?.jobs;
+
+  const suggestedSellRate = money((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0);
+  const suggestedInvoiceSubtotal = money((item as any)?.invoice_subtotal ?? suggestedSellRate);
+  const suggestedInvoiceVat = money(
+    (item as any)?.invoice_vat ?? (suggestedInvoiceSubtotal > 0 ? suggestedInvoiceSubtotal * 0.2 : 0)
+  );
+  const suggestedInvoiceTotal = money(
+    (item as any)?.total_invoice ?? (suggestedInvoiceSubtotal + suggestedInvoiceVat)
+  );
+  const showSupplierSection = looksLikeCrossHire(item);
 
   return (
     <ClientShell>
@@ -182,7 +255,7 @@ export default async function TransportJobDetailPage({
                 {(item as any)?.transport_number ?? "Transport Job"}
               </h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                View and update transport allocation details.
+                View and update transport allocation, costing and invoice details.
               </p>
             </div>
 
@@ -221,6 +294,7 @@ export default async function TransportJobDetailPage({
 
                 <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
                   <input type="hidden" name="id" value={(item as any).id} />
+                  <input type="hidden" name="supplier_enabled" value={showSupplierSection ? "yes" : "no"} />
 
                   <div style={gridStyle}>
                     <Field
@@ -318,12 +392,142 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      label="Price"
-                      name="price"
+                      label="Charge rate"
+                      name="agreed_sell_rate"
                       type="number"
-                      defaultValue={String((item as any).price ?? 0)}
+                      defaultValue={String(suggestedSellRate)}
                     />
                   </div>
+
+                  <details
+                    open={showSupplierSection}
+                    style={{
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "rgba(255,255,255,0.22)",
+                    }}
+                  >
+                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>
+                      Cross-hire / supplier details
+                    </summary>
+
+                    <div style={{ marginTop: 10, fontSize: 13, opacity: 0.78 }}>
+                      Only use this section when this transport is supplier-backed or cross-hired.
+                    </div>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                        gap: 12,
+                        marginTop: 12,
+                      }}
+                    >
+                      <SelectField
+                        label="Supplier"
+                        name="supplier_id"
+                        defaultValue={(item as any).supplier_id ?? ""}
+                        options={(suppliers ?? []).map((s: any) => ({
+                          value: s.id,
+                          label: s.company_name ?? "Supplier",
+                        }))}
+                      />
+
+                      <Field
+                        label="Supplier reference"
+                        name="supplier_reference"
+                        defaultValue={(item as any).supplier_reference ?? ""}
+                      />
+
+                      <Field
+                        label="Supplier cost"
+                        name="supplier_cost"
+                        type="number"
+                        defaultValue={String((item as any).supplier_cost ?? "")}
+                      />
+                    </div>
+                  </details>
+
+                  <section
+                    style={{
+                      border: "1px solid rgba(0,0,0,0.08)",
+                      borderRadius: 12,
+                      padding: 12,
+                      background: "rgba(255,255,255,0.22)",
+                      display: "grid",
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ fontWeight: 900 }}>Invoice details</div>
+
+                    <div style={gridStyle}>
+                      <SelectField
+                        label="Invoice status"
+                        name="invoice_status"
+                        defaultValue={(item as any).invoice_status ?? "Not Invoiced"}
+                        options={INVOICE_STATUSES.map((status) => ({
+                          value: status,
+                          label: status,
+                        }))}
+                      />
+
+                      <Field
+                        label="Invoice number"
+                        name="invoice_number"
+                        defaultValue={(item as any).invoice_number ?? ""}
+                      />
+
+                      <Field
+                        label="Invoice created"
+                        name="invoice_created_at"
+                        type="date"
+                        defaultValue={
+                          (item as any).invoice_created_at
+                            ? String((item as any).invoice_created_at).slice(0, 10)
+                            : ""
+                        }
+                      />
+
+                      <Field
+                        label="Invoice due"
+                        name="invoice_due_at"
+                        type="date"
+                        defaultValue={
+                          (item as any).invoice_due_at
+                            ? String((item as any).invoice_due_at).slice(0, 10)
+                            : ""
+                        }
+                      />
+
+                      <Field
+                        label="Invoice subtotal"
+                        name="invoice_subtotal"
+                        type="number"
+                        defaultValue={String(suggestedInvoiceSubtotal)}
+                      />
+
+                      <Field
+                        label="Invoice VAT"
+                        name="invoice_vat"
+                        type="number"
+                        defaultValue={String(suggestedInvoiceVat)}
+                      />
+
+                      <Field
+                        label="Total invoice"
+                        name="total_invoice"
+                        type="number"
+                        defaultValue={String(suggestedInvoiceTotal)}
+                      />
+                    </div>
+
+                    <FullWidthField
+                      label="Invoice notes"
+                      name="invoice_notes"
+                      defaultValue={(item as any).invoice_notes ?? ""}
+                    />
+                  </section>
 
                   <FullWidthField
                     label="Collection address"
@@ -363,12 +567,18 @@ export default async function TransportJobDetailPage({
                 <InfoRow label="Customer" value={client?.company_name ?? "—"} />
                 <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
                 <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
+                <InfoRow label="Supplier" value={supplier?.company_name ?? "—"} />
                 <InfoRow
                   label="Linked crane job"
                   value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
                 />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Price" value={fmtMoney((item as any).price)} />
+                <InfoRow label="Charge rate" value={fmtMoney((item as any).agreed_sell_rate ?? (item as any).price)} />
+                <InfoRow label="Supplier cost" value={fmtMoney((item as any).supplier_cost)} />
+                <InfoRow label="Invoice status" value={(item as any).invoice_status ?? "Not Invoiced"} />
+                <InfoRow label="Invoice subtotal" value={fmtMoney((item as any).invoice_subtotal ?? suggestedInvoiceSubtotal)} />
+                <InfoRow label="Invoice VAT" value={fmtMoney((item as any).invoice_vat ?? suggestedInvoiceVat)} />
+                <InfoRow label="Total invoice" value={fmtMoney((item as any).total_invoice ?? suggestedInvoiceTotal)} />
                 <InfoRow
                   label="Pickup lat/lng"
                   value={
