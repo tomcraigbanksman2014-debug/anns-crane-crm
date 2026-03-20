@@ -1,159 +1,155 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { geocodeAddress } from "../../../lib/geocode";
 
 function clean(value: unknown) {
-  return String(value ?? "").trim();
-}
-
-function numberOrZero(value: unknown) {
-  const n = Number(String(value ?? "").trim());
-  return Number.isFinite(n) ? n : 0;
+  const v = String(value ?? "").trim();
+  return v.length ? v : null;
 }
 
 function numberOrNull(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  const n = Number(raw);
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
 
-function makeTransportNumber() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  const hh = `${d.getHours()}`.padStart(2, "0");
-  const mm = `${d.getMinutes()}`.padStart(2, "0");
-  const ss = `${d.getSeconds()}`.padStart(2, "0");
-  return `TR-${y}${m}${day}-${hh}${mm}${ss}`;
+function toMinutes(value: string | null) {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const h = Number(match[1]);
+  const m = Number(match[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
 }
 
-const INVOICE_STATUSES = [
-  "Not Invoiced",
-  "Invoiced",
-  "Part Paid",
-  "Paid",
-];
+function inferStatus(inputStatus: string | null, payload: Record<string, any>) {
+  const requested = String(inputStatus ?? "").toLowerCase();
+
+  const hasRequiredForConfirmed =
+    !!payload.client_id &&
+    !!payload.vehicle_id &&
+    !!payload.operator_id &&
+    !!payload.transport_date &&
+    !!payload.collection_time &&
+    !!payload.delivery_time;
+
+  if (requested === "confirmed" && hasRequiredForConfirmed) {
+    return "confirmed";
+  }
+
+  if (requested === "cancelled") return "cancelled";
+  if (requested === "completed") return "completed";
+  if (requested === "in_progress") return "in_progress";
+
+  return "planned";
+}
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => null);
-
-    const transportNumber =
-      clean(body?.transport_number) || makeTransportNumber();
-
-    const linkedJobId = clean(body?.linked_job_id) || null;
-    const clientId = clean(body?.client_id) || null;
-    const vehicleId = clean(body?.vehicle_id) || null;
-    const operatorId = clean(body?.operator_id) || null;
-    const supplierId = clean(body?.supplier_id) || null;
-    const supplierReference = clean(body?.supplier_reference) || null;
-    const supplierCost = numberOrNull(body?.supplier_cost);
-    const jobType = clean(body?.job_type) || null;
-
-    const collectionAddress = clean(body?.collection_address) || null;
-    const deliveryAddress = clean(body?.delivery_address) || null;
-    const transportDate = clean(body?.transport_date) || null;
-    const collectionTime = clean(body?.collection_time) || null;
-    const deliveryTime = clean(body?.delivery_time) || null;
-    const loadDescription = clean(body?.load_description) || null;
-    const status = clean(body?.status) || "planned";
-    const notes = clean(body?.notes) || null;
-
-    const agreedSellRate = numberOrZero(body?.agreed_sell_rate);
-    const invoiceStatus = clean(body?.invoice_status) || "Not Invoiced";
-    const invoiceNumber = clean(body?.invoice_number) || null;
-    const invoiceCreatedAt = clean(body?.invoice_created_at) || null;
-    const invoiceDueAt = clean(body?.invoice_due_at) || null;
-    const invoiceNotes = clean(body?.invoice_notes) || null;
-    const invoiceSubtotal = numberOrZero(body?.invoice_subtotal);
-    const invoiceVat = numberOrZero(body?.invoice_vat);
-    const totalInvoice = numberOrZero(body?.total_invoice);
-
-    if (!collectionAddress || !deliveryAddress || !transportDate) {
-      return NextResponse.json(
-        {
-          error:
-            "Pickup address, delivery address and transport date are required.",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!INVOICE_STATUSES.includes(invoiceStatus)) {
-      return NextResponse.json(
-        { error: "Invalid invoice status." },
-        { status: 400 }
-      );
-    }
-
     const supabase = createSupabaseServerClient();
 
-    const pickupCoords = collectionAddress
-      ? await geocodeAddress(collectionAddress)
-      : null;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
 
-    const deliveryCoords = deliveryAddress
-      ? await geocodeAddress(deliveryAddress)
-      : null;
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
 
-    const insertRow = {
-      transport_number: transportNumber,
-      linked_job_id: linkedJobId,
-      client_id: clientId,
-      vehicle_id: vehicleId,
-      operator_id: operatorId,
-      supplier_id: supplierId,
-      supplier_reference: supplierReference,
-      supplier_cost: supplierCost,
-      job_type: jobType,
-      collection_address: collectionAddress,
-      delivery_address: deliveryAddress,
-      collection_lat: pickupCoords?.lat ?? null,
-      collection_lng: pickupCoords?.lng ?? null,
-      delivery_lat: deliveryCoords?.lat ?? null,
-      delivery_lng: deliveryCoords?.lng ?? null,
-      transport_date: transportDate,
+    const body = await req.json().catch(() => null);
+    if (!body) {
+      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    }
+
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
+      now.getDate()
+    ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
+      now.getMinutes()
+    ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+
+    const collectionTime = clean(body.collection_time);
+    const deliveryTime = clean(body.delivery_time);
+
+    const startMins = toMinutes(collectionTime);
+    const endMins = toMinutes(deliveryTime);
+
+    if (
+      collectionTime &&
+      deliveryTime &&
+      startMins !== null &&
+      endMins !== null &&
+      endMins < startMins
+    ) {
+      return NextResponse.json(
+        { error: "Delivery time cannot be earlier than collection time." },
+        { status: 400 }
+      );
+    }
+
+    const agreedSellRate =
+      numberOrNull(body.agreed_sell_rate) ??
+      numberOrNull(body.price) ??
+      0;
+
+    const invoiceVat = numberOrNull(body.invoice_vat) ?? 0;
+    const invoiceSubtotal =
+      numberOrNull(body.invoice_subtotal) ?? agreedSellRate;
+    const totalInvoice =
+      numberOrNull(body.total_invoice) ?? invoiceSubtotal + invoiceVat;
+
+    const payload: Record<string, any> = {
+      transport_number: clean(body.transport_number) || `TR-${stamp}`,
+      linked_job_id: clean(body.linked_job_id),
+      client_id: clean(body.client_id),
+      vehicle_id: clean(body.vehicle_id),
+      operator_id: clean(body.operator_id),
+      job_type: clean(body.job_type),
+      collection_address: clean(body.collection_address),
+      delivery_address: clean(body.delivery_address),
+      transport_date: clean(body.transport_date),
       collection_time: collectionTime,
       delivery_time: deliveryTime,
-      load_description: loadDescription,
-      status,
-      price: agreedSellRate,
+      load_description: clean(body.load_description),
+      notes: clean(body.notes),
+      price: numberOrNull(body.price) ?? 0,
+      supplier_id: clean(body.supplier_id),
+      supplier_reference: clean(body.supplier_reference),
+      supplier_cost: numberOrNull(body.supplier_cost),
       agreed_sell_rate: agreedSellRate,
-      invoice_status: invoiceStatus,
-      invoice_number: invoiceNumber,
-      invoice_created_at: invoiceCreatedAt,
-      invoice_due_at: invoiceDueAt,
-      invoice_notes: invoiceNotes,
+      invoice_status: clean(body.invoice_status) || "Not Invoiced",
+      invoice_number: clean(body.invoice_number),
+      invoice_created_at: clean(body.invoice_created_at),
+      invoice_due_at: clean(body.invoice_due_at),
+      invoice_notes: clean(body.invoice_notes),
       invoice_subtotal: invoiceSubtotal,
       invoice_vat: invoiceVat,
       total_invoice: totalInvoice,
-      notes,
+      collection_lat: numberOrNull(body.collection_lat),
+      collection_lng: numberOrNull(body.collection_lng),
+      delivery_lat: numberOrNull(body.delivery_lat),
+      delivery_lng: numberOrNull(body.delivery_lng),
+      archived: false,
       updated_at: new Date().toISOString(),
     };
 
+    payload.status = inferStatus(clean(body.status), payload);
+
     const { data, error } = await supabase
       .from("transport_jobs")
-      .insert(insertRow)
-      .select("id, transport_number")
+      .insert(payload)
+      .select("*")
       .single();
 
-    if (error || !data) {
-      return NextResponse.json(
-        { error: error?.message || "Could not create transport job." },
-        { status: 400 }
-      );
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      id: data.id,
-      transport_number: data.transport_number,
-    });
-  } catch (e: any) {
+    return NextResponse.json({ ok: true, transport_job: data });
+  } catch (error: any) {
     return NextResponse.json(
-      { error: e?.message || "Server error." },
+      { error: error?.message || "Unexpected server error." },
       { status: 500 }
     );
   }
