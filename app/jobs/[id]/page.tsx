@@ -77,6 +77,7 @@ function Row({
 }
 
 function getAssetType(item: any) {
+  if (item?.asset_type) return String(item.asset_type).toLowerCase();
   if (item?.crane_id) return "crane";
   if (item?.vehicle_id) return "vehicle";
   if (item?.equipment_id) return "equipment";
@@ -254,8 +255,9 @@ export default async function JobPage({
     (sum, item) => sum + allocatedCost(item),
     0
   );
-  const allocatedVat = 0;
-  const allocatedTotal = allocatedSellSubtotal + allocatedVat;
+
+  const liveVat = Number(job?.invoice_vat ?? 0);
+  const allocatedTotal = allocatedSellSubtotal + liveVat;
 
   return (
     <ClientShell>
@@ -459,10 +461,10 @@ export default async function JobPage({
                 <div style={summaryGrid}>
                   <Row label="Invoice status" value={job.invoice_status ?? "Not Invoiced"} />
                   <Row label="Invoice #" value={job.invoice_number ?? "—"} />
-                  <Row label="Invoice created" value={fmtDate(job.invoice_created_at)} />
-                  <Row label="Invoice due" value={fmtDate(job.invoice_due_at)} />
+                  <Row label="Invoice created" value={fmtDate(job.invoice_created_at ?? job.invoice_date)} />
+                  <Row label="Invoice due" value={fmtDate(job.invoice_due_date)} />
                   <Row label="Allocated subtotal" value={money(allocatedSellSubtotal)} />
-                  <Row label="VAT" value={money(allocatedVat)} />
+                  <Row label="VAT" value={money(liveVat)} />
                   <Row label="Allocated total" value={money(allocatedTotal)} />
                   <Row label="Invoice notes" value={job.invoice_notes ?? "—"} />
                 </div>
