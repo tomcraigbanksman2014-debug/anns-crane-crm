@@ -275,7 +275,7 @@ export default async function TransportJobsPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1600px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
@@ -344,22 +344,17 @@ export default async function TransportJobsPage({
             <div style={emptyBox}>No transport jobs found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1820 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
                 <thead>
                   <tr>
-                    <th align="left" style={thStyle}>Ref</th>
-                    <th align="left" style={thStyle}>Collection Date</th>
-                    <th align="left" style={thStyle}>Delivery Date</th>
-                    <th align="left" style={thStyle}>Times</th>
+                    <th align="left" style={thStyleWide}>Ref / Route</th>
+                    <th align="left" style={thStyle}>Schedule</th>
                     <th align="left" style={thStyle}>Customer</th>
-                    <th align="left" style={thStyle}>Vehicle</th>
-                    <th align="left" style={thStyle}>Driver</th>
+                    <th align="left" style={thStyle}>Allocation</th>
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Charge</th>
-                    <th align="left" style={thStyle}>Supplier Cost</th>
+                    <th align="left" style={thStyle}>Costs</th>
                     <th align="left" style={thStyle}>Invoice</th>
-                    <th align="left" style={thStyle}>Linked Job</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -386,61 +381,76 @@ export default async function TransportJobsPage({
 
                     return (
                       <tr key={item.id}>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 900 }}>{item.transport_number ?? "—"}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                        <td style={tdStyleWide}>
+                          <div style={{ fontWeight: 1000, fontSize: 15 }}>
+                            {item.transport_number ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 5, fontSize: 12, opacity: 0.78 }}>
                             {item.collection_address ?? "—"}
                           </div>
-                          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.72 }}>
+                          <div style={{ marginTop: 2, fontSize: 12, opacity: 0.78 }}>
                             → {item.delivery_address ?? "—"}
                           </div>
                           {item.load_description ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.8 }}>
+                            <div style={{ marginTop: 5, fontSize: 12, opacity: 0.84 }}>
                               {item.load_description}
+                            </div>
+                          ) : null}
+                          {linkedJob?.job_number ? (
+                            <div style={{ marginTop: 6, fontSize: 12 }}>
+                              <a href={`/jobs/${linkedJob.id}`} style={inlineLinkStyle}>
+                                Crane job #{linkedJob.job_number}
+                                {linkedJob.site_name ? ` • ${linkedJob.site_name}` : ""}
+                              </a>
                             </div>
                           ) : null}
                         </td>
 
-                        <td style={tdStyle}>{fmtDate(item.transport_date)}</td>
-
                         <td style={tdStyle}>
-                          {fmtDate(item.delivery_date ?? item.transport_date)}
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div>{item.collection_time ?? "—"}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                            → {item.delivery_time ?? "—"}
+                          <div style={{ fontWeight: 900, fontSize: 13 }}>
+                            {fmtDate(item.transport_date)}
+                            {item.delivery_date && item.delivery_date !== item.transport_date
+                              ? ` → ${fmtDate(item.delivery_date)}`
+                              : ""}
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.82 }}>
+                            {item.collection_time ?? "—"}
+                            <span style={{ opacity: 0.6 }}> → </span>
+                            {item.delivery_time ?? "—"}
                           </div>
                         </td>
 
-                        <td style={tdStyle}>{client?.company_name ?? "—"}</td>
-
                         <td style={tdStyle}>
-                          {vehicle?.name ?? "—"}
-                          {vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                          {client?.company_name ?? "—"}
                         </td>
 
-                        <td style={tdStyle}>{driver?.full_name ?? "—"}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontSize: 13, fontWeight: 800 }}>
+                            {vehicle?.name ?? "Unassigned"}
+                            {vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.78 }}>
+                            {driver?.full_name ?? "No driver"}
+                          </div>
+                        </td>
 
-                        <td style={tdStyle}>{prettyJobType(item.job_type)}</td>
+                        <td style={tdStyle}>
+                          {prettyJobType(item.job_type)}
+                        </td>
 
                         <td style={tdStyle}>
                           <StatusBadge value={item.status} archived={!!item.archived} />
                         </td>
 
                         <td style={tdStyle}>
-                          <div style={{ fontWeight: 900 }}>
-                            {fmtMoney(item.agreed_sell_rate ?? item.price)}
+                          <div style={{ fontSize: 13, fontWeight: 900 }}>
+                            Charge: {fmtMoney(item.agreed_sell_rate ?? item.price)}
                           </div>
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 900 }}>
-                            {item.supplier_cost != null ? fmtMoney(item.supplier_cost) : "—"}
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
+                            Supplier: {item.supplier_cost != null ? fmtMoney(item.supplier_cost) : "—"}
                           </div>
                           {supplierName ? (
-                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            <div style={{ marginTop: 3, fontSize: 12, opacity: 0.72 }}>
                               {supplierName}
                             </div>
                           ) : null}
@@ -457,32 +467,21 @@ export default async function TransportJobsPage({
                             <div style={{ fontSize: 12, opacity: 0.8 }}>
                               Paid: {fmtMoney(amountPaid)}
                             </div>
-                            <div style={{ fontSize: 12, opacity: 0.9, fontWeight: 800 }}>
+                            <div style={{ fontSize: 12, opacity: 0.92, fontWeight: 900 }}>
                               Outstanding: {fmtMoney(amountOutstanding)}
                             </div>
                           </div>
                         </td>
 
                         <td style={tdStyle}>
-                          {linkedJob?.job_number ? (
-                            <a href={`/jobs/${linkedJob.id}`} style={inlineLinkStyle}>
-                              #{linkedJob.job_number}
-                              {linkedJob.site_name ? ` • ${linkedJob.site_name}` : ""}
-                            </a>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-
-                        <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <div style={{ display: "grid", gap: 8 }}>
                             <a href={`/transport-jobs/${item.id}`} style={actionBtn}>
                               Open
                             </a>
 
                             <form
                               action={updateTransportInvoiceStatus}
-                              style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                              style={{ display: "grid", gap: 8 }}
                             >
                               <input type="hidden" name="transport_job_id" value={item.id} />
                               <input type="hidden" name="return_view" value={view} />
@@ -654,18 +653,28 @@ const miniStatCard: React.CSSProperties = {
 };
 
 const thStyle: React.CSSProperties = {
-  padding: "10px",
+  padding: "10px 8px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
   opacity: 0.78,
   whiteSpace: "nowrap",
 };
 
+const thStyleWide: React.CSSProperties = {
+  ...thStyle,
+  minWidth: 290,
+};
+
 const tdStyle: React.CSSProperties = {
-  padding: "12px 10px",
+  padding: "12px 8px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
   verticalAlign: "top",
+};
+
+const tdStyleWide: React.CSSProperties = {
+  ...tdStyle,
+  minWidth: 290,
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -718,6 +727,7 @@ const actionBtn: React.CSSProperties = {
   textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.12)",
+  textAlign: "center",
 };
 
 const inlineLinkStyle: React.CSSProperties = {
@@ -727,7 +737,8 @@ const inlineLinkStyle: React.CSSProperties = {
 };
 
 const miniSelect: React.CSSProperties = {
-  minWidth: 140,
+  width: "100%",
+  minWidth: 120,
   height: 36,
   padding: "0 10px",
   borderRadius: 8,
@@ -736,7 +747,8 @@ const miniSelect: React.CSSProperties = {
 };
 
 const moneyInput: React.CSSProperties = {
-  width: 120,
+  width: "100%",
+  minWidth: 120,
   height: 36,
   padding: "0 10px",
   borderRadius: 8,
