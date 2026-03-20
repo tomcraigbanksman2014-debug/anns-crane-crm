@@ -196,6 +196,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href={`/api/export/jobs?view=${view}&invoice=${invoiceFilter}`} style={secondaryBtn}>
+                Export CSV
+              </a>
               <a href="/bookings" style={secondaryBtn}>
                 Open bookings
               </a>
