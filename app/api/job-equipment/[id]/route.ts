@@ -72,7 +72,6 @@ export async function PATCH(
     if (body.operator_id !== undefined) updates.operator_id = clean(body.operator_id);
     if (body.supplier_id !== undefined) updates.supplier_id = clean(body.supplier_id);
     if (body.purchase_order_id !== undefined) updates.purchase_order_id = clean(body.purchase_order_id);
-    if (body.date !== undefined) updates.date = clean(body.date);
     if (body.start_date !== undefined) updates.start_date = clean(body.start_date);
     if (body.end_date !== undefined) updates.end_date = clean(body.end_date);
     if (body.start_time !== undefined) updates.start_time = clean(body.start_time);
