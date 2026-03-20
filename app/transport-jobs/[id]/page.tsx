@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
+import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 
@@ -28,6 +29,11 @@ function money(value: number | string | null | undefined) {
 
 function fmtMoney(value: number | string | null | undefined) {
   return `£${money(value).toFixed(2)}`;
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 const INVOICE_STATUSES = [
@@ -134,6 +140,35 @@ async function updateTransportJob(formData: FormData) {
     redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: existingRow } = await supabase
+    .from("transport_jobs")
+    .select(`
+      id,
+      transport_number,
+      linked_job_id,
+      client_id,
+      vehicle_id,
+      operator_id,
+      supplier_id,
+      supplier_reference,
+      supplier_cost,
+      job_type,
+      transport_date,
+      collection_time,
+      delivery_date,
+      delivery_time,
+      status,
+      agreed_sell_rate,
+      invoice_status,
+      total_invoice
+    `)
+    .eq("id", id)
+    .maybeSingle();
+
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
 
@@ -203,6 +238,16 @@ async function updateTransportJob(formData: FormData) {
     );
   }
 
+  const nextStatus = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
+    clientId,
+    vehicleId,
+    operatorId,
+    transportDate,
+    collectionTime,
+    deliveryDate,
+    deliveryTime,
+  });
+
   const payload = {
     linked_job_id: linkedJobId,
     client_id: clientId,
@@ -223,15 +268,7 @@ async function updateTransportJob(formData: FormData) {
     delivery_date: deliveryDate,
     delivery_time: deliveryTime,
     load_description: clean(formData.get("load_description")) || null,
-    status: normaliseTransportStatus(clean(formData.get("status")) || "planned", {
-      clientId,
-      vehicleId,
-      operatorId,
-      transportDate,
-      collectionTime,
-      deliveryDate,
-      deliveryTime,
-    }),
+    status: nextStatus,
     price: agreedSellRate,
     agreed_sell_rate: agreedSellRate,
     invoice_status: invoiceStatus,
@@ -252,6 +289,53 @@ async function updateTransportJob(formData: FormData) {
     redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
   }
 
+  await writeAuditLog({
+    actor_user_id: user?.id ?? null,
+    actor_username: fromAuthEmail(user?.email ?? null) || null,
+    action: "transport_job_updated",
+    entity_type: "transport_job",
+    entity_id: id,
+    meta: {
+      transport_number: existingRow?.transport_number ?? null,
+      before: {
+        linked_job_id: existingRow?.linked_job_id ?? null,
+        client_id: existingRow?.client_id ?? null,
+        vehicle_id: existingRow?.vehicle_id ?? null,
+        operator_id: existingRow?.operator_id ?? null,
+        supplier_id: existingRow?.supplier_id ?? null,
+        supplier_reference: existingRow?.supplier_reference ?? null,
+        supplier_cost: existingRow?.supplier_cost ?? null,
+        job_type: existingRow?.job_type ?? null,
+        transport_date: existingRow?.transport_date ?? null,
+        collection_time: existingRow?.collection_time ?? null,
+        delivery_date: existingRow?.delivery_date ?? null,
+        delivery_time: existingRow?.delivery_time ?? null,
+        status: existingRow?.status ?? null,
+        agreed_sell_rate: existingRow?.agreed_sell_rate ?? null,
+        invoice_status: existingRow?.invoice_status ?? null,
+        total_invoice: existingRow?.total_invoice ?? null,
+      },
+      after: {
+        linked_job_id: linkedJobId,
+        client_id: clientId,
+        vehicle_id: vehicleId,
+        operator_id: operatorId,
+        supplier_id: supplierId,
+        supplier_reference: supplierReference,
+        supplier_cost: numberOrNull(formData.get("supplier_cost")),
+        job_type: clean(formData.get("job_type")) || null,
+        transport_date: transportDate,
+        collection_time: collectionTime,
+        delivery_date: deliveryDate,
+        delivery_time: deliveryTime,
+        status: nextStatus,
+        agreed_sell_rate: agreedSellRate,
+        invoice_status: invoiceStatus,
+        total_invoice: totalInvoice,
+      },
+    },
+  });
+
   redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
 }
 
@@ -265,6 +349,16 @@ async function cancelJob(formData: FormData) {
     redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: existingRow } = await supabase
+    .from("transport_jobs")
+    .select("id, transport_number, status")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("transport_jobs")
     .update({
@@ -276,6 +370,19 @@ async function cancelJob(formData: FormData) {
   if (error) {
     redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
   }
+
+  await writeAuditLog({
+    actor_user_id: user?.id ?? null,
+    actor_username: fromAuthEmail(user?.email ?? null) || null,
+    action: "transport_job_cancelled",
+    entity_type: "transport_job",
+    entity_id: id,
+    meta: {
+      transport_number: existingRow?.transport_number ?? null,
+      previous_status: existingRow?.status ?? null,
+      new_status: "cancelled",
+    },
+  });
 
   redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job cancelled.")}`);
 }
