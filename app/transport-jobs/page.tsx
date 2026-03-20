@@ -312,6 +312,9 @@ export default async function TransportJobsPage({
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href={`/api/export/transport-jobs?view=${view}${q ? `&q=${encodeURIComponent(q)}` : ""}`} style={secondaryBtn}>
+                Export CSV
+              </a>
               <a href="/transport-planner" style={secondaryBtn}>
                 Open planner
               </a>
