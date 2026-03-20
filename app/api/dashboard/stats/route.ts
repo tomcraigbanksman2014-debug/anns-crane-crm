@@ -1,468 +1,524 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+"use client";
 
-function isoDate(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
+import { createSupabaseBrowserClient } from "./lib/supabase/browser";
+
+type NavItem = {
+  label: string;
+  href: string;
+};
+
+type NavSection = {
+  title: string;
+  items: NavItem[];
+};
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
-function plusDaysDate(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return isoDate(d);
+function isOperatorArea(pathname: string) {
+  return pathname.startsWith("/operator");
 }
 
-function outstandingAmount(total: any, paid: any) {
-  const totalNumber = Number(total ?? 0);
-  const paidNumber = Number(paid ?? 0);
-
-  const safeTotal = Number.isFinite(totalNumber) ? totalNumber : 0;
-  const safePaid = Number.isFinite(paidNumber) ? paidNumber : 0;
-
-  return Math.max(safeTotal - safePaid, 0);
+function isOfficeOnlyPath(pathname: string) {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/dashboard")) return true;
+  if (pathname.startsWith("/search")) return true;
+  if (pathname.startsWith("/jobs")) return true;
+  if (pathname.startsWith("/transport-jobs")) return true;
+  if (pathname.startsWith("/transport-planner")) return true;
+  if (pathname.startsWith("/transport-map")) return true;
+  if (pathname.startsWith("/vehicles")) return true;
+  if (pathname.startsWith("/cranes")) return true;
+  if (pathname.startsWith("/timesheets")) return true;
+  if (pathname.startsWith("/quotes")) return true;
+  if (pathname.startsWith("/customers")) return true;
+  if (pathname.startsWith("/equipment")) return true;
+  if (pathname.startsWith("/operators")) return true;
+  if (pathname.startsWith("/suppliers")) return true;
+  if (pathname.startsWith("/purchase-orders")) return true;
+  if (pathname.startsWith("/calendar")) return true;
+  if (pathname.startsWith("/planner")) return true;
+  if (pathname.startsWith("/settings")) return true;
+  if (pathname.startsWith("/admin")) return true;
+  return false;
 }
 
-function transportEffectiveEndDate(item: any) {
-  return String(item?.delivery_date ?? item?.transport_date ?? "");
-}
+export default function ClientShell({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const pathname = usePathname();
+  const supabase = createSupabaseBrowserClient();
 
-function touchesWindow(
-  startDate: string | null | undefined,
-  endDate: string | null | undefined,
-  windowStart: string,
-  windowEnd: string
-) {
-  const start = String(startDate ?? "");
-  const end = String(endDate ?? startDate ?? "");
+  const [loading, setLoading] = useState(true);
+  const [username, setUsername] = useState("");
+  const [role, setRole] = useState<"admin" | "staff" | "operator" | "">("");
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
-  if (!start) return false;
+  useEffect(() => {
+    function applyViewport() {
+      setIsMobile(window.innerWidth <= 900);
+    }
 
-  return start <= windowEnd && end >= windowStart;
-}
+    applyViewport();
+    window.addEventListener("resize", applyViewport);
+    return () => window.removeEventListener("resize", applyViewport);
+  }, []);
 
-function uniqueById<T extends { id?: string | null }>(rows: T[]) {
-  const seen = new Set<string>();
-  const out: T[] = [];
+  useEffect(() => {
+    let mounted = true;
 
-  for (const row of rows) {
-    const id = String(row?.id ?? "");
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(row);
-  }
+    async function load() {
+      const { data, error } = await supabase.auth.getUser();
 
-  return out;
-}
+      if (!mounted) return;
 
-export async function GET() {
-  const supabase = createSupabaseServerClient();
+      const user = data.user;
 
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-  }
+      if (error || !user) {
+        window.location.href = "/login";
+        return;
+      }
 
-  const today = isoDate();
-  const in30Days = plusDaysDate(30);
-  const in7Days = plusDaysDate(7);
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
 
-  const [
-    jobsToday,
-    activeJobs,
-    cranesAll,
-    vehiclesAll,
-    unpaidJobs,
-    unpaidTransport,
-    upcomingTimedJobs,
-    upcomingTransportByStart,
-    upcomingTransportByEnd,
-    upcomingTransportSpanning,
-    overdueJobInvoices,
-    overdueTransportInvoices,
-    recentAudit,
-    todayJobs,
-    certExpiringSoon,
-    certExpired,
-    maintenanceEquipment,
-    serviceLogAll,
-    recentServiceLog,
-    lolerDueSoon,
-    lolerOverdue,
-  ] = await Promise.all([
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("job_date", today)
-      .neq("status", "cancelled"),
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
+        .trim()
+        .toLowerCase();
 
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .lte("job_date", today)
-      .gte("job_date", today)
-      .in("status", ["planned", "confirmed", "in_progress"]),
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
 
-    supabase
-      .from("cranes")
-      .select("id,status,archived", { count: "exact" })
-      .eq("archived", false),
+      let resolvedRole: "admin" | "staff" | "operator" | "" = isMaster
+        ? "admin"
+        : ((user.user_metadata?.role as "admin" | "staff" | "operator" | "") ?? "");
 
-    supabase
-      .from("vehicles")
-      .select("id,status,archived", { count: "exact" })
-      .eq("archived", false),
+      if (!isMaster) {
+        const { data: operators } = await supabase
+          .from("operators")
+          .select("id, full_name, email, status")
+          .eq("status", "active");
 
-    supabase
-      .from("jobs")
-      .select("total_invoice, amount_paid, invoice_status")
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
+        const matchedOperator = (operators ?? []).find((op: any) => {
+          const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+          const operatorName = String(op.full_name ?? "").trim().toLowerCase();
 
-    supabase
-      .from("transport_jobs")
-      .select("id, total_invoice, agreed_sell_rate, price, amount_paid, invoice_status, transport_date, delivery_date")
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
+          return (
+            (!!operatorEmail && operatorEmail === email) ||
+            (!!operatorName && operatorName === usernameFromEmail)
+          );
+        });
 
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_date,
-        start_time,
-        site_name,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("job_date", today)
-      .lte("job_date", in7Days)
-      .neq("status", "cancelled")
-      .order("job_date", { ascending: true })
-      .order("start_time", { ascending: true })
-      .limit(10),
+        if (matchedOperator) {
+          resolvedRole = "operator";
+        }
+      }
 
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("transport_date", today)
-      .lte("transport_date", in7Days)
-      .neq("status", "cancelled")
-      .order("transport_date", { ascending: true })
-      .order("collection_time", { ascending: true })
-      .limit(25),
+      setUsername(fromAuthEmail(user.email ?? null));
+      setRole(resolvedRole);
+      setLoading(false);
 
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("delivery_date", today)
-      .lte("delivery_date", in7Days)
-      .neq("status", "cancelled")
-      .order("delivery_date", { ascending: true })
-      .order("delivery_time", { ascending: true })
-      .limit(25),
+      if (resolvedRole === "operator") {
+        if (isOfficeOnlyPath(pathname) && !isOperatorArea(pathname)) {
+          window.location.href = "/operator/jobs";
+          return;
+        }
+      }
+    }
 
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .lt("transport_date", today)
-      .gt("delivery_date", in7Days)
-      .neq("status", "cancelled")
-      .order("transport_date", { ascending: true })
-      .order("collection_time", { ascending: true })
-      .limit(25),
+    load();
 
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        total_invoice,
-        amount_paid,
-        invoice_status,
-        job_date,
-        clients:client_id ( company_name )
-      `)
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"])
-      .lt("job_date", today)
-      .order("job_date", { ascending: true })
-      .limit(10),
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
 
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        total_invoice,
-        agreed_sell_rate,
-        price,
-        amount_paid,
-        invoice_status,
-        transport_date,
-        delivery_date,
-        clients:client_id ( company_name )
-      `)
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
+      if (!session?.user) {
+        window.location.href = "/login";
+      }
+    });
 
-    supabase
-      .from("audit_log")
-      .select("id, actor_username, action, entity_type, created_at")
-      .order("created_at", { ascending: false })
-      .limit(8),
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [supabase, pathname]);
 
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_number,
-        job_date,
-        start_time,
-        site_name,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .eq("job_date", today)
-      .neq("status", "cancelled")
-      .order("start_time", { ascending: true })
-      .limit(10),
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
-    supabase
-      .from("equipment")
-      .select("id")
-      .gte("certification_expires_on", today)
-      .lte("certification_expires_on", in30Days),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .lt("certification_expires_on", today),
-
-    supabase
-      .from("equipment")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "maintenance"),
-
-    supabase
-      .from("equipment_service_log")
-      .select("id, equipment_id"),
-
-    supabase
-      .from("equipment_service_log")
-      .select(`
-        id,
-        equipment_id,
-        entry_type,
-        service_date,
-        engineer,
-        notes,
-        created_at,
-        equipment:equipment_id ( name )
-      `)
-      .order("service_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(8),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .gte("loler_due_on", today)
-      .lte("loler_due_on", in30Days),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .lt("loler_due_on", today),
-  ]);
-
-  const activeCount = activeJobs.count ?? 0;
-
-  const totalCranes = cranesAll.count ?? 0;
-  const totalVehicles = vehiclesAll.count ?? 0;
-
-  const availableCranesNow = (cranesAll.data ?? []).filter((c: any) => {
-    const status = String(c?.status ?? "").toLowerCase();
-    return status !== "maintenance" && status !== "out_of_service";
-  }).length;
-
-  const reservedCranesLater = 0;
-
-  const availableVehiclesNow = (vehiclesAll.data ?? []).filter((v: any) => {
-    const status = String(v?.status ?? "").toLowerCase();
-    return status !== "maintenance" && status !== "out_of_service";
-  }).length;
-
-  const outstandingJobsTotal =
-    (unpaidJobs.data ?? []).reduce((acc: number, r: any) => {
-      return acc + outstandingAmount(r.total_invoice, r.amount_paid);
-    }, 0) ?? 0;
-
-  const outstandingTransportTotal =
-    (unpaidTransport.data ?? []).reduce((acc: number, r: any) => {
-      const total = Number(r.total_invoice ?? r.agreed_sell_rate ?? r.price ?? 0);
-      const paid = Number(r.amount_paid ?? 0);
-      return acc + outstandingAmount(total, paid);
-    }, 0) ?? 0;
-
-  const outstandingTotal = outstandingJobsTotal + outstandingTransportTotal;
-
-  const mergedUpcomingTransport = uniqueById([
-    ...((upcomingTransportByStart.data as any[]) ?? []),
-    ...((upcomingTransportByEnd.data as any[]) ?? []),
-    ...((upcomingTransportSpanning.data as any[]) ?? []),
-  ])
-    .filter((t: any) =>
-      touchesWindow(t.transport_date, t.delivery_date ?? t.transport_date, today, in7Days)
-    )
-    .sort((a: any, b: any) => {
-      const av =
-        (a.transport_date && a.collection_time
-          ? `${a.transport_date}T${a.collection_time}`
-          : a.transport_date) ?? "";
-      const bv =
-        (b.transport_date && b.collection_time
-          ? `${b.transport_date}T${b.collection_time}`
-          : b.transport_date) ?? "";
-      return String(av).localeCompare(String(bv));
-    })
-    .slice(0, 10);
-
-  const upcomingBookings = [
-    ...(upcomingTimedJobs.data ?? []).map((j: any) => ({
-      id: j.id,
-      start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
-      start_date: j.job_date,
-      location: j.site_name,
-      status: j.status,
-      clients: j.clients,
-      equipment: null,
-    })),
-    ...mergedUpcomingTransport.map((t: any) => ({
-      id: t.id,
-      start_at: t.transport_date && t.collection_time ? `${t.transport_date}T${t.collection_time}` : null,
-      start_date: t.transport_date,
-      location: t.collection_address || t.delivery_address,
-      status: t.status,
-      clients: t.clients,
-      equipment: null,
-    })),
-  ]
-    .sort((a: any, b: any) => {
-      const av = a.start_at || a.start_date || "";
-      const bv = b.start_at || b.start_date || "";
-      return String(av).localeCompare(String(bv));
-    })
-    .slice(0, 10);
-
-  const overdueTransportRows = ((overdueTransportInvoices.data as any[]) ?? [])
-    .filter((t: any) => {
-      const effectiveDate = transportEffectiveEndDate(t);
-      return !!effectiveDate && effectiveDate < today;
-    })
-    .sort((a: any, b: any) =>
-      transportEffectiveEndDate(a).localeCompare(transportEffectiveEndDate(b))
-    )
-    .slice(0, 10);
-
-  const overdueInvoices = [
-    ...(overdueJobInvoices.data ?? []).map((j: any) => ({
-      id: j.id,
-      total_invoice: outstandingAmount(j.total_invoice, j.amount_paid),
-      invoice_status: j.invoice_status,
-      start_at: null,
-      start_date: j.job_date,
-      clients: j.clients,
-    })),
-    ...overdueTransportRows.map((t: any) => ({
-      id: t.id,
-      total_invoice: outstandingAmount(
-        t.total_invoice ?? t.agreed_sell_rate ?? t.price,
-        t.amount_paid
-      ),
-      invoice_status: t.invoice_status,
-      start_at: null,
-      start_date: transportEffectiveEndDate(t),
-      clients: t.clients,
-    })),
-  ]
-    .sort((a: any, b: any) =>
-      String(a.start_date || "").localeCompare(String(b.start_date || ""))
-    )
-    .slice(0, 10);
-
-  const utilisationPct =
-    totalCranes > 0 ? Math.round((activeCount / totalCranes) * 100) : 0;
-
-  const servicedEquipmentIds = new Set(
-    (serviceLogAll.data ?? [])
-      .map((r: any) => r.equipment_id)
-      .filter(Boolean)
+  const officeNavSections = useMemo<NavSection[]>(
+    () => [
+      {
+        title: "Home",
+        items: [
+          { label: "Dashboard", href: "/" },
+          { label: "Search", href: "/search" },
+        ],
+      },
+      {
+        title: "Planning & Control",
+        items: [
+          { label: "Calendar", href: "/calendar" },
+          { label: "Planner", href: "/planner" },
+          { label: "Jobs", href: "/jobs" },
+          { label: "Transport Jobs", href: "/transport-jobs" },
+          { label: "Transport Planner", href: "/transport-planner" },
+          { label: "Transport Map", href: "/transport-map" },
+          { label: "Timesheets", href: "/timesheets" },
+        ],
+      },
+      {
+        title: "Sales & Customers",
+        items: [
+          { label: "Quotes", href: "/quotes" },
+          { label: "Customers", href: "/customers" },
+        ],
+      },
+      {
+        title: "Operations",
+        items: [
+          { label: "Vehicles", href: "/vehicles" },
+          { label: "Cranes", href: "/cranes" },
+          { label: "Equipment", href: "/equipment" },
+          { label: "Suppliers", href: "/suppliers" },
+          { label: "Purchase Orders", href: "/purchase-orders" },
+        ],
+      },
+      {
+        title: "People & Compliance",
+        items: [
+          { label: "Operators", href: "/operators" },
+          { label: "My Jobs", href: "/operator/jobs" },
+        ],
+      },
+      {
+        title: "Admin",
+        items: [
+          { label: "Settings", href: "/settings" },
+          { label: "Qualification Rules", href: "/admin/qualification-rules" },
+          { label: "Staff Accounts", href: "/admin/users" },
+          { label: "Audit Log", href: "/admin/audit" },
+        ],
+      },
+    ],
+    []
   );
 
-  const equipmentWithServiceHistory = servicedEquipmentIds.size;
-  const equipmentWithoutServiceHistory = Math.max(
-    0,
-    totalCranes - equipmentWithServiceHistory
+  const operatorNavSections = useMemo<NavSection[]>(
+    () => [
+      {
+        title: "My Work",
+        items: [{ label: "My Jobs", href: "/operator/jobs" }],
+      },
+    ],
+    []
   );
 
-  return NextResponse.json({
-    today,
-    bookingsToday: jobsToday.count ?? 0,
-    activeHires: activeCount,
-    availableEquipment: availableCranesNow,
-    totalEquipment: totalCranes,
-    totalCranes,
-    totalVehicles,
-    availableCranesNow,
-    reservedCranesLater,
-    availableVehiclesNow,
-    outstandingInvoices: outstandingTotal,
-    upcomingBookings,
-    overdueInvoices,
-    utilisationPct,
-    recentAudit: recentAudit.data ?? [],
-    todayJobs:
-      (todayJobs.data ?? []).map((j: any) => ({
-        id: j.id,
-        start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
-        start_date: j.job_date,
-        location: j.site_name,
-        status: j.status,
-        clients: j.clients,
-        equipment: null,
-      })) ?? [],
-    onHireEquipment: activeCount,
-    reservedEquipment: reservedCranesLater,
-    certExpiringSoon: certExpiringSoon.data?.length ?? 0,
-    certExpired: certExpired.data?.length ?? 0,
-    maintenanceEquipment: maintenanceEquipment.count ?? 0,
-    equipmentWithServiceHistory,
-    equipmentWithoutServiceHistory,
-    recentServiceLog: recentServiceLog.data ?? [],
-    lolerDueSoon: lolerDueSoon.data?.length ?? 0,
-    lolerOverdue: lolerOverdue.data?.length ?? 0,
-  });
+  const navSections = role === "operator" ? operatorNavSections : officeNavSections;
+  const showOperatorMenuButton = role !== "operator";
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    window.location.href = "/login";
+  }
+
+  if (loading) {
+    return (
+      <div style={loadingPageStyle}>
+        <div style={loadingCardStyle}>Loading...</div>
+      </div>
+    );
+  }
+
+  if (role === "operator") {
+    return (
+      <div style={pageStyle}>
+        <main style={operatorMainStyle}>{children}</main>
+      </div>
+    );
+  }
+
+  return (
+    <div style={pageStyle}>
+      {isMobile ? (
+        <div style={mobileHeader}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <img src="/logo.png" alt="AnnS Crane Hire" style={mobileLogo} />
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 1000 }}>AnnS Crane CRM</div>
+              <div style={{ opacity: 0.72 }}>{role || "user"}</div>
+            </div>
+          </div>
+
+          {showOperatorMenuButton ? (
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              style={menuBtn}
+            >
+              Menu
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div style={shellStyle}>
+        {isMobile && menuOpen ? (
+          <div onClick={() => setMenuOpen(false)} style={mobileBackdropStyle} />
+        ) : null}
+
+        <aside
+          style={{
+            ...sidebarStyle,
+            ...(isMobile ? mobileSidebarStyle : desktopSidebarStyle),
+            ...(isMobile && menuOpen ? mobileSidebarOpenStyle : {}),
+          }}
+        >
+          <div style={brandBox}>
+            <img src="/logo.png" alt="AnnS Crane Hire" style={logoStyle} />
+          </div>
+
+          <div style={userBox}>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>Signed in as</div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{username || "user"}</div>
+            <div style={{ opacity: 0.7 }}>{role || "—"}</div>
+          </div>
+
+          <div style={navScrollerStyle}>
+            <nav style={{ display: "grid", gap: 14 }}>
+              {navSections.map((section) => (
+                <div key={section.title} style={{ display: "grid", gap: 8 }}>
+                  <div style={sectionHeadingStyle}>{section.title}</div>
+
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {section.items.map((item) => {
+                      const active =
+                        pathname === item.href ||
+                        (item.href !== "/" && pathname.startsWith(item.href));
+
+                      return (
+                        <a
+                          key={item.href}
+                          href={item.href}
+                          style={{
+                            ...navItemStyle,
+                            ...(active ? navItemActive : {}),
+                          }}
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          {item.label}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </div>
+
+          <button onClick={signOut} style={signOutBtn}>
+            Sign out
+          </button>
+        </aside>
+
+        <main
+          style={{
+            ...mainStyle,
+            ...(isMobile ? mobileMainStyle : {}),
+          }}
+        >
+          {children}
+        </main>
+      </div>
+    </div>
+  );
 }
+
+const pageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#dfeaf5",
+};
+
+const loadingPageStyle: React.CSSProperties = {
+  minHeight: "100vh",
+  background: "#dfeaf5",
+  display: "grid",
+  placeItems: "center",
+};
+
+const loadingCardStyle: React.CSSProperties = {
+  padding: 24,
+  borderRadius: 16,
+  background: "rgba(255,255,255,0.85)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+};
+
+const shellStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 18,
+  padding: 18,
+  position: "relative",
+};
+
+const sidebarStyle: React.CSSProperties = {
+  width: 280,
+  minWidth: 280,
+  background: "#dfeaf5",
+  border: "1px solid rgba(0,0,0,0.08)",
+  padding: 16,
+  boxSizing: "border-box",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  display: "grid",
+  gridTemplateRows: "auto auto 1fr auto",
+  gap: 14,
+  overflow: "hidden",
+  zIndex: 20,
+};
+
+const desktopSidebarStyle: React.CSSProperties = {
+  position: "sticky",
+  top: 18,
+  maxHeight: "calc(100vh - 36px)",
+  borderRadius: 18,
+};
+
+const mobileSidebarStyle: React.CSSProperties = {
+  position: "fixed",
+  top: 0,
+  left: 0,
+  bottom: 0,
+  width: "min(320px, 86vw)",
+  minWidth: "min(320px, 86vw)",
+  maxHeight: "100vh",
+  borderRadius: 0,
+  transform: "translateX(-105%)",
+  transition: "transform 0.22s ease",
+};
+
+const mobileSidebarOpenStyle: React.CSSProperties = {
+  transform: "translateX(0)",
+};
+
+const mobileBackdropStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.28)",
+  zIndex: 15,
+};
+
+const navScrollerStyle: React.CSSProperties = {
+  minHeight: 0,
+  overflowY: "auto",
+  overflowX: "hidden",
+  paddingRight: 4,
+};
+
+const mainStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+};
+
+const mobileMainStyle: React.CSSProperties = {
+  width: "100%",
+};
+
+const operatorMainStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: "100vh",
+  padding: 14,
+  boxSizing: "border-box",
+};
+
+const brandBox: React.CSSProperties = {
+  display: "grid",
+  placeItems: "center",
+  padding: 18,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.65)",
+};
+
+const logoStyle: React.CSSProperties = {
+  width: 96,
+  height: "auto",
+  objectFit: "contain",
+};
+
+const userBox: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.65)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sectionHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 1000,
+  letterSpacing: 0.6,
+  textTransform: "uppercase",
+  opacity: 0.58,
+  padding: "0 4px",
+};
+
+const navItemStyle: React.CSSProperties = {
+  display: "block",
+  padding: "12px 14px",
+  borderRadius: 12,
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+};
+
+const navItemActive: React.CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const signOutBtn: React.CSSProperties = {
+  marginTop: 8,
+  padding: "12px 14px",
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "#ffffff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const mobileHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  padding: 14,
+  background: "rgba(255,255,255,0.65)",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  position: "sticky",
+  top: 0,
+  zIndex: 10,
+  backdropFilter: "blur(8px)",
+};
+
+const mobileLogo: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  objectFit: "contain",
+};
+
+const menuBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "#ffffff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
