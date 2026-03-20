@@ -239,8 +239,16 @@ export default async function JobPage({
   ]);
 
   const client = first((job as any)?.clients);
-  const linkedSupplier = first((job as any)?.suppliers);
+  const jobLinkedSupplier = first((job as any)?.suppliers);
   const allocationList = (allocations as any[]) ?? [];
+  const primarySupplierAllocation =
+    allocationList.find((item) => item?.supplier_id || item?.suppliers?.id) ?? null;
+  const allocationLinkedSupplier = first(primarySupplierAllocation?.suppliers);
+  const linkedSupplier = jobLinkedSupplier ?? allocationLinkedSupplier;
+  const primarySupplierReference = primarySupplierAllocation?.supplier_reference ?? null;
+  const primarySupplierCost = Number(
+    primarySupplierAllocation?.supplier_cost ?? primarySupplierAllocation?.agreed_cost ?? 0
+  );
 
   const cranesAllocated = allocationList.filter((a) => getAssetType(a) === "crane");
   const vehiclesAllocated = allocationList.filter((a) => getAssetType(a) === "vehicle");
