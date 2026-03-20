@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
+import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -323,11 +324,7 @@ export default async function NewTransportJobPage({
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form
-            id="transport-job-form"
-            action={createTransportJob}
-            style={{ marginTop: 18, display: "grid", gap: 18 }}
-          >
+          <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
@@ -587,123 +584,11 @@ export default async function NewTransportJobPage({
             </div>
           </form>
 
-          <TransportJobFormScript />
+          <TransportJobFormEnhancer />
         </div>
       </div>
     </ClientShell>
   );
-}
-
-function TransportJobFormScript() {
-  const script = `
-    (function () {
-      function roundMoney(value) {
-        var n = Number(value || 0);
-        if (!Number.isFinite(n)) return 0;
-        return Math.round(n * 100) / 100;
-      }
-
-      function formatMoney(value) {
-        return roundMoney(value).toFixed(2);
-      }
-
-      function parseInputValue(input) {
-        if (!input) return 0;
-        var n = Number(String(input.value || "").trim());
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function init() {
-        var form = document.getElementById("transport-job-form");
-        if (!form) return;
-
-        var sellRateInput = document.getElementById("agreed_sell_rate");
-        var subtotalInput = document.getElementById("invoice_subtotal");
-        var vatInput = document.getElementById("invoice_vat");
-        var totalInput = document.getElementById("total_invoice");
-
-        var supplierSelect = document.getElementById("supplier_id");
-        var otherSupplierWrap = document.getElementById("other_supplier_wrap");
-        var otherSupplierInput = document.getElementById("other_supplier_name");
-
-        if (!subtotalInput || !vatInput || !totalInput) return;
-
-        var lastSyncedSubtotal = parseInputValue(subtotalInput);
-
-        function recalcFromSubtotal() {
-          var subtotal = roundMoney(parseInputValue(subtotalInput));
-          var vat = roundMoney(subtotal * 0.2);
-          var total = roundMoney(subtotal + vat);
-
-          vatInput.value = formatMoney(vat);
-          totalInput.value = formatMoney(total);
-          lastSyncedSubtotal = subtotal;
-        }
-
-        function syncSubtotalFromSellRate() {
-          if (!sellRateInput) return;
-
-          var sellRate = roundMoney(parseInputValue(sellRateInput));
-          var currentSubtotal = roundMoney(parseInputValue(subtotalInput));
-
-          if (currentSubtotal === 0 || currentSubtotal === lastSyncedSubtotal) {
-            subtotalInput.value = formatMoney(sellRate);
-          }
-
-          recalcFromSubtotal();
-        }
-
-        function toggleOtherSupplier() {
-          if (!supplierSelect || !otherSupplierWrap || !otherSupplierInput) return;
-
-          var isOther = supplierSelect.value === "other";
-          otherSupplierWrap.style.display = isOther ? "block" : "none";
-          otherSupplierInput.required = isOther;
-
-          if (!isOther) {
-            otherSupplierInput.value = "";
-          }
-        }
-
-        if (sellRateInput) {
-          sellRateInput.addEventListener("input", syncSubtotalFromSellRate);
-          sellRateInput.addEventListener("change", syncSubtotalFromSellRate);
-        }
-
-        subtotalInput.addEventListener("input", recalcFromSubtotal);
-        subtotalInput.addEventListener("change", recalcFromSubtotal);
-
-        if (supplierSelect) {
-          supplierSelect.addEventListener("change", toggleOtherSupplier);
-        }
-
-        form.addEventListener("submit", function (event) {
-          recalcFromSubtotal();
-          toggleOtherSupplier();
-
-          if (supplierSelect && supplierSelect.value === "other" && otherSupplierInput && !String(otherSupplierInput.value || "").trim()) {
-            event.preventDefault();
-            window.alert("Please enter the other supplier name.");
-          }
-        });
-
-        if (parseInputValue(subtotalInput) === 0 && sellRateInput) {
-          subtotalInput.value = formatMoney(parseInputValue(sellRateInput));
-        }
-
-        recalcFromSubtotal();
-        toggleOtherSupplier();
-      }
-
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
-      } else {
-        init();
-      }
-    })();
-  `;
-
-  return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }
 
 function Field({
