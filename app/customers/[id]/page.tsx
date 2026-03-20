@@ -79,7 +79,12 @@ function buildTimeline(
       kind: "correspondence",
       sortDate: String(entry.created_at ?? ""),
       title: entry.subject || `Customer ${type}`,
-      subtitle: formatDateTime(entry.created_at),
+      subtitle: [
+        formatDateTime(entry.created_at),
+        entry.created_by_username ? `By: ${entry.created_by_username}` : null,
+      ]
+        .filter(Boolean)
+        .join(" • "),
       body: entry.message ?? "",
       href: null,
       badge: label,
@@ -189,7 +194,7 @@ export default async function CustomerPage({
       .order("created_at", { ascending: false }),
     supabase
       .from("customer_correspondence")
-      .select("id, entry_type, subject, message, created_at")
+      .select("id, entry_type, subject, message, created_at, created_by_username")
       .eq("client_id", params.id)
       .order("created_at", { ascending: false }),
     supabase
