@@ -20,6 +20,95 @@ function isPublicPath(pathname: string) {
   return false;
 }
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
+function isOperatorArea(pathname: string) {
+  return pathname.startsWith("/operator");
+}
+
+function isAdminArea(pathname: string) {
+  return pathname.startsWith("/admin");
+}
+
+function isOfficeOnlyPath(pathname: string) {
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/dashboard")) return true;
+  if (pathname.startsWith("/search")) return true;
+  if (pathname.startsWith("/jobs")) return true;
+  if (pathname.startsWith("/transport-jobs")) return true;
+  if (pathname.startsWith("/transport-planner")) return true;
+  if (pathname.startsWith("/transport-map")) return true;
+  if (pathname.startsWith("/vehicles")) return true;
+  if (pathname.startsWith("/cranes")) return true;
+  if (pathname.startsWith("/timesheets")) return true;
+  if (pathname.startsWith("/quotes")) return true;
+  if (pathname.startsWith("/customers")) return true;
+  if (pathname.startsWith("/equipment")) return true;
+  if (pathname.startsWith("/operators")) return true;
+  if (pathname.startsWith("/suppliers")) return true;
+  if (pathname.startsWith("/purchase-orders")) return true;
+  if (pathname.startsWith("/calendar")) return true;
+  if (pathname.startsWith("/planner")) return true;
+  if (pathname.startsWith("/settings")) return true;
+  if (pathname.startsWith("/admin")) return true;
+  return false;
+}
+
+async function resolveUserRole(
+  supabase: any,
+  user: any
+): Promise<"admin" | "staff" | "operator" | ""> {
+  const email = String(user?.email ?? "").trim().toLowerCase();
+  const usernameFromEmail = fromAuthEmail(user?.email ?? null).toLowerCase();
+
+  const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (email && masterAdminEmail && email === masterAdminEmail) {
+    return "admin";
+  }
+
+  let resolvedRole = String(user?.user_metadata?.role ?? "").trim().toLowerCase() as
+    | "admin"
+    | "staff"
+    | "operator"
+    | "";
+
+  if (resolvedRole === "operator") {
+    return "operator";
+  }
+
+  const { data: operators } = await supabase
+    .from("operators")
+    .select("id, full_name, email, status")
+    .eq("status", "active");
+
+  const matchedOperator =
+    (operators ?? []).find((op: any) => {
+      const operatorEmail = String(op.email ?? "").trim().toLowerCase();
+      const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+
+      return (
+        (!!operatorEmail && operatorEmail === email) ||
+        (!!operatorName && operatorName === usernameFromEmail) ||
+        (!!usernameFromEmail && !!operatorEmail && operatorEmail.startsWith(`${usernameFromEmail}@`))
+      );
+    }) ?? null;
+
+  if (matchedOperator) {
+    return "operator";
+  }
+
+  if (resolvedRole === "admin") return "admin";
+  if (resolvedRole === "staff") return "staff";
+
+  return "";
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -69,6 +158,58 @@ export async function middleware(request: NextRequest) {
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  const resolvedRole = await resolveUserRole(supabase, user);
+
+  if (resolvedRole === "operator") {
+    if (isOfficeOnlyPath(pathname) && !isOperatorArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/operator/jobs";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+
+    if (isAdminArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/operator/jobs";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (resolvedRole === "staff") {
+    if (isAdminArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+
+    if (isOperatorArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (resolvedRole === "admin") {
+    if (isOperatorArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  if (!resolvedRole) {
+    if (isAdminArea(pathname) || isOperatorArea(pathname)) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
   }
 
   return response;
