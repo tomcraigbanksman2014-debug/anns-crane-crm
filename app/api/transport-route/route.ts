@@ -141,20 +141,24 @@ export async function POST(req: Request) {
     const durationSeconds =
       typeof summary.duration === "number" ? summary.duration : null;
 
-    await admin.from("transport_route_cache").upsert(
-      {
-        profile,
-        from_key: fromKey,
-        to_key: toKey,
-        distance_meters: distanceMeters,
-        duration_seconds: durationSeconds,
-        path_json: latLngs,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "profile,from_key,to_key",
-      }
-    );
+    try {
+      await admin.from("transport_route_cache").upsert(
+        {
+          profile,
+          from_key: fromKey,
+          to_key: toKey,
+          distance_meters: distanceMeters,
+          duration_seconds: durationSeconds,
+          path_json: latLngs,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "profile,from_key,to_key",
+        }
+      );
+    } catch {
+      // do not fail the live route response if cache write fails
+    }
 
     return NextResponse.json({
       path: latLngs,
