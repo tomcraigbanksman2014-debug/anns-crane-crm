@@ -16,12 +16,16 @@ type TimelineItem = {
 
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleString();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleString("en-GB");
 }
 
 function formatDateOnly(value: string | null | undefined) {
   if (!value) return "-";
-  return new Date(value).toLocaleDateString();
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleDateString("en-GB");
 }
 
 function formatMoney(value: number) {
@@ -35,8 +39,12 @@ function buildTimeline(
 ): TimelineItem[] {
   const bookingItems: TimelineItem[] = bookings.map((b: any) => {
     const when = b.start_at || b.start_date || b.created_at || "";
-    const money =
-      b.total_invoice != null ? `£${Number(b.total_invoice).toFixed(2)}` : "-";
+    const total = Number(b.total_invoice ?? 0);
+    const paid = Number(b.amount_paid ?? 0);
+    const outstanding = Math.max(
+      (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0),
+      0
+    );
 
     return {
       id: `booking-${b.id}`,
@@ -50,7 +58,8 @@ function buildTimeline(
           ? formatDateOnly(b.start_date)
           : "-",
         b.status ? `Status: ${b.status}` : null,
-        `Invoice: ${money}`,
+        `Invoice: ${formatMoney(Number.isFinite(total) ? total : 0)}`,
+        `Outstanding: ${formatMoney(outstanding)}`,
       ]
         .filter(Boolean)
         .join(" • "),
@@ -106,20 +115,22 @@ function buildTimeline(
   );
 }
 
-function buildCustomerStats(bookings: any[] = []) {
+function buildCustomerStats(bookings: any[] = [], quotes: any[] = [], correspondence: any[] = []) {
   const totalBookings = bookings.length;
+  const totalQuotes = quotes.length;
+  const totalCorrespondence = correspondence.length;
 
   const totalInvoiced = bookings.reduce((sum: number, b: any) => {
     const n = Number(b.total_invoice ?? 0);
     return sum + (Number.isFinite(n) ? n : 0);
   }, 0);
 
-  const outstanding = bookings.reduce((sum: number, b: any) => {
-    const status = String(b.invoice_status ?? "").toLowerCase();
-    if (status === "paid") return sum;
-
-    const n = Number(b.total_invoice ?? 0);
-    return sum + (Number.isFinite(n) ? n : 0);
+  const totalOutstanding = bookings.reduce((sum: number, b: any) => {
+    const total = Number(b.total_invoice ?? 0);
+    const paid = Number(b.amount_paid ?? 0);
+    const safeTotal = Number.isFinite(total) ? total : 0;
+    const safePaid = Number.isFinite(paid) ? paid : 0;
+    return sum + Math.max(safeTotal - safePaid, 0);
   }, 0);
 
   const sortedByDate = [...bookings].sort((a: any, b: any) => {
@@ -133,8 +144,10 @@ function buildCustomerStats(bookings: any[] = []) {
 
   return {
     totalBookings,
+    totalQuotes,
+    totalCorrespondence,
     totalInvoiced,
-    outstanding,
+    totalOutstanding,
     firstBookingDate:
       firstBooking?.start_at ||
       firstBooking?.start_date ||
@@ -169,7 +182,7 @@ export default async function CustomerPage({
     supabase
       .from("bookings")
       .select(
-        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, invoice_status, created_at"
+        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, amount_paid, invoice_status, created_at"
       )
       .eq("client_id", params.id)
       .order("start_date", { ascending: false })
@@ -191,11 +204,11 @@ export default async function CustomerPage({
   const safeQuotes = quotes ?? [];
 
   const timeline = buildTimeline(safeBookings, safeCorrespondence, safeQuotes);
-  const stats = buildCustomerStats(safeBookings);
+  const stats = buildCustomerStats(safeBookings, safeQuotes, safeCorrespondence);
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1280px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -210,7 +223,7 @@ export default async function CustomerPage({
               {customer?.company_name ?? "Customer"}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View customer details, activity timeline and correspondence.
+              View customer details, booking history, quote history and correspondence.
             </p>
           </div>
 
@@ -244,30 +257,36 @@ export default async function CustomerPage({
                 </div>
 
                 <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Total quotes</div>
+                  <div style={statValueStyle}>{stats.totalQuotes}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Correspondence</div>
+                  <div style={statValueStyle}>{stats.totalCorrespondence}</div>
+                </div>
+
+                <div style={statCardStyle}>
                   <div style={statLabelStyle}>Total invoiced</div>
                   <div style={statValueStyle}>{formatMoney(stats.totalInvoiced)}</div>
                 </div>
 
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>Outstanding</div>
-                  <div style={statValueStyle}>{formatMoney(stats.outstanding)}</div>
+                  <div style={statValueStyle}>{formatMoney(stats.totalOutstanding)}</div>
                 </div>
 
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>First booking</div>
                   <div style={statValueStyleSmall}>
-                    {stats.firstBookingDate
-                      ? formatDateOnly(stats.firstBookingDate)
-                      : "-"}
+                    {stats.firstBookingDate ? formatDateOnly(stats.firstBookingDate) : "-"}
                   </div>
                 </div>
 
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>Last booking</div>
                   <div style={statValueStyleSmall}>
-                    {stats.lastBookingDate
-                      ? formatDateOnly(stats.lastBookingDate)
-                      : "-"}
+                    {stats.lastBookingDate ? formatDateOnly(stats.lastBookingDate) : "-"}
                   </div>
                 </div>
               </div>
@@ -375,6 +394,83 @@ export default async function CustomerPage({
                     </div>
                   )}
                 </section>
+
+                <section style={cardStyle}>
+                  <h2 style={sectionTitle}>Recent bookings</h2>
+
+                  {safeBookings.length === 0 ? (
+                    <p style={{ margin: 0 }}>No bookings recorded yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {safeBookings.slice(0, 8).map((booking: any) => {
+                        const total = Number(booking.total_invoice ?? 0);
+                        const paid = Number(booking.amount_paid ?? 0);
+                        const outstanding = Math.max(
+                          (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0),
+                          0
+                        );
+
+                        return (
+                          <a
+                            key={booking.id}
+                            href={`/bookings/${booking.id}`}
+                            style={linkedRowStyle}
+                          >
+                            <div>
+                              <div style={{ fontWeight: 900 }}>
+                                {booking.location || "Booking"}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                                {booking.start_at
+                                  ? formatDateTime(booking.start_at)
+                                  : booking.start_date
+                                  ? formatDateOnly(booking.start_date)
+                                  : "-"}{" "}
+                                • {booking.status ?? "-"}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontWeight: 900 }}>{formatMoney(Number.isFinite(total) ? total : 0)}</div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                                Outstanding {formatMoney(outstanding)}
+                              </div>
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <section style={cardStyle}>
+                  <h2 style={sectionTitle}>Recent quotes</h2>
+
+                  {safeQuotes.length === 0 ? (
+                    <p style={{ margin: 0 }}>No quotes recorded yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {safeQuotes.slice(0, 8).map((quote: any) => (
+                        <a
+                          key={quote.id}
+                          href={`/quotes/${quote.id}`}
+                          style={linkedRowStyle}
+                        >
+                          <div>
+                            <div style={{ fontWeight: 900 }}>{quote.subject || "Quote"}</div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                              {quote.quote_date ? formatDateOnly(quote.quote_date) : "-"} • {quote.status ?? "-"}
+                            </div>
+                          </div>
+                          <div style={{ fontWeight: 900 }}>
+                            {quote.amount != null && Number.isFinite(Number(quote.amount))
+                              ? formatMoney(Number(quote.amount))
+                              : "-"}
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </section>
               </div>
 
               <div style={{ display: "grid", gap: 18 }}>
@@ -396,9 +492,7 @@ export default async function CustomerPage({
                     </div>
                     <div>
                       <strong>Created:</strong>{" "}
-                      {customer.created_at
-                        ? new Date(customer.created_at).toLocaleString()
-                        : "-"}
+                      {customer.created_at ? formatDateTime(customer.created_at) : "-"}
                     </div>
                     <div>
                       <strong>Notes:</strong> {customer.notes ?? "-"}
@@ -455,7 +549,7 @@ const sectionTitle: React.CSSProperties = {
 
 const statsGridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(5, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: 12,
 };
 
@@ -496,4 +590,17 @@ const badgeStyle: React.CSSProperties = {
   borderRadius: 999,
   fontSize: 11,
   fontWeight: 800,
+};
+
+const linkedRowStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  color: "#111",
+  textDecoration: "none",
 };
