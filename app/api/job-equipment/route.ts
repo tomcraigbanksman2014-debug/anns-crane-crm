@@ -32,7 +32,6 @@ export async function POST(req: Request) {
     }
 
     const jobId = clean(body.job_id);
-    const equipmentType = clean(body.equipment_type ?? body.asset_type);
     const craneId = clean(body.crane_id);
     const vehicleId = clean(body.vehicle_id);
     const equipmentId = clean(body.equipment_id);
@@ -61,14 +60,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "job_id is required." }, { status: 400 });
     }
 
-    if (!equipmentType) {
-      return NextResponse.json({ error: "equipment_type is required." }, { status: 400 });
+    if (!craneId && !vehicleId && !equipmentId && !itemName) {
+      return NextResponse.json(
+        { error: "Please select a crane, vehicle, equipment item or enter an item name." },
+        { status: 400 }
+      );
     }
 
     const payload: Record<string, unknown> = {
       job_id: jobId,
-      asset_type: equipmentType,
-      equipment_type: equipmentType,
       crane_id: craneId,
       vehicle_id: vehicleId,
       equipment_id: equipmentId,
