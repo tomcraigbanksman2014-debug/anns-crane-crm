@@ -49,18 +49,24 @@ export async function PATCH(
     const agreedCost =
       body.agreed_cost !== undefined
         ? numberOrNull(body.agreed_cost)
-        : existing.agreed_cost ?? null;
+        : existing.agreed_cost ?? 0;
 
     const agreedSellRate =
       body.agreed_sell_rate !== undefined
         ? numberOrNull(body.agreed_sell_rate)
-        : existing.agreed_sell_rate ?? agreedCost ?? null;
+        : existing.agreed_sell_rate ?? agreedCost ?? 0;
+
+    const supplierCost =
+      body.supplier_cost !== undefined
+        ? numberOrNull(body.supplier_cost)
+        : existing.supplier_cost ?? agreedCost ?? 0;
 
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
 
     if (body.job_id !== undefined) updates.job_id = clean(body.job_id);
+    if (body.asset_type !== undefined) updates.asset_type = clean(body.asset_type);
     if (body.crane_id !== undefined) updates.crane_id = clean(body.crane_id);
     if (body.vehicle_id !== undefined) updates.vehicle_id = clean(body.vehicle_id);
     if (body.equipment_id !== undefined) updates.equipment_id = clean(body.equipment_id);
@@ -80,13 +86,47 @@ export async function PATCH(
     if (body.agreed_sell_rate !== undefined || body.agreed_cost !== undefined) {
       updates.agreed_sell_rate = agreedSellRate;
     }
-    if (body.supplier_cost !== undefined) updates.supplier_cost = numberOrNull(body.supplier_cost);
+    if (body.supplier_cost !== undefined || body.agreed_cost !== undefined) {
+      updates.supplier_cost = supplierCost;
+    }
 
     const { data, error } = await supabase
       .from("job_equipment")
       .update(updates)
       .eq("id", params.id)
-      .select("*")
+      .select(`
+        *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
+        equipment:equipment_id (
+          id,
+          name,
+          asset_number
+        ),
+        operators:operator_id (
+          id,
+          full_name
+        ),
+        suppliers:supplier_id (
+          id,
+          company_name,
+          category
+        ),
+        purchase_orders:purchase_order_id (
+          id,
+          po_number,
+          status
+        )
+      `)
       .single();
 
     if (error) {
