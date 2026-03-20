@@ -1,1062 +1,167 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import ClientShell from "../ClientShell";
-import DashboardSearch from "../components/DashboardSearch";
-import StatusPill from "../components/StatusPill";
-import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
-import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
-import { createSupabaseBrowserClient } from "../lib/supabase/browser";
+import { useEffect } from "react";
 
-function fromAuthEmail(email: string | null) {
-  if (!email) return "";
-  return email.split("@")[0] || "";
+function roundMoney(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.round(value * 100) / 100;
 }
 
-function moneyGBP(n: number) {
-  return n.toLocaleString(undefined, { style: "currency", currency: "GBP" });
+function parseValue(input: HTMLInputElement | null) {
+  if (!input) return 0;
+  const n = Number(String(input.value || "").trim());
+  return Number.isFinite(n) ? n : 0;
 }
 
-function daysUntilPasswordExpiry(passwordChangedAt?: string | null) {
-  if (!passwordChangedAt) return null;
-  const changed = new Date(passwordChangedAt);
-  if (Number.isNaN(changed.getTime())) return null;
-
-  const expiry = new Date(changed);
-  expiry.setDate(expiry.getDate() + 183);
-
-  const now = new Date();
-  const diffMs = expiry.getTime() - now.getTime();
-  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+function formatMoney(value: number) {
+  return roundMoney(value).toFixed(2);
 }
 
-function fmtDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-}
-
-function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB");
-}
-
-type DashboardStats = {
-  bookingsToday?: number;
-  activeHires?: number;
-  availableEquipment?: number;
-  totalEquipment?: number;
-  totalCranes?: number;
-  totalVehicles?: number;
-  availableCranesNow?: number;
-  reservedCranesLater?: number;
-  availableVehiclesNow?: number;
-  outstandingInvoices?: number;
-  utilisationPct?: number | null;
-  onHireEquipment?: number;
-  reservedEquipment?: number;
-  certExpiringSoon?: number;
-  certExpired?: number;
-  maintenanceEquipment?: number;
-  equipmentWithServiceHistory?: number;
-  equipmentWithoutServiceHistory?: number;
-  lolerDueSoon?: number;
-  lolerOverdue?: number;
-  unassignedTransportJobs?: number;
-  completedCraneJobsNotInvoiced?: number;
-  completedTransportJobsNotInvoiced?: number;
-  timesheetsNotSubmitted?: number;
-  upcomingBookings?: Array<{
-    id: string;
-    start_at?: string | null;
-    start_date?: string | null;
-    location?: string | null;
-    status?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-    equipment?: { name?: string | null } | { name?: string | null }[] | null;
-  }>;
-  overdueInvoices?: Array<{
-    id: string;
-    total_invoice?: number | null;
-    invoice_status?: string | null;
-    start_at?: string | null;
-    start_date?: string | null;
-    href?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-  }>;
-  recentAudit?: Array<{
-    id: string;
-    actor_username?: string | null;
-    action?: string | null;
-    entity_type?: string | null;
-    created_at?: string | null;
-  }>;
-  todayJobs?: Array<{
-    id: string;
-    start_at?: string | null;
-    start_date?: string | null;
-    location?: string | null;
-    status?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-    equipment?: { name?: string | null } | { name?: string | null }[] | null;
-  }>;
-  recentServiceLog?: Array<{
-    id: string;
-    entry_type?: string | null;
-    service_date?: string | null;
-    engineer?: string | null;
-    notes?: string | null;
-    created_at?: string | null;
-    equipment?: { name?: string | null } | { name?: string | null }[] | null;
-  }>;
-};
-
-function first<T>(v: T | T[] | null | undefined): T | null {
-  if (!v) return null;
-  return Array.isArray(v) ? (v[0] ?? null) : v;
-}
-
-export default function DashboardPage() {
-  const supabase = createSupabaseBrowserClient();
-
-  const [loading, setLoading] = useState(true);
-  const [username, setUsername] = useState("");
-  const [role, setRole] = useState<"admin" | "staff" | "">("");
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [passwordDaysLeft, setPasswordDaysLeft] = useState<number | null>(null);
-
+export default function TransportJobFormEnhancer() {
   useEffect(() => {
-    async function load() {
-      const { data, error } = await supabase.auth.getUser();
+    const sellRateInput = document.getElementById("agreed_sell_rate") as HTMLInputElement | null;
+    const subtotalInput = document.getElementById("invoice_subtotal") as HTMLInputElement | null;
+    const vatInput = document.getElementById("invoice_vat") as HTMLInputElement | null;
+    const totalInput = document.getElementById("total_invoice") as HTMLInputElement | null;
 
-      if (error || !data.user) {
-        window.location.href = "/login";
-        return;
-      }
+    const supplierSelect = document.getElementById("supplier_id") as HTMLSelectElement | null;
+    const otherSupplierWrap = document.getElementById("other_supplier_wrap") as HTMLDivElement | null;
+    const otherSupplierInput = document.getElementById("other_supplier_name") as HTMLInputElement | null;
 
-      const user = data.user;
-      const email = String(user.email ?? "").trim().toLowerCase();
-      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
+    const supplierCostInput = document.getElementById("supplier_cost") as HTMLInputElement | null;
+    const supplierReferenceInput = document.getElementById("supplier_reference") as HTMLInputElement | null;
 
-      const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
-        .trim()
-        .toLowerCase();
-      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+    const collectionDateInput = document.getElementById("transport_date") as HTMLInputElement | null;
+    const collectionTimeInput = document.getElementById("collection_time") as HTMLSelectElement | null;
+    const deliveryDateInput = document.getElementById("delivery_date") as HTMLInputElement | null;
+    const deliveryTimeInput = document.getElementById("delivery_time") as HTMLSelectElement | null;
 
-      const metadataRole = String((user.user_metadata?.role as any) ?? "").toLowerCase();
+    if (!subtotalInput || !vatInput || !totalInput) return;
 
-      if (!isMaster) {
-        const { data: operators } = await supabase
-          .from("operators")
-          .select("id, full_name, email, status")
-          .eq("status", "active");
+    let lastSyncedSubtotal = parseValue(subtotalInput);
+    let userManuallyChangedDeliveryDate = false;
+    let userManuallyChangedDeliveryTime = false;
 
-        const matchedOperator =
-          (operators ?? []).find((op: any) => {
-            const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-            const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+    function recalcFromSubtotal() {
+      const subtotal = roundMoney(parseValue(subtotalInput));
+      const vat = roundMoney(subtotal * 0.2);
+      const total = roundMoney(subtotal + vat);
 
-            return (
-              (!!operatorEmail && operatorEmail === email) ||
-              (!!operatorName && operatorName === usernameFromEmail)
-            );
-          }) ?? null;
-
-        if (metadataRole === "operator" || matchedOperator) {
-          window.location.href = "/operator/jobs";
-          return;
-        }
-      }
-
-      setUsername(fromAuthEmail(user.email ?? null));
-      setRole(isMaster ? "admin" : ((user.user_metadata?.role as any) ?? "staff"));
-
-      const daysLeft = isMaster
-        ? null
-        : daysUntilPasswordExpiry((user.user_metadata as any)?.password_changed_at ?? null);
-
-      setPasswordDaysLeft(daysLeft);
-
-      const res = await fetch("/api/dashboard/stats");
-      const json = await res.json().catch(() => null);
-      setStats(json);
-
-      setLoading(false);
+      vatInput.value = formatMoney(vat);
+      totalInput.value = formatMoney(total);
+      lastSyncedSubtotal = subtotal;
     }
 
-    load();
-  }, [supabase]);
+    function syncSubtotalFromSellRate() {
+      if (!sellRateInput) return;
+
+      const sellRate = roundMoney(parseValue(sellRateInput));
+      const currentSubtotal = roundMoney(parseValue(subtotalInput));
+
+      if (currentSubtotal === 0 || currentSubtotal === lastSyncedSubtotal) {
+        subtotalInput.value = formatMoney(sellRate);
+      }
+
+      recalcFromSubtotal();
+    }
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    window.location.href = "/login";
-  }
+    function toggleOtherSupplier() {
+      if (!supplierSelect || !otherSupplierWrap || !otherSupplierInput) return;
 
-  const tiles = useMemo(
-    () => [
-      { label: "Global Search", href: "/search", tone: "neutral" as const },
-      { label: "Bookings", href: "/bookings", tone: "warn" as const },
-      { label: "Quotes", href: "/quotes", tone: "neutral" as const },
-      { label: "Customers", href: "/customers", tone: "good" as const },
-      { label: "Equipment", href: "/equipment", tone: "good" as const },
-      { label: "Operators", href: "/operators", tone: "neutral" as const },
-      { label: "Calendar", href: "/calendar", tone: "neutral" as const },
-      { label: "Settings", href: "/settings", tone: "neutral" as const },
-    ],
-    []
-  );
+      const isOther = supplierSelect.value === "other";
+      otherSupplierWrap.style.display = isOther ? "block" : "none";
+      otherSupplierInput.required = isOther;
 
-  const adminTiles =
-    role === "admin"
-      ? [
-          { label: "Admin → Staff Users", href: "/admin/users", tone: "bad" as const },
-          { label: "Admin → Audit Log", href: "/admin/audit", tone: "bad" as const },
-        ]
-      : [];
+      if (!isOther) {
+        otherSupplierInput.value = "";
+      }
+    }
 
-  return (
-    <ClientShell>
-      <style>{`
-        @media (max-width: 900px) {
-          .dash-shell {
-            width: 100% !important;
-            max-width: 100% !important;
-            box-sizing: border-box !important;
-            padding: 14px !important;
-            border-radius: 18px !important;
-          }
+    function autoSyncDeliveryDate() {
+      if (!collectionDateInput || !deliveryDateInput) return;
+      if (userManuallyChangedDeliveryDate && deliveryDateInput.value) return;
 
-          .dash-header {
-            align-items: flex-start !important;
-          }
+      deliveryDateInput.value = collectionDateInput.value || "";
+    }
 
-          .dash-signout {
-            width: 100%;
-          }
+    function autoSyncDeliveryTime() {
+      if (!collectionTimeInput || !deliveryTimeInput) return;
+      if (userManuallyChangedDeliveryTime && deliveryTimeInput.value) return;
+      if (deliveryTimeInput.value) return;
 
-          .dash-service-grid,
-          .dash-three-col,
-          .dash-two-col,
-          .dash-search-shortcuts,
-          .dash-operator-alert-grid,
-          .dash-office-actions {
-            grid-template-columns: 1fr !important;
-          }
+      deliveryTimeInput.value = collectionTimeInput.value || "";
+    }
 
-          .dash-row-link,
-          .dash-activity-row {
-            align-items: flex-start !important;
-          }
+    function maybeOpenSupplierSection() {
+      const hasSupplierValue =
+        !!supplierSelect?.value ||
+        !!supplierCostInput?.value ||
+        !!supplierReferenceInput?.value ||
+        !!otherSupplierInput?.value;
 
-          .dash-warning-link {
-            white-space: normal !important;
-            width: 100%;
-            text-align: center;
-          }
-        }
-      `}</style>
+      const section = document.getElementById("supplier_details_section") as HTMLDetailsElement | null;
+      if (section && hasSupplierValue) {
+        section.open = true;
+      }
+    }
 
-      <div
-        className="dash-shell"
-        style={{
-          width: "100%",
-          maxWidth: 1250,
-          boxSizing: "border-box",
-          background: "rgba(255,255,255,0.18)",
-          borderRadius: 14,
-          padding: 24,
-          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-          border: "1px solid rgba(255,255,255,0.4)",
-          overflowX: "hidden",
-        }}
-      >
-        <div
-          className="dash-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.1 }}>Dashboard</h1>
-            <p style={{ marginTop: 8, opacity: 0.85 }}>
-              {loading ? (
-                "Loading session..."
-              ) : (
-                <>
-                  Signed in as <b>{username}</b> {role ? `(${role})` : ""}
-                </>
-              )}
-            </p>
-          </div>
+    function maybeOpenInvoiceSection() {
+      const section = document.getElementById("invoice_details_section") as HTMLDetailsElement | null;
+      if (section && (parseValue(subtotalInput) > 0 || parseValue(vatInput) > 0 || parseValue(totalInput) > 0)) {
+        section.open = true;
+      }
+    }
 
-          <button
-            className="dash-signout"
-            onClick={signOut}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,0,0,0.12)",
-              background: "rgba(255,255,255,0.45)",
-              cursor: "pointer",
-              fontWeight: 900,
-              flexShrink: 0,
-            }}
-          >
-            Sign out
-          </button>
-        </div>
+    sellRateInput?.addEventListener("input", syncSubtotalFromSellRate);
+    sellRateInput?.addEventListener("change", syncSubtotalFromSellRate);
 
-        {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 ? (
-          <div style={alertBox("warn", false)}>
-            Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
-          </div>
-        ) : null}
+    subtotalInput.addEventListener("input", recalcFromSubtotal);
+    subtotalInput.addEventListener("change", recalcFromSubtotal);
 
-        {(stats?.certExpired ?? 0) > 0 ? (
-          <div style={alertBox("bad", true)}>
-            <span>
-              ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
-            </span>
-            <a href="/equipment?cert=expired" className="dash-warning-link" style={warningLinkStyle}>
-              View expired equipment →
-            </a>
-          </div>
-        ) : null}
+    supplierSelect?.addEventListener("change", toggleOtherSupplier);
 
-        {(stats?.certExpiringSoon ?? 0) > 0 ? (
-          <div style={alertBox("warn", true)}>
-            <span>
-              ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
-            </span>
-            <a href="/equipment?cert=expiring" className="dash-warning-link" style={warningLinkStyle}>
-              View expiring equipment →
-            </a>
-          </div>
-        ) : null}
+    collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
+    collectionDateInput?.addEventListener("change", autoSyncDeliveryDate);
 
-        {(stats?.lolerOverdue ?? 0) > 0 ? (
-          <div style={alertBox("bad", true)}>
-            <span>
-              ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
-            </span>
-            <a href="/equipment?loler=overdue" className="dash-warning-link" style={warningLinkStyle}>
-              View overdue LOLER →
-            </a>
-          </div>
-        ) : null}
+    collectionTimeInput?.addEventListener("change", autoSyncDeliveryTime);
 
-        {(stats?.lolerDueSoon ?? 0) > 0 ? (
-          <div style={alertBox("warn", true)}>
-            <span>
-              ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
-            </span>
-            <a href="/equipment?loler=due" className="dash-warning-link" style={warningLinkStyle}>
-              View LOLER due soon →
-            </a>
-          </div>
-        ) : null}
+    deliveryDateInput?.addEventListener("input", () => {
+      userManuallyChangedDeliveryDate = true;
+    });
+    deliveryDateInput?.addEventListener("change", () => {
+      userManuallyChangedDeliveryDate = true;
+    });
 
-        {(stats?.maintenanceEquipment ?? 0) > 0 ? (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(0,120,255,0.10)",
-              border: "1px solid rgba(0,120,255,0.18)",
-              fontWeight: 800,
-            }}
-          >
-            ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
-          </div>
-        ) : null}
+    deliveryTimeInput?.addEventListener("change", () => {
+      userManuallyChangedDeliveryTime = true;
+    });
 
-        <div style={{ marginTop: 14 }}>
-          <DashboardSearch />
-        </div>
+    if (parseValue(subtotalInput) === 0 && sellRateInput) {
+      subtotalInput.value = formatMoney(parseValue(sellRateInput));
+    }
 
-        <div
-          className="dash-search-shortcuts"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1.3fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel
-            title="Search the whole CRM"
-            subtitle="Use one search across customers, jobs, transport, quotes, bookings, equipment and audit log."
-          >
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/search" style={searchActionBtn}>
-                Open global search
-              </a>
-              <a href="/search?type=bookings" style={searchGhostBtn}>
-                Search bookings
-              </a>
-              <a href="/search?type=jobs" style={searchGhostBtn}>
-                Search jobs
-              </a>
-              <a href="/search?type=transport" style={searchGhostBtn}>
-                Search transport
-              </a>
-            </div>
-          </Panel>
+    autoSyncDeliveryDate();
+    autoSyncDeliveryTime();
+    recalcFromSubtotal();
+    toggleOtherSupplier();
+    maybeOpenSupplierSection();
+    maybeOpenInvoiceSection();
 
-          <Panel
-            title="Quick links"
-            subtitle="Jump straight into the most-used areas."
-          >
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/search?type=customers" style={searchGhostBtn}>
-                Customers
-              </a>
-              <a href="/search?type=quotes" style={searchGhostBtn}>
-                Quotes
-              </a>
-              <a href="/search?type=equipment" style={searchGhostBtn}>
-                Equipment
-              </a>
-              <a href="/search?type=audit" style={searchGhostBtn}>
-                Audit
-              </a>
-            </div>
-          </Panel>
-        </div>
+    return () => {
+      sellRateInput?.removeEventListener("input", syncSubtotalFromSellRate);
+      sellRateInput?.removeEventListener("change", syncSubtotalFromSellRate);
 
-        <div style={{ marginTop: 14 }}>
-          <OperatorQualificationAlertSummary />
-        </div>
+      subtotalInput.removeEventListener("input", recalcFromSubtotal);
+      subtotalInput.removeEventListener("change", recalcFromSubtotal);
 
-        <div style={{ marginTop: 14 }}>
-          <OperatorComplianceAlerts />
-        </div>
+      supplierSelect?.removeEventListener("change", toggleOtherSupplier);
 
-        <div
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-          }}
-        >
-          <StatCard
-            title="Bookings today"
-            value={stats?.bookingsToday ?? "-"}
-            subtext="Jobs starting today"
-            badge={<StatusPill text="Today" />}
-          />
-          <StatCard
-            title="Active hires"
-            value={stats?.activeHires ?? "-"}
-            subtext="Currently live bookings"
-            badge={<StatusPill text="Live" />}
-          />
-          <StatCard
-            title="Fleet available"
-            value={`${stats?.availableCranesNow ?? 0} cranes • ${stats?.availableVehiclesNow ?? 0} trucks`}
-            subtext={`${stats?.totalCranes ?? 0} cranes total • ${stats?.totalVehicles ?? 0} trucks total`}
-            badge={<StatusPill text="Fleet" />}
-          />
-          <StatCard
-            title="Invoices outstanding"
-            value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
-            subtext="Open jobs with unpaid or part-paid invoices"
-            badge={<StatusPill text="£" />}
-            href="/jobs?view=active&invoice=outstanding"
-          />
-          <StatCard
-            title="Utilisation"
-            value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"}
-            subtext="Fleet utilisation"
-            badge={<StatusPill text="Use" />}
-          />
-        </div>
+      collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
+      collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
 
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Office action queue" subtitle="Outstanding actions for the office team to clear">
-            <div
-              className="dash-office-actions"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/transport-jobs?view=active" style={certCard((stats?.unassignedTransportJobs ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Unassigned transport jobs</div>
-                <div style={bigValue}>{stats?.unassignedTransportJobs ?? 0}</div>
-                <div style={smallHelp}>Transport jobs missing a vehicle or driver</div>
-              </a>
+      collectionTimeInput?.removeEventListener("change", autoSyncDeliveryTime);
+    };
+  }, []);
 
-              <a href="/jobs?view=active" style={certCard((stats?.completedCraneJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Completed crane jobs not invoiced</div>
-                <div style={bigValue}>{stats?.completedCraneJobsNotInvoiced ?? 0}</div>
-                <div style={smallHelp}>Completed jobs still marked not invoiced</div>
-              </a>
-
-              <a href="/transport-jobs?view=active" style={certCard((stats?.completedTransportJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Completed transport jobs not invoiced</div>
-                <div style={bigValue}>{stats?.completedTransportJobsNotInvoiced ?? 0}</div>
-                <div style={smallHelp}>Completed transport work awaiting invoicing</div>
-              </a>
-
-              <a href="/timesheets" style={certCard((stats?.timesheetsNotSubmitted ?? 0) > 0 ? "bad" : "neutral")}>
-                <div style={smallTitle}>Timesheets not submitted</div>
-                <div style={bigValue}>{stats?.timesheetsNotSubmitted ?? 0}</div>
-                <div style={smallHelp}>Completed operator jobs missing office submission</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Certification" subtitle="Monitor expired and expiring equipment certificates">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/equipment?cert=expired" style={certCard("bad")}>
-                <div style={smallTitle}>Expired</div>
-                <div style={bigValue}>{stats?.certExpired ?? 0}</div>
-                <div style={smallHelp}>Equipment needing immediate action</div>
-              </a>
-
-              <a href="/equipment?cert=expiring" style={certCard("warn")}>
-                <div style={smallTitle}>Expiring in 30 days</div>
-                <div style={bigValue}>{stats?.certExpiringSoon ?? 0}</div>
-                <div style={smallHelp}>Review and schedule renewals</div>
-              </a>
-
-              <a href="/equipment" style={certCard("neutral")}>
-                <div style={smallTitle}>Open equipment register</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>View all equipment</div>
-                <div style={smallHelp}>See full certification status list</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="LOLER" subtitle="Track overdue and upcoming LOLER dates">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/equipment?loler=overdue" style={certCard("bad")}>
-                <div style={smallTitle}>Overdue</div>
-                <div style={bigValue}>{stats?.lolerOverdue ?? 0}</div>
-                <div style={smallHelp}>Immediate compliance attention needed</div>
-              </a>
-
-              <a href="/equipment?loler=due" style={certCard("warn")}>
-                <div style={smallTitle}>Due in 30 days</div>
-                <div style={bigValue}>{stats?.lolerDueSoon ?? 0}</div>
-                <div style={smallHelp}>Book upcoming LOLER inspections</div>
-              </a>
-
-              <a href="/equipment?loler=indate" style={certCard("neutral")}>
-                <div style={smallTitle}>In date view</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>Open compliant fleet</div>
-                <div style={smallHelp}>See equipment with LOLER in date</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Service & maintenance" subtitle="Monitor service history coverage and recent workshop activity">
-            <div
-              className="dash-service-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr)",
-                gap: 14,
-              }}
-            >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <a href="/equipment" style={certCard("neutral")}>
-                  <div style={smallTitle}>With service history</div>
-                  <div style={bigValue}>{stats?.equipmentWithServiceHistory ?? 0}</div>
-                  <div style={smallHelp}>Equipment with at least one recorded service entry</div>
-                </a>
-
-                <a href="/equipment" style={certCard("warn")}>
-                  <div style={smallTitle}>No service history</div>
-                  <div style={bigValue}>{stats?.equipmentWithoutServiceHistory ?? 0}</div>
-                  <div style={smallHelp}>Equipment with no recorded service entries yet</div>
-                </a>
-              </div>
-
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 900, marginBottom: 10 }}>Recent service activity</div>
-
-                {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
-                  <EmptyState text="No service activity recorded yet." />
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {stats.recentServiceLog.map((entry) => {
-                      const equipment = first(entry.equipment);
-
-                      return (
-                        <div key={entry.id} className="dash-activity-row" style={activityRow}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 900 }}>
-                              {equipment?.name ?? "Equipment"} • {String(entry.entry_type ?? "note").toUpperCase()}
-                            </div>
-                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                              {fmtDate(entry.service_date)} • {entry.engineer ?? "No engineer"}
-                            </div>
-                          </div>
-                          <div style={{ flexShrink: 0 }}>
-                            <StatusPill text={entry.entry_type ?? "—"} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </Panel>
-        </div>
-
-        <div
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {tiles.map((t) => (
-            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
-              {t.label}
-            </a>
-          ))}
-          {adminTiles.map((t) => (
-            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
-              {t.label}
-            </a>
-          ))}
-        </div>
-
-        <div
-          className="dash-three-col"
-          style={{
-            marginTop: 18,
-            display: "grid",
-            gridTemplateColumns: "1.2fr 1fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Today's jobs" subtitle="Work scheduled for today">
-            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
-              <EmptyState text="No jobs scheduled for today." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.todayJobs.slice(0, 6).map((b) => {
-                  const client = first(b.clients);
-                  const equipment = first(b.equipment);
-
-                  return (
-                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
-                        </div>
-                      </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={b.status ?? "—"} />
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Fleet status" subtitle="Cranes and trucks only">
-            <div style={{ display: "grid", gap: 10 }}>
-              <MiniStat label="Cranes on hire now" value={stats?.onHireEquipment ?? 0} />
-              <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
-              <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
-              <MiniStat label="Total cranes" value={stats?.totalCranes ?? 0} />
-              <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
-              <MiniStat label="Total vehicles" value={stats?.totalVehicles ?? 0} />
-            </div>
-          </Panel>
-
-          <Panel title="Overdue / unpaid invoices" subtitle="Jobs needing payment attention">
-            {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
-              <EmptyState text="No overdue or unpaid invoices." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.overdueInvoices.slice(0, 6).map((b) => {
-                  const client = first(b.clients);
-
-                  return (
-                    <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDate(b.start_at) : fmtDate(b.start_date)}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
-                        </div>
-                        <div style={{ marginTop: 4 }}>
-                          <StatusPill text={b.invoice_status ?? "—"} />
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        <div
-          className="dash-two-col"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1.4fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Upcoming bookings" subtitle="Next jobs coming up">
-            {!stats?.upcomingBookings || stats.upcomingBookings.length === 0 ? (
-              <EmptyState text="No upcoming bookings." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.upcomingBookings.slice(0, 6).map((b) => {
-                  const client = first(b.clients);
-                  const equipment = first(b.equipment);
-
-                  return (
-                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
-                        </div>
-                      </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={b.status ?? "—"} />
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Recent activity" subtitle="Latest recorded audit events">
-            {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
-              <EmptyState text="No recent activity yet." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.recentAudit.slice(0, 8).map((a) => (
-                  <div key={a.id} className="dash-activity-row" style={activityRow}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900 }}>
-                        {(a.actor_username ?? "user")} • {a.action ?? "action"} • {a.entity_type ?? "entity"}
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                        {fmtDateTime(a.created_at)}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink: 0 }}>
-                      <StatusPill text={a.action ?? "—"} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-      </div>
-    </ClientShell>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  subtext,
-  badge,
-  href,
-}: {
-  title: string;
-  value: any;
-  subtext?: string;
-  badge?: React.ReactNode;
-  href?: string;
-}) {
-  const sharedStyle: React.CSSProperties = {
-    padding: 14,
-    borderRadius: 14,
-    background: "rgba(255,255,255,0.35)",
-    border: "1px solid rgba(0,0,0,0.12)",
-    minWidth: 0,
-    textDecoration: "none",
-    color: "#111",
-    display: "block",
-  };
-
-  const content = (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-        <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>{title}</div>
-        <div style={{ flexShrink: 0 }}>{badge}</div>
-      </div>
-      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>
-        {value}
-      </div>
-      {subtext ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div> : null}
-    </>
-  );
-
-  if (href) {
-    return (
-      <a href={href} style={sharedStyle}>
-        {content}
-      </a>
-    );
-  }
-
-  return <div style={sharedStyle}>{content}</div>;
-}
-
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.28)",
-        border: "1px solid rgba(0,0,0,0.10)",
-        borderRadius: 14,
-        padding: 16,
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
-      {subtitle ? <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{subtitle}</div> : null}
-      <div style={{ marginTop: 14 }}>{children}</div>
-    </div>
-  );
-}
-
-function EmptyState({ text }: { text: string }) {
-  return <div style={{ fontSize: 14, opacity: 0.58 }}>{text}</div>;
-}
-
-function MiniStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div
-      style={{
-        padding: "12px 12px",
-        borderRadius: 12,
-        background: "rgba(255,255,255,0.42)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
-      <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>{value}</div>
-    </div>
-  );
-}
-
-const rowLink: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  alignItems: "center",
-  textDecoration: "none",
-  color: "#111",
-  padding: "12px 12px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  minWidth: 0,
-};
-
-const activityRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  alignItems: "center",
-  padding: "12px 12px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  minWidth: 0,
-};
-
-const warningLinkStyle: React.CSSProperties = {
-  display: "inline-block",
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 900,
-  padding: "10px 12px",
-  borderRadius: 999,
-  background: "rgba(255,255,255,0.45)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  whiteSpace: "nowrap",
-};
-
-const searchActionBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
-};
-
-const searchGhostBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.52)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const smallTitle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.75,
-  fontWeight: 900,
-};
-
-const bigValue: React.CSSProperties = {
-  marginTop: 8,
-  fontSize: 30,
-  fontWeight: 1000,
-};
-
-const smallHelp: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  opacity: 0.8,
-};
-
-function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperties {
-  const tones: Record<string, React.CSSProperties> = {
-    good: { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" },
-    warn: { background: "rgba(255,140,0,0.18)", border: "1px solid rgba(255,140,0,0.28)" },
-    bad: { background: "rgba(255,0,0,0.14)", border: "1px solid rgba(255,0,0,0.22)" },
-    neutral: { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" },
-  };
-
-  return {
-    display: "block",
-    padding: 16,
-    borderRadius: 12,
-    textDecoration: "none",
-    color: "#111",
-    fontWeight: 900,
-    textAlign: "center",
-    minWidth: 0,
-    ...tones[tone],
-  };
-}
-
-function certCard(tone: "warn" | "bad" | "neutral"): React.CSSProperties {
-  const tones: Record<string, React.CSSProperties> = {
-    warn: {
-      background: "rgba(255,170,0,0.14)",
-      border: "1px solid rgba(255,170,0,0.24)",
-    },
-    bad: {
-      background: "rgba(255,0,0,0.12)",
-      border: "1px solid rgba(255,0,0,0.22)",
-    },
-    neutral: {
-      background: "rgba(255,255,255,0.35)",
-      border: "1px solid rgba(0,0,0,0.12)",
-    },
-  };
-
-  return {
-    display: "block",
-    padding: 16,
-    borderRadius: 14,
-    textDecoration: "none",
-    color: "#111",
-    minWidth: 0,
-    ...tones[tone],
-  };
-}
-
-function alertBox(
-  tone: "warn" | "bad",
-  withLink: boolean
-): React.CSSProperties {
-  return {
-    marginTop: 14,
-    padding: "12px 14px",
-    borderRadius: 12,
-    background:
-      tone === "bad" ? "rgba(255,0,0,0.12)" : "rgba(255,170,0,0.14)",
-    border:
-      tone === "bad"
-        ? "1px solid rgba(255,0,0,0.22)"
-        : "1px solid rgba(255,170,0,0.24)",
-    fontWeight: tone === "bad" ? 900 : 800,
-    display: withLink ? "flex" : "block",
-    justifyContent: withLink ? "space-between" : undefined,
-    gap: withLink ? 12 : undefined,
-    alignItems: withLink ? "center" : undefined,
-    flexWrap: withLink ? "wrap" : undefined,
-  };
+  return null;
 }
