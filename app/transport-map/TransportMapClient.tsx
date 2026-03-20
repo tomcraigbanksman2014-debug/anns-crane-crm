@@ -27,6 +27,7 @@ type TransportItem = {
   transport_number: string | null;
   transport_date: string | null;
   collection_time: string | null;
+  delivery_date: string | null;
   delivery_time: string | null;
   collection_address: string | null;
   delivery_address: string | null;
@@ -38,6 +39,7 @@ type TransportItem = {
   job_type: string | null;
   load_description: string | null;
   price: number | null;
+  agreed_sell_rate: number | null;
   vehicle_id: string | null;
   operator_id: string | null;
   linked_job_id: string | null;
@@ -265,7 +267,7 @@ function milesFromMeters(meters: number | null) {
   return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
-function mapsUrl(label: string, lat: number | null, lng: number | null, address?: string | null) {
+function mapsUrl(_label: string, lat: number | null, lng: number | null, address?: string | null) {
   if (typeof lat === "number" && typeof lng === "number") {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
   }
@@ -275,6 +277,28 @@ function mapsUrl(label: string, lat: number | null, lng: number | null, address?
   }
 
   return "#";
+}
+
+function jobTouchesDate(item: TransportItem, selectedDate: string) {
+  const start = String(item.transport_date ?? "");
+  const end = String(item.delivery_date ?? item.transport_date ?? "");
+
+  if (!selectedDate || !start) return true;
+
+  return start <= selectedDate && end >= selectedDate;
+}
+
+function scheduleText(item: TransportItem) {
+  const startDate = fmtDate(item.transport_date);
+  const endDate =
+    item.delivery_date && item.delivery_date !== item.transport_date
+      ? fmtDate(item.delivery_date)
+      : null;
+
+  const startTime = item.collection_time ?? "—";
+  const endTime = item.delivery_time ?? "—";
+
+  return `${startDate}${endDate ? ` → ${endDate}` : ""} • ${startTime} → ${endTime}`;
 }
 
 async function fetchRoadRoute(
@@ -341,6 +365,7 @@ export default function TransportMapClient() {
             transport_number,
             transport_date,
             collection_time,
+            delivery_date,
             delivery_time,
             collection_address,
             delivery_address,
@@ -352,6 +377,7 @@ export default function TransportMapClient() {
             job_type,
             load_description,
             price,
+            agreed_sell_rate,
             vehicle_id,
             operator_id,
             linked_job_id,
@@ -451,8 +477,7 @@ export default function TransportMapClient() {
         statusFilter === "all" ||
         String(item.status ?? "").toLowerCase() === statusFilter;
 
-      const dateOk =
-        !dateFilter || String(item.transport_date ?? "") === dateFilter;
+      const dateOk = !dateFilter || jobTouchesDate(item, dateFilter);
 
       const vehicleOk =
         vehicleFilter === "all" || String(item.vehicle_id ?? "") === vehicleFilter;
@@ -540,10 +565,7 @@ export default function TransportMapClient() {
               Number(item.collection_lng)
             );
 
-            if (
-              liveToPickup &&
-              typeof liveToPickup.durationSeconds === "number"
-            ) {
+            if (liveToPickup && typeof liveToPickup.durationSeconds === "number") {
               toPickupText = minsToText(liveToPickup.durationSeconds / 60);
             }
           }
@@ -556,10 +578,7 @@ export default function TransportMapClient() {
               Number(item.delivery_lng)
             );
 
-            if (
-              liveToDelivery &&
-              typeof liveToDelivery.durationSeconds === "number"
-            ) {
+            if (liveToDelivery && typeof liveToDelivery.durationSeconds === "number") {
               toDeliveryText = minsToText(liveToDelivery.durationSeconds / 60);
             }
           }
@@ -736,10 +755,11 @@ export default function TransportMapClient() {
                     {pickupPoint ? (
                       <SafeMarker position={pickupPoint} icon={pickupIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 260 }}>
+                          <div style={{ minWidth: 280 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Pickup</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
                             <div><strong>Customer:</strong> {client?.company_name ?? "—"}</div>
+                            <div><strong>Schedule:</strong> {scheduleText(item)}</div>
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
@@ -762,10 +782,11 @@ export default function TransportMapClient() {
                     {deliveryPoint ? (
                       <SafeMarker position={deliveryPoint} icon={deliveryIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 260 }}>
+                          <div style={{ minWidth: 280 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Delivery</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
                             <div><strong>Customer:</strong> {client?.company_name ?? "—"}</div>
+                            <div><strong>Schedule:</strong> {scheduleText(item)}</div>
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
@@ -788,9 +809,10 @@ export default function TransportMapClient() {
                     {livePoint ? (
                       <SafeMarker position={livePoint} icon={liveIcon}>
                         <SafePopup>
-                          <div style={{ minWidth: 260 }}>
+                          <div style={{ minWidth: 280 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Live Driver Location</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
+                            <div><strong>Schedule:</strong> {scheduleText(item)}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Last update:</strong> {ageText(live.recorded_at)}</div>
@@ -860,7 +882,7 @@ export default function TransportMapClient() {
                     </div>
 
                     <div style={{ marginTop: 6, fontSize: 13 }}>
-                      <strong>Date:</strong> {fmtDate(item.transport_date)}
+                      <strong>Schedule:</strong> {scheduleText(item)}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
@@ -897,7 +919,7 @@ export default function TransportMapClient() {
                       <strong>Load:</strong> {item.load_description ?? "—"}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Value:</strong> {fmtMoney(item.price)}
+                      <strong>Value:</strong> {fmtMoney(item.agreed_sell_rate ?? item.price)}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
                       <strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
