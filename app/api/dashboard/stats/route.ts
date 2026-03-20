@@ -43,7 +43,6 @@ export async function GET() {
   }
 
   const today = isoDate();
-  const todayStartIso = startOfTodayIso();
   const next7DaysIso = endOfNext7DaysIso();
   const in30Days = plusDaysDate(30);
 
@@ -98,7 +97,7 @@ export async function GET() {
 
     supabase
       .from("transport_jobs")
-      .select("total_invoice, invoice_status")
+      .select("total_invoice, agreed_sell_rate, price, amount_paid, invoice_status")
       .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
 
     supabase
@@ -156,6 +155,9 @@ export async function GET() {
       .select(`
         id,
         total_invoice,
+        agreed_sell_rate,
+        price,
+        amount_paid,
         invoice_status,
         transport_date,
         clients:client_id ( company_name )
@@ -259,8 +261,9 @@ export async function GET() {
 
   const outstandingTransportTotal =
     (unpaidTransport.data ?? []).reduce((acc: number, r: any) => {
-      const n = Number(r.total_invoice ?? 0);
-      return acc + (Number.isFinite(n) ? n : 0);
+      const total = Number(r.total_invoice ?? r.agreed_sell_rate ?? r.price ?? 0);
+      const paid = Number(r.amount_paid ?? 0);
+      return acc + outstandingAmount(total, paid);
     }, 0) ?? 0;
 
   const outstandingTotal = outstandingJobsTotal + outstandingTransportTotal;
@@ -303,20 +306,23 @@ export async function GET() {
     })),
     ...(overdueTransportInvoices.data ?? []).map((t: any) => ({
       id: t.id,
-      total_invoice: t.total_invoice,
+      total_invoice: outstandingAmount(
+        t.total_invoice ?? t.agreed_sell_rate ?? t.price,
+        t.amount_paid
+      ),
       invoice_status: t.invoice_status,
       start_at: null,
       start_date: t.transport_date,
       clients: t.clients,
     })),
   ]
-    .sort((a: any, b: any) => String(a.start_date || "").localeCompare(String(b.start_date || "")))
+    .sort((a: any, b: any) =>
+      String(a.start_date || "").localeCompare(String(b.start_date || ""))
+    )
     .slice(0, 10);
 
   const utilisationPct =
-    totalCranes > 0
-      ? Math.round((activeCount / totalCranes) * 100)
-      : 0;
+    totalCranes > 0 ? Math.round((activeCount / totalCranes) * 100) : 0;
 
   const servicedEquipmentIds = new Set(
     (serviceLogAll.data ?? [])
