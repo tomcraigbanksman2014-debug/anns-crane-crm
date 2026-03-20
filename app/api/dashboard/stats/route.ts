@@ -24,6 +24,16 @@ function plusDaysDate(days: number) {
   return isoDate(d);
 }
 
+function outstandingAmount(total: any, paid: any) {
+  const totalNumber = Number(total ?? 0);
+  const paidNumber = Number(paid ?? 0);
+
+  const safeTotal = Number.isFinite(totalNumber) ? totalNumber : 0;
+  const safePaid = Number.isFinite(paidNumber) ? paidNumber : 0;
+
+  return Math.max(safeTotal - safePaid, 0);
+}
+
 export async function GET() {
   const supabase = createSupabaseServerClient();
 
@@ -83,7 +93,7 @@ export async function GET() {
 
     supabase
       .from("jobs")
-      .select("total_invoice, invoice_status")
+      .select("total_invoice, amount_paid, invoice_status")
       .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
 
     supabase
@@ -131,6 +141,7 @@ export async function GET() {
       .select(`
         id,
         total_invoice,
+        amount_paid,
         invoice_status,
         job_date,
         clients:client_id ( company_name )
@@ -243,8 +254,7 @@ export async function GET() {
 
   const outstandingJobsTotal =
     (unpaidJobs.data ?? []).reduce((acc: number, r: any) => {
-      const n = Number(r.total_invoice ?? 0);
-      return acc + (Number.isFinite(n) ? n : 0);
+      return acc + outstandingAmount(r.total_invoice, r.amount_paid);
     }, 0) ?? 0;
 
   const outstandingTransportTotal =
@@ -285,7 +295,7 @@ export async function GET() {
   const overdueInvoices = [
     ...(overdueJobInvoices.data ?? []).map((j: any) => ({
       id: j.id,
-      total_invoice: j.total_invoice,
+      total_invoice: outstandingAmount(j.total_invoice, j.amount_paid),
       invoice_status: j.invoice_status,
       start_at: null,
       start_date: j.job_date,
