@@ -36,17 +36,38 @@ async function createJob(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
+  const primarySelection = clean(formData.get("primary_equipment_selection"));
+  const otherItemName = clean(formData.get("other_item_name"));
+  const operatorId = clean(formData.get("operator_id")) || null;
+  const jobDate = clean(formData.get("job_date")) || null;
+  const startTime = clean(formData.get("start_time")) || null;
+  const endTime = clean(formData.get("end_time")) || null;
+
+  let primaryEquipmentId: string | null = null;
+  let selectedCraneId: string | null = null;
+  let allocationAssetType: "equipment" | "crane" | "other" | null = null;
+
+  if (primarySelection.startsWith("equipment:")) {
+    primaryEquipmentId = primarySelection.replace("equipment:", "") || null;
+    allocationAssetType = primaryEquipmentId ? "equipment" : null;
+  } else if (primarySelection.startsWith("crane:")) {
+    selectedCraneId = primarySelection.replace("crane:", "") || null;
+    allocationAssetType = selectedCraneId ? "crane" : null;
+  } else if (primarySelection === "other") {
+    allocationAssetType = otherItemName ? "other" : null;
+  }
+
   const payload: Record<string, any> = {
     client_id: clean(formData.get("client_id")) || null,
-    equipment_id: clean(formData.get("equipment_id")) || null,
-    operator_id: clean(formData.get("operator_id")) || null,
+    equipment_id: primaryEquipmentId,
+    operator_id: operatorId,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
     contact_phone: clean(formData.get("contact_phone")) || null,
-    job_date: clean(formData.get("job_date")) || null,
-    start_time: clean(formData.get("start_time")) || null,
-    end_time: clean(formData.get("end_time")) || null,
+    job_date: jobDate,
+    start_time: startTime,
+    end_time: endTime,
     hire_type: clean(formData.get("hire_type")) || null,
     lift_type: clean(formData.get("lift_type")) || null,
     status: clean(formData.get("status")) || "draft",
@@ -63,14 +84,57 @@ async function createJob(formData: FormData) {
     );
   }
 
+  if (primarySelection === "other" && !otherItemName) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        "Please enter an item name when Primary equipment is set to Other."
+      )}`
+    );
+  }
+
   const { data, error } = await supabase
     .from("jobs")
     .insert(payload)
     .select("id")
     .single();
 
-  if (error) {
-    redirect(`/jobs/new?error=${encodeURIComponent(error.message)}`);
+  if (error || !data?.id) {
+    redirect(`/jobs/new?error=${encodeURIComponent(error?.message || "Failed to create job.")}`);
+  }
+
+  if (allocationAssetType) {
+    const allocationPayload: Record<string, any> = {
+      job_id: data.id,
+      asset_type: allocationAssetType,
+      operator_id: operatorId,
+      start_date: jobDate,
+      end_date: jobDate,
+      start_time: startTime,
+      end_time: endTime,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (allocationAssetType === "equipment") {
+      allocationPayload.equipment_id = primaryEquipmentId;
+    }
+
+    if (allocationAssetType === "crane") {
+      allocationPayload.crane_id = selectedCraneId;
+    }
+
+    if (allocationAssetType === "other") {
+      allocationPayload.item_name = otherItemName;
+    }
+
+    const { error: allocationError } = await supabase
+      .from("job_equipment")
+      .insert(allocationPayload);
+
+    if (allocationError) {
+      await supabase.from("jobs").delete().eq("id", data.id);
+      redirect(`/jobs/new?error=${encodeURIComponent(allocationError.message)}`);
+    }
   }
 
   redirect(`/jobs/${data.id}`);
@@ -96,27 +160,35 @@ type PageProps = {
 export default async function NewJobPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: operators }] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, archived")
-      .eq("archived", false)
-      .order("company_name", { ascending: true }),
+  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: operators }] =
+    await Promise.all([
+      supabase
+        .from("clients")
+        .select("id, company_name, archived")
+        .eq("archived", false)
+        .order("company_name", { ascending: true }),
 
-    supabase
-      .from("equipment")
-      .select("id, name, asset_number, archived, status")
-      .eq("archived", false)
-      .eq("status", "active")
-      .order("name", { ascending: true }),
+      supabase
+        .from("equipment")
+        .select("id, name, asset_number, archived, status")
+        .eq("archived", false)
+        .eq("status", "active")
+        .order("name", { ascending: true }),
 
-    supabase
-      .from("operators")
-      .select("id, full_name, archived, status")
-      .eq("archived", false)
-      .eq("status", "active")
-      .order("full_name", { ascending: true }),
-  ]);
+      supabase
+        .from("cranes")
+        .select("id, name, reg_number, fleet_number, archived, status")
+        .eq("archived", false)
+        .eq("status", "available")
+        .order("name", { ascending: true }),
+
+      supabase
+        .from("operators")
+        .select("id, full_name, archived, status")
+        .eq("archived", false)
+        .eq("status", "active")
+        .order("full_name", { ascending: true }),
+    ]);
 
   const quoteId = String(searchParams?.quote_id ?? "");
   const prefilledClientId = String(searchParams?.client_id ?? "");
@@ -144,10 +216,13 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           {quoteId ? (
             <div style={infoBox}>
               <div>
-                Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
+                Prefilled from quote. Customer:{" "}
+                <strong>{prefilledCompany || "Selected customer"}</strong>
               </div>
               <div style={infoMetaStyle}>
-                Quote status: {prefilledQuoteStatus || "—"} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
+                Quote status: {prefilledQuoteStatus || "—"} • Quote date:{" "}
+                {formatDateLabel(prefilledQuoteDate)} • Valid until:{" "}
+                {formatDateLabel(prefilledValidUntil)}
               </div>
             </div>
           ) : null}
@@ -230,19 +305,23 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Start time</label>
-                <input name="start_time" type="time" style={inputStyle} />
+                <input name="start_time" type="time" step={900} style={inputStyle} />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>End time</label>
-                <input name="end_time" type="time" style={inputStyle} />
+                <input name="end_time" type="time" step={900} style={inputStyle} />
               </div>
             </div>
 
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Hire type</label>
-                <input name="hire_type" style={inputStyle} placeholder="CPA / Contract lift / etc." />
+                <input
+                  name="hire_type"
+                  style={inputStyle}
+                  placeholder="CPA / Contract lift / etc."
+                />
               </div>
 
               <div style={fieldWrap}>
@@ -254,14 +333,39 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Primary equipment</label>
-                <select name="equipment_id" style={inputStyle} defaultValue="">
+                <select
+                  name="primary_equipment_selection"
+                  style={inputStyle}
+                  defaultValue=""
+                >
                   <option value="">— Optional —</option>
-                  {(equipment ?? []).map((item: any) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name ?? "Equipment"}
-                      {item.asset_number ? ` (${item.asset_number})` : ""}
-                    </option>
-                  ))}
+
+                  {(cranes ?? []).length ? (
+                    <optgroup label="Cranes">
+                      {(cranes ?? []).map((item: any) => (
+                        <option key={item.id} value={`crane:${item.id}`}>
+                          {item.name ?? "Crane"}
+                          {item.fleet_number ? ` (${item.fleet_number})` : ""}
+                          {item.reg_number ? ` - ${item.reg_number}` : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+
+                  {(equipment ?? []).length ? (
+                    <optgroup label="Equipment">
+                      {(equipment ?? []).map((item: any) => (
+                        <option key={item.id} value={`equipment:${item.id}`}>
+                          {item.name ?? "Equipment"}
+                          {item.asset_number ? ` (${item.asset_number})` : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+
+                  <optgroup label="Other">
+                    <option value="other">Other</option>
+                  </optgroup>
                 </select>
               </div>
 
@@ -279,20 +383,27 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             </div>
 
             <div style={fieldWrap}>
+              <label style={labelStyle}>Other item name</label>
+              <input
+                name="other_item_name"
+                style={inputStyle}
+                placeholder="Use this if you selected Other above"
+              />
+            </div>
+
+            <div style={fieldWrap}>
               <label style={labelStyle}>Notes</label>
               <textarea
                 name="notes"
                 rows={6}
                 style={textareaStyle}
-                defaultValue={
-                  [
-                    prefilledNotes ? `Quote notes: ${prefilledNotes}` : "",
-                    prefilledAmount ? `Quote amount: £${prefilledAmount}` : "",
-                    quoteId ? `Quote reference: ${quoteId}` : "",
-                  ]
-                    .filter(Boolean)
-                    .join("\n")
-                }
+                defaultValue={[
+                  prefilledNotes ? `Quote notes: ${prefilledNotes}` : "",
+                  prefilledAmount ? `Quote amount: £${prefilledAmount}` : "",
+                  quoteId ? `Quote reference: ${quoteId}` : "",
+                ]
+                  .filter(Boolean)
+                  .join("\n")}
               />
             </div>
 
