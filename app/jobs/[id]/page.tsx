@@ -99,6 +99,31 @@ function allocatedCost(item: any) {
   return Number(item.supplier_cost ?? item.agreed_cost ?? 0);
 }
 
+function allocationMeta(item: any, type: string) {
+  const bits: string[] = [];
+
+  if (type === "crane") {
+    if (item.cranes?.reg_number) bits.push(item.cranes.reg_number);
+    if (item.cranes?.capacity) bits.push(item.cranes.capacity);
+  }
+
+  if (type === "vehicle") {
+    if (item.vehicles?.reg_number) bits.push(item.vehicles.reg_number);
+  }
+
+  if (type === "equipment") {
+    if (item.equipment?.asset_number) bits.push(item.equipment.asset_number);
+  }
+
+  if (item.operators?.full_name) bits.push(item.operators.full_name);
+  if (item.suppliers?.company_name) bits.push(item.suppliers.company_name);
+
+  bits.push(`Sell ${money(allocatedSell(item))}`);
+  bits.push(`Cost ${money(allocatedCost(item))}`);
+
+  return bits.join(" • ");
+}
+
 export default async function JobPage({
   params,
 }: {
@@ -316,7 +341,7 @@ export default async function JobPage({
                     title="Cranes"
                     items={cranesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
+                      meta: allocationMeta(item, "crane"),
                     }))}
                   />
 
@@ -324,7 +349,7 @@ export default async function JobPage({
                     title="Vehicles"
                     items={vehiclesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
+                      meta: allocationMeta(item, "vehicle"),
                     }))}
                   />
 
@@ -332,7 +357,7 @@ export default async function JobPage({
                     title="Lifting Equipment"
                     items={equipmentAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
+                      meta: allocationMeta(item, "equipment"),
                     }))}
                   />
 
@@ -340,7 +365,7 @@ export default async function JobPage({
                     title="Other"
                     items={otherAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
+                      meta: allocationMeta(item, "other"),
                     }))}
                   />
                 </div>
