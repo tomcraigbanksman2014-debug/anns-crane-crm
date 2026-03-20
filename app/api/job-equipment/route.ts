@@ -41,11 +41,14 @@ export async function POST(req: Request) {
     const purchaseOrderId = clean(body.purchase_order_id);
 
     const date = clean(body.date ?? body.start_date);
+    const startDate = clean(body.start_date);
+    const endDate = clean(body.end_date);
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
     const notes = clean(body.notes);
     const itemName = clean(body.item_name);
     const sourceType = clean(body.source_type);
+    const supplierReference = clean(body.supplier_reference);
 
     const quantity = numberOrNull(body.quantity) ?? 1;
     const agreedCost = numberOrNull(body.agreed_cost);
@@ -74,19 +77,18 @@ export async function POST(req: Request) {
       supplier_id: supplierId,
       purchase_order_id: purchaseOrderId,
       date,
-      start_date: clean(body.start_date),
-      end_date: clean(body.end_date),
+      start_date: startDate,
+      end_date: endDate,
       start_time: startTime,
       end_time: endTime,
       quantity,
       agreed_cost: agreedCost,
       agreed_sell_rate: agreedSellRate,
       supplier_cost: supplierCost,
-      supplier_reference: clean(body.supplier_reference),
+      supplier_reference: supplierReference,
       source_type: sourceType,
       item_name: itemName,
       notes,
-      created_by: user.id,
       updated_at: new Date().toISOString(),
     };
 
