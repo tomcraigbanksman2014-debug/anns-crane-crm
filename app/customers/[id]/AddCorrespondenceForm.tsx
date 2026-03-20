@@ -76,9 +76,13 @@ export default function AddCorrespondenceForm({
 
   return (
     <form onSubmit={onSubmit} style={cardStyle}>
-      <h2 style={{ marginTop: 0, marginBottom: 14, fontSize: 22 }}>
+      <h2 style={{ marginTop: 0, marginBottom: 8, fontSize: 22 }}>
         Add correspondence
       </h2>
+
+      <p style={{ marginTop: 0, marginBottom: 14, opacity: 0.78, fontSize: 13 }}>
+        Log calls, emails and internal notes against this customer so the office team has a full history.
+      </p>
 
       {error && <div style={errorBox}>{error}</div>}
 
@@ -110,9 +114,9 @@ export default function AddCorrespondenceForm({
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Enter note, call summary, or email details"
-          rows={6}
-          style={{ ...inputStyle, resize: "vertical" }}
+          placeholder="Enter note, call summary, promise made, quote follow-up, dispute detail, site issue or email summary"
+          rows={7}
+          style={{ ...inputStyle, resize: "vertical", minHeight: 150 }}
         />
       </div>
 
@@ -149,14 +153,15 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.7)",
   fontSize: 14,
+  boxSizing: "border-box",
 };
 
 const buttonStyle: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  color: "#111",
+  background: "#111",
+  color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
 };
