@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../lib/supabase/server";
 import StatusBadge from "../components/StatusBadge";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getAccessContext, canViewInvoices } from "../lib/access";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -29,6 +30,20 @@ function clampMoney(value: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
 
 async function updateInvoiceStatus(formData: FormData) {
   "use server";
+
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/jobs");
+  }
+
+  if (!canViewInvoices(access)) {
+    redirect(
+      `/jobs?error=${encodeURIComponent(
+        "You do not have permission to update invoices."
+      )}`
+    );
+  }
 
   const supabase = createSupabaseServerClient();
 
@@ -127,6 +142,9 @@ type JobsPageProps = {
 };
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
+  const access = await getAccessContext();
+  const showInvoices = canViewInvoices(access);
+
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
   const invoiceFilter = String(searchParams?.invoice ?? "all").toLowerCase();
@@ -171,12 +189,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   if (view === "archived") {
     query = query.eq("archived", true);
   } else if (view === "all") {
-    // no archived filter
   } else {
     query = query.eq("archived", false);
   }
 
-  if (invoiceFilter === "outstanding") {
+  if (showInvoices && invoiceFilter === "outstanding") {
     query = query.in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]);
   }
 
@@ -196,9 +213,6 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href={`/api/export/jobs?view=${view}&invoice=${invoiceFilter}`} style={secondaryBtn}>
-                Export CSV
-              </a>
               <a href="/bookings" style={secondaryBtn}>
                 Open bookings
               </a>
@@ -209,28 +223,32 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </div>
 
           <div style={tabsRow}>
-            <a href={`/jobs?view=active&invoice=${invoiceFilter}`} style={view === "active" ? activeTabBtn : tabBtn}>
+            <a href={`/jobs?view=active${showInvoices ? `&invoice=${invoiceFilter}` : ""}`} style={view === "active" ? activeTabBtn : tabBtn}>
               Active
             </a>
-            <a href={`/jobs?view=archived&invoice=${invoiceFilter}`} style={view === "archived" ? activeTabBtn : tabBtn}>
+            <a href={`/jobs?view=archived${showInvoices ? `&invoice=${invoiceFilter}` : ""}`} style={view === "archived" ? activeTabBtn : tabBtn}>
               Archived
             </a>
-            <a href={`/jobs?view=all&invoice=${invoiceFilter}`} style={view === "all" ? activeTabBtn : tabBtn}>
+            <a href={`/jobs?view=all${showInvoices ? `&invoice=${invoiceFilter}` : ""}`} style={view === "all" ? activeTabBtn : tabBtn}>
               All
             </a>
           </div>
 
-          <div style={tabsRow}>
-            <a href={`/jobs?view=${view}&invoice=all`} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
-              All invoices
-            </a>
-            <a
-              href={`/jobs?view=${view}&invoice=outstanding`}
-              style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}
-            >
-              Outstanding invoices
-            </a>
-          </div>
+          {showInvoices ? (
+            <div style={tabsRow}>
+              <a href={`/jobs?view=${view}&invoice=all`} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
+                All invoices
+              </a>
+              <a
+                href={`/jobs?view=${view}&invoice=outstanding`}
+                style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}
+              >
+                Outstanding invoices
+              </a>
+            </div>
+          ) : (
+            <div style={infoBox}>Invoice visibility is disabled for your staff role.</div>
+          )}
 
           {successMessage ? <div style={successBox}>{successMessage}</div> : null}
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
@@ -252,7 +270,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Site</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Invoice</th>
+                    {showInvoices ? <th align="left" style={thStyle}>Invoice</th> : null}
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -267,57 +285,46 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
                     return (
                       <tr key={job.id}>
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 900 }}>
-                            #{job.job_number ?? "—"}
-                          </div>
-                        </td>
-
+                        <td style={tdStyle}><div style={{ fontWeight: 900 }}>#{job.job_number ?? "—"}</div></td>
                         <td style={tdStyle}>{fmtDate(job.job_date)}</td>
-
                         <td style={tdStyle}>
                           {job.start_time || job.end_time
                             ? `${job.start_time ?? "—"} - ${job.end_time ?? "—"}`
                             : "—"}
                         </td>
-
                         <td style={tdStyle}>{client?.company_name ?? "—"}</td>
-
                         <td style={tdStyle}>{operator?.full_name ?? "—"}</td>
-
                         <td style={tdStyle}>
                           {equipment?.name ?? "—"}
                           {equipment?.asset_number ? ` (${equipment.asset_number})` : ""}
                         </td>
-
                         <td style={tdStyle}>
                           <div>{job.site_name ?? "—"}</div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                             {job.site_address ?? "—"}
                           </div>
                         </td>
-
                         <td style={tdStyle}>
                           <StatusBadge value={job.status} archived={!!job.archived} />
                         </td>
 
-                        <td style={tdStyle}>
-                          <div style={{ fontWeight: 800 }}>
-                            {job.invoice_status ?? "Not Invoiced"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            #{job.invoice_number ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            Total: {money(totalInvoice)}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            Paid: {money(amountPaid)}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.88, fontWeight: 800 }}>
-                            Outstanding: {money(amountOutstanding)}
-                          </div>
-                        </td>
+                        {showInvoices ? (
+                          <td style={tdStyle}>
+                            <div style={{ fontWeight: 800 }}>{job.invoice_status ?? "Not Invoiced"}</div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                              #{job.invoice_number ?? "—"}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                              Total: {money(totalInvoice)}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                              Paid: {money(amountPaid)}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.88, fontWeight: 800 }}>
+                              Outstanding: {money(amountOutstanding)}
+                            </div>
+                          </td>
+                        ) : null}
 
                         <td style={tdStyle}>
                           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -325,36 +332,38 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                               Open
                             </a>
 
-                            <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                              <input type="hidden" name="job_id" value={job.id} />
-                              <input type="hidden" name="return_view" value={view} />
-                              <input type="hidden" name="return_invoice" value={invoiceFilter} />
+                            {showInvoices ? (
+                              <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                <input type="hidden" name="job_id" value={job.id} />
+                                <input type="hidden" name="return_view" value={view} />
+                                <input type="hidden" name="return_invoice" value={invoiceFilter} />
 
-                              <select
-                                name="invoice_status"
-                                defaultValue={job.invoice_status ?? "Not Invoiced"}
-                                style={miniSelect}
-                              >
-                                <option value="Not Invoiced">Not Invoiced</option>
-                                <option value="Invoiced">Invoiced</option>
-                                <option value="Part Paid">Part Paid</option>
-                                <option value="Paid">Paid</option>
-                              </select>
+                                <select
+                                  name="invoice_status"
+                                  defaultValue={job.invoice_status ?? "Not Invoiced"}
+                                  style={miniSelect}
+                                >
+                                  <option value="Not Invoiced">Not Invoiced</option>
+                                  <option value="Invoiced">Invoiced</option>
+                                  <option value="Part Paid">Part Paid</option>
+                                  <option value="Paid">Paid</option>
+                                </select>
 
-                              <input
-                                name="amount_paid"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
-                                placeholder="Amount paid"
-                                style={moneyInput}
-                              />
+                                <input
+                                  name="amount_paid"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
+                                  placeholder="Amount paid"
+                                  style={moneyInput}
+                                />
 
-                              <button type="submit" style={saveMiniBtn}>
-                                Save
-                              </button>
-                            </form>
+                                <button type="submit" style={saveMiniBtn}>
+                                  Save
+                                </button>
+                              </form>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -512,4 +521,14 @@ const emptyBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
+  fontWeight: 700,
 };
