@@ -1,7 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
-import { getAccessContext, canCreateBookings } from "../../lib/access";
+import { getAccessContext, canCreateBookings, canViewInvoices } from "../../lib/access";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -35,11 +35,15 @@ async function createBooking(formData: FormData) {
   const startTime = clean(formData.get("start_time")) || null;
   const endTime = clean(formData.get("end_time")) || null;
   const status = clean(formData.get("status")) || "Inquiry";
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
   const hirePrice = clean(formData.get("hire_price"));
-  const vat = clean(formData.get("vat"));
-  const paymentReceived = clean(formData.get("payment_received"));
   const notes = clean(formData.get("notes")) || null;
+
+  const canSeeInvoices = canViewInvoices(access);
+  const invoiceStatus = canSeeInvoices
+    ? clean(formData.get("invoice_status")) || "Not Invoiced"
+    : "Not Invoiced";
+  const vat = canSeeInvoices ? clean(formData.get("vat")) : "20";
+  const paymentReceived = canSeeInvoices ? clean(formData.get("payment_received")) : "0";
 
   if (!clientId || !craneId || !startDate || !endDate) {
     redirect(`/bookings/new?error=${encodeURIComponent("Customer, crane, start date and end date are required.")}`);
@@ -93,6 +97,9 @@ export default async function NewBookingPage({
     redirect("/login?next=/bookings/new");
   }
 
+  const allowed = canCreateBookings(access);
+  const showInvoices = canViewInvoices(access);
+
   const supabase = createSupabaseServerClient();
 
   const [{ data: clients }, { data: cranes }] = await Promise.all([
@@ -109,7 +116,6 @@ export default async function NewBookingPage({
   ]);
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
-  const allowed = canCreateBookings(access);
 
   return (
     <ClientShell>
@@ -122,6 +128,10 @@ export default async function NewBookingPage({
 
           {!allowed ? (
             <div style={errorBox}>Your staff permissions currently do not allow booking creation.</div>
+          ) : null}
+
+          {!showInvoices ? (
+            <div style={infoBox}>Invoice fields are hidden for your staff role.</div>
           ) : null}
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
@@ -180,23 +190,36 @@ export default async function NewBookingPage({
                   ]}
                 />
 
-                <SelectField
-                  label="Invoice status"
-                  name="invoice_status"
-                  options={[
-                    { value: "Not Invoiced", label: "Not Invoiced" },
-                    { value: "Sent", label: "Sent" },
-                    { value: "Part Paid", label: "Part Paid" },
-                    { value: "Paid", label: "Paid" },
-                    { value: "Overdue", label: "Overdue" },
-                  ]}
-                />
+                {showInvoices ? (
+                  <SelectField
+                    label="Invoice status"
+                    name="invoice_status"
+                    options={[
+                      { value: "Not Invoiced", label: "Not Invoiced" },
+                      { value: "Sent", label: "Sent" },
+                      { value: "Part Paid", label: "Part Paid" },
+                      { value: "Paid", label: "Paid" },
+                      { value: "Overdue", label: "Overdue" },
+                    ]}
+                  />
+                ) : (
+                  <div />
+                )}
               </div>
 
               <div style={grid3}>
                 <Field label="Hire price" name="hire_price" type="number" placeholder="0.00" />
-                <Field label="VAT %" name="vat" type="number" defaultValue="20" />
-                <Field label="Payment received" name="payment_received" type="number" defaultValue="0" />
+                {showInvoices ? (
+                  <>
+                    <Field label="VAT %" name="vat" type="number" defaultValue="20" />
+                    <Field label="Payment received" name="payment_received" type="number" defaultValue="0" />
+                  </>
+                ) : (
+                  <>
+                    <div />
+                    <div />
+                  </>
+                )}
               </div>
 
               <TextAreaField
@@ -258,18 +281,23 @@ function Field({
 function TextAreaField({
   label,
   name,
-  rows = 3,
+  rows,
   placeholder,
 }: {
   label: string;
   name: string;
-  rows?: number;
+  rows: number;
   placeholder?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea name={name} rows={rows} placeholder={placeholder} style={textareaStyle} />
+      <textarea
+        name={name}
+        rows={rows}
+        placeholder={placeholder}
+        style={textareaStyle}
+      />
     </div>
   );
 }
@@ -286,9 +314,9 @@ function SelectField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <select name={name} defaultValue="" style={inputStyle}>
+      <select name={name} style={inputStyle} defaultValue="">
         {options.map((opt) => (
-          <option key={`${name}-${opt.value}-${opt.label}`} value={opt.value}>
+          <option key={`${name}-${opt.value}`} value={opt.value}>
             {opt.label}
           </option>
         ))}
@@ -370,4 +398,14 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
+  fontWeight: 700,
 };
