@@ -55,6 +55,39 @@ function buildTimeOptions() {
   return options;
 }
 
+
+function toMinutes(value: string | null) {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function normaliseTransportStatus(input: string | null, fields: {
+  clientId: string | null;
+  vehicleId: string | null;
+  operatorId: string | null;
+  transportDate: string | null;
+  collectionTime: string | null;
+  deliveryTime: string | null;
+}) {
+  const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
+
+  if (requested !== "confirmed") {
+    return requested;
+  }
+
+  const canConfirm =
+    !!fields.clientId &&
+    !!fields.vehicleId &&
+    !!fields.operatorId &&
+    !!fields.transportDate &&
+    !!fields.collectionTime &&
+    !!fields.deliveryTime;
+
+  return canConfirm ? "confirmed" : "planned";
+}
+
 async function createTransportJob(formData: FormData) {
   "use server";
 
@@ -78,7 +111,14 @@ async function createTransportJob(formData: FormData) {
   const collectionTime = clean(formData.get("collection_time")) || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
   const loadDescription = clean(formData.get("load_description")) || null;
-  const status = clean(formData.get("status")) || "planned";
+  const status = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
+    clientId,
+    vehicleId,
+    operatorId,
+    transportDate,
+    collectionTime,
+    deliveryTime,
+  });
   const notes = clean(formData.get("notes")) || null;
 
   const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
@@ -87,9 +127,11 @@ async function createTransportJob(formData: FormData) {
   const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
   const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
   const invoiceNotes = clean(formData.get("invoice_notes")) || null;
-  const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceSubtotalRaw = numberOrZero(formData.get("invoice_subtotal"));
   const invoiceVat = numberOrZero(formData.get("invoice_vat"));
-  const totalInvoice = numberOrZero(formData.get("total_invoice"));
+  const totalInvoiceRaw = numberOrZero(formData.get("total_invoice"));
+  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
+  const totalInvoice = totalInvoiceRaw > 0 ? totalInvoiceRaw : invoiceSubtotal + invoiceVat;
 
   if (!collectionAddress || !deliveryAddress || !transportDate) {
     redirect(
@@ -99,6 +141,23 @@ async function createTransportJob(formData: FormData) {
     );
   }
 
+
+  const collectionMinutes = toMinutes(collectionTime);
+  const deliveryMinutes = toMinutes(deliveryTime);
+
+  if (
+    collectionTime &&
+    deliveryTime &&
+    collectionMinutes !== null &&
+    deliveryMinutes !== null &&
+    collectionMinutes > deliveryMinutes
+  ) {
+    redirect(
+      `/transport-jobs/new?error=${encodeURIComponent(
+        "Delivery time cannot be earlier than collection time."
+      )}`
+    );
+  }
   if (!INVOICE_STATUSES.includes(invoiceStatus)) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent("Invalid invoice status.")}`

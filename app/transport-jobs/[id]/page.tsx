@@ -55,6 +55,39 @@ function buildTimeOptions() {
   return options;
 }
 
+
+function toMinutes(value: string | null) {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function normaliseTransportStatus(input: string | null, fields: {
+  clientId: string | null;
+  vehicleId: string | null;
+  operatorId: string | null;
+  transportDate: string | null;
+  collectionTime: string | null;
+  deliveryTime: string | null;
+}) {
+  const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
+
+  if (requested !== "confirmed") {
+    return requested;
+  }
+
+  const canConfirm =
+    !!fields.clientId &&
+    !!fields.vehicleId &&
+    !!fields.operatorId &&
+    !!fields.transportDate &&
+    !!fields.collectionTime &&
+    !!fields.deliveryTime;
+
+  return canConfirm ? "confirmed" : "planned";
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -72,9 +105,11 @@ async function updateTransportJob(formData: FormData) {
   const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
 
   const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
-  const invoiceSubtotal = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceSubtotalRaw = numberOrZero(formData.get("invoice_subtotal"));
   const invoiceVat = numberOrZero(formData.get("invoice_vat"));
-  const totalInvoice = numberOrZero(formData.get("total_invoice"));
+  const totalInvoiceRaw = numberOrZero(formData.get("total_invoice"));
+  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
+  const totalInvoice = totalInvoiceRaw > 0 ? totalInvoiceRaw : invoiceSubtotal + invoiceVat;
 
   const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
 
@@ -82,11 +117,32 @@ async function updateTransportJob(formData: FormData) {
     redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Invalid invoice status.")}`);
   }
 
+  const linkedJobId = clean(formData.get("linked_job_id")) || null;
+  const clientId = clean(formData.get("client_id")) || null;
+  const vehicleId = clean(formData.get("vehicle_id")) || null;
+  const operatorId = clean(formData.get("operator_id")) || null;
+  const transportDate = clean(formData.get("transport_date")) || null;
+  const collectionTime = clean(formData.get("collection_time")) || null;
+  const deliveryTime = clean(formData.get("delivery_time")) || null;
+
+  const collectionMinutes = toMinutes(collectionTime);
+  const deliveryMinutes = toMinutes(deliveryTime);
+
+  if (
+    collectionTime &&
+    deliveryTime &&
+    collectionMinutes !== null &&
+    deliveryMinutes !== null &&
+    collectionMinutes > deliveryMinutes
+  ) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Delivery time cannot be earlier than collection time.")}`);
+  }
+
   const payload = {
-    linked_job_id: clean(formData.get("linked_job_id")) || null,
-    client_id: clean(formData.get("client_id")) || null,
-    vehicle_id: clean(formData.get("vehicle_id")) || null,
-    operator_id: clean(formData.get("operator_id")) || null,
+    linked_job_id: linkedJobId,
+    client_id: clientId,
+    vehicle_id: vehicleId,
+    operator_id: operatorId,
     supplier_id: clean(formData.get("supplier_id")) || null,
     supplier_reference: clean(formData.get("supplier_reference")) || null,
     supplier_cost: numberOrNull(formData.get("supplier_cost")),
@@ -97,11 +153,18 @@ async function updateTransportJob(formData: FormData) {
     collection_lng: pickupCoords?.lng ?? null,
     delivery_lat: deliveryCoords?.lat ?? null,
     delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: clean(formData.get("transport_date")) || null,
-    collection_time: clean(formData.get("collection_time")) || null,
-    delivery_time: clean(formData.get("delivery_time")) || null,
+    transport_date: transportDate,
+    collection_time: collectionTime,
+    delivery_time: deliveryTime,
     load_description: clean(formData.get("load_description")) || null,
-    status: clean(formData.get("status")) || "planned",
+    status: normaliseTransportStatus(clean(formData.get("status")) || "planned", {
+      clientId,
+      vehicleId,
+      operatorId,
+      transportDate,
+      collectionTime,
+      deliveryTime,
+    }),
     price: agreedSellRate,
     agreed_sell_rate: agreedSellRate,
     invoice_status: invoiceStatus,
