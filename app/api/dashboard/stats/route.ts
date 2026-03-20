@@ -38,14 +38,16 @@ export async function GET() {
   const in30Days = plusDaysDate(30);
 
   const [
-    bookingsToday,
-    activeHires,
+    jobsToday,
+    activeJobs,
     cranesAll,
     vehiclesAll,
-    invoicesOutstanding,
-    upcomingTimed,
-    upcomingDated,
-    overdueInvoices,
+    unpaidJobs,
+    unpaidTransport,
+    upcomingTimedJobs,
+    upcomingDatedJobs,
+    overdueJobInvoices,
+    overdueTransportInvoices,
     recentAudit,
     todayJobs,
     certExpiringSoon,
@@ -57,16 +59,17 @@ export async function GET() {
     lolerOverdue,
   ] = await Promise.all([
     supabase
-      .from("bookings")
+      .from("jobs")
       .select("id", { count: "exact", head: true })
-      .eq("start_date", today),
+      .eq("job_date", today)
+      .neq("status", "cancelled"),
 
     supabase
-      .from("bookings")
-      .select("id,crane_id", { count: "exact" })
-      .lte("start_date", today)
-      .gte("end_date", today)
-      .neq("status", "Cancelled"),
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .lte("job_date", today)
+      .gte("job_date", today)
+      .in("status", ["planned", "confirmed", "in_progress"]),
 
     supabase
       .from("cranes")
@@ -79,59 +82,76 @@ export async function GET() {
       .eq("archived", false),
 
     supabase
-      .from("bookings")
+      .from("jobs")
       .select("total_invoice, invoice_status")
-      .neq("invoice_status", "Paid"),
+      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
 
     supabase
-      .from("bookings")
+      .from("transport_jobs")
+      .select("total_invoice, invoice_status")
+      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
+
+    supabase
+      .from("jobs")
       .select(`
         id,
-        start_at,
-        start_date,
-        location,
+        job_date,
+        start_time,
+        site_name,
         status,
-        clients:client_id ( company_name ),
-        equipment:equipment_id ( name )
+        clients:client_id ( company_name )
       `)
-      .not("start_at", "is", null)
-      .gte("start_at", todayStartIso)
-      .lte("start_at", next7DaysIso)
-      .neq("status", "Cancelled")
-      .order("start_at", { ascending: true })
+      .gte("job_date", today)
+      .lte("job_date", plusDaysDate(7))
+      .neq("status", "cancelled")
+      .order("job_date", { ascending: true })
+      .order("start_time", { ascending: true })
       .limit(10),
 
     supabase
-      .from("bookings")
+      .from("transport_jobs")
       .select(`
         id,
-        start_at,
-        start_date,
-        location,
+        transport_date,
+        collection_time,
+        collection_address,
+        delivery_address,
         status,
-        clients:client_id ( company_name ),
-        equipment:equipment_id ( name )
+        clients:client_id ( company_name )
       `)
-      .is("start_at", null)
-      .gte("start_date", today)
-      .lte("start_date", plusDaysDate(7))
-      .neq("status", "Cancelled")
-      .order("start_date", { ascending: true })
+      .gte("transport_date", today)
+      .lte("transport_date", plusDaysDate(7))
+      .neq("status", "cancelled")
+      .order("transport_date", { ascending: true })
+      .order("collection_time", { ascending: true })
       .limit(10),
 
     supabase
-      .from("bookings")
+      .from("jobs")
       .select(`
         id,
         total_invoice,
         invoice_status,
-        start_at,
-        start_date,
+        job_date,
         clients:client_id ( company_name )
       `)
       .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"])
-      .lt("end_date", today)
-      .order("end_date", { ascending: true })
+      .lt("job_date", today)
+      .order("job_date", { ascending: true })
+      .limit(10),
+
+    supabase
+      .from("transport_jobs")
+      .select(`
+        id,
+        total_invoice,
+        invoice_status,
+        transport_date,
+        clients:client_id ( company_name )
+      `)
+      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"])
+      .lt("transport_date", today)
+      .order("transport_date", { ascending: true })
       .limit(10),
 
     supabase
@@ -141,19 +161,19 @@ export async function GET() {
       .limit(8),
 
     supabase
-      .from("bookings")
+      .from("jobs")
       .select(`
         id,
-        start_at,
-        start_date,
-        location,
+        job_number,
+        job_date,
+        start_time,
+        site_name,
         status,
-        clients:client_id ( company_name ),
-        equipment:equipment_id ( name )
+        clients:client_id ( company_name )
       `)
-      .eq("start_date", today)
-      .neq("status", "Cancelled")
-      .order("start_at", { ascending: true })
+      .eq("job_date", today)
+      .neq("status", "cancelled")
+      .order("start_time", { ascending: true })
       .limit(10),
 
     supabase
@@ -204,70 +224,56 @@ export async function GET() {
       .lt("loler_due_on", today),
   ]);
 
-  const activeCount = activeHires.count ?? 0;
-
-  const activeCraneIds = new Set(
-    (activeHires.data ?? [])
-      .map((b: any) => b.crane_id)
-      .filter(Boolean)
-  );
+  const activeCount = activeJobs.count ?? 0;
 
   const totalCranes = cranesAll.count ?? 0;
   const totalVehicles = vehiclesAll.count ?? 0;
 
-  let availableCranesNow = 0;
-  let reservedCranesLater = 0;
+  const availableCranesNow = (cranesAll.data ?? []).filter((c: any) => {
+    const status = String(c?.status ?? "").toLowerCase();
+    return status !== "maintenance" && status !== "out_of_service";
+  }).length;
 
-  const craneIds = Array.from(
-    new Set((cranesAll.data ?? []).map((c: any) => c.id).filter(Boolean))
-  );
-
-  const { data: futureBookings } = await supabase
-    .from("bookings")
-    .select("crane_id")
-    .gt("start_date", today)
-    .neq("status", "Cancelled");
-
-  const futureCraneIds = new Set(
-    (futureBookings ?? [])
-      .map((b: any) => b.crane_id)
-      .filter(Boolean)
-  );
-
-  for (const id of craneIds) {
-    const row = (cranesAll.data ?? []).find((c: any) => c.id === id);
-    const status = String(row?.status ?? "").toLowerCase();
-
-    if (status === "maintenance" || status === "out_of_service") {
-      continue;
-    }
-
-    const isBookedNow = activeCraneIds.has(id);
-    const isReservedLater = futureCraneIds.has(id);
-
-    if (!isBookedNow) {
-      availableCranesNow++;
-    }
-
-    if (!isBookedNow && isReservedLater) {
-      reservedCranesLater++;
-    }
-  }
+  const reservedCranesLater = 0;
 
   const availableVehiclesNow = (vehiclesAll.data ?? []).filter((v: any) => {
     const status = String(v?.status ?? "").toLowerCase();
     return status !== "maintenance" && status !== "out_of_service";
   }).length;
 
-  const outstandingTotal =
-    (invoicesOutstanding.data ?? []).reduce((acc: number, r: any) => {
+  const outstandingJobsTotal =
+    (unpaidJobs.data ?? []).reduce((acc: number, r: any) => {
       const n = Number(r.total_invoice ?? 0);
       return acc + (Number.isFinite(n) ? n : 0);
     }, 0) ?? 0;
 
+  const outstandingTransportTotal =
+    (unpaidTransport.data ?? []).reduce((acc: number, r: any) => {
+      const n = Number(r.total_invoice ?? 0);
+      return acc + (Number.isFinite(n) ? n : 0);
+    }, 0) ?? 0;
+
+  const outstandingTotal = outstandingJobsTotal + outstandingTransportTotal;
+
   const upcomingBookings = [
-    ...(upcomingTimed.data ?? []),
-    ...(upcomingDated.data ?? []),
+    ...(upcomingTimedJobs.data ?? []).map((j: any) => ({
+      id: j.id,
+      start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
+      start_date: j.job_date,
+      location: j.site_name,
+      status: j.status,
+      clients: j.clients,
+      equipment: null,
+    })),
+    ...(upcomingDatedJobs.data ?? []).map((t: any) => ({
+      id: t.id,
+      start_at: t.transport_date && t.collection_time ? `${t.transport_date}T${t.collection_time}` : null,
+      start_date: t.transport_date,
+      location: t.collection_address || t.delivery_address,
+      status: t.status,
+      clients: t.clients,
+      equipment: null,
+    })),
   ]
     .sort((a: any, b: any) => {
       const av = a.start_at || a.start_date || "";
@@ -276,9 +282,30 @@ export async function GET() {
     })
     .slice(0, 10);
 
+  const overdueInvoices = [
+    ...(overdueJobInvoices.data ?? []).map((j: any) => ({
+      id: j.id,
+      total_invoice: j.total_invoice,
+      invoice_status: j.invoice_status,
+      start_at: null,
+      start_date: j.job_date,
+      clients: j.clients,
+    })),
+    ...(overdueTransportInvoices.data ?? []).map((t: any) => ({
+      id: t.id,
+      total_invoice: t.total_invoice,
+      invoice_status: t.invoice_status,
+      start_at: null,
+      start_date: t.transport_date,
+      clients: t.clients,
+    })),
+  ]
+    .sort((a: any, b: any) => String(a.start_date || "").localeCompare(String(b.start_date || "")))
+    .slice(0, 10);
+
   const utilisationPct =
     totalCranes > 0
-      ? Math.round((activeCraneIds.size / totalCranes) * 100)
+      ? Math.round((activeCount / totalCranes) * 100)
       : 0;
 
   const servicedEquipmentIds = new Set(
@@ -295,7 +322,7 @@ export async function GET() {
 
   return NextResponse.json({
     today,
-    bookingsToday: bookingsToday.count ?? 0,
+    bookingsToday: jobsToday.count ?? 0,
     activeHires: activeCount,
     availableEquipment: availableCranesNow,
     totalEquipment: totalCranes,
@@ -306,11 +333,20 @@ export async function GET() {
     availableVehiclesNow,
     outstandingInvoices: outstandingTotal,
     upcomingBookings,
-    overdueInvoices: overdueInvoices.data ?? [],
+    overdueInvoices,
     utilisationPct,
     recentAudit: recentAudit.data ?? [],
-    todayJobs: todayJobs.data ?? [],
-    onHireEquipment: activeCraneIds.size,
+    todayJobs:
+      (todayJobs.data ?? []).map((j: any) => ({
+        id: j.id,
+        start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
+        start_date: j.job_date,
+        location: j.site_name,
+        status: j.status,
+        clients: j.clients,
+        equipment: null,
+      })) ?? [],
+    onHireEquipment: activeCount,
     reservedEquipment: reservedCranesLater,
     certExpiringSoon: certExpiringSoon.data?.length ?? 0,
     certExpired: certExpired.data?.length ?? 0,
