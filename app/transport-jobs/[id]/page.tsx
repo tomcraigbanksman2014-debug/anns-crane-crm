@@ -40,6 +40,21 @@ function looksLikeCrossHire(item: any) {
   return !!item?.supplier_id || Number(item?.supplier_cost ?? 0) > 0;
 }
 
+function buildTimeOptions() {
+  const options: Array<{ value: string; label: string }> = [];
+  const mins = ["00", "15", "30", "45"];
+
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    for (const mm of mins) {
+      const value = `${hh}:${mm}`;
+      options.push({ value, label: value });
+    }
+  }
+
+  return options;
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -143,6 +158,7 @@ export default async function TransportJobDetailPage({
   searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
+  const timeOptions = buildTimeOptions();
 
   const [
     { data: item, error },
@@ -356,20 +372,18 @@ export default async function TransportJobDetailPage({
                       defaultValue={(item as any).transport_date ?? ""}
                     />
 
-                    <Field
+                    <SelectField
                       label="Collection time"
                       name="collection_time"
-                      type="time"
-                      step={900}
                       defaultValue={(item as any).collection_time ?? ""}
+                      options={timeOptions}
                     />
 
-                    <Field
+                    <SelectField
                       label="Delivery time"
                       name="delivery_time"
-                      type="time"
-                      step={900}
                       defaultValue={(item as any).delivery_time ?? ""}
+                      options={timeOptions}
                     />
 
                     <SelectField
@@ -588,14 +602,12 @@ function Field({
   defaultValue,
   type = "text",
   disabled = false,
-  step,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
   disabled?: boolean;
-  step?: number;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -604,7 +616,6 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         type={type}
-        step={step}
         style={inputStyle}
         disabled={disabled}
       />
@@ -629,7 +640,7 @@ function SelectField({
       <select name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((o) => (
-          <option key={o.value} value={o.value}>
+          <option key={`${name}-${o.value}`} value={o.value}>
             {o.label}
           </option>
         ))}
