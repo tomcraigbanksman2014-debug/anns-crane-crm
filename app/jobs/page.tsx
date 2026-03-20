@@ -33,7 +33,29 @@ async function updateInvoiceStatus(formData: FormData) {
   const invoice = String(formData.get("return_invoice") ?? "all");
 
   if (!jobId) {
-    redirect(`/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}`);
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent("Missing job id.")}`
+    );
+  }
+
+  const { data: existingJob, error: existingError } = await supabase
+    .from("jobs")
+    .select("id, invoice_status")
+    .eq("id", jobId)
+    .single();
+
+  if (existingError || !existingJob) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(existingError?.message || "Job not found.")}`
+    );
+  }
+
+  const currentStatus = String(existingJob.invoice_status ?? "Not Invoiced");
+
+  if (currentStatus === invoiceStatus) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent("Invoice status already set to " + invoiceStatus)}`
+    );
   }
 
   const { error } = await supabase
@@ -45,16 +67,17 @@ async function updateInvoiceStatus(formData: FormData) {
     .eq("id", jobId);
 
   revalidatePath("/jobs");
+  revalidatePath("/dashboard");
 
   if (error) {
     redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(
-        invoice
-      )}&error=${encodeURIComponent(error.message)}`
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(error.message)}`
     );
   }
 
-  redirect(`/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}`);
+  redirect(
+    `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent("Invoice status updated to " + invoiceStatus)}`
+  );
 }
 
 type JobsPageProps = {
@@ -62,6 +85,7 @@ type JobsPageProps = {
     view?: string;
     invoice?: string;
     error?: string;
+    success?: string;
   };
 };
 
@@ -70,6 +94,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const view = String(searchParams?.view ?? "active").toLowerCase();
   const invoiceFilter = String(searchParams?.invoice ?? "all").toLowerCase();
   const errorMessage = String(searchParams?.error ?? "");
+  const successMessage = String(searchParams?.success ?? "");
 
   let query = supabase
     .from("jobs")
@@ -166,6 +191,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </a>
           </div>
 
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           {error ? (
@@ -249,7 +275,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                               Open
                             </a>
 
-                            <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                               <input type="hidden" name="job_id" value={job.id} />
                               <input type="hidden" name="return_view" value={view} />
                               <input type="hidden" name="return_invoice" value={invoiceFilter} />
@@ -390,6 +416,16 @@ const saveMiniBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#111",
+  fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
