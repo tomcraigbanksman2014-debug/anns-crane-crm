@@ -321,7 +321,7 @@ export default async function NewTransportJobPage({
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Create Transport Job</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Create haulage, delivery, collection or crane support transport work with sell rate, supplier cost and invoice details.
+                Create transport work with cleaner defaults, clearer sections and automatic invoice calculation.
               </p>
             </div>
 
@@ -335,6 +335,9 @@ export default async function NewTransportJobPage({
           <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
+              <div style={sectionHelp}>
+                Core planning details for the movement. Pickup address, delivery address and collection date are required.
+              </div>
 
               <div style={gridStyle}>
                 <Field
@@ -392,21 +395,10 @@ export default async function NewTransportJobPage({
                   ]}
                 />
 
-                <Field label="Collection date" name="transport_date" type="date" />
-
-                <SelectField
-                  label="Collection time"
-                  name="collection_time"
-                  options={timeOptions}
-                />
-
-                <Field label="Delivery date" name="delivery_date" type="date" />
-
-                <SelectField
-                  label="Delivery time"
-                  name="delivery_time"
-                  options={timeOptions}
-                />
+                <Field id="transport_date" label="Collection date" name="transport_date" type="date" />
+                <SelectField id="collection_time" label="Collection time" name="collection_time" options={timeOptions} />
+                <Field id="delivery_date" label="Delivery date" name="delivery_date" type="date" />
+                <SelectField id="delivery_time" label="Delivery time" name="delivery_time" options={timeOptions} />
 
                 <Field
                   id="agreed_sell_rate"
@@ -472,10 +464,10 @@ export default async function NewTransportJobPage({
               </div>
             </section>
 
-            <section style={sectionCard}>
-              <div style={sectionTitle}>Cross-hire / supplier details</div>
-              <div style={{ fontSize: 13, opacity: 0.78, marginBottom: 12 }}>
-                Only fill this in when the transport job is supplier-backed or cross-hired.
+            <details id="supplier_details_section" style={detailsCard}>
+              <summary style={detailsSummary}>Cross-hire / supplier details</summary>
+              <div style={detailsHelp}>
+                Only open this when the transport job is supplier-backed or cross-hired.
               </div>
 
               <div style={gridStyle}>
@@ -502,21 +494,26 @@ export default async function NewTransportJobPage({
                 </div>
 
                 <Field
+                  id="supplier_reference"
                   label="Supplier reference"
                   name="supplier_reference"
                 />
 
                 <Field
+                  id="supplier_cost"
                   label="Supplier cost"
                   name="supplier_cost"
                   type="number"
                   step="0.01"
                 />
               </div>
-            </section>
+            </details>
 
-            <section style={sectionCard}>
-              <div style={sectionTitle}>Invoice details</div>
+            <details id="invoice_details_section" open style={detailsCard}>
+              <summary style={detailsSummary}>Invoice details</summary>
+              <div style={detailsHelp}>
+                Invoice VAT and total are calculated automatically from the subtotal.
+              </div>
 
               <div style={gridStyle}>
                 <SelectField
@@ -585,12 +582,20 @@ export default async function NewTransportJobPage({
                   placeholder="Internal invoice notes"
                 />
               </div>
-            </section>
+            </details>
 
-            <div>
-              <button type="submit" style={saveBtn}>
-                Save transport job
-              </button>
+            <div style={stickySaveBar}>
+              <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 700 }}>
+                Check dates, allocation and invoice values before saving.
+              </div>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <a href="/transport-jobs" style={secondaryActionBtn}>
+                  Cancel
+                </a>
+                <button type="submit" style={saveBtn}>
+                  Save transport job
+                </button>
+              </div>
             </div>
           </form>
 
@@ -680,9 +685,35 @@ const sectionCard: React.CSSProperties = {
   padding: 16,
 };
 
+const detailsCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
 const sectionTitle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 900,
+  marginBottom: 8,
+};
+
+const sectionHelp: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.76,
+  marginBottom: 12,
+};
+
+const detailsSummary: React.CSSProperties = {
+  cursor: "pointer",
+  fontSize: 18,
+  fontWeight: 900,
+};
+
+const detailsHelp: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.76,
+  marginTop: 10,
   marginBottom: 12,
 };
 
@@ -741,6 +772,33 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
+};
+
+const secondaryActionBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.65)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
+};
+
+const stickySaveBar: React.CSSProperties = {
+  position: "sticky",
+  bottom: 12,
+  zIndex: 5,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+  padding: "14px 16px",
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.88)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
 };
 
 const saveBtn: React.CSSProperties = {
