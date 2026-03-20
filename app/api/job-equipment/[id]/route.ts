@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -61,7 +61,11 @@ export async function PATCH(
     };
 
     if (body.job_id !== undefined) updates.job_id = clean(body.job_id);
-    if (body.equipment_type !== undefined) updates.equipment_type = clean(body.equipment_type);
+    if (body.equipment_type !== undefined || body.asset_type !== undefined) {
+      const nextType = clean(body.equipment_type ?? body.asset_type);
+      updates.equipment_type = nextType;
+      updates.asset_type = nextType;
+    }
     if (body.crane_id !== undefined) updates.crane_id = clean(body.crane_id);
     if (body.vehicle_id !== undefined) updates.vehicle_id = clean(body.vehicle_id);
     if (body.equipment_id !== undefined) updates.equipment_id = clean(body.equipment_id);
@@ -69,10 +73,15 @@ export async function PATCH(
     if (body.supplier_id !== undefined) updates.supplier_id = clean(body.supplier_id);
     if (body.purchase_order_id !== undefined) updates.purchase_order_id = clean(body.purchase_order_id);
     if (body.date !== undefined) updates.date = clean(body.date);
+    if (body.start_date !== undefined) updates.start_date = clean(body.start_date);
+    if (body.end_date !== undefined) updates.end_date = clean(body.end_date);
     if (body.start_time !== undefined) updates.start_time = clean(body.start_time);
     if (body.end_time !== undefined) updates.end_time = clean(body.end_time);
     if (body.quantity !== undefined) updates.quantity = numberOrNull(body.quantity);
     if (body.notes !== undefined) updates.notes = clean(body.notes);
+    if (body.item_name !== undefined) updates.item_name = clean(body.item_name);
+    if (body.source_type !== undefined) updates.source_type = clean(body.source_type);
+    if (body.supplier_reference !== undefined) updates.supplier_reference = clean(body.supplier_reference);
 
     if (body.agreed_cost !== undefined) updates.agreed_cost = agreedCost;
     if (body.agreed_sell_rate !== undefined || body.agreed_cost !== undefined) {
