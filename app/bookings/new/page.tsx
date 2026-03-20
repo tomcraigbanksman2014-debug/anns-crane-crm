@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getAccessContext, canCreateBookings } from "../../lib/access";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -8,6 +9,20 @@ function clean(value: FormDataEntryValue | null) {
 
 async function createBooking(formData: FormData) {
   "use server";
+
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/bookings/new");
+  }
+
+  if (!canCreateBookings(access)) {
+    redirect(
+      `/bookings/new?error=${encodeURIComponent(
+        "You do not have permission to create bookings."
+      )}`
+    );
+  }
 
   const supabase = createSupabaseServerClient();
 
@@ -72,6 +87,12 @@ export default async function NewBookingPage({
 }: {
   searchParams?: { error?: string };
 }) {
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/bookings/new");
+  }
+
   const supabase = createSupabaseServerClient();
 
   const [{ data: clients }, { data: cranes }] = await Promise.all([
@@ -88,6 +109,7 @@ export default async function NewBookingPage({
   ]);
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const allowed = canCreateBookings(access);
 
   return (
     <ClientShell>
@@ -98,96 +120,108 @@ export default async function NewBookingPage({
             Create a booking using cranes only. LOLER lifting gear stays separate.
           </p>
 
+          {!allowed ? (
+            <div style={errorBox}>Your staff permissions currently do not allow booking creation.</div>
+          ) : null}
+
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form action={createBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
-            <div style={grid2}>
-              <SelectField
-                label="Customer *"
-                name="client_id"
-                options={[
-                  { value: "", label: "— Select customer —" },
-                  ...(clients ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.company_name ?? "Customer",
-                  })),
-                ]}
+          {allowed ? (
+            <form action={createBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
+              <div style={grid2}>
+                <SelectField
+                  label="Customer *"
+                  name="client_id"
+                  options={[
+                    { value: "", label: "— Select customer —" },
+                    ...(clients ?? []).map((c: any) => ({
+                      value: c.id,
+                      label: c.company_name ?? "Customer",
+                    })),
+                  ]}
+                />
+
+                <SelectField
+                  label="Crane *"
+                  name="crane_id"
+                  options={[
+                    { value: "", label: "— Select crane —" },
+                    ...(cranes ?? []).map((c: any) => ({
+                      value: c.id,
+                      label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
+                    })),
+                  ]}
+                />
+              </div>
+
+              <Field label="Location / site" name="location" placeholder="Site / location" />
+              <TextAreaField label="Site address" name="site_address" rows={2} placeholder="Optional address" />
+
+              <div style={grid2}>
+                <Field label="Start date *" name="start_date" type="date" />
+                <Field label="End date *" name="end_date" type="date" />
+              </div>
+
+              <div style={grid2}>
+                <Field label="Start time" name="start_time" type="time" />
+                <Field label="End time" name="end_time" type="time" />
+              </div>
+
+              <div style={grid2}>
+                <SelectField
+                  label="Status"
+                  name="status"
+                  options={[
+                    { value: "Inquiry", label: "Inquiry" },
+                    { value: "Confirmed", label: "Confirmed" },
+                    { value: "In Progress", label: "In Progress" },
+                    { value: "Completed", label: "Completed" },
+                    { value: "Cancelled", label: "Cancelled" },
+                  ]}
+                />
+
+                <SelectField
+                  label="Invoice status"
+                  name="invoice_status"
+                  options={[
+                    { value: "Not Invoiced", label: "Not Invoiced" },
+                    { value: "Sent", label: "Sent" },
+                    { value: "Part Paid", label: "Part Paid" },
+                    { value: "Paid", label: "Paid" },
+                    { value: "Overdue", label: "Overdue" },
+                  ]}
+                />
+              </div>
+
+              <div style={grid3}>
+                <Field label="Hire price" name="hire_price" type="number" placeholder="0.00" />
+                <Field label="VAT %" name="vat" type="number" defaultValue="20" />
+                <Field label="Payment received" name="payment_received" type="number" defaultValue="0" />
+              </div>
+
+              <TextAreaField
+                label="Booking notes"
+                name="notes"
+                rows={4}
+                placeholder="Notes for this crane booking"
               />
 
-              <SelectField
-                label="Crane *"
-                name="crane_id"
-                options={[
-                  { value: "", label: "— Select crane —" },
-                  ...(cranes ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
-                  })),
-                ]}
-              />
-            </div>
-
-            <Field label="Location / site" name="location" placeholder="Site / location" />
-            <TextAreaField label="Site address" name="site_address" rows={2} placeholder="Optional address" />
-
-            <div style={grid2}>
-              <Field label="Start date *" name="start_date" type="date" />
-              <Field label="End date *" name="end_date" type="date" />
-            </div>
-
-            <div style={grid2}>
-              <Field label="Start time" name="start_time" type="time" />
-              <Field label="End time" name="end_time" type="time" />
-            </div>
-
-            <div style={grid2}>
-              <SelectField
-                label="Status"
-                name="status"
-                options={[
-                  { value: "Inquiry", label: "Inquiry" },
-                  { value: "Confirmed", label: "Confirmed" },
-                  { value: "In Progress", label: "In Progress" },
-                  { value: "Completed", label: "Completed" },
-                  { value: "Cancelled", label: "Cancelled" },
-                ]}
-              />
-
-              <SelectField
-                label="Invoice status"
-                name="invoice_status"
-                options={[
-                  { value: "Not Invoiced", label: "Not Invoiced" },
-                  { value: "Sent", label: "Sent" },
-                  { value: "Part Paid", label: "Part Paid" },
-                  { value: "Paid", label: "Paid" },
-                  { value: "Overdue", label: "Overdue" },
-                ]}
-              />
-            </div>
-
-            <div style={grid3}>
-              <Field label="Hire price" name="hire_price" type="number" placeholder="0.00" />
-              <Field label="VAT %" name="vat" type="number" defaultValue="20" />
-              <Field label="Payment received" name="payment_received" type="number" defaultValue="0" />
-            </div>
-
-            <TextAreaField
-              label="Booking notes"
-              name="notes"
-              rows={4}
-              placeholder="Notes for this crane booking"
-            />
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
-                Create booking
-              </button>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="submit" style={primaryBtn}>
+                  Create booking
+                </button>
+                <a href="/bookings" style={secondaryBtn}>
+                  Cancel
+                </a>
+              </div>
+            </form>
+          ) : (
+            <div style={{ marginTop: 18 }}>
               <a href="/bookings" style={secondaryBtn}>
-                Cancel
+                Back to bookings
               </a>
             </div>
-          </form>
+          )}
         </div>
       </div>
     </ClientShell>
@@ -224,23 +258,18 @@ function Field({
 function TextAreaField({
   label,
   name,
-  rows,
+  rows = 3,
   placeholder,
 }: {
   label: string;
   name: string;
-  rows: number;
+  rows?: number;
   placeholder?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <textarea
-        name={name}
-        rows={rows}
-        placeholder={placeholder}
-        style={textareaStyle}
-      />
+      <textarea name={name} rows={rows} placeholder={placeholder} style={textareaStyle} />
     </div>
   );
 }
@@ -257,10 +286,10 @@ function SelectField({
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <select name={name} style={inputStyle} defaultValue="">
-        {options.map((option) => (
-          <option key={`${name}-${option.value}`} value={option.value}>
-            {option.label}
+      <select name={name} defaultValue="" style={inputStyle}>
+        {options.map((opt) => (
+          <option key={`${name}-${opt.value}-${opt.label}`} value={opt.value}>
+            {opt.label}
           </option>
         ))}
       </select>
@@ -270,8 +299,8 @@ function SelectField({
 
 const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 20,
-  borderRadius: 16,
+  padding: 18,
+  borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
@@ -296,7 +325,7 @@ const labelStyle: React.CSSProperties = {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 44,
+  height: 42,
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
@@ -311,7 +340,6 @@ const textareaStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
-  resize: "vertical",
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -320,24 +348,24 @@ const primaryBtn: React.CSSProperties = {
   borderRadius: 10,
   background: "#111",
   color: "#fff",
+  textDecoration: "none",
   fontWeight: 900,
   border: "none",
-  cursor: "pointer",
 };
 
 const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.78)",
+  background: "rgba(255,255,255,0.65)",
   color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
   textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
