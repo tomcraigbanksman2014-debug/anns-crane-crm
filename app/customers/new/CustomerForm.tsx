@@ -63,14 +63,14 @@ export default function CustomerForm({
         notes: notes.trim() || null,
       };
 
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token;
+
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+
       if (mode === "create") {
-        const { data: session } = await supabase.auth.getSession();
-        const token = session.session?.access_token;
-
-        if (!token) {
-          throw new Error("Not authenticated");
-        }
-
         const res = await fetch("/api/customers/create", {
           method: "POST",
           headers: {
@@ -95,12 +95,20 @@ export default function CustomerForm({
         throw new Error("Missing customer ID");
       }
 
-      const { error: updErr } = await supabase
-        .from("clients")
-        .update(payload)
-        .eq("id", customer.id);
+      const res = await fetch(`/api/customers/${customer.id}/update`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-      if (updErr) throw new Error(updErr.message);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Failed to update customer");
+      }
 
       router.push(`/customers/${customer.id}`);
       router.refresh();
@@ -129,7 +137,7 @@ export default function CustomerForm({
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
             style={input}
-            placeholder="e.g. Ann Crane Hire Ltd"
+            placeholder="e.g. AnnS Crane Hire Ltd"
           />
         </Field>
 
@@ -263,17 +271,18 @@ const primaryBtn: React.CSSProperties = {
 const secondaryBtn: React.CSSProperties = {
   padding: "12px 16px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.75)",
   color: "#111",
+  fontSize: 15,
   fontWeight: 800,
+  textDecoration: "none",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 12,
+  marginTop: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.20)",
 };
