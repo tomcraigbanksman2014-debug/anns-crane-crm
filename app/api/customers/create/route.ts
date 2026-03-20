@@ -82,7 +82,7 @@ export async function POST(req: Request) {
       await writeAuditLog({
         actor_user_id: u.user.id,
         actor_username: u.user.email ? u.user.email.split("@")[0] : null,
-        action: "create",
+        action: "customer_created",
         entity_type: "customer",
         entity_id: data?.id ?? null,
         meta: {
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
     await writeAuditLog({
       actor_user_id: userRes.user.id,
       actor_username: userRes.user.email ? userRes.user.email.split("@")[0] : null,
-      action: "create",
+      action: "customer_created",
       entity_type: "customer",
       entity_id: data?.id ?? null,
       meta: {
