@@ -12,6 +12,7 @@ type Option = {
 type Allocation = {
   id: string;
   asset_type?: string | null;
+  equipment_type?: string | null;
   crane_id?: string | null;
   vehicle_id?: string | null;
   equipment_id?: string | null;
@@ -25,6 +26,7 @@ type Allocation = {
   start_time?: string | null;
   end_time?: string | null;
   agreed_cost?: number | null;
+  agreed_sell_rate?: number | null;
   supplier_cost?: number | null;
   supplier_reference?: string | null;
   notes?: string | null;
@@ -60,6 +62,13 @@ type Allocation = {
   } | null;
 };
 
+function currentAssetType(item: {
+  asset_type?: string | null;
+  equipment_type?: string | null;
+}) {
+  return String(item.asset_type ?? item.equipment_type ?? "equipment").toLowerCase();
+}
+
 function assetTypeLabel(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
   if (v === "crane") return "Crane";
@@ -70,11 +79,12 @@ function assetTypeLabel(value: string | null | undefined) {
 
 function selectedAssetValue(item: {
   asset_type?: string | null;
+  equipment_type?: string | null;
   crane_id?: string | null;
   vehicle_id?: string | null;
   equipment_id?: string | null;
 }) {
-  const type = String(item.asset_type ?? "equipment").toLowerCase();
+  const type = currentAssetType(item);
   if (type === "crane") return item.crane_id ?? "";
   if (type === "vehicle") return item.vehicle_id ?? "";
   if (type === "other") return "";
@@ -82,13 +92,15 @@ function selectedAssetValue(item: {
 }
 
 function selectedAssetName(item: Allocation) {
-  if (item.asset_type === "crane") {
+  const type = currentAssetType(item);
+
+  if (type === "crane") {
     return item.cranes?.name ?? item.item_name ?? "Crane";
   }
-  if (item.asset_type === "vehicle") {
+  if (type === "vehicle") {
     return item.vehicles?.name ?? item.item_name ?? "Vehicle";
   }
-  if (item.asset_type === "other") {
+  if (type === "other") {
     return item.item_name ?? "Other";
   }
   return item.equipment?.name ?? item.item_name ?? "Equipment";
@@ -149,6 +161,10 @@ function filterSuppliersByAssetType(assetType: string, options: Option[]) {
   return filtered.length > 0 ? filtered : options;
 }
 
+function getReturnedAllocation(json: any): Allocation | null {
+  return json?.item ?? json?.allocation ?? null;
+}
+
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
@@ -180,11 +196,21 @@ export default function JobEquipmentManager({
   const [message, setMessage] = useState("");
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+
   const [costDrafts, setCostDrafts] = useState<Record<string, string>>(
     Object.fromEntries(
       (initialAllocations ?? []).map((item) => [
         item.id,
         toCostString(item.supplier_cost ?? item.agreed_cost),
+      ])
+    )
+  );
+
+  const [sellDrafts, setSellDrafts] = useState<Record<string, string>>(
+    Object.fromEntries(
+      (initialAllocations ?? []).map((item) => [
+        item.id,
+        toCostString(item.agreed_sell_rate ?? item.agreed_cost),
       ])
     )
   );
@@ -213,21 +239,26 @@ export default function JobEquipmentManager({
     start_time: defaultStartTime ?? "",
     end_time: defaultEndTime ?? "",
     agreed_cost: "0.00",
+    agreed_sell_rate: "0.00",
     supplier_cost: "0.00",
     supplier_reference: "",
     notes: "",
   });
 
   const totals = useMemo(() => {
-    const total = allocations.reduce(
+    const totalCost = allocations.reduce(
       (sum, item) => sum + Number(item.supplier_cost ?? item.agreed_cost ?? 0),
       0
     );
-    const cranes = allocations.filter((a) => a.asset_type === "crane").length;
-    const vehicles = allocations.filter((a) => a.asset_type === "vehicle").length;
-    const equipment = allocations.filter((a) => a.asset_type === "equipment").length;
-    const other = allocations.filter((a) => a.asset_type === "other").length;
-    return { total, cranes, vehicles, equipment, other };
+    const totalSell = allocations.reduce(
+      (sum, item) => sum + Number(item.agreed_sell_rate ?? item.agreed_cost ?? 0),
+      0
+    );
+    const cranes = allocations.filter((a) => currentAssetType(a) === "crane").length;
+    const vehicles = allocations.filter((a) => currentAssetType(a) === "vehicle").length;
+    const equipment = allocations.filter((a) => currentAssetType(a) === "equipment").length;
+    const other = allocations.filter((a) => currentAssetType(a) === "other").length;
+    return { totalCost, totalSell, cranes, vehicles, equipment, other };
   }, [allocations]);
 
   function getOptionsForAssetType(assetType: string) {
@@ -240,6 +271,7 @@ export default function JobEquipmentManager({
   function normaliseAssetPatch(assetType: string, selectedId: string) {
     return {
       asset_type: assetType,
+      equipment_type: assetType,
       crane_id: assetType === "crane" ? selectedId || null : null,
       vehicle_id: assetType === "vehicle" ? selectedId || null : null,
       equipment_id: assetType === "equipment" ? selectedId || null : null,
@@ -252,6 +284,7 @@ export default function JobEquipmentManager({
 
     try {
       const supplierCost = parseCost(draft.supplier_cost || draft.agreed_cost);
+      const agreedSellRate = parseCost(draft.agreed_sell_rate);
 
       const res = await fetch("/api/job-equipment", {
         method: "POST",
@@ -260,9 +293,28 @@ export default function JobEquipmentManager({
         },
         body: JSON.stringify({
           job_id: jobId,
-          ...draft,
+          asset_type: draft.asset_type,
+          equipment_type: draft.asset_type,
+          crane_id: draft.crane_id || null,
+          vehicle_id: draft.vehicle_id || null,
+          equipment_id: draft.equipment_id || null,
+          operator_id: draft.operator_id || null,
+          source_type: draft.source_type,
+          supplier_id: draft.source_type === "cross_hire" ? draft.supplier_id || null : null,
+          purchase_order_id:
+            draft.source_type === "cross_hire" ? draft.purchase_order_id || null : null,
+          item_name: draft.item_name || null,
+          date: draft.start_date || null,
+          start_date: draft.start_date || null,
+          end_date: draft.end_date || null,
+          start_time: draft.start_time || null,
+          end_time: draft.end_time || null,
           agreed_cost: supplierCost,
+          agreed_sell_rate: agreedSellRate,
           supplier_cost: supplierCost,
+          supplier_reference: draft.supplier_reference || null,
+          notes: draft.notes || null,
+          quantity: 1,
         }),
       });
 
@@ -273,12 +325,26 @@ export default function JobEquipmentManager({
         return;
       }
 
-      setAllocations((prev) => [...prev, json.allocation]);
+      const allocation = getReturnedAllocation(json);
+
+      if (!allocation) {
+        setMessage("Allocation added but response was incomplete.");
+        router.refresh();
+        return;
+      }
+
+      setAllocations((prev) => [...prev, allocation]);
       setCostDrafts((prev) => ({
         ...prev,
-        [json.allocation.id]: toCostString(
-          json.allocation.supplier_cost ?? json.allocation.agreed_cost
-        ),
+        [allocation.id]: toCostString(allocation.supplier_cost ?? allocation.agreed_cost),
+      }));
+      setSellDrafts((prev) => ({
+        ...prev,
+        [allocation.id]: toCostString(allocation.agreed_sell_rate ?? allocation.agreed_cost),
+      }));
+      setItemNameDrafts((prev) => ({
+        ...prev,
+        [allocation.id]: String(allocation.item_name ?? ""),
       }));
 
       setDraft({
@@ -296,6 +362,7 @@ export default function JobEquipmentManager({
         start_time: defaultStartTime ?? "",
         end_time: defaultEndTime ?? "",
         agreed_cost: "0.00",
+        agreed_sell_rate: "0.00",
         supplier_cost: "0.00",
         supplier_reference: "",
         notes: "",
@@ -330,17 +397,29 @@ export default function JobEquipmentManager({
         return;
       }
 
+      const allocation = getReturnedAllocation(json);
+
+      if (!allocation) {
+        setMessage("Allocation updated but response was incomplete.");
+        router.refresh();
+        return;
+      }
+
       setAllocations((prev) =>
-        prev.map((item) => (item.id === id ? json.allocation : item))
+        prev.map((item) => (item.id === id ? allocation : item))
       );
 
       setCostDrafts((prev) => ({
         ...prev,
-        [id]: toCostString(json.allocation.supplier_cost ?? json.allocation.agreed_cost),
+        [id]: toCostString(allocation.supplier_cost ?? allocation.agreed_cost),
+      }));
+      setSellDrafts((prev) => ({
+        ...prev,
+        [id]: toCostString(allocation.agreed_sell_rate ?? allocation.agreed_cost),
       }));
       setItemNameDrafts((prev) => ({
         ...prev,
-        [id]: String(json.allocation.item_name ?? ""),
+        [id]: String(allocation.item_name ?? ""),
       }));
 
       router.refresh();
@@ -359,6 +438,16 @@ export default function JobEquipmentManager({
       ...item,
       agreed_cost: parsed,
       supplier_cost: parsed,
+    });
+  }
+
+  async function commitSellRate(id: string, item: Allocation) {
+    const raw = sellDrafts[id] ?? toCostString(item.agreed_sell_rate ?? item.agreed_cost);
+    const parsed = parseCost(raw);
+
+    await updateAllocation(id, {
+      ...item,
+      agreed_sell_rate: parsed,
     });
   }
 
@@ -395,6 +484,16 @@ export default function JobEquipmentManager({
         delete next[id];
         return next;
       });
+      setSellDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      setItemNameDrafts((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
 
       router.refresh();
     } catch {
@@ -421,7 +520,8 @@ export default function JobEquipmentManager({
           <div style={totalsText}>Vehicles: {totals.vehicles}</div>
           <div style={totalsText}>Equipment: {totals.equipment}</div>
           <div style={totalsText}>Other: {totals.other}</div>
-          <div style={totalsStrong}>Allocated cost: {money(totals.total)}</div>
+          <div style={totalsStrong}>Sell total: {money(totals.totalSell)}</div>
+          <div style={totalsStrong}>Cost total: {money(totals.totalCost)}</div>
         </div>
       </div>
 
@@ -432,7 +532,7 @@ export default function JobEquipmentManager({
           <div style={emptyStyle}>No equipment allocations added yet.</div>
         ) : (
           allocations.map((item) => {
-            const assetType = String(item.asset_type ?? "equipment");
+            const assetType = currentAssetType(item);
             const assetOptions = getOptionsForAssetType(assetType);
             const filteredSupplierOptions = filterSuppliersByAssetType(
               assetType,
@@ -455,6 +555,7 @@ export default function JobEquipmentManager({
                       updateAllocation(item.id, {
                         ...item,
                         asset_type: value,
+                        equipment_type: value,
                         ...(value === "other"
                           ? {
                               crane_id: null,
@@ -471,7 +572,7 @@ export default function JobEquipmentManager({
 
                   {assetType !== "other" ? (
                     <SelectField
-                      label={assetTypeLabel(item.asset_type)}
+                      label={assetTypeLabel(assetType)}
                       value={selectedAssetValue(item)}
                       options={assetOptions}
                       onChange={(value) =>
@@ -562,6 +663,7 @@ export default function JobEquipmentManager({
                       updateAllocation(item.id, {
                         ...item,
                         start_date: value || null,
+                        date: value || null,
                       })
                     }
                     disabled={savingId === item.id}
@@ -603,6 +705,27 @@ export default function JobEquipmentManager({
                         end_time: value || null,
                       })
                     }
+                    disabled={savingId === item.id}
+                  />
+
+                  <TextField
+                    label="Charge rate"
+                    value={
+                      sellDrafts[item.id] ??
+                      toCostString(item.agreed_sell_rate ?? item.agreed_cost)
+                    }
+                    type="text"
+                    inputMode="decimal"
+                    onChange={(value) =>
+                      setSellDrafts((prev) => ({ ...prev, [item.id]: value }))
+                    }
+                    onBlur={() => commitSellRate(item.id, item)}
+                    onKeyDown={async (e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        await commitSellRate(item.id, item);
+                      }
+                    }}
                     disabled={savingId === item.id}
                   />
 
@@ -688,9 +811,10 @@ export default function JobEquipmentManager({
 
                 <div style={footerRow}>
                   <div style={{ fontSize: 13, opacity: 0.72 }}>
-                    {assetTypeLabel(item.asset_type)} • {selectedAssetName(item)} •{" "}
+                    {assetTypeLabel(assetType)} • {selectedAssetName(item)} •{" "}
                     {item.operators?.full_name ?? "No operator"} •{" "}
-                    {item.suppliers?.company_name ?? "No supplier"} • Cost{" "}
+                    {item.suppliers?.company_name ?? "No supplier"} • Sell{" "}
+                    {money(item.agreed_sell_rate ?? item.agreed_cost)} • Cost{" "}
                     {money(item.supplier_cost ?? item.agreed_cost)}
                   </div>
 
@@ -733,7 +857,11 @@ export default function JobEquipmentManager({
                       equipment_id: "",
                       item_name: prev.item_name || "Hired Item",
                     }
-                  : normaliseAssetPatch(value || "crane", "")),
+                  : {
+                      crane_id: value === "crane" ? "" : "",
+                      vehicle_id: value === "vehicle" ? "" : "",
+                      equipment_id: value === "equipment" ? "" : "",
+                    }),
                 supplier_id: "",
               }))
             }
@@ -829,6 +957,19 @@ export default function JobEquipmentManager({
             type="time"
             onChange={(value) =>
               setDraft((prev) => ({ ...prev, end_time: value }))
+            }
+          />
+
+          <TextField
+            label="Charge rate"
+            value={draft.agreed_sell_rate}
+            type="text"
+            inputMode="decimal"
+            onChange={(value) =>
+              setDraft((prev) => ({
+                ...prev,
+                agreed_sell_rate: value,
+              }))
             }
           />
 
@@ -1070,18 +1211,10 @@ const deleteBtn: React.CSSProperties = {
   padding: "8px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  color: "#8b0000",
+  color: "#b00020",
   fontWeight: 900,
-  border: "1px solid rgba(255,0,0,0.20)",
+  border: "1px solid rgba(255,0,0,0.16)",
   cursor: "pointer",
-};
-
-const emptyStyle: React.CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 700,
 };
 
 const messageBox: React.CSSProperties = {
@@ -1089,7 +1222,14 @@ const messageBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.20)",
-  color: "#0b57d0",
-  fontWeight: 800,
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
+};
+
+const emptyStyle: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.4)",
+  border: "1px solid rgba(0,0,0,0.06)",
+  opacity: 0.75,
 };
