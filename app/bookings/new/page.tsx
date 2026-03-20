@@ -2,9 +2,15 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAccessContext, canCreateBookings, canViewInvoices } from "../../lib/access";
+import { writeAuditLog } from "../../lib/audit";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 async function createBooking(formData: FormData) {
@@ -60,28 +66,50 @@ async function createBooking(formData: FormData) {
   const totalInvoice =
     Number.isFinite(hirePriceNum) ? hirePriceNum + hirePriceNum * (vatNum / 100) : 0;
 
-  const { error } = await supabase.from("bookings").insert({
-    client_id: clientId,
-    crane_id: craneId,
-    equipment_id: null,
-    location,
-    site_address: siteAddress,
-    start_date: startDate,
-    end_date: endDate,
-    start_at: startAt,
-    end_at: endAt,
-    status,
-    invoice_status: invoiceStatus,
-    hire_price: Number.isFinite(hirePriceNum) ? hirePriceNum : 0,
-    vat: Number.isFinite(vatNum) ? vatNum : 20,
-    total_invoice: Number.isFinite(totalInvoice) ? totalInvoice : 0,
-    payment_received: Number.isFinite(paymentReceivedNum) ? paymentReceivedNum : 0,
-    notes,
-  });
+  const { data, error } = await supabase
+    .from("bookings")
+    .insert({
+      client_id: clientId,
+      crane_id: craneId,
+      equipment_id: null,
+      location,
+      site_address: siteAddress,
+      start_date: startDate,
+      end_date: endDate,
+      start_at: startAt,
+      end_at: endAt,
+      status,
+      invoice_status: invoiceStatus,
+      hire_price: Number.isFinite(hirePriceNum) ? hirePriceNum : 0,
+      vat: Number.isFinite(vatNum) ? vatNum : 20,
+      total_invoice: Number.isFinite(totalInvoice) ? totalInvoice : 0,
+      payment_received: Number.isFinite(paymentReceivedNum) ? paymentReceivedNum : 0,
+      notes,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     redirect(`/bookings/new?error=${encodeURIComponent(error.message)}`);
   }
+
+  await writeAuditLog({
+    actor_user_id: access.user.id,
+    actor_username: fromAuthEmail(access.user.email ?? null) || null,
+    action: "booking_created",
+    entity_type: "booking",
+    entity_id: data?.id ?? null,
+    meta: {
+      client_id: clientId,
+      crane_id: craneId,
+      location,
+      start_date: startDate,
+      end_date: endDate,
+      status,
+      invoice_status: invoiceStatus,
+      total_invoice: Number.isFinite(totalInvoice) ? totalInvoice : 0,
+    },
+  });
 
   redirect(`/bookings?success=${encodeURIComponent("Booking created.")}`);
 }
