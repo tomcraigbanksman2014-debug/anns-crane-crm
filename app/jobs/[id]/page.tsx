@@ -76,11 +76,27 @@ function Row({
   );
 }
 
+function getAssetType(item: any) {
+  if (item?.crane_id) return "crane";
+  if (item?.vehicle_id) return "vehicle";
+  if (item?.equipment_id) return "equipment";
+  return "other";
+}
+
 function allocatedAssetName(item: any) {
-  const type = String(item.asset_type ?? "equipment").toLowerCase();
+  const type = getAssetType(item);
   if (type === "crane") return item.cranes?.name ?? item.item_name ?? "Crane";
   if (type === "vehicle") return item.vehicles?.name ?? item.item_name ?? "Vehicle";
-  return item.equipment?.name ?? item.item_name ?? "Equipment";
+  if (type === "equipment") return item.equipment?.name ?? item.item_name ?? "Equipment";
+  return item.item_name ?? "Other";
+}
+
+function allocatedSell(item: any) {
+  return Number(item.agreed_sell_rate ?? item.agreed_cost ?? 0);
+}
+
+function allocatedCost(item: any) {
+  return Number(item.supplier_cost ?? item.agreed_cost ?? 0);
 }
 
 export default async function JobPage({
@@ -200,18 +216,21 @@ export default async function JobPage({
   const linkedSupplier = first((job as any)?.suppliers);
   const allocationList = (allocations as any[]) ?? [];
 
-  const cranesAllocated = allocationList.filter((a) => a.asset_type === "crane");
-  const vehiclesAllocated = allocationList.filter((a) => a.asset_type === "vehicle");
-  const equipmentAllocated = allocationList.filter(
-    (a) => String(a.asset_type ?? "equipment") === "equipment"
-  );
+  const cranesAllocated = allocationList.filter((a) => getAssetType(a) === "crane");
+  const vehiclesAllocated = allocationList.filter((a) => getAssetType(a) === "vehicle");
+  const equipmentAllocated = allocationList.filter((a) => getAssetType(a) === "equipment");
+  const otherAllocated = allocationList.filter((a) => getAssetType(a) === "other");
 
-  const allocatedSubtotal = allocationList.reduce(
-    (sum, item) => sum + Number(item.supplier_cost ?? item.agreed_cost ?? 0),
+  const allocatedSellSubtotal = allocationList.reduce(
+    (sum, item) => sum + allocatedSell(item),
+    0
+  );
+  const allocatedCostSubtotal = allocationList.reduce(
+    (sum, item) => sum + allocatedCost(item),
     0
   );
   const allocatedVat = 0;
-  const allocatedTotal = allocatedSubtotal + allocatedVat;
+  const allocatedTotal = allocatedSellSubtotal + allocatedVat;
 
   return (
     <ClientShell>
@@ -287,7 +306,9 @@ export default async function JobPage({
                   <Row label="Cranes" value={cranesAllocated.length} />
                   <Row label="Vehicles" value={vehiclesAllocated.length} />
                   <Row label="Lifting equipment" value={equipmentAllocated.length} />
-                  <Row label="Allocated cost" value={money(allocatedSubtotal)} />
+                  <Row label="Other" value={otherAllocated.length} />
+                  <Row label="Allocated sell" value={money(allocatedSellSubtotal)} />
+                  <Row label="Allocated cost" value={money(allocatedCostSubtotal)} />
                 </div>
 
                 <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
@@ -295,7 +316,7 @@ export default async function JobPage({
                     title="Cranes"
                     items={cranesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
+                      meta: `${item.cranes?.reg_number ?? "—"}${item.cranes?.capacity ? ` • ${item.cranes.capacity}` : ""}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
                     }))}
                   />
 
@@ -303,7 +324,7 @@ export default async function JobPage({
                     title="Vehicles"
                     items={vehiclesAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
+                      meta: `${item.vehicles?.reg_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
                     }))}
                   />
 
@@ -311,7 +332,15 @@ export default async function JobPage({
                     title="Lifting Equipment"
                     items={equipmentAllocated.map((item) => ({
                       name: allocatedAssetName(item),
-                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${Number(item.supplier_cost ?? item.agreed_cost ?? 0) ? ` • ${money(item.supplier_cost ?? item.agreed_cost)}` : ""}`,
+                      meta: `${item.equipment?.asset_number ?? "—"}${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
+                    }))}
+                  />
+
+                  <AssetListBlock
+                    title="Other"
+                    items={otherAllocated.map((item) => ({
+                      name: allocatedAssetName(item),
+                      meta: `${item.operators?.full_name ? ` • ${item.operators.full_name}` : ""}${item.suppliers?.company_name ? ` • ${item.suppliers.company_name}` : ""}${allocatedSell(item) ? ` • Sell ${money(allocatedSell(item))}` : ""}${allocatedCost(item) ? ` • Cost ${money(allocatedCost(item))}` : ""}`,
                     }))}
                   />
                 </div>
@@ -376,7 +405,6 @@ export default async function JobPage({
                 </div>
               </section>
 
-
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Legacy primary operator</h2>
 
@@ -408,7 +436,7 @@ export default async function JobPage({
                   <Row label="Invoice #" value={job.invoice_number ?? "—"} />
                   <Row label="Invoice created" value={fmtDate(job.invoice_created_at)} />
                   <Row label="Invoice due" value={fmtDate(job.invoice_due_at)} />
-                  <Row label="Allocated subtotal" value={money(allocatedSubtotal)} />
+                  <Row label="Allocated subtotal" value={money(allocatedSellSubtotal)} />
                   <Row label="VAT" value={money(allocatedVat)} />
                   <Row label="Allocated total" value={money(allocatedTotal)} />
                   <Row label="Invoice notes" value={job.invoice_notes ?? "—"} />
@@ -523,26 +551,28 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
+  textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-  textDecoration: "none",
 };
 
 const cancelBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  background: "#b42318",
+  textDecoration: "none",
+  background: "#ef4444",
   color: "#fff",
   fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
+  border: "none",
   cursor: "pointer",
 };
 
 const errorBox: React.CSSProperties = {
   marginTop: 14,
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
