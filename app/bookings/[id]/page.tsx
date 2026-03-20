@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import StatusPill from "../../components/StatusPill";
+import { getAccessContext, canViewInvoices } from "../../lib/access";
 
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
@@ -55,6 +56,9 @@ export default async function BookingPage({
   params: { id: string };
   searchParams?: { success?: string; error?: string };
 }) {
+  const access = await getAccessContext();
+  const showInvoices = canViewInvoices(access);
+
   const supabase = createSupabaseServerClient();
 
   let booking: any = null;
@@ -177,6 +181,10 @@ export default async function BookingPage({
           </div>
         </div>
 
+        {!showInvoices ? (
+          <div style={infoBox}>Invoice details are hidden for your staff role.</div>
+        ) : null}
+
         {successMessage ? <div style={successBox}>{successMessage}</div> : null}
         {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
         {loadError ? (
@@ -206,15 +214,17 @@ export default async function BookingPage({
                       />
                     }
                   />
-                  <InfoRow
-                    label="Invoice status"
-                    valueNode={
-                      <StatusPill
-                        text={booking.invoice_status ?? "—"}
-                        kind={invoiceKind(booking.invoice_status)}
-                      />
-                    }
-                  />
+                  {showInvoices ? (
+                    <InfoRow
+                      label="Invoice status"
+                      valueNode={
+                        <StatusPill
+                          text={booking.invoice_status ?? "—"}
+                          kind={invoiceKind(booking.invoice_status)}
+                        />
+                      }
+                    />
+                  ) : null}
                   <InfoRow label="Start date" value={fmtDate(booking.start_date)} />
                   <InfoRow label="End date" value={fmtDate(booking.end_date)} />
                   <InfoRow label="Start time" value={fmtDateTime(booking.start_at)} />
@@ -229,15 +239,17 @@ export default async function BookingPage({
                 </div>
               </section>
 
-              <section style={cardStyle}>
-                <h2 style={sectionTitle}>Financials</h2>
-                <div style={gridStyle}>
-                  <InfoRow label="Hire price" value={fmtMoney(booking.hire_price)} />
-                  <InfoRow label="VAT" value={fmtMoney(booking.vat)} />
-                  <InfoRow label="Total invoice" value={fmtMoney(booking.total_invoice)} />
-                  <InfoRow label="Payment received" value={fmtMoney(booking.payment_received)} />
-                </div>
-              </section>
+              {showInvoices ? (
+                <section style={cardStyle}>
+                  <h2 style={sectionTitle}>Financials</h2>
+                  <div style={gridStyle}>
+                    <InfoRow label="Hire price" value={fmtMoney(booking.hire_price)} />
+                    <InfoRow label="VAT" value={fmtMoney(booking.vat)} />
+                    <InfoRow label="Total invoice" value={fmtMoney(booking.total_invoice)} />
+                    <InfoRow label="Payment received" value={fmtMoney(booking.payment_received)} />
+                  </div>
+                </section>
+              ) : null}
 
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Convert to job</h2>
@@ -285,8 +297,8 @@ export default async function BookingPage({
                 <h2 style={sectionTitle}>Crane</h2>
                 <div style={{ display: "grid", gap: 8, fontSize: 14 }}>
                   <div><strong>Name:</strong> {crane?.name ?? "—"}</div>
-                  <div><strong>Reg:</strong> {crane?.reg_number ?? "—"}</div>
-                  <div><strong>Fleet:</strong> {crane?.fleet_number ?? "—"}</div>
+                  <div><strong>Registration:</strong> {crane?.reg_number ?? "—"}</div>
+                  <div><strong>Fleet number:</strong> {crane?.fleet_number ?? "—"}</div>
                   <div><strong>Capacity:</strong> {crane?.capacity ?? "—"}</div>
                   <div><strong>Status:</strong> {crane?.status ?? "—"}</div>
                 </div>
@@ -294,7 +306,9 @@ export default async function BookingPage({
 
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Notes</h2>
-                <div style={notesBox}>{booking.notes ?? booking.driver_notes ?? "—"}</div>
+                <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.5, fontSize: 14 }}>
+                  {booking.notes || booking.driver_notes || "—"}
+                </div>
               </section>
             </div>
           </div>
@@ -325,22 +339,22 @@ const btnStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  textDecoration: "none",
+  background: "rgba(255,255,255,0.75)",
   color: "#111",
+  textDecoration: "none",
   fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const primaryBtnStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "none",
   background: "#111",
-  textDecoration: "none",
   color: "#fff",
+  textDecoration: "none",
   fontWeight: 900,
+  border: "none",
   cursor: "pointer",
 };
 
@@ -348,30 +362,10 @@ const primaryLinkStyle: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "none",
   background: "#111",
-  textDecoration: "none",
   color: "#fff",
+  textDecoration: "none",
   fontWeight: 900,
-  width: "fit-content",
-};
-
-const successBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
-  color: "#0b7a4b",
-  fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
 
 const cardStyle: React.CSSProperties = {
@@ -391,12 +385,14 @@ const sectionTitle: React.CSSProperties = {
 const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 14,
+  gap: 12,
 };
 
 const infoRow: React.CSSProperties = {
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  padding: "12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const infoLabel: React.CSSProperties = {
@@ -406,15 +402,35 @@ const infoLabel: React.CSSProperties = {
 };
 
 const infoValue: React.CSSProperties = {
-  marginTop: 4,
+  marginTop: 6,
+  fontSize: 14,
+  fontWeight: 700,
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#111",
   fontWeight: 800,
 };
 
-const notesBox: React.CSSProperties = {
-  padding: 12,
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  whiteSpace: "pre-wrap",
-  lineHeight: 1.5,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
+  fontWeight: 700,
 };
