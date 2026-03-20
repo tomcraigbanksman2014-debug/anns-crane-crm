@@ -1,23 +1,94 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { createServerClient } from "@supabase/ssr";
+import ClientShell from "../../ClientShell";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import OperatorJobActions from "./OperatorJobActions";
+import OperatorTransportTracker from "../transport/OperatorTransportTracker";
+import OperatorSignOutButton from "./OperatorSignOutButton";
+import { redirect } from "next/navigation";
 
-const PUBLIC_PATHS = [
-  "/login",
-  "/favicon.ico",
-  "/manifest.json",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/logo.png",
-  "/offline.html",
-];
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
 
-function isPublicPath(pathname: string) {
-  if (PUBLIC_PATHS.includes(pathname)) return true;
-  if (pathname.startsWith("/_next/")) return true;
-  if (pathname.startsWith("/api/health")) return true;
-  if (pathname.startsWith("/storage")) return true;
-  if (pathname.match(/\.(png|jpg|jpeg|webp|svg|ico|css|js|map)$/)) return true;
-  return false;
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB");
+}
+
+function prettyStatus(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+
+  if (v === "in_progress") return "In Progress";
+  if (v === "completed") return "Completed";
+  if (v === "confirmed") return "Confirmed";
+  if (v === "cancelled") return "Cancelled";
+  if (v === "draft") return "Draft";
+
+  return value ?? "—";
+}
+
+function statusStyle(status: string | null | undefined): React.CSSProperties {
+  const s = String(status ?? "").toLowerCase();
+
+  if (s === "draft") {
+    return {
+      background: "rgba(120,120,120,0.12)",
+      color: "#555",
+      border: "1px solid rgba(120,120,120,0.18)",
+    };
+  }
+
+  if (s === "confirmed") {
+    return {
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  if (s === "in_progress") {
+    return {
+      background: "rgba(255,140,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,140,0,0.22)",
+    };
+  }
+
+  if (s === "completed") {
+    return {
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "rgba(255,0,0,0.10)",
+      color: "#b00020",
+      border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  return {
+    background: "rgba(255,255,255,0.35)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
+}
+
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function fromAuthEmail(email: string | null) {
@@ -25,67 +96,25 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-function isOperatorArea(pathname: string) {
-  return pathname.startsWith("/operator");
-}
-
-function isAdminArea(pathname: string) {
-  return pathname.startsWith("/admin");
-}
-
-function isOfficeOnlyPath(pathname: string) {
-  if (pathname === "/") return true;
-  if (pathname.startsWith("/dashboard")) return true;
-  if (pathname.startsWith("/search")) return true;
-  if (pathname.startsWith("/jobs")) return true;
-  if (pathname.startsWith("/transport-jobs")) return true;
-  if (pathname.startsWith("/transport-planner")) return true;
-  if (pathname.startsWith("/transport-map")) return true;
-  if (pathname.startsWith("/vehicles")) return true;
-  if (pathname.startsWith("/cranes")) return true;
-  if (pathname.startsWith("/timesheets")) return true;
-  if (pathname.startsWith("/quotes")) return true;
-  if (pathname.startsWith("/customers")) return true;
-  if (pathname.startsWith("/equipment")) return true;
-  if (pathname.startsWith("/operators")) return true;
-  if (pathname.startsWith("/suppliers")) return true;
-  if (pathname.startsWith("/purchase-orders")) return true;
-  if (pathname.startsWith("/calendar")) return true;
-  if (pathname.startsWith("/planner")) return true;
-  if (pathname.startsWith("/settings")) return true;
-  if (pathname.startsWith("/admin")) return true;
-  return false;
-}
-
-async function resolveUserRole(
-  supabase: any,
-  user: any
-): Promise<"admin" | "staff" | "operator" | ""> {
-  const email = String(user?.email ?? "").trim().toLowerCase();
-  const usernameFromEmail = fromAuthEmail(user?.email ?? null).toLowerCase();
+async function resolveUserRole(supabase: any, user: any) {
+  const authEmail = String(user?.email ?? "").trim().toLowerCase();
+  const authUsername = fromAuthEmail(user?.email ?? null).toLowerCase();
 
   const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
     .trim()
     .toLowerCase();
 
-  if (email && masterAdminEmail && email === masterAdminEmail) {
-    return "admin";
+  if (authEmail && masterAdminEmail && authEmail === masterAdminEmail) {
+    return { role: "admin" as const, operator: null };
   }
 
-  let resolvedRole = String(user?.user_metadata?.role ?? "").trim().toLowerCase() as
-    | "admin"
-    | "staff"
-    | "operator"
-    | "";
-
-  if (resolvedRole === "operator") {
-    return "operator";
-  }
+  const metadataRole = String(user?.user_metadata?.role ?? "").trim().toLowerCase();
 
   const { data: operators } = await supabase
     .from("operators")
     .select("id, full_name, email, status")
-    .eq("status", "active");
+    .eq("status", "active")
+    .order("full_name", { ascending: true });
 
   const matchedOperator =
     (operators ?? []).find((op: any) => {
@@ -93,130 +122,502 @@ async function resolveUserRole(
       const operatorName = String(op.full_name ?? "").trim().toLowerCase();
 
       return (
-        (!!operatorEmail && operatorEmail === email) ||
-        (!!operatorName && operatorName === usernameFromEmail) ||
-        (!!usernameFromEmail && !!operatorEmail && operatorEmail.startsWith(`${usernameFromEmail}@`))
+        operatorEmail === authEmail ||
+        operatorName === authUsername ||
+        (!!authUsername && !!operatorEmail && operatorEmail.startsWith(`${authUsername}@`))
       );
     }) ?? null;
 
   if (matchedOperator) {
-    return "operator";
+    return { role: "operator" as const, operator: matchedOperator };
   }
 
-  if (resolvedRole === "admin") return "admin";
-  if (resolvedRole === "staff") return "staff";
+  if (metadataRole === "admin") {
+    return { role: "admin" as const, operator: null };
+  }
 
-  return "";
+  if (metadataRole === "staff") {
+    return { role: "staff" as const, operator: null };
+  }
+
+  return { role: "" as const, operator: null };
 }
 
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-
-  if (isPublicPath(pathname)) {
-    return NextResponse.next();
-  }
-
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  });
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          response.cookies.set({
-            name,
-            value,
-            ...options,
-          });
-        },
-        remove(name: string, options: any) {
-          response.cookies.set({
-            name,
-            value: "",
-            ...options,
-            maxAge: 0,
-          });
-        },
-      },
-    }
-  );
+export default async function OperatorJobsPage() {
+  const supabase = createSupabaseServerClient();
 
   const {
     data: { user },
+    error: userError,
   } = await supabase.auth.getUser();
 
-  if (!user) {
-    const loginUrl = request.nextUrl.clone();
-    loginUrl.pathname = "/login";
-    loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+  if (userError || !user) {
+    redirect("/login?next=/operator/jobs");
   }
 
-  const resolvedRole = await resolveUserRole(supabase, user);
+  const resolved = await resolveUserRole(supabase, user);
 
-  if (resolvedRole === "operator") {
-    if (isOfficeOnlyPath(pathname) && !isOperatorArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/operator/jobs";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-
-    if (isAdminArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/operator/jobs";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
+  if (resolved.role !== "operator") {
+    redirect("/");
   }
 
-  if (resolvedRole === "staff") {
-    if (isAdminArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
+  const operator = resolved.operator;
 
-    if (isOperatorArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
+  if (!operator) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+          <div style={cardStyle}>
+            <div style={topBarStyle}>
+              <div>
+                <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>My Jobs</h1>
+                <p style={{ marginTop: 6, opacity: 0.8 }}>
+                  No operator record is linked to your login yet.
+                </p>
+              </div>
+
+              <OperatorSignOutButton />
+            </div>
+
+            <div style={infoBox}>
+              Ask an admin to make the operator full name match your username, or
+              make the operator email start with your login name.
+            </div>
+
+            <div style={debugBox}>
+              <div>
+                <strong>Detected login email:</strong> {String(user.email ?? "").trim().toLowerCase() || "—"}
+              </div>
+              <div style={{ marginTop: 6 }}>
+                <strong>Detected login username:</strong> {fromAuthEmail(user.email ?? null).toLowerCase() || "—"}
+              </div>
+            </div>
+          </div>
+        </div>
+      </ClientShell>
+    );
   }
 
-  if (resolvedRole === "admin") {
-    if (isOperatorArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-  }
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
 
-  if (!resolvedRole) {
-    if (isAdminArea(pathname) || isOperatorArea(pathname)) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/";
-      url.search = "";
-      return NextResponse.redirect(url);
-    }
-  }
+  const [{ data: jobs, error: jobsError }, { data: transportJobs, error: transportJobsError }] =
+    await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          id,
+          job_number,
+          job_date,
+          start_time,
+          end_time,
+          status,
+          site_name,
+          site_address,
+          contact_name,
+          contact_phone,
+          notes,
+          started_at,
+          arrived_on_site_at,
+          lift_completed_at,
+          completed_at,
+          clients:client_id (
+            company_name,
+            contact_name,
+            phone,
+            email
+          ),
+          equipment:equipment_id (
+            name,
+            asset_number,
+            type,
+            capacity
+          )
+        `)
+        .eq("operator_id", operator.id)
+        .gte("job_date", todayStr)
+        .order("job_date", { ascending: true })
+        .order("start_time", { ascending: true }),
 
-  return response;
+      supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          transport_number,
+          transport_date,
+          collection_time,
+          delivery_time,
+          collection_address,
+          delivery_address,
+          load_description,
+          status,
+          vehicle_id,
+          vehicles:vehicle_id (
+            id,
+            name,
+            reg_number
+          )
+        `)
+        .eq("operator_id", operator.id)
+        .gte("transport_date", todayStr)
+        .order("transport_date", { ascending: true })
+        .order("collection_time", { ascending: true }),
+    ]);
+
+  const jobsList = jobs ?? [];
+  const transportList = transportJobs ?? [];
+
+  return (
+    <ClientShell>
+      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+        <div style={cardStyle}>
+          <div style={topBarStyle}>
+            <div>
+              <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>My Jobs</h1>
+              <p style={{ marginTop: 6, opacity: 0.8 }}>
+                Operator: <strong>{operator.full_name}</strong>
+              </p>
+            </div>
+
+            <OperatorSignOutButton />
+          </div>
+
+          {transportJobsError ? (
+            <div style={errorBox}>{transportJobsError.message}</div>
+          ) : transportList.length > 0 ? (
+            <div style={{ marginTop: 18 }}>
+              <OperatorTransportTracker
+                operatorId={operator.id}
+                jobs={transportList.map((job: any) => {
+                  const vehicle = first(job.vehicles);
+                  return {
+                    id: job.id,
+                    transport_number: job.transport_number ?? "Transport Job",
+                    transport_date: job.transport_date ?? "",
+                    collection_time: job.collection_time ?? "",
+                    delivery_time: job.delivery_time ?? "",
+                    collection_address: job.collection_address ?? "",
+                    delivery_address: job.delivery_address ?? "",
+                    status: job.status ?? "",
+                    vehicle_id: job.vehicle_id ?? "",
+                    vehicle_label: `${vehicle?.name ?? "Vehicle"}${
+                      vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
+                    }`,
+                  };
+                })}
+              />
+            </div>
+          ) : null}
+
+          {jobsError ? (
+            <div style={errorBox}>{jobsError.message}</div>
+          ) : jobsList.length === 0 ? (
+            <div style={infoBox}>No upcoming crane jobs assigned.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
+              {jobsList.map((job: any) => {
+                const client = first(job.clients);
+                const equipment = first(job.equipment);
+
+                return (
+                  <div key={job.id} style={jobCard}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 10,
+                        alignItems: "flex-start",
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 1000, fontSize: 18 }}>
+                          Job #{job.job_number ?? "—"}
+                        </div>
+                        <div style={{ marginTop: 4, opacity: 0.78 }}>
+                          {fmtDate(job.job_date)}
+                        </div>
+                      </div>
+
+                      <span
+                        style={{
+                          display: "inline-block",
+                          padding: "6px 10px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 900,
+                          ...statusStyle(job.status),
+                        }}
+                      >
+                        {prettyStatus(job.status)}
+                      </span>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Customer</div>
+                      <div style={rowValue}>{client?.company_name ?? "—"}</div>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Crane</div>
+                      <div style={rowValue}>
+                        {equipment?.name ?? "—"}
+                        {equipment?.capacity ? ` • ${equipment.capacity}` : ""}
+                      </div>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Time</div>
+                      <div style={rowValue}>
+                        {job.start_time || job.end_time
+                          ? `${job.start_time ?? "—"} - ${job.end_time ?? "—"}`
+                          : "—"}
+                      </div>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Site</div>
+                      <div style={rowValue}>
+                        {job.site_name ?? "—"}
+                        {job.site_address ? (
+                          <div style={{ marginTop: 4, fontWeight: 500 }}>
+                            {job.site_address}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Site contact</div>
+                      <div style={rowValue}>
+                        {job.contact_name ?? "—"}
+                        {job.contact_phone ? (
+                          <div style={{ marginTop: 4, fontWeight: 500 }}>
+                            {job.contact_phone}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div style={sectionBlock}>
+                      <div style={rowLabel}>Notes</div>
+                      <div style={rowValue}>{job.notes ?? "—"}</div>
+                    </div>
+
+                    <div style={timelineBox}>
+                      <div style={timelineTitle}>Job activity</div>
+                      <div style={timelineRow}>
+                        <strong>Started:</strong> {fmtDateTime(job.started_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Arrived on site:</strong> {fmtDateTime(job.arrived_on_site_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Lift completed:</strong> {fmtDateTime(job.lift_completed_at)}
+                      </div>
+                      <div style={timelineRow}>
+                        <strong>Job completed:</strong> {fmtDateTime(job.completed_at)}
+                      </div>
+                    </div>
+
+                    <OperatorJobActions jobId={job.id} />
+
+                    <div style={{ marginTop: 12 }}>
+                      <a href={`/operator/jobs/${job.id}`} style={openBtn}>
+                        Open job sheet
+                      </a>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {transportList.length > 0 ? (
+            <div style={{ marginTop: 22 }}>
+              <h2 style={{ margin: 0, fontSize: 24 }}>My Transport Allocations</h2>
+              <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+                {transportList.map((job: any) => {
+                  const vehicle = first(job.vehicles);
+
+                  return (
+                    <div key={job.id} style={transportCard}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 10,
+                          alignItems: "flex-start",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontWeight: 1000, fontSize: 18 }}>
+                            {job.transport_number ?? "Transport Job"}
+                          </div>
+                          <div style={{ marginTop: 4, opacity: 0.78 }}>
+                            {fmtDate(job.transport_date)}
+                          </div>
+                        </div>
+
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...statusStyle(job.status),
+                          }}
+                        >
+                          {prettyStatus(job.status)}
+                        </span>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Vehicle</div>
+                        <div style={rowValue}>
+                          {vehicle?.name ?? "—"}
+                          {vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                        </div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Times</div>
+                        <div style={rowValue}>
+                          {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
+                        </div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Pickup</div>
+                        <div style={rowValue}>{job.collection_address ?? "—"}</div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Delivery</div>
+                        <div style={rowValue}>{job.delivery_address ?? "—"}</div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Load</div>
+                        <div style={rowValue}>{job.load_description ?? "—"}</div>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <a href="/operator/transport" style={openBtn}>
+                          Open transport sheet
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </ClientShell>
+  );
 }
 
-export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|css|js|map)$).*)",
-  ],
+const cardStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const topBarStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const jobCard: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const transportCard: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const sectionBlock: React.CSSProperties = {
+  marginTop: 12,
+};
+
+const rowLabel: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.72,
+  fontWeight: 800,
+};
+
+const rowValue: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 15,
+  fontWeight: 700,
+};
+
+const timelineBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const timelineTitle: React.CSSProperties = {
+  fontWeight: 900,
+  marginBottom: 8,
+};
+
+const timelineRow: React.CSSProperties = {
+  fontSize: 14,
+  marginTop: 6,
+};
+
+const openBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 12px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.52)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
+};
+
+const debugBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
 };
