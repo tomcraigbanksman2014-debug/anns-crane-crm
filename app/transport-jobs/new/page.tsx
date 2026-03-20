@@ -21,7 +21,8 @@ function numberOrNull(value: FormDataEntryValue | null) {
 
 function money(value: number | string | null | undefined) {
   const n = Number(value ?? 0);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
 }
 
 function generateTransportNumber() {
@@ -55,7 +56,6 @@ function buildTimeOptions() {
   return options;
 }
 
-
 function toMinutes(value: string | null) {
   if (!value) return null;
   const match = value.match(/^(\d{1,2}):(\d{2})$/);
@@ -63,14 +63,17 @@ function toMinutes(value: string | null) {
   return Number(match[1]) * 60 + Number(match[2]);
 }
 
-function normaliseTransportStatus(input: string | null, fields: {
-  clientId: string | null;
-  vehicleId: string | null;
-  operatorId: string | null;
-  transportDate: string | null;
-  collectionTime: string | null;
-  deliveryTime: string | null;
-}) {
+function normaliseTransportStatus(
+  input: string | null,
+  fields: {
+    clientId: string | null;
+    vehicleId: string | null;
+    operatorId: string | null;
+    transportDate: string | null;
+    collectionTime: string | null;
+    deliveryTime: string | null;
+  }
+) {
   const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
 
   if (requested !== "confirmed") {
@@ -100,10 +103,22 @@ async function createTransportJob(formData: FormData) {
   const clientId = clean(formData.get("client_id")) || null;
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
-  const supplierId = clean(formData.get("supplier_id")) || null;
-  const supplierReference = clean(formData.get("supplier_reference")) || null;
+
+  const rawSupplierId = clean(formData.get("supplier_id"));
+  const otherSupplierName = clean(formData.get("other_supplier_name"));
+  const supplierReferenceInput = clean(formData.get("supplier_reference"));
   const supplierCost = numberOrNull(formData.get("supplier_cost"));
   const jobType = clean(formData.get("job_type")) || null;
+
+  const supplierId =
+    rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
+
+  const supplierReference =
+    rawSupplierId === "other"
+      ? [otherSupplierName || null, supplierReferenceInput ? `Ref: ${supplierReferenceInput}` : null]
+          .filter(Boolean)
+          .join(" | ") || null
+      : supplierReferenceInput || null;
 
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
@@ -121,17 +136,17 @@ async function createTransportJob(formData: FormData) {
   });
   const notes = clean(formData.get("notes")) || null;
 
-  const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
+  const agreedSellRate = money(numberOrZero(formData.get("agreed_sell_rate")));
   const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
   const invoiceNumber = clean(formData.get("invoice_number")) || null;
   const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
   const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
   const invoiceNotes = clean(formData.get("invoice_notes")) || null;
-  const invoiceSubtotalRaw = numberOrZero(formData.get("invoice_subtotal"));
-  const invoiceVat = numberOrZero(formData.get("invoice_vat"));
-  const totalInvoiceRaw = numberOrZero(formData.get("total_invoice"));
+
+  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
   const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
-  const totalInvoice = totalInvoiceRaw > 0 ? totalInvoiceRaw : invoiceSubtotal + invoiceVat;
+  const invoiceVat = money(invoiceSubtotal * 0.2);
+  const totalInvoice = money(invoiceSubtotal + invoiceVat);
 
   if (!collectionAddress || !deliveryAddress || !transportDate) {
     redirect(
@@ -141,6 +156,13 @@ async function createTransportJob(formData: FormData) {
     );
   }
 
+  if (rawSupplierId === "other" && !otherSupplierName) {
+    redirect(
+      `/transport-jobs/new?error=${encodeURIComponent(
+        "Enter the one-off cross-hire supplier name when using Other."
+      )}`
+    );
+  }
 
   const collectionMinutes = toMinutes(collectionTime);
   const deliveryMinutes = toMinutes(deliveryTime);
@@ -158,6 +180,7 @@ async function createTransportJob(formData: FormData) {
       )}`
     );
   }
+
   if (!INVOICE_STATUSES.includes(invoiceStatus)) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent("Invalid invoice status.")}`
@@ -300,7 +323,11 @@ export default async function NewTransportJobPage({
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+          <form
+            id="transport-job-form"
+            action={createTransportJob}
+            style={{ marginTop: 18, display: "grid", gap: 18 }}
+          >
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
@@ -375,9 +402,11 @@ export default async function NewTransportJobPage({
                 />
 
                 <Field
+                  id="agreed_sell_rate"
                   label="Charge rate"
                   name="agreed_sell_rate"
                   type="number"
+                  step="0.01"
                   defaultValue={String(defaultSellRate)}
                 />
 
@@ -444,13 +473,26 @@ export default async function NewTransportJobPage({
 
               <div style={gridStyle}>
                 <SelectField
+                  id="supplier_id"
                   label="Supplier"
                   name="supplier_id"
-                  options={(suppliers ?? []).map((s: any) => ({
-                    value: s.id,
-                    label: s.company_name ?? "Supplier",
-                  }))}
+                  options={[
+                    ...(suppliers ?? []).map((s: any) => ({
+                      value: s.id,
+                      label: s.company_name ?? "Supplier",
+                    })),
+                    { value: "other", label: "Other" },
+                  ]}
                 />
+
+                <div id="other_supplier_wrap" style={{ display: "none" }}>
+                  <Field
+                    id="other_supplier_name"
+                    label="Other supplier name"
+                    name="other_supplier_name"
+                    placeholder="Enter one-off cross-hire supplier"
+                  />
+                </div>
 
                 <Field
                   label="Supplier reference"
@@ -461,6 +503,7 @@ export default async function NewTransportJobPage({
                   label="Supplier cost"
                   name="supplier_cost"
                   type="number"
+                  step="0.01"
                 />
               </div>
             </section>
@@ -497,24 +540,32 @@ export default async function NewTransportJobPage({
                 />
 
                 <Field
+                  id="invoice_subtotal"
                   label="Invoice subtotal"
                   name="invoice_subtotal"
                   type="number"
+                  step="0.01"
                   defaultValue={String(defaultInvoiceSubtotal)}
                 />
 
                 <Field
+                  id="invoice_vat"
                   label="Invoice VAT"
                   name="invoice_vat"
                   type="number"
+                  step="0.01"
                   defaultValue={String(defaultInvoiceVat)}
+                  readOnly
                 />
 
                 <Field
+                  id="total_invoice"
                   label="Total invoice"
                   name="total_invoice"
                   type="number"
+                  step="0.01"
                   defaultValue={String(defaultInvoiceTotal)}
+                  readOnly
                 />
               </div>
 
@@ -535,10 +586,124 @@ export default async function NewTransportJobPage({
               </button>
             </div>
           </form>
+
+          <TransportJobFormScript />
         </div>
       </div>
     </ClientShell>
   );
+}
+
+function TransportJobFormScript() {
+  const script = `
+    (function () {
+      function roundMoney(value) {
+        var n = Number(value || 0);
+        if (!Number.isFinite(n)) return 0;
+        return Math.round(n * 100) / 100;
+      }
+
+      function formatMoney(value) {
+        return roundMoney(value).toFixed(2);
+      }
+
+      function parseInputValue(input) {
+        if (!input) return 0;
+        var n = Number(String(input.value || "").trim());
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function init() {
+        var form = document.getElementById("transport-job-form");
+        if (!form) return;
+
+        var sellRateInput = document.getElementById("agreed_sell_rate");
+        var subtotalInput = document.getElementById("invoice_subtotal");
+        var vatInput = document.getElementById("invoice_vat");
+        var totalInput = document.getElementById("total_invoice");
+
+        var supplierSelect = document.getElementById("supplier_id");
+        var otherSupplierWrap = document.getElementById("other_supplier_wrap");
+        var otherSupplierInput = document.getElementById("other_supplier_name");
+
+        if (!subtotalInput || !vatInput || !totalInput) return;
+
+        var lastSyncedSubtotal = parseInputValue(subtotalInput);
+
+        function recalcFromSubtotal() {
+          var subtotal = roundMoney(parseInputValue(subtotalInput));
+          var vat = roundMoney(subtotal * 0.2);
+          var total = roundMoney(subtotal + vat);
+
+          vatInput.value = formatMoney(vat);
+          totalInput.value = formatMoney(total);
+          lastSyncedSubtotal = subtotal;
+        }
+
+        function syncSubtotalFromSellRate() {
+          if (!sellRateInput) return;
+
+          var sellRate = roundMoney(parseInputValue(sellRateInput));
+          var currentSubtotal = roundMoney(parseInputValue(subtotalInput));
+
+          if (currentSubtotal === 0 || currentSubtotal === lastSyncedSubtotal) {
+            subtotalInput.value = formatMoney(sellRate);
+          }
+
+          recalcFromSubtotal();
+        }
+
+        function toggleOtherSupplier() {
+          if (!supplierSelect || !otherSupplierWrap || !otherSupplierInput) return;
+
+          var isOther = supplierSelect.value === "other";
+          otherSupplierWrap.style.display = isOther ? "block" : "none";
+          otherSupplierInput.required = isOther;
+
+          if (!isOther) {
+            otherSupplierInput.value = "";
+          }
+        }
+
+        if (sellRateInput) {
+          sellRateInput.addEventListener("input", syncSubtotalFromSellRate);
+          sellRateInput.addEventListener("change", syncSubtotalFromSellRate);
+        }
+
+        subtotalInput.addEventListener("input", recalcFromSubtotal);
+        subtotalInput.addEventListener("change", recalcFromSubtotal);
+
+        if (supplierSelect) {
+          supplierSelect.addEventListener("change", toggleOtherSupplier);
+        }
+
+        form.addEventListener("submit", function (event) {
+          recalcFromSubtotal();
+          toggleOtherSupplier();
+
+          if (supplierSelect && supplierSelect.value === "other" && otherSupplierInput && !String(otherSupplierInput.value || "").trim()) {
+            event.preventDefault();
+            window.alert("Please enter the other supplier name.");
+          }
+        });
+
+        if (parseInputValue(subtotalInput) === 0 && sellRateInput) {
+          subtotalInput.value = formatMoney(parseInputValue(sellRateInput));
+        }
+
+        recalcFromSubtotal();
+        toggleOtherSupplier();
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  `;
+
+  return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }
 
 function Field({
@@ -546,20 +711,32 @@ function Field({
   name,
   defaultValue,
   type = "text",
+  id,
+  step,
+  placeholder,
+  readOnly = false,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
+  id?: string;
+  step?: string;
+  placeholder?: string;
+  readOnly?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
       <input
+        id={id}
         name={name}
         defaultValue={defaultValue}
         type={type}
-        style={inputStyle}
+        step={step}
+        placeholder={placeholder}
+        readOnly={readOnly}
+        style={readOnly ? readOnlyInputStyle : inputStyle}
       />
     </div>
   );
@@ -570,16 +747,18 @@ function SelectField({
   name,
   defaultValue,
   options,
+  id,
 }: {
   label: string;
   name: string;
   defaultValue?: string;
   options: Array<{ value: string; label: string }>;
+  id?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
-      <select name={name} defaultValue={defaultValue} style={inputStyle}>
+      <select id={id} name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
           <option key={`${name}-${option.value}`} value={option.value}>
@@ -640,6 +819,12 @@ const inputStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.90)",
   boxSizing: "border-box",
+};
+
+const readOnlyInputStyle: React.CSSProperties = {
+  ...inputStyle,
+  background: "rgba(240,240,240,0.95)",
+  color: "#333",
 };
 
 const textareaStyle: React.CSSProperties = {
