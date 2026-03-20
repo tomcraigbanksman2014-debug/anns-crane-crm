@@ -284,11 +284,11 @@ export default function JobEquipmentManager({
     return [];
   }
 
-  function clearAssetIdsForType(type: string) {
+  function clearAssetIdsForType() {
     return {
-      crane_id: type === "crane" ? "" : "",
-      vehicle_id: type === "vehicle" ? "" : "",
-      equipment_id: type === "equipment" ? "" : "",
+      crane_id: "",
+      vehicle_id: "",
+      equipment_id: "",
     };
   }
 
@@ -323,7 +323,7 @@ export default function JobEquipmentManager({
           supplier_id: draft.source_type === "cross_hire" ? draft.supplier_id || null : null,
           purchase_order_id:
             draft.source_type === "cross_hire" ? draft.purchase_order_id || null : null,
-          item_name: draft.asset_type === "other" ? draft.item_name || null : draft.item_name || null,
+          item_name: draft.item_name || null,
           start_date: draft.start_date || null,
           end_date: draft.end_date || null,
           start_time: draft.start_time || null,
@@ -333,7 +333,6 @@ export default function JobEquipmentManager({
           supplier_cost: supplierCost,
           supplier_reference: draft.supplier_reference || null,
           notes: draft.notes || null,
-          quantity: 1,
         }),
       });
 
@@ -459,8 +458,8 @@ export default function JobEquipmentManager({
     });
   }
 
-  async function commitSellRate(id: string, item: Allocation) {
-    const raw = sellDrafts[id] ?? toCostString(item.agreed_sell_rate ?? item.agreed_cost);
+  async function commitSellRate(id: string) {
+    const raw = sellDrafts[id] ?? "0.00";
     const parsed = parseCost(raw);
 
     await updateAllocation(id, {
@@ -722,11 +721,11 @@ export default function JobEquipmentManager({
                     onChange={(value) =>
                       setSellDrafts((prev) => ({ ...prev, [item.id]: value }))
                     }
-                    onBlur={() => commitSellRate(item.id, item)}
+                    onBlur={() => commitSellRate(item.id)}
                     onKeyDown={async (e) => {
                       if (e.key === "Enter") {
                         e.preventDefault();
-                        await commitSellRate(item.id, item);
+                        await commitSellRate(item.id);
                       }
                     }}
                     disabled={savingId === item.id}
@@ -849,7 +848,7 @@ export default function JobEquipmentManager({
               setDraft((prev) => ({
                 ...prev,
                 asset_type: value || "crane",
-                ...clearAssetIdsForType(value || "crane"),
+                ...clearAssetIdsForType(),
                 supplier_id: "",
                 item_name: value === "other" ? prev.item_name || "Hired Item" : prev.item_name,
               }))
