@@ -166,6 +166,7 @@ export default async function TransportJobsPage({
       transport_number,
       transport_date,
       collection_time,
+      delivery_date,
       delivery_time,
       collection_address,
       delivery_address,
@@ -343,11 +344,12 @@ export default async function TransportJobsPage({
             <div style={emptyBox}>No transport jobs found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1700 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1820 }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Ref</th>
-                    <th align="left" style={thStyle}>Date</th>
+                    <th align="left" style={thStyle}>Collection Date</th>
+                    <th align="left" style={thStyle}>Delivery Date</th>
                     <th align="left" style={thStyle}>Times</th>
                     <th align="left" style={thStyle}>Customer</th>
                     <th align="left" style={thStyle}>Vehicle</th>
@@ -402,9 +404,14 @@ export default async function TransportJobsPage({
                         <td style={tdStyle}>{fmtDate(item.transport_date)}</td>
 
                         <td style={tdStyle}>
-                          {item.collection_time || item.delivery_time
-                            ? `${item.collection_time ?? "—"} - ${item.delivery_time ?? "—"}`
-                            : "—"}
+                          {fmtDate(item.delivery_date ?? item.transport_date)}
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div>{item.collection_time ?? "—"}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                            → {item.delivery_time ?? "—"}
+                          </div>
                         </td>
 
                         <td style={tdStyle}>{client?.company_name ?? "—"}</td>
