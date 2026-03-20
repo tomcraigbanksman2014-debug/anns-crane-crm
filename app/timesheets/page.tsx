@@ -31,7 +31,10 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
-function calcWorkedHours(startedAt: string | null | undefined, completedAt: string | null | undefined) {
+function calcWorkedHours(
+  startedAt: string | null | undefined,
+  completedAt: string | null | undefined
+) {
   if (!startedAt || !completedAt) return 0;
   const start = new Date(startedAt);
   const end = new Date(completedAt);
@@ -44,6 +47,55 @@ function calcWorkedHours(startedAt: string | null | undefined, completedAt: stri
 function num(value: any) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function recordState(
+  startedAt: string | null | undefined,
+  completedAt: string | null | undefined
+) {
+  if (startedAt && completedAt) return "Complete";
+  if (startedAt && !completedAt) return "Started only";
+  if (!startedAt && completedAt) return "Completed only";
+  return "No clock times";
+}
+
+function recordPill(state: string): React.CSSProperties {
+  if (state === "Complete") {
+    return {
+      display: "inline-block",
+      padding: "6px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      background: "rgba(0,180,120,0.12)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.20)",
+    };
+  }
+
+  if (state === "Started only" || state === "Completed only") {
+    return {
+      display: "inline-block",
+      padding: "6px 10px",
+      borderRadius: 999,
+      fontSize: 12,
+      fontWeight: 900,
+      background: "rgba(255,170,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,170,0,0.24)",
+    };
+  }
+
+  return {
+    display: "inline-block",
+    padding: "6px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 900,
+    background: "rgba(255,0,0,0.10)",
+    color: "#b00020",
+    border: "1px solid rgba(255,0,0,0.18)",
+  };
 }
 
 export default async function TimesheetsPage() {
@@ -71,9 +123,6 @@ export default async function TimesheetsPage() {
       operators:operator_id (
         id,
         full_name
-      ),
-      clients:client_id (
-        company_name
       )
     `)
     .not("operator_id", "is", null)
@@ -85,7 +134,6 @@ export default async function TimesheetsPage() {
 
   const grouped = jobsList.reduce((acc: Record<string, any>, job: any) => {
     const operator = Array.isArray(job.operators) ? job.operators[0] : job.operators;
-    const client = Array.isArray(job.clients) ? job.clients[0] : job.clients;
     const operatorId = operator?.id ?? "unassigned";
     const operatorName = operator?.full_name ?? "Unknown operator";
 
@@ -98,6 +146,8 @@ export default async function TimesheetsPage() {
         totalBreak: 0,
         totalOvertime: 0,
         totalPayable: 0,
+        totalJobs: 0,
+        missingClockTimes: 0,
       };
     }
 
@@ -106,11 +156,11 @@ export default async function TimesheetsPage() {
     const breakHours = num(job.break_hours);
     const overtimeHours = num(job.overtime_hours);
     const payableHours = workedHours + travelHours + overtimeHours - breakHours;
+    const state = recordState(job.started_at, job.completed_at);
 
     acc[operatorId].rows.push({
       jobNumber: job.job_number,
       jobDate: job.job_date,
-      clientName: client?.company_name ?? "—",
       startedAt: job.started_at,
       completedAt: job.completed_at,
       travelHours,
@@ -119,6 +169,7 @@ export default async function TimesheetsPage() {
       workedHours,
       payableHours,
       submittedToOfficeAt: job.submitted_to_office_at,
+      state,
     });
 
     acc[operatorId].totalWorked += workedHours;
@@ -126,6 +177,11 @@ export default async function TimesheetsPage() {
     acc[operatorId].totalBreak += breakHours;
     acc[operatorId].totalOvertime += overtimeHours;
     acc[operatorId].totalPayable += payableHours;
+    acc[operatorId].totalJobs += 1;
+
+    if (state !== "Complete") {
+      acc[operatorId].missingClockTimes += 1;
+    }
 
     return acc;
   }, {});
@@ -134,7 +190,7 @@ export default async function TimesheetsPage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1280px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1380px, 95vw)", margin: "0 auto" }}>
         <div
           style={{
             display: "flex",
@@ -147,7 +203,7 @@ export default async function TimesheetsPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Timesheets</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Weekly operator timesheets generated from job activity and job sheets.
+              Weekly staff, driver and operator timesheets generated from recorded job activity.
             </p>
           </div>
 
@@ -187,25 +243,27 @@ export default async function TimesheetsPage() {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
                       gap: 10,
                       marginTop: 14,
                     }}
                   >
+                    <MiniSummary label="Jobs" value={String(group.totalJobs)} />
                     <MiniSummary label="Worked" value={group.totalWorked.toFixed(2)} />
                     <MiniSummary label="Travel" value={group.totalTravel.toFixed(2)} />
                     <MiniSummary label="Break" value={group.totalBreak.toFixed(2)} />
                     <MiniSummary label="Overtime" value={group.totalOvertime.toFixed(2)} />
                     <MiniSummary label="Payable" value={group.totalPayable.toFixed(2)} />
+                    <MiniSummary label="Missing clock times" value={String(group.missingClockTimes)} />
                   </div>
 
                   <div style={{ overflowX: "auto", marginTop: 14 }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
                       <thead>
                         <tr>
                           <th align="left" style={thStyle}>Job #</th>
                           <th align="left" style={thStyle}>Date</th>
-                          <th align="left" style={thStyle}>Customer</th>
+                          <th align="left" style={thStyle}>Record</th>
                           <th align="left" style={thStyle}>Started</th>
                           <th align="left" style={thStyle}>Completed</th>
                           <th align="left" style={thStyle}>Worked</th>
@@ -219,17 +277,21 @@ export default async function TimesheetsPage() {
                       <tbody>
                         {group.rows.map((row: any, idx: number) => (
                           <tr key={idx}>
-                            <td style={tdStyle}>{row.jobNumber ?? "—"}</td>
+                            <td style={tdStyleStrong}>{row.jobNumber ?? "—"}</td>
                             <td style={tdStyle}>{fmtDate(row.jobDate)}</td>
-                            <td style={tdStyle}>{row.clientName}</td>
+                            <td style={tdStyle}>
+                              <span style={recordPill(row.state)}>{row.state}</span>
+                            </td>
                             <td style={tdStyle}>{fmtDateTime(row.startedAt)}</td>
                             <td style={tdStyle}>{fmtDateTime(row.completedAt)}</td>
                             <td style={tdStyle}>{row.workedHours.toFixed(2)}</td>
                             <td style={tdStyle}>{row.travelHours.toFixed(2)}</td>
                             <td style={tdStyle}>{row.breakHours.toFixed(2)}</td>
                             <td style={tdStyle}>{row.overtimeHours.toFixed(2)}</td>
-                            <td style={{ ...tdStyle, fontWeight: 900 }}>{row.payableHours.toFixed(2)}</td>
-                            <td style={tdStyle}>{row.submittedToOfficeAt ? fmtDateTime(row.submittedToOfficeAt) : "—"}</td>
+                            <td style={tdStylePayable}>{row.payableHours.toFixed(2)}</td>
+                            <td style={tdStyle}>
+                              {row.submittedToOfficeAt ? fmtDateTime(row.submittedToOfficeAt) : "—"}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -305,6 +367,16 @@ const tdStyle: React.CSSProperties = {
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
   whiteSpace: "nowrap",
+};
+
+const tdStyleStrong: React.CSSProperties = {
+  ...tdStyle,
+  fontWeight: 900,
+};
+
+const tdStylePayable: React.CSSProperties = {
+  ...tdStyle,
+  fontWeight: 900,
 };
 
 const errorBox: React.CSSProperties = {
