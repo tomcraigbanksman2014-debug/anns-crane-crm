@@ -22,6 +22,11 @@ function normDate(v: any) {
   return s.length ? s : null;
 }
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
@@ -39,7 +44,8 @@ export async function POST(req: Request) {
       | "Sent"
       | "Accepted"
       | "Rejected";
-    const quote_date = normDate(body.quote_date) ?? new Date().toISOString().slice(0, 10);
+    const quote_date =
+      normDate(body.quote_date) ?? new Date().toISOString().slice(0, 10);
     const valid_until = normDate(body.valid_until);
     const subject = norm(body.subject);
     const notes = norm(body.notes);
@@ -85,13 +91,15 @@ export async function POST(req: Request) {
 
     await writeAuditLog({
       actor_user_id: auth.user.id,
-      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
-      action: "create",
+      actor_username: fromAuthEmail(auth.user.email ?? null) || null,
+      action: "quote_created",
       entity_type: "quote",
       entity_id: data?.id ?? null,
       meta: {
         client_id,
         status,
+        quote_date,
+        valid_until,
         amount: amountNum,
         subject,
       },
