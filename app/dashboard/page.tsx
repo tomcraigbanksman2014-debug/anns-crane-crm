@@ -470,8 +470,9 @@ export default function DashboardPage() {
           <StatCard
             title="Invoices outstanding"
             value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
-            subtext="Unpaid or part-paid"
+            subtext="Open jobs with unpaid or part-paid invoices"
             badge={<StatusPill text="£" />}
+            href="/jobs?view=active&invoice=outstanding"
           />
           <StatCard
             title="Utilisation"
@@ -779,22 +780,27 @@ function StatCard({
   value,
   subtext,
   badge,
+  href,
 }: {
   title: string;
   value: any;
   subtext?: string;
   badge?: React.ReactNode;
+  href?: string;
 }) {
-  return (
-    <div
-      style={{
-        padding: 14,
-        borderRadius: 14,
-        background: "rgba(255,255,255,0.35)",
-        border: "1px solid rgba(0,0,0,0.12)",
-        minWidth: 0,
-      }}
-    >
+  const sharedStyle: React.CSSProperties = {
+    padding: 14,
+    borderRadius: 14,
+    background: "rgba(255,255,255,0.35)",
+    border: "1px solid rgba(0,0,0,0.12)",
+    minWidth: 0,
+    textDecoration: "none",
+    color: "#111",
+    display: "block",
+  };
+
+  const content = (
+    <>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
         <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>{title}</div>
         <div style={{ flexShrink: 0 }}>{badge}</div>
@@ -803,8 +809,18 @@ function StatCard({
         {value}
       </div>
       {subtext ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div> : null}
-    </div>
+    </>
   );
+
+  if (href) {
+    return (
+      <a href={href} style={sharedStyle}>
+        {content}
+      </a>
+    );
+  }
+
+  return <div style={sharedStyle}>{content}</div>;
 }
 
 function Panel({
