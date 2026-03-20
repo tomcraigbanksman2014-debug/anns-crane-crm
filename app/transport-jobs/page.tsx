@@ -4,6 +4,7 @@ import { writeAuditLog } from "../lib/audit";
 import StatusBadge from "../components/StatusBadge";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
+import { getAccessContext, canViewInvoices } from "../lib/access";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -45,6 +46,20 @@ function clampMoney(value: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
 
 async function updateTransportInvoiceStatus(formData: FormData) {
   "use server";
+
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/transport-jobs");
+  }
+
+  if (!canViewInvoices(access)) {
+    redirect(
+      `/transport-jobs?error=${encodeURIComponent(
+        "You do not have permission to update transport invoices."
+      )}`
+    );
+  }
 
   const supabase = createSupabaseServerClient();
 
@@ -179,6 +194,9 @@ type TransportJobsPageProps = {
 export default async function TransportJobsPage({
   searchParams,
 }: TransportJobsPageProps) {
+  const access = await getAccessContext();
+  const showInvoices = canViewInvoices(access);
+
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
   const q = String(searchParams?.q ?? "").trim();
@@ -232,7 +250,6 @@ export default async function TransportJobsPage({
   if (view === "archived") {
     query = query.eq("archived", true);
   } else if (view === "all") {
-    // no archived filter
   } else {
     query = query.eq("archived", false);
   }
@@ -248,7 +265,7 @@ export default async function TransportJobsPage({
           `load_description.ilike.%${safe}%`,
           `job_type.ilike.%${safe}%`,
           `status.ilike.%${safe}%`,
-          `invoice_status.ilike.%${safe}%`,
+          ...(showInvoices ? [`invoice_status.ilike.%${safe}%`] : []),
         ].join(",")
       );
     }
@@ -312,9 +329,6 @@ export default async function TransportJobsPage({
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href={`/api/export/transport-jobs?view=${view}${q ? `&q=${encodeURIComponent(q)}` : ""}`} style={secondaryBtn}>
-                Export CSV
-              </a>
               <a href="/transport-planner" style={secondaryBtn}>
                 Open planner
               </a>
@@ -339,13 +353,17 @@ export default async function TransportJobsPage({
             </a>
           </div>
 
+          {!showInvoices ? (
+            <div style={infoBox}>Invoice visibility is disabled for your staff role.</div>
+          ) : null}
+
           <form method="get" style={searchRow}>
             <input type="hidden" name="view" value={view} />
             <input
               type="text"
               name="q"
               defaultValue={q}
-              placeholder="Search ref, address, load, status or invoice status..."
+              placeholder={`Search ref, address, load, status${showInvoices ? " or invoice status" : ""}...`}
               style={searchInput}
             />
             <button type="submit" style={primaryBtn}>
@@ -361,7 +379,7 @@ export default async function TransportJobsPage({
             <MiniStat label="Active jobs" value={activeCount} />
             <MiniStat label="Charge total" value={fmtMoney(chargeTotal)} />
             <MiniStat label="Supplier total" value={fmtMoney(supplierTotal)} />
-            <MiniStat label="Outstanding total" value={fmtMoney(outstandingTotal)} />
+            {showInvoices ? <MiniStat label="Outstanding total" value={fmtMoney(outstandingTotal)} /> : null}
           </div>
 
           {successMessage ? <div style={successBox}>{successMessage}</div> : null}
@@ -373,7 +391,7 @@ export default async function TransportJobsPage({
             <div style={emptyBox}>No transport jobs found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1180 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: showInvoices ? 1180 : 980 }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyleWide}>Ref / Route</th>
@@ -383,7 +401,7 @@ export default async function TransportJobsPage({
                     <th align="left" style={thStyle}>Type</th>
                     <th align="left" style={thStyle}>Status</th>
                     <th align="left" style={thStyle}>Costs</th>
-                    <th align="left" style={thStyle}>Invoice</th>
+                    {showInvoices ? <th align="left" style={thStyle}>Invoice</th> : null}
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -485,22 +503,24 @@ export default async function TransportJobsPage({
                           ) : null}
                         </td>
 
-                        <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 6 }}>
-                            <span style={invoicePill(item.invoice_status)}>
-                              {item.invoice_status ?? "Not Invoiced"}
-                            </span>
-                            <div style={{ fontSize: 12, opacity: 0.8 }}>
-                              Total: {fmtMoney(safeTotalInvoice)}
+                        {showInvoices ? (
+                          <td style={tdStyle}>
+                            <div style={{ display: "grid", gap: 6 }}>
+                              <span style={invoicePill(item.invoice_status)}>
+                                {item.invoice_status ?? "Not Invoiced"}
+                              </span>
+                              <div style={{ fontSize: 12, opacity: 0.8 }}>
+                                Total: {fmtMoney(safeTotalInvoice)}
+                              </div>
+                              <div style={{ fontSize: 12, opacity: 0.8 }}>
+                                Paid: {fmtMoney(amountPaid)}
+                              </div>
+                              <div style={{ fontSize: 12, opacity: 0.92, fontWeight: 900 }}>
+                                Outstanding: {fmtMoney(amountOutstanding)}
+                              </div>
                             </div>
-                            <div style={{ fontSize: 12, opacity: 0.8 }}>
-                              Paid: {fmtMoney(amountPaid)}
-                            </div>
-                            <div style={{ fontSize: 12, opacity: 0.92, fontWeight: 900 }}>
-                              Outstanding: {fmtMoney(amountOutstanding)}
-                            </div>
-                          </div>
-                        </td>
+                          </td>
+                        ) : null}
 
                         <td style={tdStyle}>
                           <div style={{ display: "grid", gap: 8 }}>
@@ -508,39 +528,41 @@ export default async function TransportJobsPage({
                               Open
                             </a>
 
-                            <form
-                              action={updateTransportInvoiceStatus}
-                              style={{ display: "grid", gap: 8 }}
-                            >
-                              <input type="hidden" name="transport_job_id" value={item.id} />
-                              <input type="hidden" name="return_view" value={view} />
-                              <input type="hidden" name="return_q" value={q} />
-
-                              <select
-                                name="invoice_status"
-                                defaultValue={item.invoice_status ?? "Not Invoiced"}
-                                style={miniSelect}
+                            {showInvoices ? (
+                              <form
+                                action={updateTransportInvoiceStatus}
+                                style={{ display: "grid", gap: 8 }}
                               >
-                                <option value="Not Invoiced">Not Invoiced</option>
-                                <option value="Invoiced">Invoiced</option>
-                                <option value="Part Paid">Part Paid</option>
-                                <option value="Paid">Paid</option>
-                              </select>
+                                <input type="hidden" name="transport_job_id" value={item.id} />
+                                <input type="hidden" name="return_view" value={view} />
+                                <input type="hidden" name="return_q" value={q} />
 
-                              <input
-                                name="amount_paid"
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
-                                placeholder="Amount paid"
-                                style={moneyInput}
-                              />
+                                <select
+                                  name="invoice_status"
+                                  defaultValue={item.invoice_status ?? "Not Invoiced"}
+                                  style={miniSelect}
+                                >
+                                  <option value="Not Invoiced">Not Invoiced</option>
+                                  <option value="Invoiced">Invoiced</option>
+                                  <option value="Part Paid">Part Paid</option>
+                                  <option value="Paid">Paid</option>
+                                </select>
 
-                              <button type="submit" style={saveMiniBtn}>
-                                Save
-                              </button>
-                            </form>
+                                <input
+                                  name="amount_paid"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
+                                  placeholder="Amount paid"
+                                  style={moneyInput}
+                                />
+
+                                <button type="submit" style={saveMiniBtn}>
+                                  Save
+                                </button>
+                              </form>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -821,5 +843,15 @@ const emptyBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
   fontWeight: 700,
 };
