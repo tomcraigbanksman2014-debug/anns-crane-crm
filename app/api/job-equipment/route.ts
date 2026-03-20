@@ -48,7 +48,6 @@ export async function POST(req: Request) {
     const sourceType = clean(body.source_type);
     const supplierReference = clean(body.supplier_reference);
 
-    const quantity = numberOrNull(body.quantity) ?? 1;
     const agreedCost = numberOrNull(body.agreed_cost);
     const agreedSellRate =
       numberOrNull(body.agreed_sell_rate) ??
@@ -79,7 +78,6 @@ export async function POST(req: Request) {
       end_date: endDate,
       start_time: startTime,
       end_time: endTime,
-      quantity,
       agreed_cost: agreedCost,
       agreed_sell_rate: agreedSellRate,
       supplier_cost: supplierCost,
