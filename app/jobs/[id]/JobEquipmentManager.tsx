@@ -11,8 +11,6 @@ type Option = {
 
 type Allocation = {
   id: string;
-  asset_type?: string | null;
-  equipment_type?: string | null;
   crane_id?: string | null;
   vehicle_id?: string | null;
   equipment_id?: string | null;
@@ -63,10 +61,14 @@ type Allocation = {
 };
 
 function currentAssetType(item: {
-  asset_type?: string | null;
-  equipment_type?: string | null;
+  crane_id?: string | null;
+  vehicle_id?: string | null;
+  equipment_id?: string | null;
 }) {
-  return String(item.asset_type ?? item.equipment_type ?? "equipment").toLowerCase();
+  if (item.crane_id) return "crane";
+  if (item.vehicle_id) return "vehicle";
+  if (item.equipment_id) return "equipment";
+  return "other";
 }
 
 function assetTypeLabel(value: string | null | undefined) {
@@ -78,8 +80,6 @@ function assetTypeLabel(value: string | null | undefined) {
 }
 
 function selectedAssetValue(item: {
-  asset_type?: string | null;
-  equipment_type?: string | null;
   crane_id?: string | null;
   vehicle_id?: string | null;
   equipment_id?: string | null;
@@ -87,8 +87,8 @@ function selectedAssetValue(item: {
   const type = currentAssetType(item);
   if (type === "crane") return item.crane_id ?? "";
   if (type === "vehicle") return item.vehicle_id ?? "";
-  if (type === "other") return "";
-  return item.equipment_id ?? "";
+  if (type === "equipment") return item.equipment_id ?? "";
+  return "";
 }
 
 function selectedAssetName(item: Allocation) {
@@ -100,10 +100,10 @@ function selectedAssetName(item: Allocation) {
   if (type === "vehicle") {
     return item.vehicles?.name ?? item.item_name ?? "Vehicle";
   }
-  if (type === "other") {
-    return item.item_name ?? "Other";
+  if (type === "equipment") {
+    return item.equipment?.name ?? item.item_name ?? "Equipment";
   }
-  return item.equipment?.name ?? item.item_name ?? "Equipment";
+  return item.item_name ?? "Other";
 }
 
 function money(value: number | null | undefined) {
@@ -165,6 +165,21 @@ function getReturnedAllocation(json: any): Allocation | null {
   return json?.item ?? json?.allocation ?? null;
 }
 
+function buildTimeOptions() {
+  const options: Option[] = [];
+  const mins = ["00", "15", "30", "45"];
+
+  for (let h = 0; h < 24; h++) {
+    const hh = String(h).padStart(2, "0");
+    for (const mm of mins) {
+      const value = `${hh}:${mm}`;
+      options.push({ value, label: value });
+    }
+  }
+
+  return options;
+}
+
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
@@ -191,6 +206,7 @@ export default function JobEquipmentManager({
   defaultEndTime?: string | null;
 }) {
   const router = useRouter();
+  const timeOptions = useMemo(() => buildTimeOptions(), []);
 
   const [allocations, setAllocations] = useState<Allocation[]>(initialAllocations ?? []);
   const [message, setMessage] = useState("");
@@ -264,14 +280,20 @@ export default function JobEquipmentManager({
   function getOptionsForAssetType(assetType: string) {
     if (assetType === "crane") return craneOptions;
     if (assetType === "vehicle") return vehicleOptions;
-    if (assetType === "other") return [];
-    return equipmentOptions;
+    if (assetType === "equipment") return equipmentOptions;
+    return [];
   }
 
-  function normaliseAssetPatch(assetType: string, selectedId: string) {
+  function clearAssetIdsForType(type: string) {
     return {
-      asset_type: assetType,
-      equipment_type: assetType,
+      crane_id: type === "crane" ? "" : "",
+      vehicle_id: type === "vehicle" ? "" : "",
+      equipment_id: type === "equipment" ? "" : "",
+    };
+  }
+
+  function apiAssetPatch(assetType: string, selectedId: string) {
+    return {
       crane_id: assetType === "crane" ? selectedId || null : null,
       vehicle_id: assetType === "vehicle" ? selectedId || null : null,
       equipment_id: assetType === "equipment" ? selectedId || null : null,
@@ -293,18 +315,15 @@ export default function JobEquipmentManager({
         },
         body: JSON.stringify({
           job_id: jobId,
-          asset_type: draft.asset_type,
-          equipment_type: draft.asset_type,
-          crane_id: draft.crane_id || null,
-          vehicle_id: draft.vehicle_id || null,
-          equipment_id: draft.equipment_id || null,
+          crane_id: draft.asset_type === "crane" ? draft.crane_id || null : null,
+          vehicle_id: draft.asset_type === "vehicle" ? draft.vehicle_id || null : null,
+          equipment_id: draft.asset_type === "equipment" ? draft.equipment_id || null : null,
           operator_id: draft.operator_id || null,
           source_type: draft.source_type,
           supplier_id: draft.source_type === "cross_hire" ? draft.supplier_id || null : null,
           purchase_order_id:
             draft.source_type === "cross_hire" ? draft.purchase_order_id || null : null,
-          item_name: draft.item_name || null,
-          date: draft.start_date || null,
+          item_name: draft.asset_type === "other" ? draft.item_name || null : draft.item_name || null,
           start_date: draft.start_date || null,
           end_date: draft.end_date || null,
           start_time: draft.start_time || null,
@@ -435,7 +454,6 @@ export default function JobEquipmentManager({
     const parsed = parseCost(raw);
 
     await updateAllocation(id, {
-      ...item,
       agreed_cost: parsed,
       supplier_cost: parsed,
     });
@@ -446,7 +464,6 @@ export default function JobEquipmentManager({
     const parsed = parseCost(raw);
 
     await updateAllocation(id, {
-      ...item,
       agreed_sell_rate: parsed,
     });
   }
@@ -454,7 +471,6 @@ export default function JobEquipmentManager({
   async function commitItemName(id: string, item: Allocation) {
     const raw = String(itemNameDrafts[id] ?? item.item_name ?? "").trim();
     await updateAllocation(id, {
-      ...item,
       item_name: raw.length > 0 ? raw : null,
     });
   }
@@ -553,9 +569,6 @@ export default function JobEquipmentManager({
                     ]}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
-                        asset_type: value,
-                        equipment_type: value,
                         ...(value === "other"
                           ? {
                               crane_id: null,
@@ -563,7 +576,7 @@ export default function JobEquipmentManager({
                               equipment_id: null,
                               item_name: item.item_name || "Hired Item",
                             }
-                          : normaliseAssetPatch(value || "equipment", "")),
+                          : apiAssetPatch(value || "equipment", "")),
                         supplier_id: null,
                       })
                     }
@@ -576,10 +589,7 @@ export default function JobEquipmentManager({
                       value={selectedAssetValue(item)}
                       options={assetOptions}
                       onChange={(value) =>
-                        updateAllocation(item.id, {
-                          ...item,
-                          ...normaliseAssetPatch(assetType, value),
-                        })
+                        updateAllocation(item.id, apiAssetPatch(assetType, value))
                       }
                       disabled={savingId === item.id}
                     />
@@ -610,7 +620,6 @@ export default function JobEquipmentManager({
                     options={operatorOptions}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         operator_id: value || null,
                       })
                     }
@@ -626,7 +635,6 @@ export default function JobEquipmentManager({
                     ]}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         source_type: value || "owned",
                         supplier_id: value === "cross_hire" ? item.supplier_id : null,
                       })
@@ -661,9 +669,7 @@ export default function JobEquipmentManager({
                     type="date"
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         start_date: value || null,
-                        date: value || null,
                       })
                     }
                     disabled={savingId === item.id}
@@ -675,33 +681,30 @@ export default function JobEquipmentManager({
                     type="date"
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         end_date: value || null,
                       })
                     }
                     disabled={savingId === item.id}
                   />
 
-                  <TextField
+                  <SelectField
                     label="Start time"
                     value={item.start_time ?? ""}
-                    type="time"
+                    options={timeOptions}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         start_time: value || null,
                       })
                     }
                     disabled={savingId === item.id}
                   />
 
-                  <TextField
+                  <SelectField
                     label="End time"
                     value={item.end_time ?? ""}
-                    type="time"
+                    options={timeOptions}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         end_time: value || null,
                       })
                     }
@@ -755,7 +758,6 @@ export default function JobEquipmentManager({
                     value={item.supplier_reference ?? ""}
                     onChange={(value) =>
                       updateAllocation(item.id, {
-                        ...item,
                         supplier_reference: value || null,
                       })
                     }
@@ -770,7 +772,6 @@ export default function JobEquipmentManager({
                         options={filteredSupplierOptions}
                         onChange={(value) =>
                           updateAllocation(item.id, {
-                            ...item,
                             supplier_id: value || null,
                           })
                         }
@@ -783,7 +784,6 @@ export default function JobEquipmentManager({
                         options={purchaseOrderOptions}
                         onChange={(value) =>
                           updateAllocation(item.id, {
-                            ...item,
                             purchase_order_id: value || null,
                           })
                         }
@@ -798,7 +798,6 @@ export default function JobEquipmentManager({
                       value={item.notes ?? ""}
                       onChange={(e) =>
                         updateAllocation(item.id, {
-                          ...item,
                           notes: e.target.value || null,
                         })
                       }
@@ -850,19 +849,9 @@ export default function JobEquipmentManager({
               setDraft((prev) => ({
                 ...prev,
                 asset_type: value || "crane",
-                ...(value === "other"
-                  ? {
-                      crane_id: "",
-                      vehicle_id: "",
-                      equipment_id: "",
-                      item_name: prev.item_name || "Hired Item",
-                    }
-                  : {
-                      crane_id: value === "crane" ? "" : "",
-                      vehicle_id: value === "vehicle" ? "" : "",
-                      equipment_id: value === "equipment" ? "" : "",
-                    }),
+                ...clearAssetIdsForType(value || "crane"),
                 supplier_id: "",
+                item_name: value === "other" ? prev.item_name || "Hired Item" : prev.item_name,
               }))
             }
           />
@@ -875,7 +864,7 @@ export default function JobEquipmentManager({
               onChange={(value) =>
                 setDraft((prev) => ({
                   ...prev,
-                  ...normaliseAssetPatch(prev.asset_type, value),
+                  ...apiAssetPatch(prev.asset_type, value),
                 }))
               }
             />
@@ -942,19 +931,19 @@ export default function JobEquipmentManager({
             }
           />
 
-          <TextField
+          <SelectField
             label="Start time"
             value={draft.start_time}
-            type="time"
+            options={timeOptions}
             onChange={(value) =>
               setDraft((prev) => ({ ...prev, start_time: value }))
             }
           />
 
-          <TextField
+          <SelectField
             label="End time"
             value={draft.end_time}
-            type="time"
+            options={timeOptions}
             onChange={(value) =>
               setDraft((prev) => ({ ...prev, end_time: value }))
             }
