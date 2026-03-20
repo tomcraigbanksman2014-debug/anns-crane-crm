@@ -1,6 +1,7 @@
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getAccessContext, canCreateBookings, canViewInvoices } from "../../../lib/access";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -27,6 +28,17 @@ function timeInputValue(value: string | null | undefined) {
 async function updateBooking(formData: FormData) {
   "use server";
 
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/bookings");
+  }
+
+  if (!canCreateBookings(access)) {
+    const id = clean(formData.get("id"));
+    redirect(`/bookings/${id}/edit?error=${encodeURIComponent("You do not have permission to edit bookings.")}`);
+  }
+
   const supabase = createSupabaseServerClient();
 
   const id = clean(formData.get("id"));
@@ -42,11 +54,15 @@ async function updateBooking(formData: FormData) {
   const poNumber = clean(formData.get("po_number")) || null;
   const jobReference = clean(formData.get("job_reference")) || null;
   const operatorName = clean(formData.get("operator_name")) || null;
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
   const hirePrice = clean(formData.get("hire_price"));
-  const vat = clean(formData.get("vat"));
-  const paymentReceived = clean(formData.get("payment_received"));
   const notes = clean(formData.get("notes")) || null;
+
+  const canSeeInvoices = canViewInvoices(access);
+  const invoiceStatus = canSeeInvoices
+    ? clean(formData.get("invoice_status")) || "Not Invoiced"
+    : "Not Invoiced";
+  const vat = canSeeInvoices ? clean(formData.get("vat")) : "20";
+  const paymentReceived = canSeeInvoices ? clean(formData.get("payment_received")) : "0";
 
   if (!id || !clientId || !craneId || !startDate || !endDate || !startTime || !endTime) {
     redirect(
@@ -102,6 +118,17 @@ async function updateBooking(formData: FormData) {
 async function deleteBooking(formData: FormData) {
   "use server";
 
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect("/login?next=/bookings");
+  }
+
+  if (!canCreateBookings(access)) {
+    const id = clean(formData.get("id"));
+    redirect(`/bookings/${id}/edit?error=${encodeURIComponent("You do not have permission to delete bookings.")}`);
+  }
+
   const supabase = createSupabaseServerClient();
   const id = clean(formData.get("id"));
 
@@ -125,9 +152,18 @@ export default async function EditBookingPage({
   params: { id: string };
   searchParams?: { error?: string };
 }) {
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    redirect(`/login?next=/bookings/${params.id}/edit`);
+  }
+
+  const allowed = canCreateBookings(access);
+  const showInvoices = canViewInvoices(access);
+
   const supabase = createSupabaseServerClient();
 
-  const [{ data: booking, error: bookingError }, { data: clients }, { data: cranes }] =
+  const [{ data: booking, error }, { data: clients }, { data: cranes }] =
     await Promise.all([
       supabase
         .from("bookings")
@@ -136,7 +172,7 @@ export default async function EditBookingPage({
         .single(),
       supabase
         .from("clients")
-        .select("id, company_name, contact_name")
+        .select("id, company_name")
         .order("company_name", { ascending: true }),
       supabase
         .from("cranes")
@@ -147,25 +183,19 @@ export default async function EditBookingPage({
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
-  const activeCranes = (cranes ?? []).filter(
-    (c: any) =>
-      String(c.status ?? "").toLowerCase() === "available" ||
-      c.id === booking?.crane_id
-  );
-
-  const vatValue = Number(booking?.vat ?? 20);
-  const hirePriceValue = Number(booking?.hire_price ?? 0);
-  const totalPreview = Number.isFinite(hirePriceValue)
-    ? hirePriceValue + hirePriceValue * ((Number.isFinite(vatValue) ? vatValue : 20) / 100)
-    : 0;
+  const totalPreview =
+    Number(booking?.hire_price ?? 0) +
+    Number(booking?.hire_price ?? 0) * (Number(booking?.vat ?? 20) / 100);
 
   return (
     <ClientShell>
       <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div style={outerHeader}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 26 }}>Edit booking</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>Update crane booking details.</p>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Edit Booking</h1>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              Update crane booking details.
+            </p>
           </div>
 
           <a href={`/bookings/${params.id}`} style={backBtn}>
@@ -174,18 +204,21 @@ export default async function EditBookingPage({
         </div>
 
         <div style={pageCard}>
-          <h2 style={{ marginTop: 0, fontSize: 24 }}>Edit Booking</h2>
-          <p style={{ marginTop: 6, opacity: 0.8 }}>
-            Crane bookings use the crane fleet only. LOLER lifting gear stays separate.
-          </p>
+          {!allowed ? (
+            <div style={errorBox}>Your staff permissions currently do not allow booking editing.</div>
+          ) : null}
 
-          {bookingError ? <div style={errorBox}>{bookingError.message}</div> : null}
+          {!showInvoices ? (
+            <div style={infoBox}>Invoice fields are hidden for your staff role.</div>
+          ) : null}
+
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
-          {!booking ? <div style={errorBox}>Booking not found.</div> : null}
+          {error ? <div style={errorBox}>{error.message}</div> : null}
+          {!booking && !error ? <div style={errorBox}>Booking not found.</div> : null}
 
-          {booking ? (
+          {booking && !error && allowed ? (
             <>
-              <form action={updateBooking} style={{ display: "grid", gap: 14, marginTop: 18 }}>
+              <form action={updateBooking} style={{ display: "grid", gap: 12 }}>
                 <input type="hidden" name="id" value={booking.id} />
 
                 <div style={grid2}>
@@ -194,10 +227,10 @@ export default async function EditBookingPage({
                     name="client_id"
                     defaultValue={booking.client_id ?? ""}
                     options={[
-                      { value: "", label: "Select customer..." },
+                      { value: "", label: "— Select customer —" },
                       ...(clients ?? []).map((c: any) => ({
                         value: c.id,
-                        label: `${c.company_name ?? "Customer"}${c.contact_name ? ` — ${c.contact_name}` : ""}`,
+                        label: c.company_name ?? "Customer",
                       })),
                     ]}
                   />
@@ -207,8 +240,8 @@ export default async function EditBookingPage({
                     name="crane_id"
                     defaultValue={booking.crane_id ?? ""}
                     options={[
-                      { value: "", label: "Select crane..." },
-                      ...activeCranes.map((c: any) => ({
+                      { value: "", label: "— Select crane —" },
+                      ...(cranes ?? []).map((c: any) => ({
                         value: c.id,
                         label: `${c.name ?? "Crane"}${c.reg_number ? ` (${c.reg_number})` : ""}${c.capacity ? ` • ${c.capacity}` : ""}`,
                       })),
@@ -289,18 +322,22 @@ export default async function EditBookingPage({
                     defaultValue={booking.operator_name ?? ""}
                     placeholder="Crane operator"
                   />
-                  <SelectField
-                    label="Invoice status"
-                    name="invoice_status"
-                    defaultValue={booking.invoice_status ?? "Not Invoiced"}
-                    options={[
-                      { value: "Not Invoiced", label: "Not Invoiced" },
-                      { value: "Sent", label: "Sent" },
-                      { value: "Part Paid", label: "Part Paid" },
-                      { value: "Paid", label: "Paid" },
-                      { value: "Overdue", label: "Overdue" },
-                    ]}
-                  />
+                  {showInvoices ? (
+                    <SelectField
+                      label="Invoice status"
+                      name="invoice_status"
+                      defaultValue={booking.invoice_status ?? "Not Invoiced"}
+                      options={[
+                        { value: "Not Invoiced", label: "Not Invoiced" },
+                        { value: "Sent", label: "Sent" },
+                        { value: "Part Paid", label: "Part Paid" },
+                        { value: "Paid", label: "Paid" },
+                        { value: "Overdue", label: "Overdue" },
+                      ]}
+                    />
+                  ) : (
+                    <div />
+                  )}
                 </div>
 
                 <div style={grid3}>
@@ -310,18 +347,27 @@ export default async function EditBookingPage({
                     type="number"
                     defaultValue={String(booking.hire_price ?? 0)}
                   />
-                  <Field
-                    label="VAT %"
-                    name="vat"
-                    type="number"
-                    defaultValue={String(booking.vat ?? 20)}
-                  />
-                  <Field
-                    label="Payment received"
-                    name="payment_received"
-                    type="number"
-                    defaultValue={String(booking.payment_received ?? 0)}
-                  />
+                  {showInvoices ? (
+                    <>
+                      <Field
+                        label="VAT %"
+                        name="vat"
+                        type="number"
+                        defaultValue={String(booking.vat ?? 20)}
+                      />
+                      <Field
+                        label="Payment received"
+                        name="payment_received"
+                        type="number"
+                        defaultValue={String(booking.payment_received ?? 0)}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <div />
+                      <div />
+                    </>
+                  )}
                 </div>
 
                 <TextAreaField
@@ -332,14 +378,22 @@ export default async function EditBookingPage({
                   placeholder="Lift notes / site notes / driver notes"
                 />
 
-                <div style={footerBar}>
-                  <div style={{ fontSize: 13, opacity: 0.78 }}>
-                    Crane booking edit is active.
+                {showInvoices ? (
+                  <div style={footerBar}>
+                    <div style={{ fontSize: 13, opacity: 0.78 }}>
+                      Crane booking edit is active.
+                    </div>
+                    <div style={{ fontWeight: 900 }}>
+                      VAT: {Number(booking.vat ?? 20).toFixed(2)} | Total: {Number(totalPreview).toFixed(2)}
+                    </div>
                   </div>
-                  <div style={{ fontWeight: 900 }}>
-                    VAT: {Number(booking.vat ?? 20).toFixed(2)} | Total: {Number(totalPreview).toFixed(2)}
+                ) : (
+                  <div style={footerBar}>
+                    <div style={{ fontSize: 13, opacity: 0.78 }}>
+                      Crane booking edit is active.
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button type="submit" style={primaryBtn}>
@@ -559,6 +613,16 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
+  fontWeight: 700,
 };
 
 const footerBar: React.CSSProperties = {
