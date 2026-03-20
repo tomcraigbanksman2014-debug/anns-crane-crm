@@ -2,9 +2,15 @@ import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAccessContext, canCreateBookings, canViewInvoices } from "../../../lib/access";
+import { writeAuditLog } from "../../../lib/audit";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 function dateInputValue(value: string | null | undefined) {
@@ -112,6 +118,24 @@ async function updateBooking(formData: FormData) {
     redirect(`/bookings/${id}/edit?error=${encodeURIComponent(error.message)}`);
   }
 
+  await writeAuditLog({
+    actor_user_id: access.user.id,
+    actor_username: fromAuthEmail(access.user.email ?? null) || null,
+    action: "booking_updated",
+    entity_type: "booking",
+    entity_id: id,
+    meta: {
+      client_id: clientId,
+      crane_id: craneId,
+      location,
+      start_date: startDate,
+      end_date: endDate,
+      status,
+      invoice_status: invoiceStatus,
+      total_invoice: Number.isFinite(totalInvoice) ? totalInvoice : 0,
+    },
+  });
+
   redirect(`/bookings/${id}?success=${encodeURIComponent("Booking updated.")}`);
 }
 
@@ -141,6 +165,15 @@ async function deleteBooking(formData: FormData) {
   if (error) {
     redirect(`/bookings/${id}/edit?error=${encodeURIComponent(error.message)}`);
   }
+
+  await writeAuditLog({
+    actor_user_id: access.user.id,
+    actor_username: fromAuthEmail(access.user.email ?? null) || null,
+    action: "booking_deleted",
+    entity_type: "booking",
+    entity_id: id,
+    meta: {},
+  });
 
   redirect(`/bookings?success=${encodeURIComponent("Booking deleted.")}`);
 }
