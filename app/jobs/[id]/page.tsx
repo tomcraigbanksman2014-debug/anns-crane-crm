@@ -427,8 +427,8 @@ export default async function JobPage({
                   <Row label="Phone" value={linkedSupplier?.phone ?? "—"} />
                   <Row label="Email" value={linkedSupplier?.email ?? "—"} />
                   <Row label="Category" value={linkedSupplier?.category ?? "—"} />
-                  <Row label="Reference" value={job.supplier_reference ?? "—"} />
-                  <Row label="Supplier cost" value={money(job.supplier_cost)} />
+                  <Row label="Reference" value={primarySupplierReference ?? "—"} />
+                  <Row label="Supplier cost" value={money(primarySupplierCost)} />
                 </div>
               </section>
 
