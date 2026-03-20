@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     }
 
     const jobId = clean(body.job_id);
-    const equipmentType = clean(body.equipment_type);
+    const equipmentType = clean(body.equipment_type ?? body.asset_type);
     const craneId = clean(body.crane_id);
     const vehicleId = clean(body.vehicle_id);
     const equipmentId = clean(body.equipment_id);
@@ -40,10 +40,12 @@ export async function POST(req: Request) {
     const supplierId = clean(body.supplier_id);
     const purchaseOrderId = clean(body.purchase_order_id);
 
-    const date = clean(body.date);
+    const date = clean(body.date ?? body.start_date);
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
     const notes = clean(body.notes);
+    const itemName = clean(body.item_name);
+    const sourceType = clean(body.source_type);
 
     const quantity = numberOrNull(body.quantity) ?? 1;
     const agreedCost = numberOrNull(body.agreed_cost);
@@ -63,6 +65,7 @@ export async function POST(req: Request) {
 
     const payload: Record<string, unknown> = {
       job_id: jobId,
+      asset_type: equipmentType,
       equipment_type: equipmentType,
       crane_id: craneId,
       vehicle_id: vehicleId,
@@ -71,12 +74,17 @@ export async function POST(req: Request) {
       supplier_id: supplierId,
       purchase_order_id: purchaseOrderId,
       date,
+      start_date: clean(body.start_date),
+      end_date: clean(body.end_date),
       start_time: startTime,
       end_time: endTime,
       quantity,
       agreed_cost: agreedCost,
       agreed_sell_rate: agreedSellRate,
       supplier_cost: supplierCost,
+      supplier_reference: clean(body.supplier_reference),
+      source_type: sourceType,
+      item_name: itemName,
       notes,
       created_by: user.id,
       updated_at: new Date().toISOString(),
