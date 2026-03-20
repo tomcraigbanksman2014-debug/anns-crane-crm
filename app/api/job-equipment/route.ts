@@ -40,7 +40,6 @@ export async function POST(req: Request) {
     const supplierId = clean(body.supplier_id);
     const purchaseOrderId = clean(body.purchase_order_id);
 
-    const date = clean(body.date ?? body.start_date);
     const startDate = clean(body.start_date);
     const endDate = clean(body.end_date);
     const startTime = clean(body.start_time);
@@ -76,7 +75,6 @@ export async function POST(req: Request) {
       operator_id: operatorId,
       supplier_id: supplierId,
       purchase_order_id: purchaseOrderId,
-      date,
       start_date: startDate,
       end_date: endDate,
       start_time: startTime,
