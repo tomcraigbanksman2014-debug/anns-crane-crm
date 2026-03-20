@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
+import { getAccessContext, canCreateCustomers } from "../../../lib/access";
 
 type Payload = {
   company_name: string;
@@ -34,6 +35,19 @@ export async function POST(req: Request) {
 
     if (!company_name) {
       return NextResponse.json({ error: "Company name is required" }, { status: 400 });
+    }
+
+    const access = await getAccessContext();
+
+    if (!access.user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    if (!canCreateCustomers(access)) {
+      return NextResponse.json(
+        { error: "You do not have permission to create customers." },
+        { status: 403 }
+      );
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
