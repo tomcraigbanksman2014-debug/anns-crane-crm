@@ -61,11 +61,6 @@ export async function PATCH(
     };
 
     if (body.job_id !== undefined) updates.job_id = clean(body.job_id);
-    if (body.equipment_type !== undefined || body.asset_type !== undefined) {
-      const nextType = clean(body.equipment_type ?? body.asset_type);
-      updates.equipment_type = nextType;
-      updates.asset_type = nextType;
-    }
     if (body.crane_id !== undefined) updates.crane_id = clean(body.crane_id);
     if (body.vehicle_id !== undefined) updates.vehicle_id = clean(body.vehicle_id);
     if (body.equipment_id !== undefined) updates.equipment_id = clean(body.equipment_id);
@@ -76,7 +71,6 @@ export async function PATCH(
     if (body.end_date !== undefined) updates.end_date = clean(body.end_date);
     if (body.start_time !== undefined) updates.start_time = clean(body.start_time);
     if (body.end_time !== undefined) updates.end_time = clean(body.end_time);
-    if (body.quantity !== undefined) updates.quantity = numberOrNull(body.quantity);
     if (body.notes !== undefined) updates.notes = clean(body.notes);
     if (body.item_name !== undefined) updates.item_name = clean(body.item_name);
     if (body.source_type !== undefined) updates.source_type = clean(body.source_type);
