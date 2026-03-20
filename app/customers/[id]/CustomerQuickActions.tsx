@@ -40,30 +40,37 @@ export default function CustomerQuickActions({
     <div style={{ display: "grid", gap: 18 }}>
       <section style={cardStyle}>
         <h2 style={sectionTitle}>Quick actions</h2>
+        <p style={{ marginTop: 0, marginBottom: 14, opacity: 0.78, fontSize: 13 }}>
+          Start the action, then record the outcome underneath so everyone can see what happened.
+        </p>
 
         <div style={{ display: "grid", gap: 10 }}>
           <button type="button" onClick={() => choose("call")} style={actionBtnStyle}>
-            📞 Call customer
+            📞 Log a call
           </button>
 
           {phone ? (
             <a href={`tel:${phone}`} style={linkBtnStyle}>
               Dial {phone}
             </a>
-          ) : null}
+          ) : (
+            <div style={mutedBox}>No phone number saved</div>
+          )}
 
           <button type="button" onClick={() => choose("email")} style={actionBtnStyle}>
-            ✉ Email customer
+            ✉ Log an email
           </button>
 
           {email ? (
             <a href={`mailto:${email}`} style={linkBtnStyle}>
               Open email to {email}
             </a>
-          ) : null}
+          ) : (
+            <div style={mutedBox}>No email saved</div>
+          )}
 
           <button type="button" onClick={() => choose("note")} style={actionBtnStyle}>
-            📝 Add note
+            📝 Add internal note
           </button>
         </div>
       </section>
@@ -113,4 +120,13 @@ const linkBtnStyle: React.CSSProperties = {
   color: "#111",
   textDecoration: "none",
   fontWeight: 700,
+};
+
+const mutedBox: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.08)",
+  background: "rgba(255,255,255,0.22)",
+  color: "#555",
+  fontSize: 13,
 };
