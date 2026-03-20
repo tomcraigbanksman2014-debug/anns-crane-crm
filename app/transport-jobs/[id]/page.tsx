@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
+import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -62,15 +63,18 @@ function parseDateTime(dateValue: string | null, timeValue: string | null) {
   return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-function normaliseTransportStatus(input: string | null, fields: {
-  clientId: string | null;
-  vehicleId: string | null;
-  operatorId: string | null;
-  transportDate: string | null;
-  collectionTime: string | null;
-  deliveryDate: string | null;
-  deliveryTime: string | null;
-}) {
+function normaliseTransportStatus(
+  input: string | null,
+  fields: {
+    clientId: string | null;
+    vehicleId: string | null;
+    operatorId: string | null;
+    transportDate: string | null;
+    collectionTime: string | null;
+    deliveryDate: string | null;
+    deliveryTime: string | null;
+  }
+) {
   const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
 
   if (requested !== "confirmed") {
@@ -112,7 +116,11 @@ function parseOtherSupplierReference(value: string | null | undefined) {
 
   return {
     otherSupplierName: namePart,
-    supplierReferenceOnly: refPart ? refPart.replace(/^ref:\s*/i, "").trim() : parts.length > 1 ? parts.slice(1).join(" | ") : "",
+    supplierReferenceOnly: refPart
+      ? refPart.replace(/^ref:\s*/i, "").trim()
+      : parts.length > 1
+      ? parts.slice(1).join(" | ")
+      : "",
   };
 }
 
@@ -188,7 +196,11 @@ async function updateTransportJob(formData: FormData) {
     deliveryDateTime &&
     collectionDateTime > deliveryDateTime
   ) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Delivery date/time cannot be earlier than collection date/time.")}`);
+    redirect(
+      `/transport-jobs/${id}?error=${encodeURIComponent(
+        "Delivery date/time cannot be earlier than collection date/time."
+      )}`
+    );
   }
 
   const payload = {
@@ -425,8 +437,11 @@ export default async function TransportJobDetailPage({
             <div style={pageGrid}>
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Transport job details</h2>
+                <div style={sectionHelp}>
+                  Update core planning, allocation, supplier and invoice details for this transport job.
+                </div>
 
-                <form id="transport-job-edit-form" action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
+                <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
                   <input type="hidden" name="id" value={(item as any).id} />
 
                   <div style={gridStyle}>
@@ -491,6 +506,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="transport_date"
                       label="Collection date"
                       name="transport_date"
                       type="date"
@@ -498,6 +514,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
+                      id="collection_time"
                       label="Collection time"
                       name="collection_time"
                       defaultValue={(item as any).collection_time ?? ""}
@@ -505,6 +522,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="delivery_date"
                       label="Delivery date"
                       name="delivery_date"
                       type="date"
@@ -512,6 +530,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
+                      id="delivery_time"
                       label="Delivery time"
                       name="delivery_time"
                       defaultValue={(item as any).delivery_time ?? ""}
@@ -542,30 +561,17 @@ export default async function TransportJobDetailPage({
                   </div>
 
                   <details
+                    id="supplier_details_section"
                     open={showSupplierSection}
-                    style={{
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      borderRadius: 12,
-                      padding: 12,
-                      background: "rgba(255,255,255,0.22)",
-                    }}
+                    style={detailsCard}
                   >
-                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>
-                      Cross-hire / supplier details
-                    </summary>
+                    <summary style={detailsSummary}>Cross-hire / supplier details</summary>
 
-                    <div style={{ marginTop: 10, fontSize: 13, opacity: 0.78 }}>
+                    <div style={detailsHelp}>
                       Only use this section when this transport is supplier-backed or cross-hired.
                     </div>
 
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                        gap: 12,
-                        marginTop: 12,
-                      }}
-                    >
+                    <div style={gridStyle}>
                       <SelectField
                         id="supplier_id"
                         label="Supplier"
@@ -591,6 +597,7 @@ export default async function TransportJobDetailPage({
                       </div>
 
                       <Field
+                        id="supplier_reference"
                         label="Supplier reference"
                         name="supplier_reference"
                         defaultValue={
@@ -601,6 +608,7 @@ export default async function TransportJobDetailPage({
                       />
 
                       <Field
+                        id="supplier_cost"
                         label="Supplier cost"
                         name="supplier_cost"
                         type="number"
@@ -610,17 +618,16 @@ export default async function TransportJobDetailPage({
                     </div>
                   </details>
 
-                  <section
-                    style={{
-                      border: "1px solid rgba(0,0,0,0.08)",
-                      borderRadius: 12,
-                      padding: 12,
-                      background: "rgba(255,255,255,0.22)",
-                      display: "grid",
-                      gap: 12,
-                    }}
+                  <details
+                    id="invoice_details_section"
+                    open
+                    style={detailsCard}
                   >
-                    <div style={{ fontWeight: 900 }}>Invoice details</div>
+                    <summary style={detailsSummary}>Invoice details</summary>
+
+                    <div style={detailsHelp}>
+                      Invoice VAT and total are calculated automatically from the subtotal.
+                    </div>
 
                     <div style={gridStyle}>
                       <SelectField
@@ -696,7 +703,7 @@ export default async function TransportJobDetailPage({
                       name="invoice_notes"
                       defaultValue={(item as any).invoice_notes ?? ""}
                     />
-                  </section>
+                  </details>
 
                   <FullWidthField
                     label="Collection address"
@@ -722,10 +729,18 @@ export default async function TransportJobDetailPage({
                     defaultValue={(item as any).notes ?? ""}
                   />
 
-                  <div>
-                    <button type="submit" style={primaryBtn}>
-                      Update transport job
-                    </button>
+                  <div style={stickySaveBar}>
+                    <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 700 }}>
+                      Check dates, allocation, supplier details and invoice values before saving.
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <a href="/transport-jobs" style={secondaryActionBtn}>
+                        Back
+                      </a>
+                      <button type="submit" style={primaryBtn}>
+                        Update transport job
+                      </button>
+                    </div>
                   </div>
                 </form>
               </section>
@@ -756,119 +771,11 @@ export default async function TransportJobDetailPage({
             </div>
           )}
 
-          <TransportJobDetailFormScript />
+          <TransportJobDetailFormEnhancer />
         </div>
       </div>
     </ClientShell>
   );
-}
-
-function TransportJobDetailFormScript() {
-  const script = `
-    (function () {
-      function roundMoney(value) {
-        var n = Number(value || 0);
-        if (!Number.isFinite(n)) return 0;
-        return Math.round(n * 100) / 100;
-      }
-
-      function formatMoney(value) {
-        return roundMoney(value).toFixed(2);
-      }
-
-      function parseInputValue(input) {
-        if (!input) return 0;
-        var n = Number(String(input.value || "").trim());
-        return Number.isFinite(n) ? n : 0;
-      }
-
-      function init() {
-        var form = document.getElementById("transport-job-edit-form");
-        if (!form) return;
-
-        var sellRateInput = document.getElementById("agreed_sell_rate");
-        var subtotalInput = document.getElementById("invoice_subtotal");
-        var vatInput = document.getElementById("invoice_vat");
-        var totalInput = document.getElementById("total_invoice");
-
-        var supplierSelect = document.getElementById("supplier_id");
-        var otherSupplierWrap = document.getElementById("other_supplier_wrap");
-        var otherSupplierInput = document.getElementById("other_supplier_name");
-
-        if (!subtotalInput || !vatInput || !totalInput) return;
-
-        var lastSyncedSubtotal = parseInputValue(subtotalInput);
-
-        function recalcFromSubtotal() {
-          var subtotal = roundMoney(parseInputValue(subtotalInput));
-          var vat = roundMoney(subtotal * 0.2);
-          var total = roundMoney(subtotal + vat);
-
-          vatInput.value = formatMoney(vat);
-          totalInput.value = formatMoney(total);
-          lastSyncedSubtotal = subtotal;
-        }
-
-        function syncSubtotalFromSellRate() {
-          if (!sellRateInput) return;
-
-          var sellRate = roundMoney(parseInputValue(sellRateInput));
-          var currentSubtotal = roundMoney(parseInputValue(subtotalInput));
-
-          if (currentSubtotal === 0 || currentSubtotal === lastSyncedSubtotal) {
-            subtotalInput.value = formatMoney(sellRate);
-          }
-
-          recalcFromSubtotal();
-        }
-
-        function toggleOtherSupplier() {
-          if (!supplierSelect || !otherSupplierWrap || !otherSupplierInput) return;
-
-          var isOther = supplierSelect.value === "other";
-          otherSupplierWrap.style.display = isOther ? "block" : "none";
-          otherSupplierInput.required = isOther;
-
-          if (!isOther) {
-            otherSupplierInput.value = "";
-          }
-        }
-
-        if (sellRateInput) {
-          sellRateInput.addEventListener("input", syncSubtotalFromSellRate);
-          sellRateInput.addEventListener("change", syncSubtotalFromSellRate);
-        }
-
-        subtotalInput.addEventListener("input", recalcFromSubtotal);
-        subtotalInput.addEventListener("change", recalcFromSubtotal);
-
-        if (supplierSelect) {
-          supplierSelect.addEventListener("change", toggleOtherSupplier);
-        }
-
-        form.addEventListener("submit", function (event) {
-          recalcFromSubtotal();
-          toggleOtherSupplier();
-
-          if (supplierSelect && supplierSelect.value === "other" && otherSupplierInput && !String(otherSupplierInput.value || "").trim()) {
-            event.preventDefault();
-            window.alert("Please enter the other supplier name.");
-          }
-        });
-
-        recalcFromSubtotal();
-        toggleOtherSupplier();
-      }
-
-      if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", init);
-      } else {
-        init();
-      }
-    })();
-  `;
-
-  return <script dangerouslySetInnerHTML={{ __html: script }} />;
 }
 
 function Field({
@@ -999,10 +906,36 @@ const sectionCard: React.CSSProperties = {
   padding: 16,
 };
 
+const detailsCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+};
+
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
-  marginBottom: 14,
+  marginBottom: 8,
   fontSize: 22,
+};
+
+const sectionHelp: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.76,
+  marginBottom: 12,
+};
+
+const detailsSummary: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  fontSize: 16,
+};
+
+const detailsHelp: React.CSSProperties = {
+  marginTop: 10,
+  marginBottom: 12,
+  fontSize: 13,
+  opacity: 0.78,
 };
 
 const gridStyle: React.CSSProperties = {
@@ -1059,6 +992,22 @@ const textareaStyle: React.CSSProperties = {
   resize: "vertical",
 };
 
+const stickySaveBar: React.CSSProperties = {
+  position: "sticky",
+  bottom: 12,
+  zIndex: 5,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+  padding: "14px 16px",
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.88)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+};
+
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "12px 14px",
@@ -1072,6 +1021,17 @@ const primaryBtn: React.CSSProperties = {
 };
 
 const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const secondaryActionBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
