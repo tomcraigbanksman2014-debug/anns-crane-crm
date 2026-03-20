@@ -37,8 +37,6 @@ async function updateJob(formData: FormData) {
     lift_type: clean(formData.get("lift_type")) || null,
     notes: clean(formData.get("notes")) || null,
     supplier_id: clean(formData.get("supplier_id")) || null,
-    supplier_reference: clean(formData.get("supplier_reference")) || null,
-    supplier_cost: numberOrZero(formData.get("supplier_cost")),
     invoice_status: clean(formData.get("invoice_status")) || "Not Invoiced",
     invoice_number: clean(formData.get("invoice_number")) || null,
     invoice_created_at: clean(formData.get("invoice_created_at")) || null,
@@ -93,7 +91,7 @@ export default async function EditJobPage({
       .order("company_name", { ascending: true }),
     supabase
       .from("job_equipment")
-      .select("agreed_sell_rate, agreed_cost, supplier_cost")
+      .select("agreed_sell_rate, agreed_cost, supplier_cost, supplier_reference")
       .eq("job_id", params.id),
   ]);
 
@@ -108,6 +106,9 @@ export default async function EditJobPage({
     (sum: number, item: any) => sum + Number(item.supplier_cost ?? item.agreed_cost ?? 0),
     0
   );
+
+  const primarySupplierReference =
+    allocationList.find((item: any) => String(item?.supplier_reference ?? "").trim())?.supplier_reference ?? "";
 
   const defaultInvoiceSubtotal = Number(job?.invoice_subtotal ?? liveSellSubtotal ?? 0);
   const defaultInvoiceVat = Number(job?.invoice_vat ?? 0);
@@ -205,8 +206,7 @@ export default async function EditJobPage({
                     }))}
                   />
 
-                  <Field label="Supplier reference" name="supplier_reference" defaultValue={job.supplier_reference ?? ""} />
-                  <Field label="Primary supplier cost" name="supplier_cost" type="number" defaultValue={moneyString(job.supplier_cost)} />
+                  <Field label="Supplier reference (from allocations)" value={primarySupplierReference || ""} disabled />
                   <Field label="Allocated cost live" value={moneyString(liveCostSubtotal)} disabled />
                 </div>
               </section>
