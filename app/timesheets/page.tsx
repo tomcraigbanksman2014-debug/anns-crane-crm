@@ -207,8 +207,13 @@ export default async function TimesheetsPage() {
             </p>
           </div>
 
-          <div style={rangeBox}>
-            Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+            <a href="/api/export/timesheets" style={exportBtn}>
+              Export CSV
+            </a>
+            <div style={rangeBox}>
+              Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+            </div>
           </div>
         </div>
 
@@ -385,4 +390,16 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+
+const exportBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
 };
