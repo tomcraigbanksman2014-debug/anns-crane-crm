@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type TimelineItem = {
   id: string;
-  kind: "booking" | "correspondence" | "quote";
+  kind: "booking" | "job" | "transport" | "correspondence" | "quote";
   sortDate: string;
   title: string;
   subtitle: string;
@@ -32,19 +32,23 @@ function formatMoney(value: number) {
   return `£${value.toFixed(2)}`;
 }
 
+function safeNum(value: any) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function buildTimeline(
   bookings: any[] = [],
+  jobs: any[] = [],
+  transportJobs: any[] = [],
   correspondence: any[] = [],
   quotes: any[] = []
 ): TimelineItem[] {
   const bookingItems: TimelineItem[] = bookings.map((b: any) => {
     const when = b.start_at || b.start_date || b.created_at || "";
-    const total = Number(b.total_invoice ?? 0);
-    const paid = Number(b.amount_paid ?? 0);
-    const outstanding = Math.max(
-      (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0),
-      0
-    );
+    const total = safeNum(b.total_invoice);
+    const paid = safeNum(b.payment_received);
+    const outstanding = Math.max(total - paid, 0);
 
     return {
       id: `booking-${b.id}`,
@@ -58,14 +62,70 @@ function buildTimeline(
           ? formatDateOnly(b.start_date)
           : "-",
         b.status ? `Status: ${b.status}` : null,
-        `Invoice: ${formatMoney(Number.isFinite(total) ? total : 0)}`,
+        `Invoice: ${formatMoney(total)}`,
         `Outstanding: ${formatMoney(outstanding)}`,
       ]
         .filter(Boolean)
         .join(" • "),
-      body: null,
+      body: b.notes ?? null,
       href: `/bookings/${b.id}`,
       badge: "BOOKING",
+    };
+  });
+
+  const jobItems: TimelineItem[] = jobs.map((job: any) => {
+    const total = safeNum(job.total_invoice ?? job.invoice_total ?? job.invoice_amount);
+    const paid = safeNum(job.amount_paid);
+    const outstanding = Math.max(total - paid, 0);
+
+    return {
+      id: `job-${job.id}`,
+      kind: "job",
+      sortDate: String(job.job_date || job.created_at || ""),
+      title: `Job #${job.job_number ?? "—"}${job.site_name ? ` — ${job.site_name}` : ""}`,
+      subtitle: [
+        job.job_date ? formatDateOnly(job.job_date) : "-",
+        job.status ? `Status: ${job.status}` : null,
+        `Invoice: ${formatMoney(total)}`,
+        `Outstanding: ${formatMoney(outstanding)}`,
+      ]
+        .filter(Boolean)
+        .join(" • "),
+      body: job.notes ?? null,
+      href: `/jobs/${job.id}`,
+      badge: "JOB",
+    };
+  });
+
+  const transportItems: TimelineItem[] = transportJobs.map((t: any) => {
+    const total = safeNum(t.total_invoice ?? t.agreed_sell_rate ?? t.price);
+    const paid = safeNum(t.amount_paid);
+    const outstanding = Math.max(total - paid, 0);
+
+    return {
+      id: `transport-${t.id}`,
+      kind: "transport",
+      sortDate: String(t.transport_date || t.created_at || ""),
+      title: t.transport_number
+        ? `${t.transport_number}${t.load_description ? ` — ${t.load_description}` : ""}`
+        : "Transport Job",
+      subtitle: [
+        t.transport_date ? formatDateOnly(t.transport_date) : "-",
+        t.delivery_date && t.delivery_date !== t.transport_date
+          ? `to ${formatDateOnly(t.delivery_date)}`
+          : null,
+        t.status ? `Status: ${t.status}` : null,
+        `Invoice: ${formatMoney(total)}`,
+        `Outstanding: ${formatMoney(outstanding)}`,
+      ]
+        .filter(Boolean)
+        .join(" • "),
+      body:
+        [t.collection_address, t.delivery_address]
+          .filter(Boolean)
+          .join(" → ") || null,
+      href: `/transport-jobs/${t.id}`,
+      badge: "TRANSPORT",
     };
   });
 
@@ -115,54 +175,83 @@ function buildTimeline(
     };
   });
 
-  return [...bookingItems, ...correspondenceItems, ...quoteItems].sort((a, b) =>
-    String(b.sortDate).localeCompare(String(a.sortDate))
-  );
+  return [
+    ...bookingItems,
+    ...jobItems,
+    ...transportItems,
+    ...correspondenceItems,
+    ...quoteItems,
+  ].sort((a, b) => String(b.sortDate).localeCompare(String(a.sortDate)));
 }
 
-function buildCustomerStats(bookings: any[] = [], quotes: any[] = [], correspondence: any[] = []) {
+function buildCustomerStats(
+  bookings: any[] = [],
+  jobs: any[] = [],
+  transportJobs: any[] = [],
+  quotes: any[] = [],
+  correspondence: any[] = []
+) {
   const totalBookings = bookings.length;
+  const totalJobs = jobs.length;
+  const totalTransportJobs = transportJobs.length;
   const totalQuotes = quotes.length;
   const totalCorrespondence = correspondence.length;
 
-  const totalInvoiced = bookings.reduce((sum: number, b: any) => {
-    const n = Number(b.total_invoice ?? 0);
-    return sum + (Number.isFinite(n) ? n : 0);
+  const bookingInvoiced = bookings.reduce((sum: number, b: any) => {
+    return sum + safeNum(b.total_invoice);
   }, 0);
 
-  const totalOutstanding = bookings.reduce((sum: number, b: any) => {
-    const total = Number(b.total_invoice ?? 0);
-    const paid = Number(b.amount_paid ?? 0);
-    const safeTotal = Number.isFinite(total) ? total : 0;
-    const safePaid = Number.isFinite(paid) ? paid : 0;
-    return sum + Math.max(safeTotal - safePaid, 0);
+  const jobInvoiced = jobs.reduce((sum: number, j: any) => {
+    return sum + safeNum(j.total_invoice ?? j.invoice_total ?? j.invoice_amount);
   }, 0);
 
-  const sortedByDate = [...bookings].sort((a: any, b: any) => {
-    const av = String(a.start_at || a.start_date || a.created_at || "");
-    const bv = String(b.start_at || b.start_date || b.created_at || "");
-    return av.localeCompare(bv);
-  });
+  const transportInvoiced = transportJobs.reduce((sum: number, t: any) => {
+    return sum + safeNum(t.total_invoice ?? t.agreed_sell_rate ?? t.price);
+  }, 0);
 
-  const firstBooking = sortedByDate[0] ?? null;
-  const lastBooking = sortedByDate[sortedByDate.length - 1] ?? null;
+  const bookingOutstanding = bookings.reduce((sum: number, b: any) => {
+    return sum + Math.max(safeNum(b.total_invoice) - safeNum(b.payment_received), 0);
+  }, 0);
+
+  const jobOutstanding = jobs.reduce((sum: number, j: any) => {
+    return (
+      sum +
+      Math.max(
+        safeNum(j.total_invoice ?? j.invoice_total ?? j.invoice_amount) - safeNum(j.amount_paid),
+        0
+      )
+    );
+  }, 0);
+
+  const transportOutstanding = transportJobs.reduce((sum: number, t: any) => {
+    return (
+      sum +
+      Math.max(
+        safeNum(t.total_invoice ?? t.agreed_sell_rate ?? t.price) - safeNum(t.amount_paid),
+        0
+      )
+    );
+  }, 0);
+
+  const allActivityDates = [
+    ...bookings.map((x: any) => x.start_at || x.start_date || x.created_at || null),
+    ...jobs.map((x: any) => x.job_date || x.created_at || null),
+    ...transportJobs.map((x: any) => x.transport_date || x.created_at || null),
+  ]
+    .filter(Boolean)
+    .map((x) => String(x))
+    .sort();
 
   return {
     totalBookings,
+    totalJobs,
+    totalTransportJobs,
     totalQuotes,
     totalCorrespondence,
-    totalInvoiced,
-    totalOutstanding,
-    firstBookingDate:
-      firstBooking?.start_at ||
-      firstBooking?.start_date ||
-      firstBooking?.created_at ||
-      null,
-    lastBookingDate:
-      lastBooking?.start_at ||
-      lastBooking?.start_date ||
-      lastBooking?.created_at ||
-      null,
+    totalInvoiced: bookingInvoiced + jobInvoiced + transportInvoiced,
+    totalOutstanding: bookingOutstanding + jobOutstanding + transportOutstanding,
+    firstActivityDate: allActivityDates[0] ?? null,
+    lastActivityDate: allActivityDates[allActivityDates.length - 1] ?? null,
   };
 }
 
@@ -176,6 +265,8 @@ export default async function CustomerPage({
   const [
     { data: customer, error },
     { data: bookings, error: bookingsError },
+    { data: jobs, error: jobsError },
+    { data: transportJobs, error: transportJobsError },
     { data: correspondence, error: correspondenceError },
     { data: quotes, error: quotesError },
   ] = await Promise.all([
@@ -184,19 +275,37 @@ export default async function CustomerPage({
       .select("id, company_name, contact_name, phone, email, notes, created_at")
       .eq("id", params.id)
       .single(),
+
     supabase
       .from("bookings")
       .select(
-        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, amount_paid, invoice_status, created_at"
+        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, payment_received, created_at, notes"
       )
       .eq("client_id", params.id)
-      .order("start_date", { ascending: false })
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("jobs")
+      .select(
+        "id, job_number, job_date, status, site_name, notes, total_invoice, invoice_total, invoice_amount, amount_paid, created_at"
+      )
+      .eq("client_id", params.id)
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("transport_jobs")
+      .select(
+        "id, transport_number, transport_date, delivery_date, status, collection_address, delivery_address, load_description, total_invoice, agreed_sell_rate, price, amount_paid, created_at"
+      )
+      .eq("client_id", params.id)
+      .order("created_at", { ascending: false }),
+
     supabase
       .from("customer_correspondence")
       .select("id, entry_type, subject, message, created_at, created_by_username")
       .eq("client_id", params.id)
       .order("created_at", { ascending: false }),
+
     supabase
       .from("quotes")
       .select("id, status, quote_date, amount, subject, notes, created_at")
@@ -205,11 +314,26 @@ export default async function CustomerPage({
   ]);
 
   const safeBookings = bookings ?? [];
+  const safeJobs = jobs ?? [];
+  const safeTransportJobs = transportJobs ?? [];
   const safeCorrespondence = correspondence ?? [];
   const safeQuotes = quotes ?? [];
 
-  const timeline = buildTimeline(safeBookings, safeCorrespondence, safeQuotes);
-  const stats = buildCustomerStats(safeBookings, safeQuotes, safeCorrespondence);
+  const timeline = buildTimeline(
+    safeBookings,
+    safeJobs,
+    safeTransportJobs,
+    safeCorrespondence,
+    safeQuotes
+  );
+
+  const stats = buildCustomerStats(
+    safeBookings,
+    safeJobs,
+    safeTransportJobs,
+    safeQuotes,
+    safeCorrespondence
+  );
 
   return (
     <ClientShell>
@@ -228,7 +352,7 @@ export default async function CustomerPage({
               {customer?.company_name ?? "Customer"}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View customer details, booking history, quote history and correspondence.
+              View customer details, jobs, transport, quotes and correspondence.
             </p>
           </div>
 
@@ -257,12 +381,22 @@ export default async function CustomerPage({
 
               <div style={statsGridStyle}>
                 <div style={statCardStyle}>
-                  <div style={statLabelStyle}>Total bookings</div>
+                  <div style={statLabelStyle}>Bookings</div>
                   <div style={statValueStyle}>{stats.totalBookings}</div>
                 </div>
 
                 <div style={statCardStyle}>
-                  <div style={statLabelStyle}>Total quotes</div>
+                  <div style={statLabelStyle}>Jobs</div>
+                  <div style={statValueStyle}>{stats.totalJobs}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Transport jobs</div>
+                  <div style={statValueStyle}>{stats.totalTransportJobs}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Quotes</div>
                   <div style={statValueStyle}>{stats.totalQuotes}</div>
                 </div>
 
@@ -282,16 +416,16 @@ export default async function CustomerPage({
                 </div>
 
                 <div style={statCardStyle}>
-                  <div style={statLabelStyle}>First booking</div>
+                  <div style={statLabelStyle}>First activity</div>
                   <div style={statValueStyleSmall}>
-                    {stats.firstBookingDate ? formatDateOnly(stats.firstBookingDate) : "-"}
+                    {stats.firstActivityDate ? formatDateOnly(stats.firstActivityDate) : "-"}
                   </div>
                 </div>
 
                 <div style={statCardStyle}>
-                  <div style={statLabelStyle}>Last booking</div>
+                  <div style={statLabelStyle}>Last activity</div>
                   <div style={statValueStyleSmall}>
-                    {stats.lastBookingDate ? formatDateOnly(stats.lastBookingDate) : "-"}
+                    {stats.lastActivityDate ? formatDateOnly(stats.lastActivityDate) : "-"}
                   </div>
                 </div>
               </div>
@@ -312,6 +446,10 @@ export default async function CustomerPage({
 
                   {bookingsError ? (
                     <div style={errorBox}>{bookingsError.message}</div>
+                  ) : jobsError ? (
+                    <div style={errorBox}>{jobsError.message}</div>
+                  ) : transportJobsError ? (
+                    <div style={errorBox}>{transportJobsError.message}</div>
                   ) : correspondenceError ? (
                     <div style={errorBox}>{correspondenceError.message}</div>
                   ) : quotesError ? (
@@ -322,77 +460,71 @@ export default async function CustomerPage({
                     <div style={{ display: "grid", gap: 12 }}>
                       {timeline.map((item) => (
                         <div key={item.id} style={timelineCardStyle}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: 12,
-                              alignItems: "flex-start",
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <div style={{ minWidth: 0, flex: 1 }}>
-                              <div
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                flexWrap: "wrap",
+                                marginBottom: 8,
+                              }}
+                            >
+                              <span
                                 style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 8,
-                                  flexWrap: "wrap",
-                                  marginBottom: 8,
+                                  ...badgeStyle,
+                                  background:
+                                    item.kind === "booking"
+                                      ? "rgba(0,120,255,0.10)"
+                                      : item.kind === "job"
+                                      ? "rgba(0,180,120,0.12)"
+                                      : item.kind === "transport"
+                                      ? "rgba(255,170,0,0.14)"
+                                      : item.kind === "quote"
+                                      ? "rgba(140,0,255,0.10)"
+                                      : "rgba(0,0,0,0.08)",
                                 }}
                               >
-                                <span
+                                {item.badge}
+                              </span>
+
+                              {item.href ? (
+                                <a
+                                  href={item.href}
                                   style={{
-                                    ...badgeStyle,
-                                    background:
-                                      item.kind === "booking"
-                                        ? "rgba(0,120,255,0.10)"
-                                        : item.kind === "quote"
-                                        ? "rgba(140,0,255,0.10)"
-                                        : "rgba(0,0,0,0.08)",
+                                    color: "#111",
+                                    fontWeight: 800,
+                                    textDecoration: "none",
                                   }}
                                 >
-                                  {item.badge}
-                                </span>
-
-                                {item.href ? (
-                                  <a
-                                    href={item.href}
-                                    style={{
-                                      color: "#111",
-                                      fontWeight: 800,
-                                      textDecoration: "none",
-                                    }}
-                                  >
-                                    {item.title}
-                                  </a>
-                                ) : (
-                                  <strong>{item.title}</strong>
-                                )}
-                              </div>
-
-                              <div
-                                style={{
-                                  fontSize: 13,
-                                  opacity: 0.78,
-                                  marginBottom: item.body ? 10 : 0,
-                                }}
-                              >
-                                {item.subtitle}
-                              </div>
-
-                              {item.body ? (
-                                <div
-                                  style={{
-                                    whiteSpace: "pre-wrap",
-                                    fontSize: 14,
-                                    lineHeight: 1.55,
-                                  }}
-                                >
-                                  {item.body}
-                                </div>
-                              ) : null}
+                                  {item.title}
+                                </a>
+                              ) : (
+                                <strong>{item.title}</strong>
+                              )}
                             </div>
+
+                            <div
+                              style={{
+                                fontSize: 13,
+                                opacity: 0.78,
+                                marginBottom: item.body ? 10 : 0,
+                              }}
+                            >
+                              {item.subtitle}
+                            </div>
+
+                            {item.body ? (
+                              <div
+                                style={{
+                                  whiteSpace: "pre-wrap",
+                                  fontSize: 14,
+                                  lineHeight: 1.55,
+                                }}
+                              >
+                                {item.body}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       ))}
@@ -401,41 +533,68 @@ export default async function CustomerPage({
                 </section>
 
                 <section style={cardStyle}>
-                  <h2 style={sectionTitle}>Recent bookings</h2>
+                  <h2 style={sectionTitle}>Recent live jobs</h2>
 
-                  {safeBookings.length === 0 ? (
-                    <p style={{ margin: 0 }}>No bookings recorded yet.</p>
+                  {safeJobs.length === 0 ? (
+                    <p style={{ margin: 0 }}>No jobs recorded yet.</p>
                   ) : (
                     <div style={{ display: "grid", gap: 10 }}>
-                      {safeBookings.slice(0, 8).map((booking: any) => {
-                        const total = Number(booking.total_invoice ?? 0);
-                        const paid = Number(booking.amount_paid ?? 0);
-                        const outstanding = Math.max(
-                          (Number.isFinite(total) ? total : 0) - (Number.isFinite(paid) ? paid : 0),
-                          0
-                        );
+                      {safeJobs.slice(0, 8).map((job: any) => {
+                        const total = safeNum(job.total_invoice ?? job.invoice_total ?? job.invoice_amount);
+                        const outstanding = Math.max(total - safeNum(job.amount_paid), 0);
 
                         return (
-                          <a
-                            key={booking.id}
-                            href={`/bookings/${booking.id}`}
-                            style={linkedRowStyle}
-                          >
+                          <a key={job.id} href={`/jobs/${job.id}`} style={linkedRowStyle}>
                             <div>
                               <div style={{ fontWeight: 900 }}>
-                                {booking.location || "Booking"}
+                                Job #{job.job_number ?? "—"}
+                                {job.site_name ? ` • ${job.site_name}` : ""}
                               </div>
                               <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                                {booking.start_at
-                                  ? formatDateTime(booking.start_at)
-                                  : booking.start_date
-                                  ? formatDateOnly(booking.start_date)
-                                  : "-"}{" "}
-                                • {booking.status ?? "-"}
+                                {job.job_date ? formatDateOnly(job.job_date) : "-"} • {job.status ?? "-"}
                               </div>
                             </div>
                             <div style={{ textAlign: "right" }}>
-                              <div style={{ fontWeight: 900 }}>{formatMoney(Number.isFinite(total) ? total : 0)}</div>
+                              <div style={{ fontWeight: 900 }}>{formatMoney(total)}</div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                                Outstanding {formatMoney(outstanding)}
+                              </div>
+                            </div>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+
+                <section style={cardStyle}>
+                  <h2 style={sectionTitle}>Recent transport jobs</h2>
+
+                  {safeTransportJobs.length === 0 ? (
+                    <p style={{ margin: 0 }}>No transport jobs recorded yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {safeTransportJobs.slice(0, 8).map((job: any) => {
+                        const total = safeNum(job.total_invoice ?? job.agreed_sell_rate ?? job.price);
+                        const outstanding = Math.max(total - safeNum(job.amount_paid), 0);
+
+                        return (
+                          <a key={job.id} href={`/transport-jobs/${job.id}`} style={linkedRowStyle}>
+                            <div>
+                              <div style={{ fontWeight: 900 }}>
+                                {job.transport_number || "Transport Job"}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                                {job.transport_date ? formatDateOnly(job.transport_date) : "-"}
+                                {job.delivery_date && job.delivery_date !== job.transport_date
+                                  ? ` → ${formatDateOnly(job.delivery_date)}`
+                                  : ""}
+                                {" • "}
+                                {job.status ?? "-"}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontWeight: 900 }}>{formatMoney(total)}</div>
                               <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
                                 Outstanding {formatMoney(outstanding)}
                               </div>
@@ -455,11 +614,7 @@ export default async function CustomerPage({
                   ) : (
                     <div style={{ display: "grid", gap: 10 }}>
                       {safeQuotes.slice(0, 8).map((quote: any) => (
-                        <a
-                          key={quote.id}
-                          href={`/quotes/${quote.id}`}
-                          style={linkedRowStyle}
-                        >
+                        <a key={quote.id} href={`/quotes/${quote.id}`} style={linkedRowStyle}>
                           <div>
                             <div style={{ fontWeight: 900 }}>{quote.subject || "Quote"}</div>
                             <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
