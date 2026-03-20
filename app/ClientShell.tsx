@@ -9,6 +9,11 @@ type NavItem = {
   href: string;
 };
 
+type NavSection = {
+  title: string;
+  items: NavItem[];
+};
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -151,40 +156,75 @@ export default function ClientShell({
     setMenuOpen(false);
   }, [pathname]);
 
-  const officeNav = useMemo<NavItem[]>(
+  const officeNavSections = useMemo<NavSection[]>(
     () => [
-      { label: "Dashboard", href: "/" },
-      { label: "Search", href: "/search" },
-      { label: "Jobs", href: "/jobs" },
-      { label: "Transport Jobs", href: "/transport-jobs" },
-      { label: "Transport Planner", href: "/transport-planner" },
-      { label: "Transport Map", href: "/transport-map" },
-      { label: "Vehicles", href: "/vehicles" },
-      { label: "Cranes", href: "/cranes" },
-      { label: "Timesheets", href: "/timesheets" },
-      { label: "My Jobs", href: "/operator/jobs" },
-      { label: "Quotes", href: "/quotes" },
-      { label: "Customers", href: "/customers" },
-      { label: "Equipment", href: "/equipment" },
-      { label: "Operators", href: "/operators" },
-      { label: "Suppliers", href: "/suppliers" },
-      { label: "Purchase Orders", href: "/purchase-orders" },
-      { label: "Calendar", href: "/calendar" },
-      { label: "Planner", href: "/planner" },
-      { label: "Settings", href: "/settings" },
-      { label: "Qualification Rules", href: "/admin/qualification-rules" },
-      { label: "Staff Accounts", href: "/admin/users" },
-      { label: "Audit Log", href: "/admin/audit" },
+      {
+        title: "Home",
+        items: [
+          { label: "Dashboard", href: "/" },
+          { label: "Search", href: "/search" },
+        ],
+      },
+      {
+        title: "Planning & Control",
+        items: [
+          { label: "Calendar", href: "/calendar" },
+          { label: "Planner", href: "/planner" },
+          { label: "Jobs", href: "/jobs" },
+          { label: "Transport Jobs", href: "/transport-jobs" },
+          { label: "Transport Planner", href: "/transport-planner" },
+          { label: "Transport Map", href: "/transport-map" },
+          { label: "Timesheets", href: "/timesheets" },
+        ],
+      },
+      {
+        title: "Sales & Customers",
+        items: [
+          { label: "Quotes", href: "/quotes" },
+          { label: "Customers", href: "/customers" },
+        ],
+      },
+      {
+        title: "Operations",
+        items: [
+          { label: "Vehicles", href: "/vehicles" },
+          { label: "Cranes", href: "/cranes" },
+          { label: "Equipment", href: "/equipment" },
+          { label: "Suppliers", href: "/suppliers" },
+          { label: "Purchase Orders", href: "/purchase-orders" },
+        ],
+      },
+      {
+        title: "People & Compliance",
+        items: [
+          { label: "Operators", href: "/operators" },
+          { label: "My Jobs", href: "/operator/jobs" },
+        ],
+      },
+      {
+        title: "Admin",
+        items: [
+          { label: "Settings", href: "/settings" },
+          { label: "Qualification Rules", href: "/admin/qualification-rules" },
+          { label: "Staff Accounts", href: "/admin/users" },
+          { label: "Audit Log", href: "/admin/audit" },
+        ],
+      },
     ],
     []
   );
 
-  const operatorNav = useMemo<NavItem[]>(
-    () => [{ label: "My Jobs", href: "/operator/jobs" }],
+  const operatorNavSections = useMemo<NavSection[]>(
+    () => [
+      {
+        title: "My Work",
+        items: [{ label: "My Jobs", href: "/operator/jobs" }],
+      },
+    ],
     []
   );
 
-  const nav = role === "operator" ? operatorNav : officeNav;
+  const navSections = role === "operator" ? operatorNavSections : officeNavSections;
   const showOperatorMenuButton = role !== "operator";
 
   async function signOut() {
@@ -255,26 +295,34 @@ export default function ClientShell({
           </div>
 
           <div style={navScrollerStyle}>
-            <nav style={{ display: "grid", gap: 8 }}>
-              {nav.map((item) => {
-                const active =
-                  pathname === item.href ||
-                  (item.href !== "/" && pathname.startsWith(item.href));
+            <nav style={{ display: "grid", gap: 14 }}>
+              {navSections.map((section) => (
+                <div key={section.title} style={{ display: "grid", gap: 8 }}>
+                  <div style={sectionHeadingStyle}>{section.title}</div>
 
-                return (
-                  <a
-                    key={item.href}
-                    href={item.href}
-                    style={{
-                      ...navItemStyle,
-                      ...(active ? navItemActive : {}),
-                    }}
-                    onClick={() => setMenuOpen(false)}
-                  >
-                    {item.label}
-                  </a>
-                );
-              })}
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {section.items.map((item) => {
+                      const active =
+                        pathname === item.href ||
+                        (item.href !== "/" && pathname.startsWith(item.href));
+
+                      return (
+                        <a
+                          key={item.href}
+                          href={item.href}
+                          style={{
+                            ...navItemStyle,
+                            ...(active ? navItemActive : {}),
+                          }}
+                          onClick={() => setMenuOpen(false)}
+                        >
+                          {item.label}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </nav>
           </div>
 
@@ -412,6 +460,15 @@ const userBox: React.CSSProperties = {
   borderRadius: 14,
   background: "rgba(255,255,255,0.65)",
   border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sectionHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 1000,
+  letterSpacing: 0.6,
+  textTransform: "uppercase",
+  opacity: 0.58,
+  padding: "0 4px",
 };
 
 const navItemStyle: React.CSSProperties = {
