@@ -1,6 +1,8 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import StatusBadge from "../components/StatusBadge";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -30,10 +32,121 @@ function prettyJobType(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function clampMoney(value: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+async function updateTransportInvoiceStatus(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const transportJobId = String(formData.get("transport_job_id") ?? "");
+  const invoiceStatus = String(formData.get("invoice_status") ?? "Not Invoiced");
+  const rawAmountPaid = String(formData.get("amount_paid") ?? "").trim();
+  const view = String(formData.get("return_view") ?? "active");
+  const q = String(formData.get("return_q") ?? "");
+
+  if (!transportJobId) {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (q) params.set("q", q);
+    params.set("error", "Missing transport job id.");
+    redirect(`/transport-jobs?${params.toString()}`);
+  }
+
+  const { data: existingJob, error: existingError } = await supabase
+    .from("transport_jobs")
+    .select("id, invoice_status, total_invoice, agreed_sell_rate, price, amount_paid")
+    .eq("id", transportJobId)
+    .single();
+
+  if (existingError || !existingJob) {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (q) params.set("q", q);
+    params.set("error", existingError?.message || "Transport job not found.");
+    redirect(`/transport-jobs?${params.toString()}`);
+  }
+
+  const totalInvoice = Number(
+    existingJob.total_invoice ?? existingJob.agreed_sell_rate ?? existingJob.price ?? 0
+  );
+  const safeTotalInvoice = Number.isFinite(totalInvoice) ? totalInvoice : 0;
+  const currentStatus = String(existingJob.invoice_status ?? "Not Invoiced");
+  const currentAmountPaid = Number(existingJob.amount_paid ?? 0);
+
+  let amountPaid = currentAmountPaid;
+
+  if (invoiceStatus === "Part Paid") {
+    const parsed = Number(rawAmountPaid || 0);
+    amountPaid = clampMoney(parsed, 0, safeTotalInvoice);
+
+    if (amountPaid <= 0) {
+      const params = new URLSearchParams();
+      params.set("view", view);
+      if (q) params.set("q", q);
+      params.set("error", "Enter the amount paid before saving Part Paid.");
+      redirect(`/transport-jobs?${params.toString()}`);
+    }
+  } else if (invoiceStatus === "Paid") {
+    amountPaid = safeTotalInvoice;
+  } else {
+    amountPaid = 0;
+  }
+
+  if (
+    currentStatus === invoiceStatus &&
+    Number(currentAmountPaid.toFixed(2)) === Number(amountPaid.toFixed(2))
+  ) {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (q) params.set("q", q);
+    params.set("success", "Invoice details already up to date.");
+    redirect(`/transport-jobs?${params.toString()}`);
+  }
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      invoice_status: invoiceStatus,
+      amount_paid: amountPaid,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", transportJobId);
+
+  revalidatePath("/transport-jobs");
+  revalidatePath("/dashboard");
+
+  if (error) {
+    const params = new URLSearchParams();
+    params.set("view", view);
+    if (q) params.set("q", q);
+    params.set("error", error.message);
+    redirect(`/transport-jobs?${params.toString()}`);
+  }
+
+  const successText =
+    invoiceStatus === "Part Paid"
+      ? `Transport invoice updated to Part Paid (£${amountPaid.toFixed(2)} received)`
+      : invoiceStatus === "Paid"
+      ? "Transport invoice updated to Paid"
+      : `Transport invoice status updated to ${invoiceStatus}`;
+
+  const params = new URLSearchParams();
+  params.set("view", view);
+  if (q) params.set("q", q);
+  params.set("success", successText);
+  redirect(`/transport-jobs?${params.toString()}`);
+}
+
 type TransportJobsPageProps = {
   searchParams?: {
     view?: string;
     q?: string;
+    error?: string;
+    success?: string;
   };
 };
 
@@ -43,6 +156,8 @@ export default async function TransportJobsPage({
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
   const q = String(searchParams?.q ?? "").trim();
+  const errorMessage = String(searchParams?.error ?? "");
+  const successMessage = String(searchParams?.success ?? "");
 
   let query = supabase
     .from("transport_jobs")
@@ -63,6 +178,7 @@ export default async function TransportJobsPage({
       supplier_cost,
       invoice_status,
       total_invoice,
+      amount_paid,
       archived,
       vehicles:vehicle_id (
         id,
@@ -123,15 +239,25 @@ export default async function TransportJobsPage({
 
   const rows = data ?? [];
 
-  const activeCount = rows.filter((r: any) => String(r.status ?? "").toLowerCase() !== "cancelled").length;
-  const chargeTotal = rows.reduce(
-    (sum: number, item: any) => sum + Number(item.agreed_sell_rate ?? item.price ?? 0),
-    0
-  );
-  const supplierTotal = rows.reduce(
-    (sum: number, item: any) => sum + Number(item.supplier_cost ?? 0),
-    0
-  );
+  const activeCount = rows.filter(
+    (r: any) => String(r.status ?? "").toLowerCase() !== "cancelled"
+  ).length;
+
+  const chargeTotal = rows.reduce((sum: number, item: any) => {
+    return sum + Number(item.agreed_sell_rate ?? item.price ?? 0);
+  }, 0);
+
+  const supplierTotal = rows.reduce((sum: number, item: any) => {
+    return sum + Number(item.supplier_cost ?? 0);
+  }, 0);
+
+  const outstandingTotal = rows.reduce((sum: number, item: any) => {
+    const totalInvoice = Number(item.total_invoice ?? item.agreed_sell_rate ?? item.price ?? 0);
+    const amountPaid = Number(item.amount_paid ?? 0);
+    const safeTotal = Number.isFinite(totalInvoice) ? totalInvoice : 0;
+    const safePaid = Number.isFinite(amountPaid) ? amountPaid : 0;
+    return sum + Math.max(safeTotal - safePaid, 0);
+  }, 0);
 
   function viewHref(nextView: string) {
     const params = new URLSearchParams();
@@ -148,7 +274,7 @@ export default async function TransportJobsPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1600px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
@@ -205,7 +331,11 @@ export default async function TransportJobsPage({
             <MiniStat label="Active jobs" value={activeCount} />
             <MiniStat label="Charge total" value={fmtMoney(chargeTotal)} />
             <MiniStat label="Supplier total" value={fmtMoney(supplierTotal)} />
+            <MiniStat label="Outstanding total" value={fmtMoney(outstandingTotal)} />
           </div>
+
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           {error ? (
             <div style={errorBox}>{error.message}</div>
@@ -213,7 +343,7 @@ export default async function TransportJobsPage({
             <div style={emptyBox}>No transport jobs found for this view.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1440 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1700 }}>
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Ref</th>
@@ -237,7 +367,20 @@ export default async function TransportJobsPage({
                     const driver = first(item.operators);
                     const client = first(item.clients);
                     const linkedJob = first(item.jobs);
-                    const supplierName = item.supplier_id ? supplierMap.get(item.supplier_id) ?? "Supplier" : null;
+                    const supplierName = item.supplier_id
+                      ? supplierMap.get(item.supplier_id) ?? "Supplier"
+                      : null;
+
+                    const totalInvoice = Number(
+                      item.total_invoice ?? item.agreed_sell_rate ?? item.price ?? 0
+                    );
+                    const safeTotalInvoice = Number.isFinite(totalInvoice) ? totalInvoice : 0;
+                    const amountPaid = clampMoney(
+                      Number(item.amount_paid ?? 0),
+                      0,
+                      safeTotalInvoice
+                    );
+                    const amountOutstanding = Math.max(safeTotalInvoice - amountPaid, 0);
 
                     return (
                       <tr key={item.id}>
@@ -302,7 +445,13 @@ export default async function TransportJobsPage({
                               {item.invoice_status ?? "Not Invoiced"}
                             </span>
                             <div style={{ fontSize: 12, opacity: 0.8 }}>
-                              Total: {fmtMoney(item.total_invoice ?? item.agreed_sell_rate ?? item.price)}
+                              Total: {fmtMoney(safeTotalInvoice)}
+                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.8 }}>
+                              Paid: {fmtMoney(amountPaid)}
+                            </div>
+                            <div style={{ fontSize: 12, opacity: 0.9, fontWeight: 800 }}>
+                              Outstanding: {fmtMoney(amountOutstanding)}
                             </div>
                           </div>
                         </td>
@@ -319,10 +468,44 @@ export default async function TransportJobsPage({
                         </td>
 
                         <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                             <a href={`/transport-jobs/${item.id}`} style={actionBtn}>
                               Open
                             </a>
+
+                            <form
+                              action={updateTransportInvoiceStatus}
+                              style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}
+                            >
+                              <input type="hidden" name="transport_job_id" value={item.id} />
+                              <input type="hidden" name="return_view" value={view} />
+                              <input type="hidden" name="return_q" value={q} />
+
+                              <select
+                                name="invoice_status"
+                                defaultValue={item.invoice_status ?? "Not Invoiced"}
+                                style={miniSelect}
+                              >
+                                <option value="Not Invoiced">Not Invoiced</option>
+                                <option value="Invoiced">Invoiced</option>
+                                <option value="Part Paid">Part Paid</option>
+                                <option value="Paid">Paid</option>
+                              </select>
+
+                              <input
+                                name="amount_paid"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
+                                placeholder="Amount paid"
+                                style={moneyInput}
+                              />
+
+                              <button type="submit" style={saveMiniBtn}>
+                                Save
+                              </button>
+                            </form>
                           </div>
                         </td>
                       </tr>
@@ -533,6 +716,46 @@ const actionBtn: React.CSSProperties = {
 const inlineLinkStyle: React.CSSProperties = {
   color: "#111",
   textDecoration: "none",
+  fontWeight: 800,
+};
+
+const miniSelect: React.CSSProperties = {
+  minWidth: 140,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+};
+
+const moneyInput: React.CSSProperties = {
+  width: 120,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+};
+
+const saveMiniBtn: React.CSSProperties = {
+  height: 36,
+  padding: "0 12px",
+  borderRadius: 8,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#111",
   fontWeight: 800,
 };
 
