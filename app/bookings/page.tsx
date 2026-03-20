@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import { getAccessContext, canViewInvoices, canCreateBookings } from "../lib/access";
 
 type BookingRow = {
   id: string;
@@ -95,12 +96,16 @@ function invoiceKind(status: string | null | undefined): "neutral" | "good" | "w
   const s = String(status ?? "").toLowerCase();
 
   if (["paid"].includes(s)) return "good";
-  if (["sent", "part_paid"].includes(s)) return "warn";
+  if (["sent", "part_paid", "part paid"].includes(s)) return "warn";
   if (["overdue"].includes(s)) return "bad";
   return "neutral";
 }
 
 export default async function BookingsPage() {
+  const access = await getAccessContext();
+  const showInvoices = canViewInvoices(access);
+  const allowCreate = canCreateBookings(access);
+
   const supabase = createSupabaseServerClient();
 
   let rows: BookingRow[] = [];
@@ -148,10 +153,18 @@ export default async function BookingsPage() {
             </p>
           </div>
 
-          <a href="/bookings/new" style={primaryBtn}>
-            + New booking
-          </a>
+          {allowCreate ? (
+            <a href="/bookings/new" style={primaryBtn}>
+              + New booking
+            </a>
+          ) : (
+            <div style={disabledBtn}>Booking creation disabled</div>
+          )}
         </div>
+
+        {!showInvoices ? (
+          <div style={infoBox}>Invoice visibility is disabled for your staff role.</div>
+        ) : null}
 
         <div style={panelStyle}>
           {loadError ? <div style={errorBox}>{loadError}</div> : null}
@@ -168,8 +181,8 @@ export default async function BookingsPage() {
                     <th align="left" style={thStyle}>Dates</th>
                     <th align="left" style={thStyle}>Location</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Invoice</th>
-                    <th align="left" style={thStyle}>Financials</th>
+                    {showInvoices ? <th align="left" style={thStyle}>Invoice</th> : null}
+                    {showInvoices ? <th align="left" style={thStyle}>Financials</th> : null}
                     <th align="left" style={thStyle}>Reference</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
@@ -201,28 +214,32 @@ export default async function BookingsPage() {
                         </span>
                       </td>
 
-                      <td style={tdStyle}>
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            ...pillStyle(invoiceKind(row.invoice_status)),
-                          }}
-                        >
-                          {row.invoice_status || "—"}
-                        </span>
-                      </td>
+                      {showInvoices ? (
+                        <td style={tdStyle}>
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "6px 10px",
+                              borderRadius: 999,
+                              fontSize: 12,
+                              fontWeight: 900,
+                              ...pillStyle(invoiceKind(row.invoice_status)),
+                            }}
+                          >
+                            {row.invoice_status || "—"}
+                          </span>
+                        </td>
+                      ) : null}
 
-                      <td style={tdStyle}>
-                        <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
-                          <div><strong>Hire:</strong> {fmtMoney(row.hire_price)}</div>
-                          <div><strong>Total:</strong> {fmtMoney(row.total_invoice)}</div>
-                          <div><strong>Paid:</strong> {fmtMoney(row.payment_received)}</div>
-                        </div>
-                      </td>
+                      {showInvoices ? (
+                        <td style={tdStyle}>
+                          <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
+                            <div><strong>Hire:</strong> {fmtMoney(row.hire_price)}</div>
+                            <div><strong>Total:</strong> {fmtMoney(row.total_invoice)}</div>
+                            <div><strong>Paid:</strong> {fmtMoney(row.payment_received)}</div>
+                          </div>
+                        </td>
+                      ) : null}
 
                       <td style={tdStyle}>
                         <div style={{ display: "grid", gap: 4, fontSize: 13 }}>
@@ -263,7 +280,7 @@ const headerRow: React.CSSProperties = {
 };
 
 const panelStyle: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 18,
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -272,10 +289,10 @@ const panelStyle: React.CSSProperties = {
 };
 
 const thStyle: React.CSSProperties = {
-  padding: "10px 10px",
+  padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
-  opacity: 0.8,
+  opacity: 0.78,
   whiteSpace: "nowrap",
 };
 
@@ -288,27 +305,37 @@ const tdStyle: React.CSSProperties = {
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "#111",
   color: "#fff",
+  textDecoration: "none",
   fontWeight: 900,
+};
+
+const disabledBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.55)",
+  color: "#666",
+  textDecoration: "none",
+  fontWeight: 900,
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const actionBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.52)",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.75)",
   color: "#111",
+  textDecoration: "none",
   fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const errorBox: React.CSSProperties = {
-  marginBottom: 12,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
@@ -320,5 +347,15 @@ const emptyBox: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  color: "#111",
   fontWeight: 700,
 };
