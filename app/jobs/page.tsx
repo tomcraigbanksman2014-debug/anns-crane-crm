@@ -22,6 +22,11 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function clampMoney(value: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
 async function updateInvoiceStatus(formData: FormData) {
   "use server";
 
@@ -29,6 +34,7 @@ async function updateInvoiceStatus(formData: FormData) {
 
   const jobId = String(formData.get("job_id") ?? "");
   const invoiceStatus = String(formData.get("invoice_status") ?? "Not Invoiced");
+  const rawAmountPaid = String(formData.get("amount_paid") ?? "").trim();
   const view = String(formData.get("return_view") ?? "active");
   const invoice = String(formData.get("return_invoice") ?? "all");
 
@@ -40,7 +46,7 @@ async function updateInvoiceStatus(formData: FormData) {
 
   const { data: existingJob, error: existingError } = await supabase
     .from("jobs")
-    .select("id, invoice_status")
+    .select("id, invoice_status, total_invoice, amount_paid")
     .eq("id", jobId)
     .single();
 
@@ -50,11 +56,34 @@ async function updateInvoiceStatus(formData: FormData) {
     );
   }
 
+  const totalInvoice = Number(existingJob.total_invoice ?? 0);
   const currentStatus = String(existingJob.invoice_status ?? "Not Invoiced");
+  const currentAmountPaid = Number(existingJob.amount_paid ?? 0);
 
-  if (currentStatus === invoiceStatus) {
+  let amountPaid = currentAmountPaid;
+
+  if (invoiceStatus === "Part Paid") {
+    const parsed = Number(rawAmountPaid || 0);
+    amountPaid = clampMoney(parsed, 0, totalInvoice);
+
+    if (amountPaid <= 0) {
+      redirect(
+        `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(
+          "Enter the amount paid before saving Part Paid."
+        )}`
+      );
+    }
+  } else if (invoiceStatus === "Paid") {
+    amountPaid = totalInvoice;
+  } else {
+    amountPaid = 0;
+  }
+
+  if (currentStatus === invoiceStatus && Number(currentAmountPaid.toFixed(2)) === Number(amountPaid.toFixed(2))) {
     redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent("Invoice status already set to " + invoiceStatus)}`
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(
+        "Invoice details already up to date."
+      )}`
     );
   }
 
@@ -62,6 +91,7 @@ async function updateInvoiceStatus(formData: FormData) {
     .from("jobs")
     .update({
       invoice_status: invoiceStatus,
+      amount_paid: amountPaid,
       updated_at: new Date().toISOString(),
     })
     .eq("id", jobId);
@@ -75,8 +105,15 @@ async function updateInvoiceStatus(formData: FormData) {
     );
   }
 
+  const successText =
+    invoiceStatus === "Part Paid"
+      ? `Invoice updated to Part Paid (£${amountPaid.toFixed(2)} received)`
+      : invoiceStatus === "Paid"
+      ? "Invoice updated to Paid"
+      : `Invoice status updated to ${invoiceStatus}`;
+
   redirect(
-    `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent("Invoice status updated to " + invoiceStatus)}`
+    `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(successText)}`
   );
 }
 
@@ -113,6 +150,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       invoice_date,
       invoice_created_at,
       total_invoice,
+      amount_paid,
       clients:client_id (
         id,
         company_name
@@ -147,7 +185,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1450px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1600px, 96vw)", margin: "0 auto" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
@@ -220,6 +258,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     const client = first(job.clients);
                     const operator = first(job.operators);
                     const equipment = first(job.equipment);
+                    const totalInvoice = Number(job.total_invoice ?? 0);
+                    const amountPaid = clampMoney(Number(job.amount_paid ?? 0), 0, totalInvoice);
+                    const amountOutstanding = Math.max(totalInvoice - amountPaid, 0);
 
                     return (
                       <tr key={job.id}>
@@ -265,7 +306,13 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             #{job.invoice_number ?? "—"}
                           </div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            {money(job.total_invoice)}
+                            Total: {money(totalInvoice)}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            Paid: {money(amountPaid)}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.88, fontWeight: 800 }}>
+                            Outstanding: {money(amountOutstanding)}
                           </div>
                         </td>
 
@@ -290,6 +337,16 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                                 <option value="Part Paid">Part Paid</option>
                                 <option value="Paid">Paid</option>
                               </select>
+
+                              <input
+                                name="amount_paid"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
+                                placeholder="Amount paid"
+                                style={moneyInput}
+                              />
 
                               <button type="submit" style={saveMiniBtn}>
                                 Save
@@ -405,6 +462,16 @@ const miniSelect: React.CSSProperties = {
   borderRadius: 8,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
+};
+
+const moneyInput: React.CSSProperties = {
+  width: 120,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
 };
 
 const saveMiniBtn: React.CSSProperties = {
