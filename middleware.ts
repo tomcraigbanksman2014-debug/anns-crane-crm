@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { isMasterAdminEmail } from "./app/lib/admin";
 
 const PUBLIC_PATHS = [
   "/login",
@@ -64,11 +65,7 @@ async function resolveUserRole(
   const email = String(user?.email ?? "").trim().toLowerCase();
   const usernameFromEmail = fromAuthEmail(user?.email ?? null).toLowerCase();
 
-  const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
-    .trim()
-    .toLowerCase();
-
-  if (email && masterAdminEmail && email === masterAdminEmail) {
+  if (isMasterAdminEmail(email)) {
     return "admin";
   }
 
