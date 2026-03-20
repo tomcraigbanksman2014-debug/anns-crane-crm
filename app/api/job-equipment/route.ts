@@ -45,15 +45,13 @@ export async function POST(req: Request) {
     const endTime = clean(body.end_time);
     const notes = clean(body.notes);
     const itemName = clean(body.item_name);
-    const sourceType = clean(body.source_type);
+    const sourceType = clean(body.source_type) ?? "owned";
     const supplierReference = clean(body.supplier_reference);
+    const assetType = clean(body.asset_type) ?? (craneId ? "crane" : vehicleId ? "vehicle" : equipmentId ? "equipment" : "other");
 
-    const agreedCost = numberOrNull(body.agreed_cost);
-    const agreedSellRate =
-      numberOrNull(body.agreed_sell_rate) ??
-      agreedCost ??
-      null;
-    const supplierCost = numberOrNull(body.supplier_cost);
+    const agreedCost = numberOrNull(body.agreed_cost) ?? 0;
+    const agreedSellRate = numberOrNull(body.agreed_sell_rate) ?? agreedCost;
+    const supplierCost = numberOrNull(body.supplier_cost) ?? agreedCost;
 
     if (!jobId) {
       return NextResponse.json({ error: "job_id is required." }, { status: 400 });
@@ -68,12 +66,15 @@ export async function POST(req: Request) {
 
     const payload: Record<string, unknown> = {
       job_id: jobId,
+      asset_type: assetType,
       crane_id: craneId,
       vehicle_id: vehicleId,
       equipment_id: equipmentId,
       operator_id: operatorId,
       supplier_id: supplierId,
       purchase_order_id: purchaseOrderId,
+      item_name: itemName,
+      source_type: sourceType,
       start_date: startDate,
       end_date: endDate,
       start_time: startTime,
@@ -82,8 +83,6 @@ export async function POST(req: Request) {
       agreed_sell_rate: agreedSellRate,
       supplier_cost: supplierCost,
       supplier_reference: supplierReference,
-      source_type: sourceType,
-      item_name: itemName,
       notes,
       updated_at: new Date().toISOString(),
     };
@@ -91,7 +90,39 @@ export async function POST(req: Request) {
     const { data, error } = await supabase
       .from("job_equipment")
       .insert(payload)
-      .select("*")
+      .select(`
+        *,
+        cranes:crane_id (
+          id,
+          name,
+          reg_number,
+          capacity
+        ),
+        vehicles:vehicle_id (
+          id,
+          name,
+          reg_number
+        ),
+        equipment:equipment_id (
+          id,
+          name,
+          asset_number
+        ),
+        operators:operator_id (
+          id,
+          full_name
+        ),
+        suppliers:supplier_id (
+          id,
+          company_name,
+          category
+        ),
+        purchase_orders:purchase_order_id (
+          id,
+          po_number,
+          status
+        )
+      `)
       .single();
 
     if (error) {
