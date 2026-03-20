@@ -72,6 +72,10 @@ type DashboardStats = {
   equipmentWithoutServiceHistory?: number;
   lolerDueSoon?: number;
   lolerOverdue?: number;
+  unassignedTransportJobs?: number;
+  completedCraneJobsNotInvoiced?: number;
+  completedTransportJobsNotInvoiced?: number;
+  timesheetsNotSubmitted?: number;
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -87,6 +91,7 @@ type DashboardStats = {
     invoice_status?: string | null;
     start_at?: string | null;
     start_date?: string | null;
+    href?: string | null;
     clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
   }>;
   recentAudit?: Array<{
@@ -243,7 +248,8 @@ export default function DashboardPage() {
           .dash-three-col,
           .dash-two-col,
           .dash-search-shortcuts,
-          .dash-operator-alert-grid {
+          .dash-operator-alert-grid,
+          .dash-office-actions {
             grid-template-columns: 1fr !important;
           }
 
@@ -483,6 +489,43 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ marginTop: 14 }}>
+          <Panel title="Office action queue" subtitle="Outstanding actions for the office team to clear">
+            <div
+              className="dash-office-actions"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <a href="/transport-jobs?view=active" style={certCard((stats?.unassignedTransportJobs ?? 0) > 0 ? "warn" : "neutral")}>
+                <div style={smallTitle}>Unassigned transport jobs</div>
+                <div style={bigValue}>{stats?.unassignedTransportJobs ?? 0}</div>
+                <div style={smallHelp}>Transport jobs missing a vehicle or driver</div>
+              </a>
+
+              <a href="/jobs?view=active" style={certCard((stats?.completedCraneJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
+                <div style={smallTitle}>Completed crane jobs not invoiced</div>
+                <div style={bigValue}>{stats?.completedCraneJobsNotInvoiced ?? 0}</div>
+                <div style={smallHelp}>Completed jobs still marked not invoiced</div>
+              </a>
+
+              <a href="/transport-jobs?view=active" style={certCard((stats?.completedTransportJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
+                <div style={smallTitle}>Completed transport jobs not invoiced</div>
+                <div style={bigValue}>{stats?.completedTransportJobsNotInvoiced ?? 0}</div>
+                <div style={smallHelp}>Completed transport work awaiting invoicing</div>
+              </a>
+
+              <a href="/timesheets" style={certCard((stats?.timesheetsNotSubmitted ?? 0) > 0 ? "bad" : "neutral")}>
+                <div style={smallTitle}>Timesheets not submitted</div>
+                <div style={bigValue}>{stats?.timesheetsNotSubmitted ?? 0}</div>
+                <div style={smallHelp}>Completed operator jobs missing office submission</div>
+              </a>
+            </div>
+          </Panel>
+        </div>
+
+        <div style={{ marginTop: 14 }}>
           <Panel title="Certification" subtitle="Monitor expired and expiring equipment certificates">
             <div
               style={{
@@ -683,7 +726,7 @@ export default function DashboardPage() {
                   const client = first(b.clients);
 
                   return (
-                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
+                    <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"}
