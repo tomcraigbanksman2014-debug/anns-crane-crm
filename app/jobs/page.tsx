@@ -1,6 +1,8 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import StatusBadge from "../components/StatusBadge";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -9,20 +11,65 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function money(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
+}
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+async function updateInvoiceStatus(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const jobId = String(formData.get("job_id") ?? "");
+  const invoiceStatus = String(formData.get("invoice_status") ?? "Not Invoiced");
+  const view = String(formData.get("return_view") ?? "active");
+  const invoice = String(formData.get("return_invoice") ?? "all");
+
+  if (!jobId) {
+    redirect(`/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}`);
+  }
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      invoice_status: invoiceStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  revalidatePath("/jobs");
+
+  if (error) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(
+        invoice
+      )}&error=${encodeURIComponent(error.message)}`
+    );
+  }
+
+  redirect(`/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}`);
+}
+
 type JobsPageProps = {
   searchParams?: {
     view?: string;
+    invoice?: string;
+    error?: string;
   };
 };
 
 export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
+  const invoiceFilter = String(searchParams?.invoice ?? "all").toLowerCase();
+  const errorMessage = String(searchParams?.error ?? "");
 
   let query = supabase
     .from("jobs")
@@ -36,6 +83,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       site_address,
       status,
       archived,
+      invoice_status,
+      invoice_number,
+      invoice_date,
+      invoice_created_at,
+      total_invoice,
       clients:client_id (
         id,
         company_name
@@ -61,6 +113,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
     query = query.eq("archived", false);
   }
 
+  if (invoiceFilter === "outstanding") {
+    query = query.in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]);
+  }
+
   const { data, error } = await query;
   const rows = data ?? [];
 
@@ -72,7 +128,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Jobs</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Manage crane jobs, operators and site details.
+                Manage crane jobs, operators, invoices and site details.
               </p>
             </div>
 
@@ -87,25 +143,30 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </div>
 
           <div style={tabsRow}>
-            <a
-              href="/jobs?view=active"
-              style={view === "active" ? activeTabBtn : tabBtn}
-            >
+            <a href={`/jobs?view=active&invoice=${invoiceFilter}`} style={view === "active" ? activeTabBtn : tabBtn}>
               Active
             </a>
-            <a
-              href="/jobs?view=archived"
-              style={view === "archived" ? activeTabBtn : tabBtn}
-            >
+            <a href={`/jobs?view=archived&invoice=${invoiceFilter}`} style={view === "archived" ? activeTabBtn : tabBtn}>
               Archived
             </a>
-            <a
-              href="/jobs?view=all"
-              style={view === "all" ? activeTabBtn : tabBtn}
-            >
+            <a href={`/jobs?view=all&invoice=${invoiceFilter}`} style={view === "all" ? activeTabBtn : tabBtn}>
               All
             </a>
           </div>
+
+          <div style={tabsRow}>
+            <a href={`/jobs?view=${view}&invoice=all`} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
+              All invoices
+            </a>
+            <a
+              href={`/jobs?view=${view}&invoice=outstanding`}
+              style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}
+            >
+              Outstanding invoices
+            </a>
+          </div>
+
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           {error ? (
             <div style={errorBox}>{error.message}</div>
@@ -124,6 +185,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Site</th>
                     <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Invoice</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -170,10 +232,43 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                         </td>
 
                         <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontWeight: 800 }}>
+                            {job.invoice_status ?? "Not Invoiced"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            #{job.invoice_number ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            {money(job.total_invoice)}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                             <a href={`/jobs/${job.id}`} style={actionBtn}>
                               Open
                             </a>
+
+                            <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <input type="hidden" name="job_id" value={job.id} />
+                              <input type="hidden" name="return_view" value={view} />
+                              <input type="hidden" name="return_invoice" value={invoiceFilter} />
+
+                              <select
+                                name="invoice_status"
+                                defaultValue={job.invoice_status ?? "Not Invoiced"}
+                                style={miniSelect}
+                              >
+                                <option value="Not Invoiced">Not Invoiced</option>
+                                <option value="Invoiced">Invoiced</option>
+                                <option value="Part Paid">Part Paid</option>
+                                <option value="Paid">Paid</option>
+                              </select>
+
+                              <button type="submit" style={saveMiniBtn}>
+                                Save
+                              </button>
+                            </form>
                           </div>
                         </td>
                       </tr>
@@ -270,11 +365,31 @@ const actionBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.65)",
+  background: "rgba(255,255,255,0.75)",
   color: "#111",
   textDecoration: "none",
   fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const miniSelect: React.CSSProperties = {
+  minWidth: 140,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
   border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+};
+
+const saveMiniBtn: React.CSSProperties = {
+  height: 36,
+  padding: "0 12px",
+  borderRadius: 8,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const errorBox: React.CSSProperties = {
@@ -282,14 +397,13 @@ const errorBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.22)",
 };
 
 const emptyBox: React.CSSProperties = {
   marginTop: 16,
-  padding: "14px 16px",
+  padding: "18px 16px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+  background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 700,
 };
