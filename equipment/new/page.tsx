@@ -1,0 +1,261 @@
+"use client";
+
+import ClientShell from "../../ClientShell";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+
+export default function NewEquipmentPage() {
+  const router = useRouter();
+
+  const [name, setName] = useState("");
+  const [assetNumber, setAssetNumber] = useState("");
+  const [type, setType] = useState("");
+  const [capacity, setCapacity] = useState("");
+  const [status, setStatus] = useState("available");
+  const [certExpiry, setCertExpiry] = useState("");
+  const [lolerDueOn, setLolerDueOn] = useState("");
+  const [notes, setNotes] = useState("");
+
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+
+    if (!name.trim()) {
+      setMsg("Equipment name is required.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/equipment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          asset_number: assetNumber.trim() || null,
+          type: type.trim() || null,
+          capacity: capacity.trim() || null,
+          status: status.trim().toLowerCase() || "available",
+          certification_expires_on: certExpiry || null,
+          loler_due_on: lolerDueOn || null,
+          notes: notes.trim() || null,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "Could not save equipment.");
+        return;
+      }
+
+      router.replace("/equipment");
+      router.refresh();
+    } catch {
+      setMsg("Something went wrong. Try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <ClientShell>
+      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
+        <form onSubmit={onSubmit} style={card}>
+          <h1 style={{ margin: 0, fontSize: 32 }}>New equipment</h1>
+          <p style={{ marginTop: 6, opacity: 0.8 }}>
+            Add a crane or equipment record.
+          </p>
+
+          {msg && <div style={errorBox}>{msg}</div>}
+
+          <div style={grid12}>
+            <Field span={6} label="Name *">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                style={input}
+                placeholder="e.g. 60t test crane"
+              />
+            </Field>
+
+            <Field span={6} label="Asset number">
+              <input
+                value={assetNumber}
+                onChange={(e) => setAssetNumber(e.target.value)}
+                style={input}
+                placeholder="e.g. DB455SG"
+              />
+            </Field>
+
+            <Field span={4} label="Type">
+              <input
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                style={input}
+                placeholder="e.g. Crane"
+              />
+            </Field>
+
+            <Field span={4} label="Capacity">
+              <input
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                style={input}
+                placeholder="e.g. 60t"
+              />
+            </Field>
+
+            <Field span={4} label="Status">
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                style={input}
+              >
+                <option value="available">Available</option>
+                <option value="on_hire">On Hire</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="out_of_service">Out of Service</option>
+              </select>
+            </Field>
+
+            <Field span={6} label="Certification expiry">
+              <input
+                type="date"
+                value={certExpiry}
+                onChange={(e) => setCertExpiry(e.target.value)}
+                style={input}
+              />
+            </Field>
+
+            <Field span={6} label="LOLER due date">
+              <input
+                type="date"
+                value={lolerDueOn}
+                onChange={(e) => setLolerDueOn(e.target.value)}
+                style={input}
+              />
+            </Field>
+
+            <Field span={12} label="Notes">
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                style={textarea}
+                placeholder="Notes"
+              />
+            </Field>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
+            <button type="submit" disabled={saving} style={primaryBtn}>
+              {saving ? "Saving..." : "Save equipment"}
+            </button>
+
+            <a href="/equipment" style={secondaryBtn}>
+              Cancel
+            </a>
+          </div>
+        </form>
+      </div>
+    </ClientShell>
+  );
+}
+
+function Field({
+  label,
+  children,
+  span,
+}: {
+  label: string;
+  children: React.ReactNode;
+  span: number;
+}) {
+  return (
+    <div style={{ gridColumn: `span ${span}` }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const card: React.CSSProperties = {
+  width: "min(1150px, 95vw)",
+  margin: "0 auto",
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const grid12: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.85,
+};
+
+const input: React.CSSProperties = {
+  width: "100%",
+  height: 44,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+};
+
+const textarea: React.CSSProperties = {
+  width: "100%",
+  minHeight: 140,
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+  resize: "vertical",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "white",
+  fontSize: 15,
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
+};
