@@ -99,7 +99,11 @@ async function createJob(formData: FormData) {
     .single();
 
   if (error || !data?.id) {
-    redirect(`/jobs/new?error=${encodeURIComponent(error?.message || "Failed to create job.")}`);
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        error?.message || "Failed to create job."
+      )}`
+    );
   }
 
   if (allocationAssetType) {
