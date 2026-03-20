@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import { writeAuditLog } from "../lib/audit";
 import StatusBadge from "../components/StatusBadge";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -20,6 +21,11 @@ function fmtMoney(value: number | string | null | undefined) {
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 function prettyJobType(value: string | null | undefined) {
@@ -56,9 +62,13 @@ async function updateTransportInvoiceStatus(formData: FormData) {
     redirect(`/transport-jobs?${params.toString()}`);
   }
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const { data: existingJob, error: existingError } = await supabase
     .from("transport_jobs")
-    .select("id, invoice_status, total_invoice, agreed_sell_rate, price, amount_paid")
+    .select("id, transport_number, invoice_status, total_invoice, agreed_sell_rate, price, amount_paid")
     .eq("id", transportJobId)
     .single();
 
@@ -126,6 +136,22 @@ async function updateTransportInvoiceStatus(formData: FormData) {
     params.set("error", error.message);
     redirect(`/transport-jobs?${params.toString()}`);
   }
+
+  await writeAuditLog({
+    actor_user_id: user?.id ?? null,
+    actor_username: fromAuthEmail(user?.email ?? null) || null,
+    action: "transport_invoice_status_updated",
+    entity_type: "transport_job",
+    entity_id: transportJobId,
+    meta: {
+      transport_number: existingJob.transport_number ?? null,
+      previous_invoice_status: currentStatus,
+      new_invoice_status: invoiceStatus,
+      previous_amount_paid: currentAmountPaid,
+      new_amount_paid: amountPaid,
+      total_invoice: safeTotalInvoice,
+    },
+  });
 
   const successText =
     invoiceStatus === "Part Paid"
