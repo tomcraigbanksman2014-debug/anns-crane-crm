@@ -9,6 +9,7 @@ type PlannerTransportJob = {
   transport_number?: string | null;
   transport_date?: string | null;
   collection_time?: string | null;
+  delivery_date?: string | null;
   delivery_time?: string | null;
   status?: string | null;
   job_type?: string | null;
@@ -98,38 +99,58 @@ function hasCoords(lat: number | null | undefined, lng: number | null | undefine
   return typeof lat === "number" && typeof lng === "number";
 }
 
-function toMinutes(value: string | null | undefined) {
-  const v = String(value ?? "").trim();
-  if (!v) return null;
-  const match = v.match(/^(\d{1,2}):(\d{2})/);
-  if (!match) return null;
-  const hours = Number(match[1]);
-  const mins = Number(match[2]);
-  if (!Number.isFinite(hours) || !Number.isFinite(mins)) return null;
-  return hours * 60 + mins;
+function toDateTime(dateValue: string | null | undefined, timeValue: string | null | undefined) {
+  const date = String(dateValue ?? "").trim();
+  const time = String(timeValue ?? "").trim();
+  if (!date || !time) return null;
+
+  const dt = new Date(`${date}T${time}:00`);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-function overlaps(
-  aStart: string | null | undefined,
-  aEnd: string | null | undefined,
-  bStart: string | null | undefined,
-  bEnd: string | null | undefined
-) {
-  const startA = toMinutes(aStart);
-  const endA = toMinutes(aEnd);
-  const startB = toMinutes(bStart);
-  const endB = toMinutes(bEnd);
+function dateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
 
-  if (
-    startA === null ||
-    endA === null ||
-    startB === null ||
-    endB === null
-  ) {
-    return false;
+function eachDayInRange(startDate: string | null | undefined, endDate: string | null | undefined) {
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
+
+  if (!start) return [];
+
+  const from = new Date(`${start}T00:00:00`);
+  const to = new Date(`${end || start}T00:00:00`);
+
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return [];
+  if (from > to) return [];
+
+  const out: string[] = [];
+  const cursor = new Date(from);
+
+  while (cursor <= to) {
+    out.push(dateOnly(cursor));
+    cursor.setDate(cursor.getDate() + 1);
   }
 
-  return startA < endB && startB < endA;
+  return out;
+}
+
+function touchesDay(job: PlannerTransportJob, day: string) {
+  return eachDayInRange(
+    job.transport_date,
+    job.delivery_date ?? job.transport_date
+  ).includes(day);
+}
+
+function overlapsDateTimes(a: PlannerTransportJob, b: PlannerTransportJob) {
+  const aStart = toDateTime(a.transport_date, a.collection_time);
+  const aEnd = toDateTime(a.delivery_date ?? a.transport_date, a.delivery_time);
+  const bStart = toDateTime(b.transport_date, b.collection_time);
+  const bEnd = toDateTime(b.delivery_date ?? b.transport_date, b.delivery_time);
+
+  if (!aStart || !aEnd || !bStart || !bEnd) return false;
+
+  return aStart < bEnd && bStart < aEnd;
 }
 
 function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJob) {
@@ -137,6 +158,10 @@ function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJ
   const nextOperator = update.operator_id !== undefined ? update.operator_id : current.operator_id;
   const nextCollectionTime =
     update.collection_time !== undefined ? update.collection_time : current.collection_time;
+  const nextDeliveryDate =
+    update.delivery_date !== undefined
+      ? update.delivery_date
+      : current.delivery_date ?? current.transport_date;
   const nextDeliveryTime =
     update.delivery_time !== undefined ? update.delivery_time : current.delivery_time;
   const nextStatus = update.status !== undefined ? update.status : current.status;
@@ -148,6 +173,7 @@ function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJ
     nextVehicle &&
     nextOperator &&
     nextCollectionTime &&
+    nextDeliveryDate &&
     nextDeliveryTime
   ) {
     return "confirmed";
@@ -364,6 +390,7 @@ export default function TransportPlannerBoard() {
       const update = {
         transport_date: String(form.get("transport_date") ?? "").trim() || null,
         collection_time: String(form.get("collection_time") ?? "").trim() || null,
+        delivery_date: String(form.get("delivery_date") ?? "").trim() || null,
         delivery_time: String(form.get("delivery_time") ?? "").trim() || null,
         operator_id: String(form.get("operator_id") ?? "").trim() || null,
         vehicle_id: String(form.get("vehicle_id") ?? "").trim() || null,
@@ -423,24 +450,22 @@ export default function TransportPlannerBoard() {
       warnings.push("No route coords");
     }
 
-    if (job.vehicle_id && job.transport_date) {
+    if (job.vehicle_id) {
       const vehicleConflict = allJobs.some((other) => {
         if (!ACTIVE_JOB_STATUSES.includes(String(other.status ?? "").toLowerCase())) return false;
         if (other.id === job.id) return false;
         if (other.vehicle_id !== job.vehicle_id) return false;
-        if (other.transport_date !== job.transport_date) return false;
-        return overlaps(job.collection_time, job.delivery_time, other.collection_time, other.delivery_time);
+        return overlapsDateTimes(job, other);
       });
       if (vehicleConflict) warnings.push("Vehicle conflict");
     }
 
-    if (job.operator_id && job.transport_date) {
+    if (job.operator_id) {
       const driverConflict = allJobs.some((other) => {
         if (!ACTIVE_JOB_STATUSES.includes(String(other.status ?? "").toLowerCase())) return false;
         if (other.id === job.id) return false;
         if (other.operator_id !== job.operator_id) return false;
-        if (other.transport_date !== job.transport_date) return false;
-        return overlaps(job.collection_time, job.delivery_time, other.collection_time, other.delivery_time);
+        return overlapsDateTimes(job, other);
       });
       if (driverConflict) warnings.push("Driver conflict");
     }
@@ -507,7 +532,7 @@ export default function TransportPlannerBoard() {
     const map = new Map<string, PlannerTransportJob[]>();
     for (const day of data.days) {
       const jobs = filteredJobs.filter(
-        (job) => job.transport_date === day.date && !job.vehicle_id
+        (job) => touchesDay(job, day.date) && !job.vehicle_id
       );
       map.set(day.date, jobs);
     }
@@ -520,7 +545,7 @@ export default function TransportPlannerBoard() {
       for (const day of data.days) {
         const key = `${vehicle.id}__${day.date}`;
         const jobs = filteredJobs.filter(
-          (job) => job.transport_date === day.date && job.vehicle_id === vehicle.id
+          (job) => touchesDay(job, day.date) && job.vehicle_id === vehicle.id
         );
         map.set(key, jobs);
       }
@@ -540,7 +565,7 @@ export default function TransportPlannerBoard() {
           <div style={{ minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>Transport Planner Board</h2>
             <div style={{ marginTop: 4, opacity: 0.75, fontSize: 13 }}>
-              Drag jobs between vehicles and days. Resize left/right edges to adjust times.
+              Drag jobs between vehicles and days. Overnight jobs now show across the days they span.
             </div>
           </div>
 
@@ -683,7 +708,7 @@ export default function TransportPlannerBoard() {
                       ) : (
                         jobs.map((job) => (
                           <TransportCard
-                            key={job.id}
+                            key={`${job.id}-${day.date}`}
                             job={job}
                             compact={compactMode}
                             saving={savingId === job.id}
@@ -743,7 +768,7 @@ export default function TransportPlannerBoard() {
                         ) : (
                           jobs.map((job) => (
                             <TransportCard
-                              key={job.id}
+                              key={`${job.id}-${day.date}`}
                               job={job}
                               compact={compactMode}
                               saving={savingId === job.id}
@@ -790,8 +815,9 @@ export default function TransportPlannerBoard() {
 
               <form onSubmit={saveEditor} style={{ display: "grid", gap: 12, marginTop: 16 }}>
                 <div style={drawerGrid}>
-                  <Field label="Date" name="transport_date" defaultValue={editorJob.transport_date ?? ""} type="date" />
+                  <Field label="Collection date" name="transport_date" defaultValue={editorJob.transport_date ?? ""} type="date" />
                   <Field label="Collection time" name="collection_time" defaultValue={editorJob.collection_time ?? ""} type="time" />
+                  <Field label="Delivery date" name="delivery_date" defaultValue={editorJob.delivery_date ?? editorJob.transport_date ?? ""} type="date" />
                   <Field label="Delivery time" name="delivery_time" defaultValue={editorJob.delivery_time ?? ""} type="time" />
 
                   <SelectField
@@ -927,6 +953,10 @@ function TransportCard({
   const vehicle = first(job.vehicles);
   const driver = first(job.operators);
   const linkedJob = first(job.jobs);
+  const isMultiDay =
+    !!job.transport_date &&
+    !!(job.delivery_date ?? job.transport_date) &&
+    job.transport_date !== (job.delivery_date ?? job.transport_date);
 
   return (
     <div
@@ -962,6 +992,11 @@ function TransportCard({
       <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: compact ? 11 : 12 }}>
         <div><strong>{prettyJobType(job.job_type)}</strong></div>
         <div>{job.collection_time ?? "—"} → {job.delivery_time ?? "—"}</div>
+        {isMultiDay ? (
+          <div>
+            {job.transport_date} → {job.delivery_date}
+          </div>
+        ) : null}
         {!compact ? <div>Pickup: {job.collection_address ?? "—"}</div> : null}
         {!compact ? <div>Delivery: {job.delivery_address ?? "—"}</div> : null}
         <div>Driver: {driver?.full_name ?? "Unassigned"}</div>
@@ -1181,7 +1216,7 @@ const jobCardBase: React.CSSProperties = {
 
 const warningPill: React.CSSProperties = {
   display: "inline-block",
-  padding: "4px 8px",
+  padding: "4px 7px",
   borderRadius: 999,
   fontSize: 10,
   fontWeight: 900,
@@ -1190,27 +1225,26 @@ const warningPill: React.CSSProperties = {
 };
 
 const emptyMiniStyle: React.CSSProperties = {
-  opacity: 0.38,
-  fontSize: 16,
+  fontSize: 12,
+  opacity: 0.45,
   textAlign: "center",
-  paddingTop: 4,
+  paddingTop: 8,
 };
 
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "9px 12px",
+const inputStyle: React.CSSProperties = {
+  minWidth: 0,
+  height: 38,
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.52)",
-  color: "#111",
-  fontWeight: 800,
-  cursor: "pointer",
-  textDecoration: "none",
+  background: "rgba(255,255,255,0.92)",
+  padding: "0 10px",
+  boxSizing: "border-box",
 };
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  height: 38,
+  padding: "0 14px",
   borderRadius: 10,
   border: "none",
   background: "#111",
@@ -1219,9 +1253,24 @@ const primaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const primaryLinkBtn: React.CSSProperties = {
+const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  height: 38,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.8)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const primaryLinkBtn: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 38,
+  padding: "0 14px",
   borderRadius: 10,
   border: "none",
   background: "#111",
@@ -1231,28 +1280,21 @@ const primaryLinkBtn: React.CSSProperties = {
 };
 
 const secondaryLinkBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 38,
+  padding: "0 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.52)",
+  background: "rgba(255,255,255,0.8)",
   color: "#111",
   fontWeight: 800,
   textDecoration: "none",
 };
 
-const inputStyle: React.CSSProperties = {
-  height: 40,
-  minWidth: 120,
-  padding: "0 10px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-};
-
 const tickLabel: React.CSSProperties = {
-  display: "flex",
+  display: "inline-flex",
   alignItems: "center",
   gap: 6,
   fontSize: 13,
@@ -1262,47 +1304,47 @@ const tickLabel: React.CSSProperties = {
 const infoBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.22)",
+  background: "rgba(255,255,255,0.45)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
 };
 
 const drawerBackdrop: React.CSSProperties = {
   position: "fixed",
   inset: 0,
-  background: "rgba(0,0,0,0.26)",
+  background: "rgba(0,0,0,0.25)",
+  display: "flex",
+  justifyContent: "flex-end",
   zIndex: 50,
-  display: "grid",
-  justifyItems: "end",
 };
 
 const drawerStyle: React.CSSProperties = {
-  width: "min(520px, 92vw)",
-  height: "100vh",
+  width: "min(560px, 100vw)",
+  height: "100%",
   overflowY: "auto",
-  background: "#eef5fb",
+  background: "#f6f8fb",
   padding: 18,
-  boxSizing: "border-box",
-  boxShadow: "-12px 0 30px rgba(0,0,0,0.16)",
+  boxShadow: "-10px 0 30px rgba(0,0,0,0.18)",
 };
 
 const drawerGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 10,
 };
 
 const fieldLabel: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  opacity: 0.72,
+  opacity: 0.76,
 };
 
 const drawerTextarea: React.CSSProperties = {
   width: "100%",
-  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
+  padding: "10px 12px",
   boxSizing: "border-box",
   resize: "vertical",
 };
