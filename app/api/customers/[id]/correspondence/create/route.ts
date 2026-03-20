@@ -13,6 +13,11 @@ function norm(v: any) {
   return s.length ? s : null;
 }
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -30,6 +35,7 @@ export async function POST(
     const entry_type = body.entry_type ?? "note";
     const subject = norm(body.subject);
     const message = norm(body.message);
+    const actorUsername = fromAuthEmail(auth.user.email ?? null) || null;
 
     if (!["call", "email", "note"].includes(entry_type)) {
       return NextResponse.json(
@@ -50,6 +56,9 @@ export async function POST(
           entry_type,
           subject,
           message,
+          created_by_user_id: auth.user.id,
+          created_by_username: actorUsername,
+          created_by: auth.user.id,
         },
       ])
       .select("id")
@@ -61,8 +70,8 @@ export async function POST(
 
     await writeAuditLog({
       actor_user_id: auth.user.id,
-      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
-      action: "create",
+      actor_username: actorUsername,
+      action: "customer_correspondence_created",
       entity_type: "customer_correspondence",
       entity_id: data?.id ?? null,
       meta: {
