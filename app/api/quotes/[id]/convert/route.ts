@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -54,13 +59,17 @@ export async function POST(
 
     await writeAuditLog({
       actor_user_id: auth.user.id,
-      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
-      action: "convert",
+      actor_username: fromAuthEmail(auth.user.email ?? null) || null,
+      action: "quote_converted_to_booking",
       entity_type: "quote",
       entity_id: params.id,
       meta: {
         booking_id: booking?.id ?? null,
-        client_id: quote.client_id,
+        client_id: quote.client_id ?? null,
+        subject: quote.subject ?? null,
+        status: quote.status ?? null,
+        amount: quote.amount ?? null,
+        quote_date: quote.quote_date ?? null,
       },
     });
 
