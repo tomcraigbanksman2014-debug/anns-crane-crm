@@ -57,11 +57,11 @@ function buildTimeOptions() {
   return options;
 }
 
-function toMinutes(value: string | null) {
-  if (!value) return null;
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
+function parseDateTime(dateValue: string | null, timeValue: string | null) {
+  if (!dateValue || !timeValue) return null;
+  const iso = `${dateValue}T${timeValue}:00`;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
 function normaliseTransportStatus(
@@ -72,6 +72,7 @@ function normaliseTransportStatus(
     operatorId: string | null;
     transportDate: string | null;
     collectionTime: string | null;
+    deliveryDate: string | null;
     deliveryTime: string | null;
   }
 ) {
@@ -87,6 +88,7 @@ function normaliseTransportStatus(
     !!fields.operatorId &&
     !!fields.transportDate &&
     !!fields.collectionTime &&
+    !!fields.deliveryDate &&
     !!fields.deliveryTime;
 
   return canConfirm ? "confirmed" : "planned";
@@ -125,6 +127,8 @@ async function createTransportJob(formData: FormData) {
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
+  const deliveryDate =
+    clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
   const loadDescription = clean(formData.get("load_description")) || null;
   const status = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
@@ -133,6 +137,7 @@ async function createTransportJob(formData: FormData) {
     operatorId,
     transportDate,
     collectionTime,
+    deliveryDate,
     deliveryTime,
   });
   const notes = clean(formData.get("notes")) || null;
@@ -152,7 +157,7 @@ async function createTransportJob(formData: FormData) {
   if (!collectionAddress || !deliveryAddress || !transportDate) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Pickup address, delivery address and transport date are required."
+        "Pickup address, delivery address and collection date are required."
       )}`
     );
   }
@@ -165,19 +170,21 @@ async function createTransportJob(formData: FormData) {
     );
   }
 
-  const collectionMinutes = toMinutes(collectionTime);
-  const deliveryMinutes = toMinutes(deliveryTime);
+  const collectionDateTime = parseDateTime(transportDate, collectionTime);
+  const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
 
   if (
     collectionTime &&
     deliveryTime &&
-    collectionMinutes !== null &&
-    deliveryMinutes !== null &&
-    collectionMinutes > deliveryMinutes
+    transportDate &&
+    deliveryDate &&
+    collectionDateTime &&
+    deliveryDateTime &&
+    collectionDateTime > deliveryDateTime
   ) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Delivery time cannot be earlier than collection time."
+        "Delivery date/time cannot be earlier than collection date/time."
       )}`
     );
   }
@@ -216,6 +223,7 @@ async function createTransportJob(formData: FormData) {
       delivery_lng: deliveryCoords?.lng ?? null,
       transport_date: transportDate,
       collection_time: collectionTime,
+      delivery_date: deliveryDate,
       delivery_time: deliveryTime,
       load_description: loadDescription,
       status,
@@ -384,13 +392,15 @@ export default async function NewTransportJobPage({
                   ]}
                 />
 
-                <Field label="Transport date" name="transport_date" type="date" />
+                <Field label="Collection date" name="transport_date" type="date" />
 
                 <SelectField
                   label="Collection time"
                   name="collection_time"
                   options={timeOptions}
                 />
+
+                <Field label="Delivery date" name="delivery_date" type="date" />
 
                 <SelectField
                   label="Delivery time"
