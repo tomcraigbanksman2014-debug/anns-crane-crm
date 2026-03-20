@@ -55,24 +55,22 @@ function buildTimeOptions() {
   return options;
 }
 
-function toMinutes(value: string | null) {
-  if (!value) return null;
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  return Number(match[1]) * 60 + Number(match[2]);
+function parseDateTime(dateValue: string | null, timeValue: string | null) {
+  if (!dateValue || !timeValue) return null;
+  const iso = `${dateValue}T${timeValue}:00`;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
 }
 
-function normaliseTransportStatus(
-  input: string | null,
-  fields: {
-    clientId: string | null;
-    vehicleId: string | null;
-    operatorId: string | null;
-    transportDate: string | null;
-    collectionTime: string | null;
-    deliveryTime: string | null;
-  }
-) {
+function normaliseTransportStatus(input: string | null, fields: {
+  clientId: string | null;
+  vehicleId: string | null;
+  operatorId: string | null;
+  transportDate: string | null;
+  collectionTime: string | null;
+  deliveryDate: string | null;
+  deliveryTime: string | null;
+}) {
   const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
 
   if (requested !== "confirmed") {
@@ -85,6 +83,7 @@ function normaliseTransportStatus(
     !!fields.operatorId &&
     !!fields.transportDate &&
     !!fields.collectionTime &&
+    !!fields.deliveryDate &&
     !!fields.deliveryTime;
 
   return canConfirm ? "confirmed" : "planned";
@@ -151,6 +150,8 @@ async function updateTransportJob(formData: FormData) {
   const operatorId = clean(formData.get("operator_id")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
+  const deliveryDate =
+    clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
 
   const rawSupplierId = clean(formData.get("supplier_id"));
@@ -175,17 +176,19 @@ async function updateTransportJob(formData: FormData) {
     );
   }
 
-  const collectionMinutes = toMinutes(collectionTime);
-  const deliveryMinutes = toMinutes(deliveryTime);
+  const collectionDateTime = parseDateTime(transportDate, collectionTime);
+  const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
 
   if (
     collectionTime &&
     deliveryTime &&
-    collectionMinutes !== null &&
-    deliveryMinutes !== null &&
-    collectionMinutes > deliveryMinutes
+    transportDate &&
+    deliveryDate &&
+    collectionDateTime &&
+    deliveryDateTime &&
+    collectionDateTime > deliveryDateTime
   ) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Delivery time cannot be earlier than collection time.")}`);
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Delivery date/time cannot be earlier than collection date/time.")}`);
   }
 
   const payload = {
@@ -205,6 +208,7 @@ async function updateTransportJob(formData: FormData) {
     delivery_lng: deliveryCoords?.lng ?? null,
     transport_date: transportDate,
     collection_time: collectionTime,
+    delivery_date: deliveryDate,
     delivery_time: deliveryTime,
     load_description: clean(formData.get("load_description")) || null,
     status: normaliseTransportStatus(clean(formData.get("status")) || "planned", {
@@ -213,6 +217,7 @@ async function updateTransportJob(formData: FormData) {
       operatorId,
       transportDate,
       collectionTime,
+      deliveryDate,
       deliveryTime,
     }),
     price: agreedSellRate,
@@ -486,7 +491,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      label="Transport date"
+                      label="Collection date"
                       name="transport_date"
                       type="date"
                       defaultValue={(item as any).transport_date ?? ""}
@@ -497,6 +502,13 @@ export default async function TransportJobDetailPage({
                       name="collection_time"
                       defaultValue={(item as any).collection_time ?? ""}
                       options={timeOptions}
+                    />
+
+                    <Field
+                      label="Delivery date"
+                      name="delivery_date"
+                      type="date"
+                      defaultValue={(item as any).delivery_date ?? (item as any).transport_date ?? ""}
                     />
 
                     <SelectField
@@ -729,6 +741,10 @@ export default async function TransportJobDetailPage({
                   label="Linked crane job"
                   value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
                 />
+                <InfoRow label="Collection date" value={(item as any).transport_date ?? "—"} />
+                <InfoRow label="Collection time" value={(item as any).collection_time ?? "—"} />
+                <InfoRow label="Delivery date" value={(item as any).delivery_date ?? (item as any).transport_date ?? "—"} />
+                <InfoRow label="Delivery time" value={(item as any).delivery_time ?? "—"} />
                 <InfoRow label="Status" value={(item as any).status ?? "—"} />
                 <InfoRow label="Charge rate" value={fmtMoney((item as any).agreed_sell_rate ?? (item as any).price)} />
                 <InfoRow label="Supplier cost" value={fmtMoney((item as any).supplier_cost)} />
