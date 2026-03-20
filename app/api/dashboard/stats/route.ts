@@ -5,19 +5,6 @@ function isoDate(d = new Date()) {
   return d.toISOString().slice(0, 10);
 }
 
-function startOfTodayIso() {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function endOfNext7DaysIso() {
-  const d = new Date();
-  d.setDate(d.getDate() + 7);
-  d.setHours(23, 59, 59, 999);
-  return d.toISOString();
-}
-
 function plusDaysDate(days: number) {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -43,7 +30,6 @@ export async function GET() {
   }
 
   const today = isoDate();
-  const next7DaysIso = endOfNext7DaysIso();
   const in30Days = plusDaysDate(30);
 
   const [
