@@ -14,23 +14,6 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-function getMasterAdminEmail() {
-  return String(
-    process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
-      process.env.MASTER_ADMIN_EMAIL ??
-      ""
-  )
-    .trim()
-    .toLowerCase();
-}
-
-function isMasterAdminEmail(email: string | null | undefined) {
-  const normalisedEmail = String(email ?? "").trim().toLowerCase();
-  const masterAdminEmail = getMasterAdminEmail();
-
-  return !!normalisedEmail && !!masterAdminEmail && normalisedEmail === masterAdminEmail;
-}
-
 function isOperatorArea(pathname: string) {
   return pathname.startsWith("/operator");
 }
@@ -98,10 +81,30 @@ export default function ClientShell({
         return;
       }
 
+      const mustChangePassword = Boolean(
+        (user.user_metadata as any)?.must_change_password === true
+      );
+
+      if (mustChangePassword && pathname !== "/change-password") {
+        window.location.href = "/change-password";
+        return;
+      }
+
+      if (!mustChangePassword && pathname === "/change-password") {
+        window.location.href = "/";
+        return;
+      }
+
       const email = String(user.email ?? "").trim().toLowerCase();
       const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
 
-      const isMaster = isMasterAdminEmail(email);
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
 
       let resolvedRole: "admin" | "staff" | "operator" | "" = isMaster
         ? "admin"
@@ -119,8 +122,7 @@ export default function ClientShell({
 
           return (
             (!!operatorEmail && operatorEmail === email) ||
-            (!!operatorName && operatorName === usernameFromEmail) ||
-            (!!usernameFromEmail && !!operatorEmail && operatorEmail.startsWith(`${usernameFromEmail}@`))
+            (!!operatorName && operatorName === usernameFromEmail)
           );
         });
 
@@ -145,11 +147,20 @@ export default function ClientShell({
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return;
 
       if (!session?.user) {
         window.location.href = "/login";
+        return;
+      }
+
+      const mustChangePassword = Boolean(
+        (session.user.user_metadata as any)?.must_change_password === true
+      );
+
+      if (mustChangePassword && pathname !== "/change-password") {
+        window.location.href = "/change-password";
       }
     });
 
