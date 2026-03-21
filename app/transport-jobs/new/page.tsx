@@ -100,6 +100,47 @@ function normaliseTransportStatus(
   return canConfirm ? "confirmed" : "planned";
 }
 
+async function resolveClientId(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  selectedClientId: string | null,
+  otherCustomerName: string | null
+) {
+  if (selectedClientId && selectedClientId !== "other") {
+    return selectedClientId;
+  }
+
+  if (!otherCustomerName) {
+    return null;
+  }
+
+  const { data: existingClients } = await supabase
+    .from("clients")
+    .select("id, company_name")
+    .ilike("company_name", otherCustomerName)
+    .limit(1);
+
+  if (existingClients?.[0]?.id) {
+    return existingClients[0].id;
+  }
+
+  const { data: insertedClient, error: insertClientError } = await supabase
+    .from("clients")
+    .insert([
+      {
+        company_name: otherCustomerName,
+        notes: "Auto-created from Other customer during transport job creation.",
+      },
+    ])
+    .select("id")
+    .single();
+
+  if (insertClientError || !insertedClient?.id) {
+    return null;
+  }
+
+  return insertedClient.id;
+}
+
 async function createTransportJob(formData: FormData) {
   "use server";
 
@@ -109,9 +150,11 @@ async function createTransportJob(formData: FormData) {
     clean(formData.get("transport_number")) || generateTransportNumber();
 
   const linkedJobId = clean(formData.get("linked_job_id")) || null;
-  const linkedTransportJobIdRaw = clean(formData.get("linked_transport_job_id")) || null;
-  const linkedTransportJobId = linkedTransportJobIdRaw || null;
-  const clientId = clean(formData.get("client_id")) || null;
+  const linkedTransportJobId = clean(formData.get("linked_transport_job_id")) || null;
+
+  const rawClientId = clean(formData.get("client_id")) || null;
+  const otherCustomerName = clean(formData.get("other_customer_name")) || null;
+
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
 
@@ -130,6 +173,16 @@ async function createTransportJob(formData: FormData) {
           .filter(Boolean)
           .join(" | ") || null
       : supplierReferenceInput || null;
+
+  if (rawClientId === "other" && !otherCustomerName) {
+    redirect(
+      `/transport-jobs/new?error=${encodeURIComponent(
+        "Please enter the customer name when Customer is set to Other."
+      )}`
+    );
+  }
+
+  const clientId = await resolveClientId(supabase, rawClientId, otherCustomerName);
 
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
@@ -167,6 +220,12 @@ async function createTransportJob(formData: FormData) {
       `/transport-jobs/new?error=${encodeURIComponent(
         "Pickup address, delivery address and collection date are required."
       )}`
+    );
+  }
+
+  if (!clientId) {
+    redirect(
+      `/transport-jobs/new?error=${encodeURIComponent("Customer is required.")}`
     );
   }
 
@@ -413,13 +472,26 @@ export default async function NewTransportJobPage({
                 />
 
                 <SelectField
+                  id="client_id"
                   label="Customer"
                   name="client_id"
-                  options={(clients ?? []).map((c: any) => ({
-                    value: c.id,
-                    label: c.company_name ?? "Customer",
-                  }))}
+                  options={[
+                    ...(clients ?? []).map((c: any) => ({
+                      value: c.id,
+                      label: c.company_name ?? "Customer",
+                    })),
+                    { value: "other", label: "Other" },
+                  ]}
                 />
+
+                <div id="other_customer_wrap" style={{ display: "none" }}>
+                  <Field
+                    id="other_customer_name"
+                    label="Other customer name"
+                    name="other_customer_name"
+                    placeholder="Enter customer company name"
+                  />
+                </div>
 
                 <SelectField
                   label="Vehicle"
@@ -641,18 +713,10 @@ export default async function NewTransportJobPage({
               </div>
             </details>
 
-            <div style={stickySaveBar}>
-              <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 700 }}>
-                Check dates, allocation and invoice values before saving.
-              </div>
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <a href="/transport-jobs" style={secondaryActionBtn}>
-                  Cancel
-                </a>
-                <button type="submit" style={saveBtn}>
-                  Save transport job
-                </button>
-              </div>
+            <div>
+              <button type="submit" style={saveBtn}>
+                Save transport job
+              </button>
             </div>
           </form>
 
@@ -664,23 +728,23 @@ export default async function NewTransportJobPage({
 }
 
 function Field({
+  id,
   label,
   name,
   defaultValue,
   type = "text",
-  id,
-  step,
   placeholder,
   readOnly = false,
+  step,
 }: {
+  id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
-  id?: string;
-  step?: string;
   placeholder?: string;
   readOnly?: boolean;
+  step?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -690,27 +754,27 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         type={type}
-        step={step}
         placeholder={placeholder}
+        style={inputStyle}
         readOnly={readOnly}
-        style={readOnly ? readOnlyInputStyle : inputStyle}
+        step={step}
       />
     </div>
   );
 }
 
 function SelectField({
+  id,
   label,
   name,
   defaultValue,
   options,
-  id,
 }: {
+  id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   options: Array<{ value: string; label: string }>;
-  id?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -749,18 +813,6 @@ const detailsCard: React.CSSProperties = {
   padding: 16,
 };
 
-const sectionTitle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 900,
-  marginBottom: 8,
-};
-
-const sectionHelp: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.76,
-  marginBottom: 12,
-};
-
 const detailsSummary: React.CSSProperties = {
   cursor: "pointer",
   fontSize: 18,
@@ -769,8 +821,20 @@ const detailsSummary: React.CSSProperties = {
 
 const detailsHelp: React.CSSProperties = {
   fontSize: 13,
-  opacity: 0.76,
-  marginTop: 10,
+  opacity: 0.78,
+  marginTop: 8,
+  marginBottom: 12,
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 900,
+  marginBottom: 8,
+};
+
+const sectionHelp: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.78,
   marginBottom: 12,
 };
 
@@ -804,12 +868,6 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const readOnlyInputStyle: React.CSSProperties = {
-  ...inputStyle,
-  background: "rgba(240,240,240,0.95)",
-  color: "#333",
-};
-
 const textareaStyle: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
@@ -829,33 +887,6 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-};
-
-const secondaryActionBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.65)",
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const stickySaveBar: React.CSSProperties = {
-  position: "sticky",
-  bottom: 12,
-  zIndex: 5,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  padding: "14px 16px",
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.88)",
-  border: "1px solid rgba(0,0,0,0.10)",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
 };
 
 const saveBtn: React.CSSProperties = {
