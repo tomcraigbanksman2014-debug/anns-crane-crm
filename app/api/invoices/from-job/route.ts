@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { writeAuditLog } from "../../../lib/audit";
 
 function makeInvoiceNumber() {
   const d = new Date();
@@ -15,7 +16,12 @@ function makeInvoiceNumber() {
 function addDaysIso(days: number) {
   const d = new Date();
   d.setDate(d.getDate() + days);
-  return d.toISOString();
+  return d.toISOString().slice(0, 10);
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 export async function POST(req: Request) {
@@ -28,6 +34,15 @@ export async function POST(req: Request) {
     }
 
     const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
 
     const { data: job, error: readError } = await supabase
       .from("jobs")
@@ -43,6 +58,7 @@ export async function POST(req: Request) {
         invoice_subtotal,
         invoice_vat,
         invoice_total,
+        total_invoice,
         cross_hire_cost_total
       `)
       .eq("id", jobId)
@@ -57,16 +73,21 @@ export async function POST(req: Request) {
 
     const subtotal = Number(job.invoice_subtotal ?? job.cross_hire_cost_total ?? 0) || 0;
     const vat = Number(job.invoice_vat ?? subtotal * 0.2) || 0;
-    const total = Number(job.invoice_total ?? subtotal + vat) || 0;
+    const total = Number(job.invoice_total ?? job.total_invoice ?? subtotal + vat) || 0;
+
+    const invoiceNumber = job.invoice_number || makeInvoiceNumber();
+    const createdAt = job.invoice_created_at || new Date().toISOString();
+    const dueDate = job.invoice_due_date || addDaysIso(30);
 
     const payload = {
-      invoice_status: "ready_to_send",
-      invoice_number: job.invoice_number || makeInvoiceNumber(),
-      invoice_created_at: job.invoice_created_at || new Date().toISOString(),
-      invoice_due_date: job.invoice_due_date || addDaysIso(30),
+      invoice_status: "Not Invoiced",
+      invoice_number: invoiceNumber,
+      invoice_created_at: createdAt,
+      invoice_due_date: dueDate,
       invoice_subtotal: subtotal,
       invoice_vat: vat,
       invoice_total: total,
+      total_invoice: total,
       updated_at: new Date().toISOString(),
     };
 
@@ -75,6 +96,22 @@ export async function POST(req: Request) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeAuditLog({
+      actor_user_id: user.id,
+      actor_username: fromAuthEmail(user.email ?? null) || null,
+      action: "job_invoice_generated",
+      entity_type: "job",
+      entity_id: jobId,
+      meta: {
+        job_number: job.job_number ?? null,
+        invoice_number: invoiceNumber,
+        subtotal,
+        vat,
+        total,
+        source: "legacy_create_invoice_button",
+      },
+    });
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
