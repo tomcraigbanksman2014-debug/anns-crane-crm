@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { buildQuarterHourOptions, normaliseTimeValue } from "../app/lib/timeOptions";
 
 export default function TransportQuickEditPanel({
   job,
@@ -9,6 +10,7 @@ export default function TransportQuickEditPanel({
   onClose,
 }: any) {
   const [loading, setLoading] = useState(false);
+  const timeOptions = buildQuarterHourOptions();
 
   async function handleSave(formData: FormData) {
     setLoading(true);
@@ -61,10 +63,24 @@ export default function TransportQuickEditPanel({
           </select>
 
           <label>Collection Time</label>
-          <input type="time" name="collection_time" defaultValue={job.collection_time || ""} />
+          <select name="collection_time" defaultValue={normaliseTimeValue(job.collection_time || "")}>
+            <option value="">—</option>
+            {timeOptions.map((option) => (
+              <option key={`collection_time-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
 
           <label>Delivery Time</label>
-          <input type="time" name="delivery_time" defaultValue={job.delivery_time || ""} />
+          <select name="delivery_time" defaultValue={normaliseTimeValue(job.delivery_time || "")}>
+            <option value="">—</option>
+            {timeOptions.map((option) => (
+              <option key={`delivery_time-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
 
           <label>Notes</label>
           <textarea name="notes" defaultValue={job.notes || ""} />
