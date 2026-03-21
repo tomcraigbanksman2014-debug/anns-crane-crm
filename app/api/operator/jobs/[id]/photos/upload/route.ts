@@ -112,7 +112,7 @@ export async function POST(
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "create",
+      action: "operator_job_photo_uploaded",
       entity_type: "operator_photo_upload",
       entity_id: params.id,
       meta: {
