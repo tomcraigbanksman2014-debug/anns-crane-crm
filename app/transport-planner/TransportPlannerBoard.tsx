@@ -183,6 +183,57 @@ function inferAutoStatus(update: Record<string, any>, current: PlannerTransportJ
   return nextStatus;
 }
 
+function buildDropUpdate(
+  job: PlannerTransportJob,
+  targetDay: string,
+  targetVehicleId: string | null
+) {
+  const currentStart = job.transport_date ?? null;
+  const currentEnd = job.delivery_date ?? job.transport_date ?? null;
+
+  if (!currentStart) {
+    return {
+      vehicle_id: targetVehicleId,
+      transport_date: targetDay,
+      delivery_date: targetDay,
+    };
+  }
+
+  const touchedDays = eachDayInRange(currentStart, currentEnd);
+
+  if (touchedDays.includes(targetDay)) {
+    return {
+      vehicle_id: targetVehicleId,
+    };
+  }
+
+  const from = new Date(`${currentStart}T00:00:00`);
+  const to = new Date(`${targetDay}T00:00:00`);
+  const end = new Date(`${currentEnd}T00:00:00`);
+
+  if (
+    Number.isNaN(from.getTime()) ||
+    Number.isNaN(to.getTime()) ||
+    Number.isNaN(end.getTime())
+  ) {
+    return {
+      vehicle_id: targetVehicleId,
+      transport_date: targetDay,
+      delivery_date: targetDay,
+    };
+  }
+
+  const dayOffset = Math.round((to.getTime() - from.getTime()) / 86400000);
+  const shiftedEnd = new Date(end);
+  shiftedEnd.setDate(shiftedEnd.getDate() + dayOffset);
+
+  return {
+    vehicle_id: targetVehicleId,
+    transport_date: targetDay,
+    delivery_date: dateOnly(shiftedEnd),
+  };
+}
+
 function cardTheme(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
@@ -759,10 +810,12 @@ export default function TransportPlannerBoard() {
                           e.preventDefault();
                           const jobId = e.dataTransfer.getData("text/plain");
                           if (!jobId) return;
-                          await updateTransportJob(jobId, {
-                            vehicle_id: vehicle.id,
-                            transport_date: day.date,
-                          });
+                          const draggedJob = data.jobs.find((job) => job.id === jobId);
+                          if (!draggedJob) return;
+                          await updateTransportJob(
+                            jobId,
+                            buildDropUpdate(draggedJob, day.date, vehicle.id)
+                          );
                         }}
                       >
                         {jobs.length === 0 ? (
