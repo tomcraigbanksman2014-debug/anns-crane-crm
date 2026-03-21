@@ -126,7 +126,7 @@ export async function POST(
       await writeAuditLog({
         actor_user_id: user.id,
         actor_username: user.email ? user.email.split("@")[0] : null,
-        action: "update",
+        action: "lift_plan_updated",
         entity_type: "lift_plan",
         entity_id: existing.id,
         meta: { job_id: params.id },
@@ -148,7 +148,7 @@ export async function POST(
       await writeAuditLog({
         actor_user_id: user.id,
         actor_username: user.email ? user.email.split("@")[0] : null,
-        action: "create",
+        action: "lift_plan_created",
         entity_type: "lift_plan",
         entity_id: inserted.id,
         meta: { job_id: params.id },
