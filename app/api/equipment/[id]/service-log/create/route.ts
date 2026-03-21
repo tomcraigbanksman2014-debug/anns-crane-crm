@@ -76,7 +76,7 @@ export async function POST(
     await writeAuditLog({
       actor_user_id: auth.user.id,
       actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
-      action: "create",
+      action: "equipment_service_log_created",
       entity_type: "equipment_service_log",
       entity_id: data?.id ?? null,
       meta: {
