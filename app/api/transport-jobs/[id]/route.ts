@@ -86,6 +86,10 @@ export async function PATCH(
         body.linked_job_id !== undefined
           ? clean(body.linked_job_id)
           : existing.linked_job_id,
+      linked_transport_job_id:
+        body.linked_transport_job_id !== undefined
+          ? (clean(body.linked_transport_job_id) === params.id ? null : clean(body.linked_transport_job_id))
+          : existing.linked_transport_job_id,
       client_id:
         body.client_id !== undefined ? clean(body.client_id) : existing.client_id,
       vehicle_id:
