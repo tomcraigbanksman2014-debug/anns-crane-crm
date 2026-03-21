@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  buildQuarterHourOptions,
+  normaliseTimeValue,
+} from "../../lib/timeOptions";
 
 type Customer = {
   id: string;
@@ -43,6 +47,7 @@ export default function JobForm({
   job?: Job;
 }) {
   const router = useRouter();
+  const timeOptions = buildQuarterHourOptions();
 
   const [clientId, setClientId] = useState(job?.client_id ?? "");
   const [equipmentId, setEquipmentId] = useState(job?.equipment_id ?? "");
@@ -53,8 +58,8 @@ export default function JobForm({
   const [jobDate, setJobDate] = useState(
     job?.job_date ?? new Date().toISOString().slice(0, 10)
   );
-  const [startTime, setStartTime] = useState(job?.start_time ?? "");
-  const [endTime, setEndTime] = useState(job?.end_time ?? "");
+  const [startTime, setStartTime] = useState(normaliseTimeValue(job?.start_time) || "");
+  const [endTime, setEndTime] = useState(normaliseTimeValue(job?.end_time) || "");
   const [status, setStatus] = useState(job?.status ?? "draft");
   const [hireType, setHireType] = useState(job?.hire_type ?? "");
   const [liftType, setLiftType] = useState(job?.lift_type ?? "");
@@ -170,21 +175,33 @@ export default function JobForm({
         </Field>
 
         <Field span={4} label="Start time">
-          <input
-            type="time"
+          <select
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
             style={input}
-          />
+          >
+            <option value="">Select time</option>
+            {timeOptions.map((option) => (
+              <option key={`start-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field span={4} label="End time">
-          <input
-            type="time"
+          <select
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
             style={input}
-          />
+          >
+            <option value="">Select time</option>
+            {timeOptions.map((option) => (
+              <option key={`end-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field span={6} label="Site name">
