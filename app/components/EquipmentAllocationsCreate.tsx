@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { buildQuarterHourOptions, normaliseTimeValue } from "../lib/timeOptions";
 
 type Option = {
   value: string;
@@ -33,8 +34,8 @@ function emptyRow(defaultDate = "", defaultStartTime = "", defaultEndTime = ""):
     item_name: "",
     start_date: defaultDate,
     end_date: defaultDate,
-    start_time: defaultStartTime,
-    end_time: defaultEndTime,
+    start_time: normaliseTimeValue(defaultStartTime),
+    end_time: normaliseTimeValue(defaultEndTime),
     agreed_cost: "0",
     supplier_reference: "",
     notes: "",
@@ -62,6 +63,7 @@ export default function EquipmentAllocationsCreate({
   defaultEndTime?: string;
   title?: string;
 }) {
+  const timeOptions = useMemo(() => buildQuarterHourOptions(), []);
   const [rows, setRows] = useState<AllocationDraft[]>([
     emptyRow(defaultDate, defaultStartTime, defaultEndTime),
   ]);
@@ -75,7 +77,10 @@ export default function EquipmentAllocationsCreate({
   }
 
   function addRow() {
-    setRows((prev) => [...prev, emptyRow(defaultDate, defaultStartTime, defaultEndTime)]);
+    setRows((prev) => [
+      ...prev,
+      emptyRow(defaultDate, defaultStartTime, defaultEndTime),
+    ]);
   }
 
   function removeRow(index: number) {
@@ -134,7 +139,9 @@ export default function EquipmentAllocationsCreate({
                   { value: "owned", label: "Owned" },
                   { value: "cross_hire", label: "Cross Hire" },
                 ]}
-                onChange={(value) => updateRow(index, "source_type", value as "owned" | "cross_hire")}
+                onChange={(value) =>
+                  updateRow(index, "source_type", value as "owned" | "cross_hire")
+                }
               />
 
               <TextField
@@ -157,17 +164,17 @@ export default function EquipmentAllocationsCreate({
                 onChange={(value) => updateRow(index, "end_date", value)}
               />
 
-              <TextField
+              <SelectField
                 label="Start time"
-                type="time"
                 value={row.start_time}
+                options={timeOptions}
                 onChange={(value) => updateRow(index, "start_time", value)}
               />
 
-              <TextField
+              <SelectField
                 label="End time"
-                type="time"
                 value={row.end_time}
+                options={timeOptions}
                 onChange={(value) => updateRow(index, "end_time", value)}
               />
 
@@ -236,7 +243,7 @@ function SelectField({
       <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={`${label}-${option.value}`} value={option.value}>
             {option.label}
           </option>
         ))}
