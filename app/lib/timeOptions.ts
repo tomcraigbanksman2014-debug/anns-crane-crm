@@ -11,10 +11,7 @@ export function buildQuarterHourOptions(): TimeOption[] {
       const hh = String(hour).padStart(2, "0");
       const mm = String(minute).padStart(2, "0");
       const value = `${hh}:${mm}`;
-      options.push({
-        value,
-        label: value,
-      });
+      options.push({ value, label: value });
     }
   }
 
