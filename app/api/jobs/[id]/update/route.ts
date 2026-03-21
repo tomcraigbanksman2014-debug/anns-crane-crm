@@ -11,6 +11,8 @@ type Payload = {
   contact_name?: string | null;
   contact_phone?: string | null;
   job_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
   status?: "draft" | "confirmed" | "in_progress" | "completed" | "cancelled";
@@ -42,6 +44,24 @@ export async function PATCH(
 
     const body = (await req.json().catch(() => ({}))) as Payload;
 
+    const startDate = norm(body.start_date) ?? norm(body.job_date);
+    const endDate = norm(body.end_date) ?? startDate;
+
+    if (!startDate) {
+      return NextResponse.json({ error: "Job start date is required" }, { status: 400 });
+    }
+
+    if (!endDate) {
+      return NextResponse.json({ error: "Job end date is required" }, { status: 400 });
+    }
+
+    if (endDate < startDate) {
+      return NextResponse.json(
+        { error: "Job end date cannot be earlier than job start date" },
+        { status: 400 }
+      );
+    }
+
     const payload = {
       client_id: norm(body.client_id),
       equipment_id: norm(body.equipment_id),
@@ -50,7 +70,9 @@ export async function PATCH(
       site_address: norm(body.site_address),
       contact_name: norm(body.contact_name),
       contact_phone: norm(body.contact_phone),
-      job_date: norm(body.job_date),
+      job_date: startDate,
+      start_date: startDate,
+      end_date: endDate,
       start_time: norm(body.start_time),
       end_time: norm(body.end_time),
       status: norm(body.status) ?? "draft",
@@ -58,10 +80,6 @@ export async function PATCH(
       lift_type: norm(body.lift_type),
       notes: norm(body.notes),
     };
-
-    if (!payload.job_date) {
-      return NextResponse.json({ error: "Job date is required" }, { status: 400 });
-    }
 
     const { error } = await supabase
       .from("jobs")
@@ -82,6 +100,8 @@ export async function PATCH(
         client_id: payload.client_id,
         equipment_id: payload.equipment_id,
         job_date: payload.job_date,
+        start_date: payload.start_date,
+        end_date: payload.end_date,
         status: payload.status,
         site_name: payload.site_name,
       },
