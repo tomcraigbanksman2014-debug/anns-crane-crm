@@ -32,6 +32,47 @@ function quoteToJobStatus(value: string | undefined) {
   return "draft";
 }
 
+async function resolveClientId(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  selectedClientId: string | null,
+  otherCustomerName: string | null
+) {
+  if (selectedClientId && selectedClientId !== "other") {
+    return selectedClientId;
+  }
+
+  if (!otherCustomerName) {
+    return null;
+  }
+
+  const { data: existingClients } = await supabase
+    .from("clients")
+    .select("id, company_name")
+    .ilike("company_name", otherCustomerName)
+    .limit(1);
+
+  if (existingClients?.[0]?.id) {
+    return existingClients[0].id;
+  }
+
+  const { data: insertedClient, error: insertClientError } = await supabase
+    .from("clients")
+    .insert([
+      {
+        company_name: otherCustomerName,
+        notes: "Auto-created from Other customer during job creation.",
+      },
+    ])
+    .select("id")
+    .single();
+
+  if (insertClientError || !insertedClient?.id) {
+    return null;
+  }
+
+  return insertedClient.id;
+}
+
 async function createJob(formData: FormData) {
   "use server";
 
@@ -39,6 +80,8 @@ async function createJob(formData: FormData) {
 
   const primarySelection = clean(formData.get("primary_equipment_selection"));
   const otherItemName = clean(formData.get("other_item_name"));
+  const rawClientId = clean(formData.get("client_id")) || null;
+  const otherCustomerName = clean(formData.get("other_customer_name")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
   const jobDate = clean(formData.get("job_date")) || null;
   const startTime = clean(formData.get("start_time")) || null;
@@ -58,8 +101,18 @@ async function createJob(formData: FormData) {
     allocationAssetType = otherItemName ? "other" : null;
   }
 
+  if (rawClientId === "other" && !otherCustomerName) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        "Please enter the customer name when Customer is set to Other."
+      )}`
+    );
+  }
+
+  const clientId = await resolveClientId(supabase, rawClientId, otherCustomerName);
+
   const payload: Record<string, any> = {
-    client_id: clean(formData.get("client_id")) || null,
+    client_id: clientId,
     equipment_id: primaryEquipmentId,
     operator_id: operatorId,
     site_name: clean(formData.get("site_name")) || null,
@@ -240,14 +293,34 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Customer *</label>
-              <select name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
+              <select
+                id="client_id"
+                name="client_id"
+                style={inputStyle}
+                defaultValue={prefilledClientId}
+              >
                 <option value="">— Select customer —</option>
                 {(clients ?? []).map((client: any) => (
                   <option key={client.id} value={client.id}>
                     {client.company_name ?? "Customer"}
                   </option>
                 ))}
+                <option value="other">Other</option>
               </select>
+            </div>
+
+            <div
+              id="other_customer_wrap"
+              style={{ display: prefilledClientId === "other" ? "grid" : "none", gap: 6 }}
+            >
+              <label style={labelStyle}>Other customer name *</label>
+              <input
+                id="other_customer_name"
+                name="other_customer_name"
+                style={inputStyle}
+                defaultValue={prefilledClientId === "other" ? prefilledCompany : ""}
+                placeholder="Enter customer company name"
+              />
             </div>
 
             <div style={fieldWrap}>
@@ -438,6 +511,31 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           </form>
         </div>
       </div>
+
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            (function () {
+              var customerSelect = document.getElementById("client_id");
+              var otherCustomerWrap = document.getElementById("other_customer_wrap");
+              var otherCustomerInput = document.getElementById("other_customer_name");
+
+              function toggleOtherCustomer() {
+                if (!customerSelect || !otherCustomerWrap || !otherCustomerInput) return;
+                var isOther = customerSelect.value === "other";
+                otherCustomerWrap.style.display = isOther ? "grid" : "none";
+                otherCustomerInput.required = isOther;
+                if (!isOther) otherCustomerInput.value = "";
+              }
+
+              if (customerSelect) {
+                customerSelect.addEventListener("change", toggleOtherCustomer);
+                toggleOtherCustomer();
+              }
+            })();
+          `,
+        }}
+      />
     </ClientShell>
   );
 }
