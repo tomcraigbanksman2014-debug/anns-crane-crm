@@ -102,6 +102,7 @@ export async function POST(req: Request) {
     const payload: Record<string, any> = {
       transport_number: clean(body.transport_number) || `TR-${stamp}`,
       linked_job_id: clean(body.linked_job_id),
+      linked_transport_job_id: clean(body.linked_transport_job_id),
       client_id: clean(body.client_id),
       vehicle_id: clean(body.vehicle_id),
       operator_id: clean(body.operator_id),
