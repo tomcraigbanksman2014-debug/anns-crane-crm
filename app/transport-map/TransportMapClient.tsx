@@ -170,6 +170,7 @@ const pickupIcon = createColoredIcon("#2563eb", "P");
 const deliveryIcon = createColoredIcon("#16a34a", "D");
 const liveIcon = createColoredIcon("#f97316", "L");
 const defaultCenter: LatLngExpression = [53.5, -2.5];
+const MAX_ROUTE_JOBS = 20;
 
 function FitMapToMarkers({
   points,
@@ -267,7 +268,7 @@ function milesFromMeters(meters: number | null) {
   return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
-function mapsUrl(_label: string, lat: number | null, lng: number | null, address?: string | null) {
+function mapsUrl(lat: number | null, lng: number | null, address?: string | null) {
   if (typeof lat === "number" && typeof lng === "number") {
     return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${lat},${lng}`)}`;
   }
@@ -403,6 +404,7 @@ export default function TransportMapClient() {
           .eq("archived", false)
           .order("transport_date", { ascending: true })
           .order("collection_time", { ascending: true }),
+
         supabase
           .from("driver_locations")
           .select(`
@@ -424,11 +426,16 @@ export default function TransportMapClient() {
         setError(jobsRes.error.message);
         setItems([]);
         setLocations([]);
-      } else {
-        setItems((jobsRes.data ?? []) as TransportItem[]);
-        setLocations((locationsRes.data ?? []) as DriverLocation[]);
+        setLoading(false);
+        return;
       }
 
+      if (locationsRes.error) {
+        setError(`Live tracking error: ${locationsRes.error.message}`);
+      }
+
+      setItems((jobsRes.data ?? []) as TransportItem[]);
+      setLocations((locationsRes.data ?? []) as DriverLocation[]);
       setLoading(false);
     }
 
@@ -531,64 +538,79 @@ export default function TransportMapClient() {
       const nextEtas: Record<string, EtaInfo> = {};
       const nextRoutes: Record<string, RouteInfo> = {};
 
-      for (const item of filtered) {
-        const pickupOk = hasCoords(item.collection_lat, item.collection_lng);
-        const deliveryOk = hasCoords(item.delivery_lat, item.delivery_lng);
+      const limited = filtered.slice(0, MAX_ROUTE_JOBS);
 
-        if (pickupOk && deliveryOk) {
-          const pickupToDelivery = await fetchRoadRoute(
-            Number(item.collection_lat),
-            Number(item.collection_lng),
-            Number(item.delivery_lat),
-            Number(item.delivery_lng)
-          );
+      await Promise.all(
+        limited.map(async (item) => {
+          const pickupOk = hasCoords(item.collection_lat, item.collection_lng);
+          const deliveryOk = hasCoords(item.delivery_lat, item.delivery_lng);
+          const live = latestLocationByJob.get(item.id);
 
-          if (pickupToDelivery && pickupToDelivery.path.length > 0) {
-            nextRoutes[item.id] = pickupToDelivery;
-          }
-        }
+          const tasks: Promise<void>[] = [];
 
-        const live = latestLocationByJob.get(item.id);
+          if (pickupOk && deliveryOk) {
+            tasks.push(
+              (async () => {
+                const pickupToDelivery = await fetchRoadRoute(
+                  Number(item.collection_lat),
+                  Number(item.collection_lng),
+                  Number(item.delivery_lat),
+                  Number(item.delivery_lng)
+                );
 
-        if (live && hasCoords(Number(live.lat), Number(live.lng))) {
-          const liveLat = Number(live.lat);
-          const liveLng = Number(live.lng);
-
-          let toPickupText = "—";
-          let toDeliveryText = "—";
-
-          if (pickupOk) {
-            const liveToPickup = await fetchRoadRoute(
-              liveLat,
-              liveLng,
-              Number(item.collection_lat),
-              Number(item.collection_lng)
+                if (pickupToDelivery && pickupToDelivery.path.length > 0) {
+                  nextRoutes[item.id] = pickupToDelivery;
+                }
+              })()
             );
-
-            if (liveToPickup && typeof liveToPickup.durationSeconds === "number") {
-              toPickupText = minsToText(liveToPickup.durationSeconds / 60);
-            }
           }
 
-          if (deliveryOk) {
-            const liveToDelivery = await fetchRoadRoute(
-              liveLat,
-              liveLng,
-              Number(item.delivery_lat),
-              Number(item.delivery_lng)
+          if (live && hasCoords(Number(live.lat), Number(live.lng))) {
+            const liveLat = Number(live.lat);
+            const liveLng = Number(live.lng);
+
+            tasks.push(
+              (async () => {
+                let toPickupText = "—";
+                let toDeliveryText = "—";
+
+                if (pickupOk) {
+                  const liveToPickup = await fetchRoadRoute(
+                    liveLat,
+                    liveLng,
+                    Number(item.collection_lat),
+                    Number(item.collection_lng)
+                  );
+
+                  if (liveToPickup && typeof liveToPickup.durationSeconds === "number") {
+                    toPickupText = minsToText(liveToPickup.durationSeconds / 60);
+                  }
+                }
+
+                if (deliveryOk) {
+                  const liveToDelivery = await fetchRoadRoute(
+                    liveLat,
+                    liveLng,
+                    Number(item.delivery_lat),
+                    Number(item.delivery_lng)
+                  );
+
+                  if (liveToDelivery && typeof liveToDelivery.durationSeconds === "number") {
+                    toDeliveryText = minsToText(liveToDelivery.durationSeconds / 60);
+                  }
+                }
+
+                nextEtas[item.id] = {
+                  toPickup: toPickupText,
+                  toDelivery: toDeliveryText,
+                };
+              })()
             );
-
-            if (liveToDelivery && typeof liveToDelivery.durationSeconds === "number") {
-              toDeliveryText = minsToText(liveToDelivery.durationSeconds / 60);
-            }
           }
 
-          nextEtas[item.id] = {
-            toPickup: toPickupText,
-            toDelivery: toDeliveryText,
-          };
-        }
-      }
+          await Promise.all(tasks);
+        })
+      );
 
       if (!cancelled) {
         setEtas(nextEtas);
@@ -699,6 +721,12 @@ export default function TransportMapClient() {
           <Stat label="In Progress" value={String(inProgressCount)} />
           <Stat label="Completed" value={String(completedCount)} />
         </div>
+
+        {filtered.length > MAX_ROUTE_JOBS ? (
+          <div style={infoSubBox}>
+            Showing route and ETA calculations for the first {MAX_ROUTE_JOBS} jobs in the filtered list to keep the control screen responsive.
+          </div>
+        ) : null}
       </div>
 
       {loading ? (
@@ -767,8 +795,9 @@ export default function TransportMapClient() {
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
                             <div style={{ marginTop: 10 }}>
                               <a
-                                href={mapsUrl("Pickup", Number(item.collection_lat), Number(item.collection_lng), item.collection_address)}
+                                href={mapsUrl(Number(item.collection_lat), Number(item.collection_lng), item.collection_address)}
                                 target="_blank"
+                                rel="noreferrer"
                                 style={linkBtn}
                               >
                                 Navigate to pickup
@@ -794,8 +823,9 @@ export default function TransportMapClient() {
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
                             <div style={{ marginTop: 10 }}>
                               <a
-                                href={mapsUrl("Delivery", Number(item.delivery_lat), Number(item.delivery_lng), item.delivery_address)}
+                                href={mapsUrl(Number(item.delivery_lat), Number(item.delivery_lng), item.delivery_address)}
                                 target="_blank"
+                                rel="noreferrer"
                                 style={linkBtn}
                               >
                                 Navigate to delivery
@@ -943,16 +973,18 @@ export default function TransportMapClient() {
                       ) : null}
 
                       <a
-                        href={mapsUrl("Pickup", item.collection_lat, item.collection_lng, item.collection_address)}
+                        href={mapsUrl(item.collection_lat, item.collection_lng, item.collection_address)}
                         target="_blank"
+                        rel="noreferrer"
                         style={linkBtn}
                       >
                         Pickup nav
                       </a>
 
                       <a
-                        href={mapsUrl("Delivery", item.delivery_lat, item.delivery_lng, item.delivery_address)}
+                        href={mapsUrl(item.delivery_lat, item.delivery_lng, item.delivery_address)}
                         target="_blank"
+                        rel="noreferrer"
                         style={linkBtn}
                       >
                         Delivery nav
@@ -1110,6 +1142,15 @@ const infoBox: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   lineHeight: 1.5,
+};
+
+const infoSubBox: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  lineHeight: 1.45,
+  fontSize: 13,
 };
 
 const errorBox: React.CSSProperties = {
