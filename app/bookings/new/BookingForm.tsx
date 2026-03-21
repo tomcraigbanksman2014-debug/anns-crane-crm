@@ -2,6 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  buildQuarterHourOptions,
+  normaliseTimeValue,
+} from "../../lib/timeOptions";
 
 type ClientRow = {
   id: string;
@@ -44,11 +48,6 @@ function toDateInputValue(iso?: string | null) {
   return iso.slice(0, 10);
 }
 
-function toTimeInputValue(iso?: string | null) {
-  if (!iso) return "";
-  return iso.slice(11, 16);
-}
-
 function combineDateTime(date: string, time: string) {
   return `${date}T${time}:00`;
 }
@@ -65,6 +64,7 @@ export default function BookingForm({
   booking?: BookingRow;
 }) {
   const router = useRouter();
+  const timeOptions = buildQuarterHourOptions();
 
   const [clientId, setClientId] = useState<string>(booking?.client_id ?? "");
   const [equipmentId, setEquipmentId] = useState<string>(booking?.equipment_id ?? "");
@@ -73,14 +73,14 @@ export default function BookingForm({
     booking?.start_at ? toDateInputValue(booking.start_at) : booking?.start_date ?? ""
   );
   const [startTime, setStartTime] = useState<string>(
-    booking?.start_at ? toTimeInputValue(booking.start_at) || "08:00" : "08:00"
+    booking?.start_at ? normaliseTimeValue(booking.start_at) || "08:00" : "08:00"
   );
 
   const [endDate, setEndDate] = useState<string>(
     booking?.end_at ? toDateInputValue(booking.end_at) : booking?.end_date ?? ""
   );
   const [endTime, setEndTime] = useState<string>(
-    booking?.end_at ? toTimeInputValue(booking.end_at) || "17:00" : "17:00"
+    booking?.end_at ? normaliseTimeValue(booking.end_at) || "17:00" : "17:00"
   );
 
   const [location, setLocation] = useState<string>(booking?.location ?? "");
@@ -248,7 +248,14 @@ export default function BookingForm({
         </Field>
 
         <Field span={3} label="Start time *">
-          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} style={input} />
+          <select value={startTime} onChange={(e) => setStartTime(e.target.value)} style={input}>
+            <option value="">Select time…</option>
+            {timeOptions.map((option) => (
+              <option key={`booking-start-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field span={3} label="End date *">
@@ -256,7 +263,14 @@ export default function BookingForm({
         </Field>
 
         <Field span={3} label="End time *">
-          <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} style={input} />
+          <select value={endTime} onChange={(e) => setEndTime(e.target.value)} style={input}>
+            <option value="">Select time…</option>
+            {timeOptions.map((option) => (
+              <option key={`booking-end-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <Field span={6} label="Location">
@@ -278,30 +292,33 @@ export default function BookingForm({
           </select>
         </Field>
 
-        <Field span={3} label="PO number">
+        <Field span={3} label="Hire price">
           <input
-            value={poNumber}
-            onChange={(e) => setPoNumber(e.target.value)}
+            type="number"
+            value={hirePrice}
+            onChange={(e) => setHirePrice(e.target.value)}
             style={input}
-            placeholder="Customer PO"
+            placeholder="0.00"
           />
         </Field>
 
-        <Field span={3} label="Job reference">
+        <Field span={3} label="VAT %">
           <input
-            value={jobReference}
-            onChange={(e) => setJobReference(e.target.value)}
+            type="number"
+            value={vatRate}
+            onChange={(e) => setVatRate(e.target.value)}
             style={input}
-            placeholder="Internal / site ref"
+            placeholder="20"
           />
         </Field>
 
-        <Field span={3} label="Operator name">
+        <Field span={3} label="Payment received">
           <input
-            value={operatorName}
-            onChange={(e) => setOperatorName(e.target.value)}
+            type="number"
+            value={paymentReceived}
+            onChange={(e) => setPaymentReceived(e.target.value)}
             style={input}
-            placeholder="Crane operator"
+            placeholder="0.00"
           />
         </Field>
 
@@ -314,32 +331,30 @@ export default function BookingForm({
           </select>
         </Field>
 
-        <Field span={4} label="Hire price">
+        <Field span={4} label="PO number">
           <input
-            value={hirePrice}
-            onChange={(e) => setHirePrice(e.target.value)}
+            value={poNumber}
+            onChange={(e) => setPoNumber(e.target.value)}
             style={input}
-            inputMode="decimal"
-            placeholder="e.g. 1200"
+            placeholder="Customer PO"
           />
         </Field>
 
-        <Field span={4} label="VAT %">
+        <Field span={4} label="Job reference">
           <input
-            value={vatRate}
-            onChange={(e) => setVatRate(e.target.value)}
+            value={jobReference}
+            onChange={(e) => setJobReference(e.target.value)}
             style={input}
-            inputMode="decimal"
+            placeholder="Internal / site ref"
           />
         </Field>
 
-        <Field span={4} label="Payment received">
+        <Field span={4} label="Operator name">
           <input
-            value={paymentReceived}
-            onChange={(e) => setPaymentReceived(e.target.value)}
+            value={operatorName}
+            onChange={(e) => setOperatorName(e.target.value)}
             style={input}
-            inputMode="decimal"
-            placeholder="0"
+            placeholder="Driver / operator"
           />
         </Field>
 
