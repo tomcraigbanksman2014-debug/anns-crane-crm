@@ -150,6 +150,7 @@ async function updateTransportJob(formData: FormData) {
       id,
       transport_number,
       linked_job_id,
+      linked_transport_job_id,
       client_id,
       vehicle_id,
       operator_id,
@@ -188,6 +189,8 @@ async function updateTransportJob(formData: FormData) {
   }
 
   const linkedJobId = clean(formData.get("linked_job_id")) || null;
+  const linkedTransportJobIdRaw = clean(formData.get("linked_transport_job_id")) || null;
+  const linkedTransportJobId = linkedTransportJobIdRaw === id ? null : linkedTransportJobIdRaw;
   const clientId = clean(formData.get("client_id")) || null;
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
@@ -250,6 +253,7 @@ async function updateTransportJob(formData: FormData) {
 
   const payload = {
     linked_job_id: linkedJobId,
+    linked_transport_job_id: linkedTransportJobId,
     client_id: clientId,
     vehicle_id: vehicleId,
     operator_id: operatorId,
@@ -401,6 +405,7 @@ export default async function TransportJobDetailPage({
     { data: item, error },
     { data: clients },
     { data: jobs },
+    { data: transportJobs },
     { data: vehicles },
     { data: operators },
     { data: suppliers },
@@ -423,6 +428,12 @@ export default async function TransportJobDetailPage({
           id,
           job_number,
           site_name
+        ),
+        linked_transport:linked_transport_job_id (
+          id,
+          transport_number,
+          transport_date,
+          delivery_date
         )
       `)
       .eq("id", params.id)
@@ -437,6 +448,13 @@ export default async function TransportJobDetailPage({
     supabase
       .from("jobs")
       .select("id, job_number, site_name, archived")
+      .eq("archived", false)
+      .order("created_at", { ascending: false })
+      .limit(300),
+
+    supabase
+      .from("transport_jobs")
+      .select("id, transport_number, transport_date, delivery_date, archived")
       .eq("archived", false)
       .order("created_at", { ascending: false })
       .limit(300),
@@ -477,6 +495,10 @@ export default async function TransportJobDetailPage({
   const linkedJob = Array.isArray((item as any)?.jobs)
     ? (item as any).jobs[0]
     : (item as any)?.jobs;
+
+  const linkedTransport = Array.isArray((item as any)?.linked_transport)
+    ? (item as any).linked_transport[0]
+    : (item as any)?.linked_transport;
 
   const supplier =
     (suppliers ?? []).find((s: any) => s.id === (item as any)?.supplier_id) ?? null;
@@ -567,6 +589,18 @@ export default async function TransportJobDetailPage({
                         value: j.id,
                         label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
                       }))}
+                    />
+
+                    <SelectField
+                      label="Linked transport job"
+                      name="linked_transport_job_id"
+                      defaultValue={(item as any).linked_transport_job_id ?? ""}
+                      options={(transportJobs ?? [])
+                        .filter((j: any) => j.id !== (item as any).id)
+                        .map((j: any) => ({
+                          value: j.id,
+                          label: `${j.transport_number ?? "Transport Job"}${j.transport_date ? ` • ${j.transport_date}` : ""}${j.delivery_date && j.delivery_date !== j.transport_date ? ` → ${j.delivery_date}` : ""}`,
+                        }))}
                     />
 
                     <SelectField
