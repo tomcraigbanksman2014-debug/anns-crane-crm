@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAccessContext, canCreateBookings, canViewInvoices } from "../../../lib/access";
 import { writeAuditLog } from "../../../lib/audit";
+import { buildQuarterHourOptions, normaliseTimeValue } from "../../../lib/timeOptions";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -219,6 +220,7 @@ export default async function EditBookingPage({
   const totalPreview =
     Number(booking?.hire_price ?? 0) +
     Number(booking?.hire_price ?? 0) * (Number(booking?.vat ?? 20) / 100);
+  const timeOptions = buildQuarterHourOptions();
 
   return (
     <ClientShell>
@@ -289,11 +291,14 @@ export default async function EditBookingPage({
                     type="date"
                     defaultValue={dateInputValue(booking.start_date ?? booking.start_at)}
                   />
-                  <Field
+                  <SelectField
                     label="Start time *"
                     name="start_time"
-                    type="time"
-                    defaultValue={timeInputValue(booking.start_at)}
+                    defaultValue={normaliseTimeValue(timeInputValue(booking.start_at))}
+                    options={[
+                      { value: "", label: "— Select —" },
+                      ...timeOptions,
+                    ]}
                   />
                   <Field
                     label="End date *"
@@ -301,11 +306,14 @@ export default async function EditBookingPage({
                     type="date"
                     defaultValue={dateInputValue(booking.end_date ?? booking.end_at)}
                   />
-                  <Field
+                  <SelectField
                     label="End time *"
                     name="end_time"
-                    type="time"
-                    defaultValue={timeInputValue(booking.end_at)}
+                    defaultValue={normaliseTimeValue(timeInputValue(booking.end_at))}
+                    options={[
+                      { value: "", label: "— Select —" },
+                      ...timeOptions,
+                    ]}
                   />
                 </div>
 
