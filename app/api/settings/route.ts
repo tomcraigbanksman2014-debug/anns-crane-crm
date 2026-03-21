@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
+import { isMasterAdminEmail } from "../../lib/admin";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -12,6 +13,11 @@ function getAdminClient() {
   }
 
   return createClient(supabaseUrl, serviceKey);
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
 }
 
 export async function POST(req: Request) {
@@ -27,7 +33,9 @@ export async function POST(req: Request) {
     }
 
     const role = (user.user_metadata as any)?.role;
-    if (role !== "admin") {
+    const isAdmin = role === "admin" || isMasterAdminEmail(user.email ?? null);
+
+    if (!isAdmin) {
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
@@ -62,8 +70,8 @@ export async function POST(req: Request) {
 
       await writeAuditLog({
         actor_user_id: user.id,
-        actor_username: user.email ? user.email.split("@")[0] : null,
-        action: "update",
+        actor_username: fromAuthEmail(user.email ?? null) || null,
+        action: "settings_updated",
         entity_type: "settings",
         entity_id: existing.id,
         meta: {
@@ -86,8 +94,8 @@ export async function POST(req: Request) {
 
     await writeAuditLog({
       actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "create",
+      actor_username: fromAuthEmail(user.email ?? null) || null,
+      action: "settings_created",
       entity_type: "settings",
       entity_id: data?.id ?? null,
       meta: {
