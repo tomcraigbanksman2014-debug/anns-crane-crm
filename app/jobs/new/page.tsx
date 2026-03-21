@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
+import { buildQuarterHourOptions } from "../../lib/timeOptions";
 
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -207,6 +208,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
   const prefilledContactPhone = safeDecode(searchParams?.contact_phone);
   const defaultStatus = quoteToJobStatus(searchParams?.quote_status);
   const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
+  const timeOptions = buildQuarterHourOptions();
 
   return (
     <ClientShell>
@@ -309,12 +311,26 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Start time</label>
-                <input name="start_time" type="time" step={900} style={inputStyle} />
+                <select name="start_time" defaultValue="" style={inputStyle}>
+                  <option value="">— Select —</option>
+                  {timeOptions.map((option) => (
+                    <option key={`start_time-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>End time</label>
-                <input name="end_time" type="time" step={900} style={inputStyle} />
+                <select name="end_time" defaultValue="" style={inputStyle}>
+                  <option value="">— Select —</option>
+                  {timeOptions.map((option) => (
+                    <option key={`end_time-${option.value}`} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
