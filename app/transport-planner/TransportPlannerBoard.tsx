@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { buildQuarterHourOptions, normaliseTimeValue } from "../lib/timeOptions";
 
 const ACTIVE_JOB_STATUSES = ["planned", "confirmed", "in_progress"];
 
@@ -256,6 +257,7 @@ function compactBadge(text: string, kind: "neutral" | "warn" | "bad" | "good") {
 
 export default function TransportPlannerBoard() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
+  const timeOptions = buildQuarterHourOptions();
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [draggingJobId, setDraggingJobId] = useState<string | null>(null);
@@ -816,9 +818,19 @@ export default function TransportPlannerBoard() {
               <form onSubmit={saveEditor} style={{ display: "grid", gap: 12, marginTop: 16 }}>
                 <div style={drawerGrid}>
                   <Field label="Collection date" name="transport_date" defaultValue={editorJob.transport_date ?? ""} type="date" />
-                  <Field label="Collection time" name="collection_time" defaultValue={editorJob.collection_time ?? ""} type="time" />
+                  <SelectField
+                    label="Collection time"
+                    name="collection_time"
+                    defaultValue={normaliseTimeValue(editorJob.collection_time ?? "")}
+                    options={[{ value: "", label: "— Select —" }, ...timeOptions]}
+                  />
                   <Field label="Delivery date" name="delivery_date" defaultValue={editorJob.delivery_date ?? editorJob.transport_date ?? ""} type="date" />
-                  <Field label="Delivery time" name="delivery_time" defaultValue={editorJob.delivery_time ?? ""} type="time" />
+                  <SelectField
+                    label="Delivery time"
+                    name="delivery_time"
+                    defaultValue={normaliseTimeValue(editorJob.delivery_time ?? "")}
+                    options={[{ value: "", label: "— Select —" }, ...timeOptions]}
+                  />
 
                   <SelectField
                     label="Vehicle"
