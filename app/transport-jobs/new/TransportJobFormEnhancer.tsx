@@ -24,6 +24,10 @@ export default function TransportJobFormEnhancer() {
     const vatInput = document.getElementById("invoice_vat") as HTMLInputElement | null;
     const totalInput = document.getElementById("total_invoice") as HTMLInputElement | null;
 
+    const customerSelect = document.getElementById("client_id") as HTMLSelectElement | null;
+    const otherCustomerWrap = document.getElementById("other_customer_wrap") as HTMLDivElement | null;
+    const otherCustomerInput = document.getElementById("other_customer_name") as HTMLInputElement | null;
+
     const supplierSelect = document.getElementById("supplier_id") as HTMLSelectElement | null;
     const otherSupplierWrap = document.getElementById("other_supplier_wrap") as HTMLDivElement | null;
     const otherSupplierInput = document.getElementById("other_supplier_name") as HTMLInputElement | null;
@@ -63,6 +67,18 @@ export default function TransportJobFormEnhancer() {
       }
 
       recalcFromSubtotal();
+    }
+
+    function toggleOtherCustomer() {
+      if (!customerSelect || !otherCustomerWrap || !otherCustomerInput) return;
+
+      const isOther = customerSelect.value === "other";
+      otherCustomerWrap.style.display = isOther ? "block" : "none";
+      otherCustomerInput.required = isOther;
+
+      if (!isOther) {
+        otherCustomerInput.value = "";
+      }
     }
 
     function toggleOtherSupplier() {
@@ -118,6 +134,7 @@ export default function TransportJobFormEnhancer() {
     subtotalInput.addEventListener("input", recalcFromSubtotal);
     subtotalInput.addEventListener("change", recalcFromSubtotal);
 
+    customerSelect?.addEventListener("change", toggleOtherCustomer);
     supplierSelect?.addEventListener("change", toggleOtherSupplier);
 
     collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
@@ -143,6 +160,7 @@ export default function TransportJobFormEnhancer() {
     autoSyncDeliveryDate();
     autoSyncDeliveryTime();
     recalcFromSubtotal();
+    toggleOtherCustomer();
     toggleOtherSupplier();
     maybeOpenSupplierSection();
     maybeOpenInvoiceSection();
@@ -154,6 +172,7 @@ export default function TransportJobFormEnhancer() {
       subtotalInput.removeEventListener("input", recalcFromSubtotal);
       subtotalInput.removeEventListener("change", recalcFromSubtotal);
 
+      customerSelect?.removeEventListener("change", toggleOtherCustomer);
       supplierSelect?.removeEventListener("change", toggleOtherSupplier);
 
       collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
