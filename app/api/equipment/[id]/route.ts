@@ -54,7 +54,7 @@ export async function PATCH(
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "update",
+      action: "equipment_updated",
       entity_type: "equipment",
       entity_id: params.id,
       meta: payload,
