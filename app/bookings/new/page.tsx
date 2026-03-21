@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAccessContext, canCreateBookings, canViewInvoices } from "../../lib/access";
 import { writeAuditLog } from "../../lib/audit";
+import { buildQuarterHourOptions } from "../../lib/timeOptions";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -144,6 +145,7 @@ export default async function NewBookingPage({
   ]);
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const timeOptions = buildQuarterHourOptions();
 
   return (
     <ClientShell>
@@ -201,8 +203,22 @@ export default async function NewBookingPage({
               </div>
 
               <div style={grid2}>
-                <Field label="Start time" name="start_time" type="time" />
-                <Field label="End time" name="end_time" type="time" />
+                <SelectField
+                  label="Start time"
+                  name="start_time"
+                  options={[
+                    { value: "", label: "— Select —" },
+                    ...timeOptions,
+                  ]}
+                />
+                <SelectField
+                  label="End time"
+                  name="end_time"
+                  options={[
+                    { value: "", label: "— Select —" },
+                    ...timeOptions,
+                  ]}
+                />
               </div>
 
               <div style={grid2}>
