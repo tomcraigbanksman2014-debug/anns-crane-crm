@@ -27,6 +27,8 @@ type Job = {
   contact_name: string | null;
   contact_phone: string | null;
   job_date: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   start_time: string | null;
   end_time: string | null;
   status: string | null;
@@ -48,6 +50,7 @@ export default function JobForm({
 }) {
   const router = useRouter();
   const timeOptions = buildQuarterHourOptions();
+  const today = new Date().toISOString().slice(0, 10);
 
   const [clientId, setClientId] = useState(job?.client_id ?? "");
   const [equipmentId, setEquipmentId] = useState(job?.equipment_id ?? "");
@@ -55,8 +58,11 @@ export default function JobForm({
   const [siteAddress, setSiteAddress] = useState(job?.site_address ?? "");
   const [contactName, setContactName] = useState(job?.contact_name ?? "");
   const [contactPhone, setContactPhone] = useState(job?.contact_phone ?? "");
-  const [jobDate, setJobDate] = useState(
-    job?.job_date ?? new Date().toISOString().slice(0, 10)
+  const [startDate, setStartDate] = useState(
+    job?.start_date ?? job?.job_date ?? today
+  );
+  const [endDate, setEndDate] = useState(
+    job?.end_date ?? job?.job_date ?? today
   );
   const [startTime, setStartTime] = useState(normaliseTimeValue(job?.start_time) || "");
   const [endTime, setEndTime] = useState(normaliseTimeValue(job?.end_time) || "");
@@ -72,8 +78,18 @@ export default function JobForm({
     e.preventDefault();
     setMsg(null);
 
-    if (!jobDate) {
-      setMsg("Job date is required.");
+    if (!startDate) {
+      setMsg("Job start date is required.");
+      return;
+    }
+
+    if (!endDate) {
+      setMsg("Job end date is required.");
+      return;
+    }
+
+    if (endDate < startDate) {
+      setMsg("Job end date cannot be earlier than job start date.");
       return;
     }
 
@@ -97,7 +113,9 @@ export default function JobForm({
           site_address: siteAddress.trim() || null,
           contact_name: contactName.trim() || null,
           contact_phone: contactPhone.trim() || null,
-          job_date: jobDate || null,
+          job_date: startDate || null,
+          start_date: startDate || null,
+          end_date: endDate || null,
           start_time: startTime || null,
           end_time: endTime || null,
           status: status || "draft",
@@ -165,16 +183,25 @@ export default function JobForm({
           </select>
         </Field>
 
-        <Field span={4} label="Job date *">
+        <Field span={3} label="Job start date *">
           <input
             type="date"
-            value={jobDate}
-            onChange={(e) => setJobDate(e.target.value)}
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
             style={input}
           />
         </Field>
 
-        <Field span={4} label="Start time">
+        <Field span={3} label="Job end date *">
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            style={input}
+          />
+        </Field>
+
+        <Field span={3} label="Start time">
           <select
             value={startTime}
             onChange={(e) => setStartTime(e.target.value)}
@@ -189,7 +216,7 @@ export default function JobForm({
           </select>
         </Field>
 
-        <Field span={4} label="End time">
+        <Field span={3} label="End time">
           <select
             value={endTime}
             onChange={(e) => setEndTime(e.target.value)}
