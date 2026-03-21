@@ -16,6 +16,11 @@ function nextInvoiceNumber(jobNumber: any) {
   return `ANNS-${year}-${String(jobNumber ?? "JOB").replace(/\s+/g, "")}`;
 }
 
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
@@ -159,15 +164,17 @@ export async function POST(
 
     await writeAuditLog({
       actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "generate_invoice",
+      actor_username: fromAuthEmail(user.email ?? null) || null,
+      action: "job_invoice_generated",
       entity_type: "job",
       entity_id: params.id,
       meta: {
+        job_number: (job as any).job_number ?? null,
         invoice_number,
         subtotal,
         vat,
         total,
+        line_count: normalisedLines.length,
       },
     });
 
