@@ -56,7 +56,7 @@ export async function PATCH(
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "update",
+      action: "booking_updated",
       entity_type: "booking",
       entity_id: params.id,
       meta: {
@@ -108,7 +108,7 @@ export async function DELETE(
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "delete",
+      action: "booking_deleted",
       entity_type: "booking",
       entity_id: params.id,
       meta: null,
