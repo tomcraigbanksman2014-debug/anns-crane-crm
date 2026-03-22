@@ -17,41 +17,86 @@ export async function POST(req: Request) {
     const operatorId = body.operator_id === "" ? null : clean(body.operator_id);
     const craneId = body.equipment_id === "" ? null : clean(body.equipment_id);
     const jobDate = clean(body.job_date);
+    const startDate = clean(body.start_date) ?? jobDate;
+    const endDate = clean(body.end_date) ?? startDate;
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
+    const status = clean(body.status);
 
     if (!jobId) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
     }
 
+    if (startDate && endDate && endDate < startDate) {
+      return NextResponse.json(
+        { error: "Job end date cannot be earlier than job start date." },
+        { status: 400 }
+      );
+    }
+
     if (allocationId) {
-      const { error } = await supabase
+      const updatePayload: Record<string, any> = {
+        operator_id: operatorId,
+        crane_id: craneId,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (startDate) updatePayload.start_date = startDate;
+      if (endDate) updatePayload.end_date = endDate;
+      if (startTime !== null) updatePayload.start_time = startTime;
+      if (endTime !== null) updatePayload.end_time = endTime;
+
+      const { error: allocationError } = await supabase
         .from("job_equipment")
-        .update({
-          operator_id: operatorId,
-          crane_id: craneId,
-          start_date: jobDate,
-          end_date: jobDate,
-          start_time: startTime,
-          end_time: endTime,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", allocationId);
 
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
+      if (allocationError) {
+        return NextResponse.json({ error: allocationError.message }, { status: 400 });
+      }
+
+      const jobPayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (startDate) {
+        jobPayload.job_date = startDate;
+        jobPayload.start_date = startDate;
+      }
+
+      if (endDate) {
+        jobPayload.end_date = endDate;
+      }
+
+      if (status) {
+        jobPayload.status = status;
+      }
+
+      const { error: jobError } = await supabase
+        .from("jobs")
+        .update(jobPayload)
+        .eq("id", jobId);
+
+      if (jobError) {
+        return NextResponse.json({ error: jobError.message }, { status: 400 });
       }
     } else {
+      const updatePayload: Record<string, any> = {
+        operator_id: operatorId,
+        crane_id: craneId,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (jobDate) updatePayload.job_date = jobDate;
+      if (startDate) updatePayload.start_date = startDate;
+      if (endDate) updatePayload.end_date = endDate;
+      if (startTime !== null) updatePayload.start_time = startTime;
+      if (endTime !== null) updatePayload.end_time = endTime;
+      if (status) updatePayload.status = status;
+
       const { error } = await supabase
         .from("jobs")
-        .update({
-          operator_id: operatorId,
-          crane_id: craneId,
-          job_date: jobDate,
-          start_time: startTime,
-          end_time: endTime,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updatePayload)
         .eq("id", jobId);
 
       if (error) {
