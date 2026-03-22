@@ -33,6 +33,15 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
+function renderDateRange(startDate: string | null | undefined, endDate: string | null | undefined) {
+  const from = fmtDate(startDate);
+  const to = fmtDate(endDate);
+
+  if (!startDate && !endDate) return "—";
+  if (from === to) return from;
+  return `${from} → ${to}`;
+}
+
 async function updateInvoiceStatus(formData: FormData) {
   "use server";
 
@@ -168,6 +177,8 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       id,
       job_number,
       job_date,
+      start_date,
+      end_date,
       start_time,
       end_time,
       site_name,
@@ -194,6 +205,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
         asset_number
       )
     `)
+    .order("start_date", { ascending: true })
     .order("job_date", { ascending: true })
     .order("start_time", { ascending: true });
 
@@ -274,7 +286,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                 <thead>
                   <tr>
                     <th align="left" style={thStyle}>Job #</th>
-                    <th align="left" style={thStyle}>Date</th>
+                    <th align="left" style={thStyle}>Dates</th>
                     <th align="left" style={thStyle}>Time</th>
                     <th align="left" style={thStyle}>Customer</th>
                     <th align="left" style={thStyle}>Operator</th>
@@ -294,6 +306,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     const amountPaid = clampMoney(Number(job.amount_paid ?? 0), 0, totalInvoice);
                     const amountOutstanding = Math.max(totalInvoice - amountPaid, 0);
 
+                    const startDate = job.start_date ?? job.job_date ?? null;
+                    const endDate = job.end_date ?? job.job_date ?? null;
+
                     return (
                       <tr key={job.id}>
                         <td style={tdStyle}>
@@ -302,7 +317,11 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                           </div>
                         </td>
 
-                        <td style={tdStyle}>{fmtDate(job.job_date)}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 800 }}>
+                            {renderDateRange(startDate, endDate)}
+                          </div>
+                        </td>
 
                         <td style={tdStyle}>
                           {job.start_time || job.end_time
