@@ -83,7 +83,9 @@ async function createJob(formData: FormData) {
   const rawClientId = clean(formData.get("client_id")) || null;
   const otherCustomerName = clean(formData.get("other_customer_name")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
-  const jobDate = clean(formData.get("job_date")) || null;
+
+  const startDate = clean(formData.get("start_date")) || null;
+  const endDate = clean(formData.get("end_date")) || null;
   const startTime = clean(formData.get("start_time")) || null;
   const endTime = clean(formData.get("end_time")) || null;
 
@@ -111,6 +113,30 @@ async function createJob(formData: FormData) {
 
   const clientId = await resolveClientId(supabase, rawClientId, otherCustomerName);
 
+  if (!clientId || !startDate || !endDate) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        "Customer, job start date and job end date are required."
+      )}`
+    );
+  }
+
+  if (endDate < startDate) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        "Job end date cannot be earlier than job start date."
+      )}`
+    );
+  }
+
+  if (primarySelection === "other" && !otherItemName) {
+    redirect(
+      `/jobs/new?error=${encodeURIComponent(
+        "Please enter an item name when Primary equipment is set to Other."
+      )}`
+    );
+  }
+
   const payload: Record<string, any> = {
     client_id: clientId,
     equipment_id: primaryEquipmentId,
@@ -119,7 +145,9 @@ async function createJob(formData: FormData) {
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
     contact_phone: clean(formData.get("contact_phone")) || null,
-    job_date: jobDate,
+    job_date: startDate,
+    start_date: startDate,
+    end_date: endDate,
     start_time: startTime,
     end_time: endTime,
     hire_type: clean(formData.get("hire_type")) || null,
@@ -131,20 +159,6 @@ async function createJob(formData: FormData) {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
   };
-
-  if (!payload.client_id || !payload.job_date) {
-    redirect(
-      `/jobs/new?error=${encodeURIComponent("Customer and job date are required.")}`
-    );
-  }
-
-  if (primarySelection === "other" && !otherItemName) {
-    redirect(
-      `/jobs/new?error=${encodeURIComponent(
-        "Please enter an item name when Primary equipment is set to Other."
-      )}`
-    );
-  }
 
   const { data, error } = await supabase
     .from("jobs")
@@ -165,8 +179,8 @@ async function createJob(formData: FormData) {
       job_id: data.id,
       asset_type: allocationAssetType,
       operator_id: operatorId,
-      start_date: jobDate,
-      end_date: jobDate,
+      start_date: startDate,
+      end_date: endDate,
       start_time: startTime,
       end_time: endTime,
       created_at: new Date().toISOString(),
@@ -363,10 +377,15 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               </div>
             </div>
 
-            <div style={twoCol}>
+            <div style={threeCol}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Job date *</label>
-                <input name="job_date" type="date" style={inputStyle} />
+                <label style={labelStyle}>Job start date *</label>
+                <input name="start_date" type="date" style={inputStyle} />
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Job end date *</label>
+                <input name="end_date" type="date" style={inputStyle} />
               </div>
 
               <div style={fieldWrap}>
@@ -519,6 +538,8 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               var customerSelect = document.getElementById("client_id");
               var otherCustomerWrap = document.getElementById("other_customer_wrap");
               var otherCustomerInput = document.getElementById("other_customer_name");
+              var startDateInput = document.querySelector('input[name="start_date"]');
+              var endDateInput = document.querySelector('input[name="end_date"]');
 
               function toggleOtherCustomer() {
                 if (!customerSelect || !otherCustomerWrap || !otherCustomerInput) return;
@@ -528,9 +549,21 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                 if (!isOther) otherCustomerInput.value = "";
               }
 
+              function syncEndDate() {
+                if (!startDateInput || !endDateInput) return;
+                if (!endDateInput.value) {
+                  endDateInput.value = startDateInput.value || "";
+                }
+              }
+
               if (customerSelect) {
                 customerSelect.addEventListener("change", toggleOtherCustomer);
                 toggleOtherCustomer();
+              }
+
+              if (startDateInput) {
+                startDateInput.addEventListener("change", syncEndDate);
+                syncEndDate();
               }
             })();
           `,
@@ -556,6 +589,12 @@ const fieldWrap: React.CSSProperties = {
 const twoCol: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
+
+const threeCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr 1fr",
   gap: 12,
 };
 
