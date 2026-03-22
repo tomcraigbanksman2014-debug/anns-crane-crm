@@ -1,517 +1,364 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
-function isoDate(d = new Date()) {
-  return d.toISOString().slice(0, 10);
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
 }
 
-function plusDaysDate(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return isoDate(d);
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function minusDaysDate(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return isoDate(d);
+function num(value: any) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function outstandingAmount(total: any, paid: any) {
-  const totalNumber = Number(total ?? 0);
-  const paidNumber = Number(paid ?? 0);
-
-  const safeTotal = Number.isFinite(totalNumber) ? totalNumber : 0;
-  const safePaid = Number.isFinite(paidNumber) ? paidNumber : 0;
-
-  return Math.max(safeTotal - safePaid, 0);
-}
-
-function transportEffectiveEndDate(item: any) {
-  return String(item?.delivery_date ?? item?.transport_date ?? "");
-}
-
-function touchesWindow(
+function overlapsDateRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
-  windowStart: string,
-  windowEnd: string
+  rangeStart: string,
+  rangeEnd: string
 ) {
-  const start = String(startDate ?? "");
-  const end = String(endDate ?? startDate ?? "");
-
-  if (!start) return false;
-
-  return start <= windowEnd && end >= windowStart;
+  const start = startDate ?? null;
+  const end = endDate ?? startDate ?? null;
+  if (!start || !end) return false;
+  return start <= rangeEnd && end >= rangeStart;
 }
 
-function uniqueById<T extends { id?: string | null }>(rows: T[]) {
-  const seen = new Set<string>();
-  const out: T[] = [];
-
-  for (const row of rows) {
-    const id = String(row?.id ?? "");
-    if (!id || seen.has(id)) continue;
-    seen.add(id);
-    out.push(row);
-  }
-
-  return out;
+function dateIsWithinRange(
+  targetDate: string | null | undefined,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  if (!targetDate) return false;
+  return targetDate >= rangeStart && targetDate <= rangeEnd;
 }
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
+  try {
+    const supabase = createSupabaseServerClient();
 
-  const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) {
-    return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    const today = new Date();
+    const todayStr = isoDate(today);
+
+    const weekStartDate = new Date(today);
+    const weekDay = weekStartDate.getDay();
+    const diff = weekDay === 0 ? -6 : 1 - weekDay;
+    weekStartDate.setDate(weekStartDate.getDate() + diff);
+    weekStartDate.setHours(0, 0, 0, 0);
+
+    const weekEndDate = new Date(weekStartDate);
+    weekEndDate.setDate(weekEndDate.getDate() + 6);
+
+    const weekStart = isoDate(weekStartDate);
+    const weekEnd = isoDate(weekEndDate);
+
+    const monthStartDate = new Date(today.getFullYear(), today.getMonth(), 1);
+    const monthEndDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    const monthStart = isoDate(monthStartDate);
+    const monthEnd = isoDate(monthEndDate);
+
+    const [
+      { data: jobs, error: jobsError },
+      { data: transportJobs, error: transportError },
+      { data: quotes, error: quotesError },
+      { data: cranes, error: cranesError },
+      { data: vehicles, error: vehiclesError },
+      { data: equipment, error: equipmentError },
+      { data: operators, error: operatorsError },
+      { data: clients, error: clientsError },
+    ] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          id,
+          status,
+          archived,
+          job_date,
+          start_date,
+          end_date,
+          invoice_status,
+          total_invoice,
+          amount_paid,
+          clients:client_id (
+            id,
+            company_name
+          )
+        `),
+
+      supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          status,
+          archived,
+          transport_date,
+          delivery_date,
+          invoice_status,
+          total_invoice,
+          amount_paid,
+          clients:client_id (
+            id,
+            company_name
+          )
+        `),
+
+      supabase
+        .from("quotes")
+        .select(`
+          id,
+          status,
+          archived,
+          quote_date,
+          valid_until,
+          amount
+        `),
+
+      supabase
+        .from("cranes")
+        .select("id, status, archived"),
+
+      supabase
+        .from("vehicles")
+        .select("id, status, archived"),
+
+      supabase
+        .from("equipment")
+        .select("id, status, archived"),
+
+      supabase
+        .from("operators")
+        .select("id, status, archived"),
+
+      supabase
+        .from("clients")
+        .select("id, archived"),
+    ]);
+
+    if (jobsError) {
+      return NextResponse.json({ error: jobsError.message }, { status: 400 });
+    }
+
+    if (transportError) {
+      return NextResponse.json({ error: transportError.message }, { status: 400 });
+    }
+
+    if (quotesError) {
+      return NextResponse.json({ error: quotesError.message }, { status: 400 });
+    }
+
+    if (cranesError) {
+      return NextResponse.json({ error: cranesError.message }, { status: 400 });
+    }
+
+    if (vehiclesError) {
+      return NextResponse.json({ error: vehiclesError.message }, { status: 400 });
+    }
+
+    if (equipmentError) {
+      return NextResponse.json({ error: equipmentError.message }, { status: 400 });
+    }
+
+    if (operatorsError) {
+      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
+    }
+
+    if (clientsError) {
+      return NextResponse.json({ error: clientsError.message }, { status: 400 });
+    }
+
+    const activeJobs = (jobs ?? []).filter((job: any) => !job.archived);
+    const activeTransportJobs = (transportJobs ?? []).filter((job: any) => !job.archived);
+    const activeQuotes = (quotes ?? []).filter((quote: any) => !quote.archived);
+
+    const jobsToday = activeJobs.filter((job: any) =>
+      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, todayStr, todayStr)
+    );
+
+    const jobsThisWeek = activeJobs.filter((job: any) =>
+      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, weekStart, weekEnd)
+    );
+
+    const jobsThisMonth = activeJobs.filter((job: any) =>
+      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, monthStart, monthEnd)
+    );
+
+    const liveJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "in_progress");
+
+    const confirmedJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "confirmed");
+
+    const draftJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "draft");
+
+    const completedJobsThisMonth = activeJobs.filter(
+      (job: any) =>
+        String(job.status ?? "").toLowerCase() === "completed" &&
+        overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, monthStart, monthEnd)
+    );
+
+    const transportToday = activeTransportJobs.filter((job: any) =>
+      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, todayStr, todayStr)
+    );
+
+    const transportThisWeek = activeTransportJobs.filter((job: any) =>
+      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, weekStart, weekEnd)
+    );
+
+    const transportThisMonth = activeTransportJobs.filter((job: any) =>
+      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, monthStart, monthEnd)
+    );
+
+    const liveTransport = activeTransportJobs.filter(
+      (job: any) => String(job.status ?? "").toLowerCase() === "in_progress"
+    );
+
+    const activeQuotesCount = activeQuotes.filter(
+      (quote: any) =>
+        String(quote.status ?? "").toLowerCase() !== "accepted" &&
+        String(quote.status ?? "").toLowerCase() !== "rejected"
+    ).length;
+
+    const acceptedQuotesThisMonth = activeQuotes.filter(
+      (quote: any) =>
+        String(quote.status ?? "").toLowerCase() === "accepted" &&
+        dateIsWithinRange(quote.quote_date, monthStart, monthEnd)
+    );
+
+    const quotePipelineValue = activeQuotes.reduce((sum: number, quote: any) => {
+      const status = String(quote.status ?? "").toLowerCase();
+      if (status === "accepted" || status === "rejected") return sum;
+      return sum + num(quote.amount);
+    }, 0);
+
+    const quoteWonValueThisMonth = acceptedQuotesThisMonth.reduce(
+      (sum: number, quote: any) => sum + num(quote.amount),
+      0
+    );
+
+    const craneInvoiceOutstanding = activeJobs.reduce((sum: number, job: any) => {
+      const total = num(job.total_invoice);
+      const paid = num(job.amount_paid);
+      return sum + Math.max(total - paid, 0);
+    }, 0);
+
+    const transportInvoiceOutstanding = activeTransportJobs.reduce((sum: number, job: any) => {
+      const total = num(job.total_invoice);
+      const paid = num(job.amount_paid);
+      return sum + Math.max(total - paid, 0);
+    }, 0);
+
+    const outstandingInvoicesTotal = craneInvoiceOutstanding + transportInvoiceOutstanding;
+
+    const dueForInvoicingJobs = activeJobs.filter((job: any) => {
+      const status = String(job.status ?? "").toLowerCase();
+      const invoiceStatus = String(job.invoice_status ?? "Not Invoiced").toLowerCase();
+      return status === "completed" && invoiceStatus === "not invoiced";
+    }).length;
+
+    const dueForInvoicingTransport = activeTransportJobs.filter((job: any) => {
+      const status = String(job.status ?? "").toLowerCase();
+      const invoiceStatus = String(job.invoice_status ?? "Not Invoiced").toLowerCase();
+      return status === "completed" && invoiceStatus === "not invoiced";
+    }).length;
+
+    const activeCranes = (cranes ?? []).filter((item: any) => !item.archived).length;
+    const activeVehicles = (vehicles ?? []).filter((item: any) => !item.archived).length;
+    const activeEquipment = (equipment ?? []).filter((item: any) => !item.archived).length;
+    const activeOperators = (operators ?? []).filter((item: any) => !item.archived).length;
+    const activeCustomers = (clients ?? []).filter((item: any) => !item.archived).length;
+
+    const unavailableCranes = (cranes ?? []).filter((item: any) => {
+      if (item.archived) return false;
+      return String(item.status ?? "").toLowerCase() !== "available";
+    }).length;
+
+    const unavailableVehicles = (vehicles ?? []).filter((item: any) => {
+      if (item.archived) return false;
+      return String(item.status ?? "").toLowerCase() !== "active";
+    }).length;
+
+    const inactiveOperators = (operators ?? []).filter((item: any) => {
+      if (item.archived) return false;
+      return String(item.status ?? "").toLowerCase() !== "active";
+    }).length;
+
+    const busiestCustomers = (() => {
+      const counts = new Map<string, { company_name: string; count: number }>();
+
+      for (const job of activeJobs) {
+        const client = first(job.clients);
+        const companyName = String(client?.company_name ?? "").trim();
+        if (!companyName) continue;
+
+        const existing = counts.get(companyName) ?? { company_name: companyName, count: 0 };
+        existing.count += 1;
+        counts.set(companyName, existing);
+      }
+
+      for (const job of activeTransportJobs) {
+        const client = first(job.clients);
+        const companyName = String(client?.company_name ?? "").trim();
+        if (!companyName) continue;
+
+        const existing = counts.get(companyName) ?? { company_name: companyName, count: 0 };
+        existing.count += 1;
+        counts.set(companyName, existing);
+      }
+
+      return Array.from(counts.values())
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+    })();
+
+    return NextResponse.json({
+      today: todayStr,
+      week_start: weekStart,
+      week_end: weekEnd,
+      month_start: monthStart,
+      month_end: monthEnd,
+
+      jobs_today: jobsToday.length,
+      jobs_this_week: jobsThisWeek.length,
+      jobs_this_month: jobsThisMonth.length,
+      jobs_live: liveJobs.length,
+      jobs_confirmed: confirmedJobs.length,
+      jobs_draft: draftJobs.length,
+      jobs_completed_this_month: completedJobsThisMonth.length,
+
+      transport_today: transportToday.length,
+      transport_this_week: transportThisWeek.length,
+      transport_this_month: transportThisMonth.length,
+      transport_live: liveTransport.length,
+
+      quotes_open: activeQuotesCount,
+      quotes_pipeline_value: quotePipelineValue,
+      quotes_won_this_month: acceptedQuotesThisMonth.length,
+      quotes_won_value_this_month: quoteWonValueThisMonth,
+
+      outstanding_invoices_total: outstandingInvoicesTotal,
+      crane_invoice_outstanding: craneInvoiceOutstanding,
+      transport_invoice_outstanding: transportInvoiceOutstanding,
+      due_for_invoicing_jobs: dueForInvoicingJobs,
+      due_for_invoicing_transport: dueForInvoicingTransport,
+
+      active_cranes: activeCranes,
+      active_vehicles: activeVehicles,
+      active_equipment: activeEquipment,
+      active_operators: activeOperators,
+      active_customers: activeCustomers,
+
+      unavailable_cranes: unavailableCranes,
+      unavailable_vehicles: unavailableVehicles,
+      inactive_operators: inactiveOperators,
+
+      busiest_customers: busiestCustomers,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Could not load dashboard stats." },
+      { status: 400 }
+    );
   }
-
-  const today = isoDate();
-  const in30Days = plusDaysDate(30);
-  const in7Days = plusDaysDate(7);
-  const last7Days = minusDaysDate(7);
-
-  const [
-    jobsToday,
-    activeJobs,
-    cranesAll,
-    vehiclesAll,
-    unpaidJobs,
-    unpaidTransport,
-    upcomingTimedJobs,
-    upcomingTransportByStart,
-    upcomingTransportByEnd,
-    upcomingTransportSpanning,
-    overdueJobInvoices,
-    overdueTransportInvoices,
-    recentAudit,
-    todayJobs,
-    certExpiringSoon,
-    certExpired,
-    maintenanceEquipment,
-    serviceLogAll,
-    recentServiceLog,
-    lolerDueSoon,
-    lolerOverdue,
-    unassignedTransportJobs,
-    completedCraneJobsNotInvoiced,
-    completedTransportJobsNotInvoiced,
-    timesheetsNotSubmitted,
-  ] = await Promise.all([
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("job_date", today)
-      .neq("status", "cancelled"),
-
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .lte("job_date", today)
-      .gte("job_date", today)
-      .in("status", ["planned", "confirmed", "in_progress"]),
-
-    supabase
-      .from("cranes")
-      .select("id,status,archived", { count: "exact" })
-      .eq("archived", false),
-
-    supabase
-      .from("vehicles")
-      .select("id,status,archived", { count: "exact" })
-      .eq("archived", false),
-
-    supabase
-      .from("jobs")
-      .select("total_invoice, amount_paid, invoice_status")
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
-
-    supabase
-      .from("transport_jobs")
-      .select("id, total_invoice, agreed_sell_rate, price, amount_paid, invoice_status, transport_date, delivery_date")
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
-
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_date,
-        start_time,
-        site_name,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("job_date", today)
-      .lte("job_date", in7Days)
-      .neq("status", "cancelled")
-      .order("job_date", { ascending: true })
-      .order("start_time", { ascending: true })
-      .limit(10),
-
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("transport_date", today)
-      .lte("transport_date", in7Days)
-      .neq("status", "cancelled")
-      .order("transport_date", { ascending: true })
-      .order("collection_time", { ascending: true })
-      .limit(25),
-
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .gte("delivery_date", today)
-      .lte("delivery_date", in7Days)
-      .neq("status", "cancelled")
-      .order("delivery_date", { ascending: true })
-      .order("delivery_time", { ascending: true })
-      .limit(25),
-
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        transport_date,
-        delivery_date,
-        collection_time,
-        delivery_time,
-        collection_address,
-        delivery_address,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .lt("transport_date", today)
-      .gt("delivery_date", in7Days)
-      .neq("status", "cancelled")
-      .order("transport_date", { ascending: true })
-      .order("collection_time", { ascending: true })
-      .limit(25),
-
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        total_invoice,
-        amount_paid,
-        invoice_status,
-        job_date,
-        clients:client_id ( company_name )
-      `)
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"])
-      .lt("job_date", today)
-      .order("job_date", { ascending: true })
-      .limit(10),
-
-    supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        total_invoice,
-        agreed_sell_rate,
-        price,
-        amount_paid,
-        invoice_status,
-        transport_date,
-        delivery_date,
-        clients:client_id ( company_name )
-      `)
-      .in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]),
-
-    supabase
-      .from("audit_log")
-      .select("id, actor_username, action, entity_type, created_at")
-      .order("created_at", { ascending: false })
-      .limit(8),
-
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_number,
-        job_date,
-        start_time,
-        site_name,
-        status,
-        clients:client_id ( company_name )
-      `)
-      .eq("job_date", today)
-      .neq("status", "cancelled")
-      .order("start_time", { ascending: true })
-      .limit(10),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .gte("certification_expires_on", today)
-      .lte("certification_expires_on", in30Days),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .lt("certification_expires_on", today),
-
-    supabase
-      .from("equipment")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "maintenance"),
-
-    supabase
-      .from("equipment_service_log")
-      .select("id, equipment_id"),
-
-    supabase
-      .from("equipment_service_log")
-      .select(`
-        id,
-        equipment_id,
-        entry_type,
-        service_date,
-        engineer,
-        notes,
-        created_at,
-        equipment:equipment_id ( name )
-      `)
-      .order("service_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(8),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .gte("loler_due_on", today)
-      .lte("loler_due_on", in30Days),
-
-    supabase
-      .from("equipment")
-      .select("id")
-      .lt("loler_due_on", today),
-
-    supabase
-      .from("transport_jobs")
-      .select("id, transport_date, delivery_date, vehicle_id, operator_id, status")
-      .lte("transport_date", in7Days)
-      .neq("status", "cancelled")
-      .in("status", ["planned", "confirmed", "in_progress"]),
-
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "completed")
-      .eq("invoice_status", "Not Invoiced"),
-
-    supabase
-      .from("transport_jobs")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "completed")
-      .eq("invoice_status", "Not Invoiced"),
-
-    supabase
-      .from("jobs")
-      .select("id", { count: "exact", head: true })
-      .not("operator_id", "is", null)
-      .eq("status", "completed")
-      .is("submitted_to_office_at", null)
-      .gte("job_date", last7Days)
-      .lte("job_date", today),
-  ]);
-
-  const activeCount = activeJobs.count ?? 0;
-
-  const totalCranes = cranesAll.count ?? 0;
-  const totalVehicles = vehiclesAll.count ?? 0;
-
-  const availableCranesNow = (cranesAll.data ?? []).filter((c: any) => {
-    const status = String(c?.status ?? "").toLowerCase();
-    return status !== "maintenance" && status !== "out_of_service";
-  }).length;
-
-  const reservedCranesLater = 0;
-
-  const availableVehiclesNow = (vehiclesAll.data ?? []).filter((v: any) => {
-    const status = String(v?.status ?? "").toLowerCase();
-    return status !== "maintenance" && status !== "out_of_service";
-  }).length;
-
-  const outstandingJobsTotal =
-    (unpaidJobs.data ?? []).reduce((acc: number, r: any) => {
-      return acc + outstandingAmount(r.total_invoice, r.amount_paid);
-    }, 0) ?? 0;
-
-  const outstandingTransportTotal =
-    (unpaidTransport.data ?? []).reduce((acc: number, r: any) => {
-      const total = Number(r.total_invoice ?? r.agreed_sell_rate ?? r.price ?? 0);
-      const paid = Number(r.amount_paid ?? 0);
-      return acc + outstandingAmount(total, paid);
-    }, 0) ?? 0;
-
-  const outstandingTotal = outstandingJobsTotal + outstandingTransportTotal;
-
-  const mergedUpcomingTransport = uniqueById([
-    ...((upcomingTransportByStart.data as any[]) ?? []),
-    ...((upcomingTransportByEnd.data as any[]) ?? []),
-    ...((upcomingTransportSpanning.data as any[]) ?? []),
-  ])
-    .filter((t: any) =>
-      touchesWindow(t.transport_date, t.delivery_date ?? t.transport_date, today, in7Days)
-    )
-    .sort((a: any, b: any) => {
-      const av =
-        (a.transport_date && a.collection_time
-          ? `${a.transport_date}T${a.collection_time}`
-          : a.transport_date) ?? "";
-      const bv =
-        (b.transport_date && b.collection_time
-          ? `${b.transport_date}T${b.collection_time}`
-          : b.transport_date) ?? "";
-      return String(av).localeCompare(String(bv));
-    })
-    .slice(0, 10);
-
-  const upcomingBookings = [
-    ...(upcomingTimedJobs.data ?? []).map((j: any) => ({
-      id: j.id,
-      start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
-      start_date: j.job_date,
-      location: j.site_name,
-      status: j.status,
-      clients: j.clients,
-      equipment: null,
-    })),
-    ...mergedUpcomingTransport.map((t: any) => ({
-      id: t.id,
-      start_at: t.transport_date && t.collection_time ? `${t.transport_date}T${t.collection_time}` : null,
-      start_date: t.transport_date,
-      location: t.collection_address || t.delivery_address,
-      status: t.status,
-      clients: t.clients,
-      equipment: null,
-    })),
-  ]
-    .sort((a: any, b: any) => {
-      const av = a.start_at || a.start_date || "";
-      const bv = b.start_at || b.start_date || "";
-      return String(av).localeCompare(String(bv));
-    })
-    .slice(0, 10);
-
-  const overdueTransportRows = ((overdueTransportInvoices.data as any[]) ?? [])
-    .filter((t: any) => {
-      const effectiveDate = transportEffectiveEndDate(t);
-      return !!effectiveDate && effectiveDate < today;
-    })
-    .sort((a: any, b: any) =>
-      transportEffectiveEndDate(a).localeCompare(transportEffectiveEndDate(b))
-    )
-    .slice(0, 10);
-
-  const overdueInvoices = [
-    ...(overdueJobInvoices.data ?? []).map((j: any) => ({
-      id: j.id,
-      total_invoice: outstandingAmount(j.total_invoice, j.amount_paid),
-      invoice_status: j.invoice_status,
-      start_at: null,
-      start_date: j.job_date,
-      clients: j.clients,
-      href: `/jobs/${j.id}`,
-    })),
-    ...overdueTransportRows.map((t: any) => ({
-      id: t.id,
-      total_invoice: outstandingAmount(
-        t.total_invoice ?? t.agreed_sell_rate ?? t.price,
-        t.amount_paid
-      ),
-      invoice_status: t.invoice_status,
-      start_at: null,
-      start_date: transportEffectiveEndDate(t),
-      clients: t.clients,
-      href: `/transport-jobs/${t.id}`,
-    })),
-  ]
-    .sort((a: any, b: any) =>
-      String(a.start_date || "").localeCompare(String(b.start_date || ""))
-    )
-    .slice(0, 10);
-
-  const utilisationPct =
-    totalCranes > 0 ? Math.round((activeCount / totalCranes) * 100) : 0;
-
-  const servicedEquipmentIds = new Set(
-    (serviceLogAll.data ?? [])
-      .map((r: any) => r.equipment_id)
-      .filter(Boolean)
-  );
-
-  const equipmentWithServiceHistory = servicedEquipmentIds.size;
-  const equipmentWithoutServiceHistory = Math.max(
-    0,
-    totalCranes - equipmentWithServiceHistory
-  );
-
-  const unassignedTransportCount = ((unassignedTransportJobs.data as any[]) ?? []).filter(
-    (row: any) => !row.vehicle_id || !row.operator_id
-  ).length;
-
-  return NextResponse.json({
-    today,
-    bookingsToday: jobsToday.count ?? 0,
-    activeHires: activeCount,
-    availableEquipment: availableCranesNow,
-    totalEquipment: totalCranes,
-    totalCranes,
-    totalVehicles,
-    availableCranesNow,
-    reservedCranesLater,
-    availableVehiclesNow,
-    outstandingInvoices: outstandingTotal,
-    upcomingBookings,
-    overdueInvoices,
-    utilisationPct,
-    recentAudit: recentAudit.data ?? [],
-    todayJobs:
-      (todayJobs.data ?? []).map((j: any) => ({
-        id: j.id,
-        start_at: j.job_date && j.start_time ? `${j.job_date}T${j.start_time}` : null,
-        start_date: j.job_date,
-        location: j.site_name,
-        status: j.status,
-        clients: j.clients,
-        equipment: null,
-      })) ?? [],
-    onHireEquipment: activeCount,
-    reservedEquipment: reservedCranesLater,
-    certExpiringSoon: certExpiringSoon.data?.length ?? 0,
-    certExpired: certExpired.data?.length ?? 0,
-    maintenanceEquipment: maintenanceEquipment.count ?? 0,
-    equipmentWithServiceHistory,
-    equipmentWithoutServiceHistory,
-    recentServiceLog: recentServiceLog.data ?? [],
-    lolerDueSoon: lolerDueSoon.data?.length ?? 0,
-    lolerOverdue: lolerOverdue.data?.length ?? 0,
-    unassignedTransportJobs: unassignedTransportCount,
-    completedCraneJobsNotInvoiced: completedCraneJobsNotInvoiced.count ?? 0,
-    completedTransportJobsNotInvoiced: completedTransportJobsNotInvoiced.count ?? 0,
-    timesheetsNotSubmitted: timesheetsNotSubmitted.count ?? 0,
-  });
 }
