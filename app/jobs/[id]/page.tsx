@@ -1,6 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import JobEquipmentManager from "../../components/JobEquipmentManager";
+import JobEquipmentManager from "./JobEquipmentManager";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -246,13 +246,7 @@ export default async function JobDetailPage({
   );
 
   const allocatedCostSubtotal = allocationList.reduce(
-    (sum, item) =>
-      sum +
-      Number(
-        item?.supplier_cost ??
-          item?.agreed_cost ??
-          0
-      ),
+    (sum, item) => sum + Number(item?.supplier_cost ?? item?.agreed_cost ?? 0),
     0
   );
 
@@ -414,8 +408,8 @@ export default async function JobDetailPage({
                   label: `${p.po_number ?? "PO"}${p.status ? ` • ${p.status}` : ""}`,
                 }))}
                 defaultDate={(job as any).start_date ?? (job as any).job_date}
-                defaultStartTime={(job as any).start_time}
-                defaultEndTime={(job as any).end_time}
+                defaultStartTime={job.start_time}
+                defaultEndTime={job.end_time}
               />
             </div>
 
