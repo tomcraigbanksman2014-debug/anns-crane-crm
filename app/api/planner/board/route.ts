@@ -75,7 +75,7 @@ export async function GET(req: Request) {
           crane_id,
           clients:client_id (company_name),
           operators:operator_id (id, full_name),
-          equipment:crane_id (id, name, reg_number)
+          cranes:crane_id (id, name, reg_number)
         `)
         .not("status", "eq", "cancelled"),
 
@@ -104,7 +104,7 @@ export async function GET(req: Request) {
             clients:client_id (company_name)
           ),
           operators:operator_id (id, full_name),
-          equipment:crane_id (id, name, reg_number)
+          cranes:crane_id (id, name, reg_number)
         `)
         .eq("asset_type", "crane"),
 
@@ -166,7 +166,7 @@ export async function GET(req: Request) {
           item_name: row.item_name ?? null,
           clients: job?.clients ?? null,
           operators: row.operators ?? null,
-          equipment: row.equipment ?? null,
+          equipment: row.cranes ?? null,
         };
       })
       .filter((item) => overlapsWeek(item.start_date, item.end_date, from, to));
@@ -197,7 +197,7 @@ export async function GET(req: Request) {
           item_name: null,
           clients: job.clients ?? null,
           operators: job.operators ?? null,
-          equipment: job.equipment ?? null,
+          equipment: job.cranes ?? null,
         };
       })
       .filter((item) => overlapsWeek(item.start_date, item.end_date, from, to))
