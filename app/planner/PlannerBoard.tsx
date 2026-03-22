@@ -8,6 +8,8 @@ type PlannerItem = {
   job_id: string;
   job_number?: string | null;
   job_date?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
   status?: string | null;
@@ -17,9 +19,18 @@ type PlannerItem = {
   equipment_id?: string | null;
   source_type?: string | null;
   item_name?: string | null;
-  clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-  operators?: { id?: string; full_name?: string | null } | { id?: string; full_name?: string | null }[] | null;
-  equipment?: { id?: string; name?: string | null; asset_number?: string | null } | { id?: string; name?: string | null; asset_number?: string | null }[] | null;
+  clients?:
+    | { company_name?: string | null }
+    | { company_name?: string | null }[]
+    | null;
+  operators?:
+    | { id?: string; full_name?: string | null }
+    | { id?: string; full_name?: string | null }[]
+    | null;
+  equipment?:
+    | { id?: string; name?: string | null; asset_number?: string | null }
+    | { id?: string; name?: string | null; asset_number?: string | null }[]
+    | null;
 };
 
 type PlannerPerson = {
@@ -44,7 +55,7 @@ type PlannerMode = "operator" | "equipment";
 
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function todayIso() {
@@ -153,6 +164,69 @@ function statusStripe(status: string | null | undefined) {
   if (v === "completed") return "rgba(0,180,120,0.95)";
   if (v === "cancelled") return "rgba(220,0,0,0.90)";
   return "rgba(0,0,0,0.18)";
+}
+
+function addDays(iso: string, days: number) {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return isoDate(d);
+}
+
+function diffDaysInclusive(start: string, end: string) {
+  const a = new Date(`${start}T00:00:00`);
+  const b = new Date(`${end}T00:00:00`);
+  const diffMs = b.getTime() - a.getTime();
+  const diff = Math.round(diffMs / 86400000);
+  return diff >= 0 ? diff + 1 : 1;
+}
+
+function itemStartDate(item: PlannerItem) {
+  return item.start_date ?? item.job_date ?? null;
+}
+
+function itemEndDate(item: PlannerItem) {
+  return item.end_date ?? item.start_date ?? item.job_date ?? null;
+}
+
+function itemSpansDay(item: PlannerItem, date: string) {
+  const start = itemStartDate(item);
+  const end = itemEndDate(item);
+  if (!start || !end) return false;
+  return start <= date && date <= end;
+}
+
+function buildDropUpdate(
+  item: PlannerItem,
+  targetDate: string,
+  patch: Record<string, any>
+) {
+  const start = itemStartDate(item);
+  const end = itemEndDate(item);
+
+  if (!start || !end) {
+    return {
+      ...patch,
+      job_date: targetDate,
+      start_date: targetDate,
+      end_date: targetDate,
+    };
+  }
+
+  const insideExistingSpan = start <= targetDate && targetDate <= end;
+  if (insideExistingSpan) {
+    return patch;
+  }
+
+  const duration = diffDaysInclusive(start, end);
+  const newStart = targetDate;
+  const newEnd = addDays(newStart, duration - 1);
+
+  return {
+    ...patch,
+    job_date: newStart,
+    start_date: newStart,
+    end_date: newEnd,
+  };
 }
 
 export default function PlannerBoard() {
@@ -264,15 +338,21 @@ export default function PlannerBoard() {
     const ids = new Set<string>();
 
     for (const item of data.items) {
-      if (!item.operator_id || !item.job_date) continue;
+      if (!item.operator_id) continue;
 
-      const clashes = data.items.filter(
-        (other) =>
-          other.id !== item.id &&
-          other.operator_id === item.operator_id &&
-          other.job_date === item.job_date &&
-          rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
-      );
+      const clashes = data.items.filter((other) => {
+        if (other.id === item.id) return false;
+        if (other.operator_id !== item.operator_id) return false;
+
+        const overlapDay = data.days.some(
+          (day) =>
+            itemSpansDay(item, day.date) &&
+            itemSpansDay(other, day.date) &&
+            rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
+        );
+
+        return overlapDay;
+      });
 
       if (clashes.length > 0) {
         ids.add(item.id);
@@ -280,21 +360,27 @@ export default function PlannerBoard() {
     }
 
     return ids;
-  }, [data.items]);
+  }, [data.items, data.days]);
 
   const equipmentConflictIds = useMemo(() => {
     const ids = new Set<string>();
 
     for (const item of data.items) {
-      if (!item.equipment_id || !item.job_date) continue;
+      if (!item.equipment_id) continue;
 
-      const clashes = data.items.filter(
-        (other) =>
-          other.id !== item.id &&
-          other.equipment_id === item.equipment_id &&
-          other.job_date === item.job_date &&
-          rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
-      );
+      const clashes = data.items.filter((other) => {
+        if (other.id === item.id) return false;
+        if (other.equipment_id !== item.equipment_id) return false;
+
+        const overlapDay = data.days.some(
+          (day) =>
+            itemSpansDay(item, day.date) &&
+            itemSpansDay(other, day.date) &&
+            rangesOverlap(item.start_time, item.end_time, other.start_time, other.end_time)
+        );
+
+        return overlapDay;
+      });
 
       if (clashes.length > 0) {
         ids.add(item.id);
@@ -302,15 +388,19 @@ export default function PlannerBoard() {
     }
 
     return ids;
-  }, [data.items]);
+  }, [data.items, data.days]);
 
   const unassignedByDay = useMemo(() => {
     const map = new Map<string, PlannerItem[]>();
     for (const day of data.days) map.set(day.date, []);
 
     for (const item of data.items) {
-      if (!item.operator_id && item.job_date && map.has(item.job_date)) {
-        map.get(item.job_date)!.push(item);
+      if (!item.operator_id) {
+        for (const day of data.days) {
+          if (itemSpansDay(item, day.date)) {
+            map.get(day.date)!.push(item);
+          }
+        }
       }
     }
 
@@ -327,9 +417,13 @@ export default function PlannerBoard() {
     }
 
     for (const item of data.items) {
-      if (item.operator_id && item.job_date) {
-        const key = `${item.operator_id}__${item.job_date}`;
-        if (map.has(key)) map.get(key)!.push(item);
+      if (item.operator_id) {
+        for (const day of data.days) {
+          if (itemSpansDay(item, day.date)) {
+            const key = `${item.operator_id}__${day.date}`;
+            if (map.has(key)) map.get(key)!.push(item);
+          }
+        }
       }
     }
 
@@ -346,9 +440,13 @@ export default function PlannerBoard() {
     }
 
     for (const item of data.items) {
-      if (item.equipment_id && item.job_date) {
-        const key = `${item.equipment_id}__${item.job_date}`;
-        if (map.has(key)) map.get(key)!.push(item);
+      if (item.equipment_id) {
+        for (const day of data.days) {
+          if (itemSpansDay(item, day.date)) {
+            const key = `${item.equipment_id}__${day.date}`;
+            if (map.has(key)) map.get(key)!.push(item);
+          }
+        }
       }
     }
 
@@ -361,7 +459,7 @@ export default function PlannerBoard() {
         <div>
           <h2 style={{ margin: 0, fontSize: 22 }}>Weekly Planner Board</h2>
           <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>
-            Compact weekly view for operators and equipment allocations.
+            Compact weekly view for operators and crane allocations.
           </div>
         </div>
 
@@ -495,10 +593,12 @@ export default function PlannerBoard() {
                           const itemId = e.dataTransfer.getData("text/plain");
                           const item = data.items.find((x) => x.id === itemId);
                           if (!item) return;
-                          await updateItem(item, {
-                            operator_id: null,
-                            job_date: day.date,
-                          });
+                          await updateItem(
+                            item,
+                            buildDropUpdate(item, day.date, {
+                              operator_id: null,
+                            })
+                          );
                         }}
                       >
                         {items.length === 0 ? (
@@ -506,8 +606,9 @@ export default function PlannerBoard() {
                         ) : (
                           items.map((item) => (
                             <PlannerCard
-                              key={item.id}
+                              key={`${item.id}__${day.date}`}
                               item={item}
+                              displayDate={day.date}
                               equipmentOptions={equipmentOptions}
                               saving={savingId === item.id}
                               dragging={draggingItemId === item.id}
@@ -629,10 +730,12 @@ function OperatorRow({
               const itemId = e.dataTransfer.getData("text/plain");
               const item = dataItems.find((x) => x.id === itemId);
               if (!item) return;
-              await updateItem(item, {
-                operator_id: operator.id,
-                job_date: day.date,
-              });
+              await updateItem(
+                item,
+                buildDropUpdate(item, day.date, {
+                  operator_id: operator.id,
+                })
+              );
             }}
           >
             {items.length === 0 ? (
@@ -640,8 +743,9 @@ function OperatorRow({
             ) : (
               items.map((item) => (
                 <PlannerCard
-                  key={item.id}
+                  key={`${item.id}__${day.date}`}
                   item={item}
+                  displayDate={day.date}
                   equipmentOptions={equipmentOptions}
                   saving={savingId === item.id}
                   dragging={draggingItemId === item.id}
@@ -717,10 +821,12 @@ function EquipmentRow({
               const itemId = e.dataTransfer.getData("text/plain");
               const item = dataItems.find((x) => x.id === itemId);
               if (!item) return;
-              await updateItem(item, {
-                equipment_id: equipment.id,
-                job_date: day.date,
-              });
+              await updateItem(
+                item,
+                buildDropUpdate(item, day.date, {
+                  equipment_id: equipment.id,
+                })
+              );
             }}
           >
             {items.length === 0 ? (
@@ -728,8 +834,9 @@ function EquipmentRow({
             ) : (
               items.map((item) => (
                 <PlannerCard
-                  key={item.id}
+                  key={`${item.id}__${day.date}`}
                   item={item}
+                  displayDate={day.date}
                   equipmentOptions={equipmentOptions}
                   saving={savingId === item.id}
                   dragging={draggingItemId === item.id}
@@ -781,6 +888,7 @@ function DropCell({
 
 function PlannerCard({
   item,
+  displayDate,
   equipmentOptions,
   saving,
   dragging,
@@ -791,6 +899,7 @@ function PlannerCard({
   onUpdate,
 }: {
   item: PlannerItem;
+  displayDate: string;
   equipmentOptions: Array<{ value: string; label: string }>;
   saving: boolean;
   dragging: boolean;
@@ -810,6 +919,16 @@ function PlannerCard({
 
   const isCrossHire = item.source_type === "cross_hire";
   const hasConflict = operatorConflict || equipmentConflict;
+  const start = itemStartDate(item);
+  const end = itemEndDate(item);
+  const isMultiDay = !!start && !!end && start !== end;
+
+  let spanLabel = "";
+  if (isMultiDay && start && end) {
+    if (displayDate === start) spanLabel = "Starts";
+    else if (displayDate === end) spanLabel = "Ends";
+    else spanLabel = "Continues";
+  }
 
   return (
     <div
@@ -861,8 +980,15 @@ function PlannerCard({
 
         <div style={smallText}>{item.site_name ?? "No site"}</div>
 
+        {isMultiDay ? (
+          <div style={{ ...smallText, fontWeight: 800 }}>
+            {spanLabel}: {start} → {end}
+          </div>
+        ) : null}
+
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {isCrossHire ? <span style={miniTagPurple}>Cross hire</span> : <span style={miniTagGrey}>Owned</span>}
+          {isMultiDay ? <span style={miniTagBlue}>Multi-day</span> : null}
           {operatorConflict ? <span style={miniTagWarn}>Operator clash</span> : null}
           {equipmentConflict ? <span style={miniTagWarn}>Crane clash</span> : null}
         </div>
@@ -1145,4 +1271,14 @@ const miniTagWarn: React.CSSProperties = {
   background: "rgba(217,119,6,0.12)",
   color: "#b45309",
   border: "1px solid rgba(217,119,6,0.28)",
+};
+
+const miniTagBlue: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 800,
+  padding: "2px 6px",
+  borderRadius: 999,
+  background: "rgba(0,120,255,0.12)",
+  color: "#0b57d0",
+  border: "1px solid rgba(0,120,255,0.24)",
 };
