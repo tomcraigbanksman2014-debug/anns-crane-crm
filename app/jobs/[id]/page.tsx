@@ -1,13 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import JobEquipmentManager from "./JobEquipmentManager";
-
-function fmtDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleString("en-GB");
-}
+import JobEquipmentManager from "../../components/JobEquipmentManager";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -16,21 +9,44 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
-function money(value: number | null | undefined) {
-  const n = Number(value ?? null);
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-GB");
+}
+
+function money(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return "£0.00";
   return `£${n.toFixed(2)}`;
 }
 
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
-  return Array.isArray(value) ? (value[0] ?? null) : value;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function statusPillStyle(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
-  if (["confirmed", "in progress", "in_progress", "active"].includes(s)) {
+  if (s === "confirmed") {
+    return {
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
+    };
+  }
+
+  if (s === "in_progress") {
+    return {
+      background: "rgba(255,140,0,0.14)",
+      color: "#8a5200",
+      border: "1px solid rgba(255,140,0,0.22)",
+    };
+  }
+
+  if (s === "completed") {
     return {
       background: "rgba(0,180,120,0.12)",
       color: "#0b7a4b",
@@ -38,94 +54,60 @@ function statusPillStyle(status: string | null | undefined): React.CSSProperties
     };
   }
 
-  if (["planned", "draft", "pending"].includes(s)) {
-    return {
-      background: "rgba(255,170,0,0.14)",
-      color: "#8a5200",
-      border: "1px solid rgba(255,170,0,0.24)",
-    };
-  }
-
-  if (["cancelled", "canceled"].includes(s)) {
+  if (s === "cancelled") {
     return {
       background: "rgba(255,0,0,0.10)",
       color: "#b00020",
-      border: "1px solid rgba(255,0,0,0.20)",
+      border: "1px solid rgba(255,0,0,0.18)",
     };
   }
 
   return {
-    background: "rgba(255,255,255,0.45)",
-    color: "#111",
-    border: "1px solid rgba(0,0,0,0.10)",
+    background: "rgba(120,120,120,0.12)",
+    color: "#555",
+    border: "1px solid rgba(120,120,120,0.18)",
   };
 }
 
-function Row({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div style={rowStyle}>
-      <div style={rowLabel}>{label}</div>
-      <div style={rowValue}>{value}</div>
-    </div>
-  );
-}
-
-function getAssetType(item: any) {
-  if (item?.asset_type) return String(item.asset_type).toLowerCase();
-  if (item?.crane_id) return "crane";
-  if (item?.vehicle_id) return "vehicle";
-  if (item?.equipment_id) return "equipment";
-  return "other";
-}
-
 function allocatedAssetName(item: any) {
-  const type = getAssetType(item);
-  if (type === "crane") return item.cranes?.name ?? item.item_name ?? "Crane";
-  if (type === "vehicle") return item.vehicles?.name ?? item.item_name ?? "Vehicle";
-  if (type === "equipment") return item.equipment?.name ?? item.item_name ?? "Equipment";
+  if (item.asset_type === "crane") {
+    const crane = first(item.cranes);
+    return crane?.name ?? "Crane";
+  }
+
+  if (item.asset_type === "vehicle") {
+    const vehicle = first(item.vehicles);
+    return vehicle?.name ?? "Vehicle";
+  }
+
+  if (item.asset_type === "equipment") {
+    const equipment = first(item.equipment);
+    return equipment?.name ?? "Equipment";
+  }
+
   return item.item_name ?? "Other";
 }
 
-function allocatedSell(item: any) {
-  return Number(item.agreed_sell_rate ?? item.agreed_cost ?? 0);
+function allocationMeta(item: any, label: string) {
+  const operator = first(item.operators);
+  const supplier = first(item.suppliers);
+
+  return [
+    label,
+    item.start_date ? `From ${fmtDate(item.start_date)}` : null,
+    item.end_date ? `To ${fmtDate(item.end_date)}` : null,
+    item.start_time ? `Start ${item.start_time}` : null,
+    item.end_time ? `End ${item.end_time}` : null,
+    operator?.full_name ? `Operator: ${operator.full_name}` : null,
+    supplier?.company_name ? `Supplier: ${supplier.company_name}` : null,
+    item.agreed_sell_rate ? `Sell: ${money(item.agreed_sell_rate)}` : null,
+    item.supplier_cost ? `Cost: ${money(item.supplier_cost)}` : null,
+  ]
+    .filter(Boolean)
+    .join(" • ");
 }
 
-function allocatedCost(item: any) {
-  return Number(item.supplier_cost ?? item.agreed_cost ?? 0);
-}
-
-function allocationMeta(item: any, type: string) {
-  const bits: string[] = [];
-
-  if (type === "crane") {
-    if (item.cranes?.reg_number) bits.push(item.cranes.reg_number);
-    if (item.cranes?.capacity) bits.push(item.cranes.capacity);
-  }
-
-  if (type === "vehicle") {
-    if (item.vehicles?.reg_number) bits.push(item.vehicles.reg_number);
-  }
-
-  if (type === "equipment") {
-    if (item.equipment?.asset_number) bits.push(item.equipment.asset_number);
-  }
-
-  if (item.operators?.full_name) bits.push(item.operators.full_name);
-  if (item.suppliers?.company_name) bits.push(item.suppliers.company_name);
-
-  bits.push(`Sell ${money(allocatedSell(item))}`);
-  bits.push(`Cost ${money(allocatedCost(item))}`);
-
-  return bits.join(" • ");
-}
-
-export default async function JobPage({
+export default async function JobDetailPage({
   params,
 }: {
   params: { id: string };
@@ -134,7 +116,6 @@ export default async function JobPage({
 
   const [
     { data: job, error: jobError },
-    { data: allocations },
     { data: craneList },
     { data: vehicleList },
     { data: equipmentList },
@@ -159,77 +140,84 @@ export default async function JobPage({
           phone,
           email,
           category
+        ),
+        operators:operator_id (
+          id,
+          full_name,
+          phone,
+          email,
+          status
+        ),
+        job_equipment (
+          id,
+          asset_type,
+          item_name,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          agreed_cost,
+          agreed_sell_rate,
+          supplier_cost,
+          supplier_reference,
+          notes,
+          cranes:crane_id (
+            id,
+            name,
+            reg_number,
+            capacity
+          ),
+          vehicles:vehicle_id (
+            id,
+            name,
+            reg_number
+          ),
+          equipment:equipment_id (
+            id,
+            name,
+            asset_number
+          ),
+          operators:operator_id (
+            id,
+            full_name
+          ),
+          suppliers:supplier_id (
+            id,
+            company_name
+          )
         )
       `)
       .eq("id", params.id)
       .single(),
 
     supabase
-      .from("job_equipment")
-      .select(`
-        *,
-        cranes:crane_id (
-          id,
-          name,
-          reg_number,
-          capacity
-        ),
-        vehicles:vehicle_id (
-          id,
-          name,
-          reg_number
-        ),
-        equipment:equipment_id (
-          id,
-          name,
-          asset_number
-        ),
-        operators:operator_id (
-          id,
-          full_name
-        ),
-        suppliers:supplier_id (
-          id,
-          company_name,
-          category
-        ),
-        purchase_orders:purchase_order_id (
-          id,
-          po_number,
-          status
-        )
-      `)
-      .eq("job_id", params.id)
-      .order("created_at", { ascending: true }),
-
-    supabase
       .from("cranes")
-      .select("id, name, reg_number, capacity, status, archived")
+      .select("id, name, reg_number, capacity, archived")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("vehicles")
-      .select("id, name, reg_number")
+      .select("id, name, reg_number, archived")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("equipment")
-      .select("id, name, asset_number")
+      .select("id, name, asset_number, archived")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
-      .select("id, full_name")
+      .select("id, full_name, archived, status")
       .eq("archived", false)
       .order("full_name", { ascending: true }),
 
     supabase
       .from("suppliers")
-      .select("id, company_name, category")
-      .eq("status", "active")
+      .select("id, company_name, phone, email, category, archived")
+      .eq("archived", false)
       .order("company_name", { ascending: true }),
 
     supabase
@@ -239,32 +227,36 @@ export default async function JobPage({
   ]);
 
   const client = first((job as any)?.clients);
-  const jobLinkedSupplier = first((job as any)?.suppliers);
-  const allocationList = (allocations as any[]) ?? [];
-  const primarySupplierAllocation =
-    allocationList.find((item) => item?.supplier_id || item?.suppliers?.id) ?? null;
-  const allocationLinkedSupplier = first(primarySupplierAllocation?.suppliers);
-  const linkedSupplier = jobLinkedSupplier ?? allocationLinkedSupplier;
-  const primarySupplierReference = primarySupplierAllocation?.supplier_reference ?? null;
-  const primarySupplierCost = Number(
-    primarySupplierAllocation?.supplier_cost ?? primarySupplierAllocation?.agreed_cost ?? 0
-  );
+  const linkedSupplier = first((job as any)?.suppliers);
+  const linkedOperator = first((job as any)?.operators);
+  const allocationList = ((job as any)?.job_equipment ?? []) as any[];
 
-  const cranesAllocated = allocationList.filter((a) => getAssetType(a) === "crane");
-  const vehiclesAllocated = allocationList.filter((a) => getAssetType(a) === "vehicle");
-  const equipmentAllocated = allocationList.filter((a) => getAssetType(a) === "equipment");
-  const otherAllocated = allocationList.filter((a) => getAssetType(a) === "other");
+  const cranesAllocated = allocationList.filter((item) => item.asset_type === "crane");
+  const vehiclesAllocated = allocationList.filter((item) => item.asset_type === "vehicle");
+  const equipmentAllocated = allocationList.filter((item) => item.asset_type === "equipment");
+  const otherAllocated = allocationList.filter((item) => item.asset_type === "other");
+
+  const primarySupplierCost = Number((job as any)?.cross_hire_cost_total ?? 0);
+  const primarySupplierReference =
+    allocationList.find((item) => item?.supplier_reference)?.supplier_reference ?? null;
 
   const allocatedSellSubtotal = allocationList.reduce(
-    (sum, item) => sum + allocatedSell(item),
-    0
-  );
-  const allocatedCostSubtotal = allocationList.reduce(
-    (sum, item) => sum + allocatedCost(item),
+    (sum, item) => sum + Number(item?.agreed_sell_rate ?? 0),
     0
   );
 
-  const liveVat = Number(job?.invoice_vat ?? 0);
+  const allocatedCostSubtotal = allocationList.reduce(
+    (sum, item) =>
+      sum +
+      Number(
+        item?.supplier_cost ??
+          item?.agreed_cost ??
+          0
+      ),
+    0
+  );
+
+  const liveVat = Number((job as any)?.invoice_vat ?? 0);
   const allocatedTotal = allocatedSellSubtotal + liveVat;
 
   return (
@@ -273,7 +265,7 @@ export default async function JobPage({
         <div style={pageHeader}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>
-              Job {job?.job_number ? `#${job.job_number}` : ""}
+              Job {(job as any)?.job_number ? `#${(job as any).job_number}` : ""}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
               Manage live job details, allocations and supplier costs.
@@ -287,7 +279,7 @@ export default async function JobPage({
             <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
               Edit job
             </a>
-            {String(job?.status ?? "").toLowerCase() !== "cancelled" ? (
+            {String((job as any)?.status ?? "").toLowerCase() !== "cancelled" ? (
               <form action={`/api/jobs/${params.id}/cancel`} method="POST">
                 <button type="submit" style={cancelBtn}>
                   Cancel job
@@ -307,7 +299,7 @@ export default async function JobPage({
                 <h2 style={sectionTitle}>Job Summary</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Job #" value={job.job_number ?? "—"} />
+                  <Row label="Job #" value={(job as any).job_number ?? "—"} />
                   <Row
                     label="Status"
                     value={
@@ -318,19 +310,20 @@ export default async function JobPage({
                           borderRadius: 999,
                           fontSize: 12,
                           fontWeight: 900,
-                          ...statusPillStyle(job.status),
+                          ...statusPillStyle((job as any).status),
                         }}
                       >
-                        {job.status ?? "—"}
+                        {(job as any).status ?? "—"}
                       </span>
                     }
                   />
-                  <Row label="Job date" value={fmtDate(job.job_date)} />
-                  <Row label="Start time" value={job.start_time ?? "—"} />
-                  <Row label="End time" value={job.end_time ?? "—"} />
-                  <Row label="Site" value={job.site_name ?? "—"} />
-                  <Row label="Address" value={job.site_address ?? "—"} />
-                  <Row label="Created" value={fmtDateTime(job.created_at)} />
+                  <Row label="Job start date" value={fmtDate((job as any).start_date ?? (job as any).job_date)} />
+                  <Row label="Job end date" value={fmtDate((job as any).end_date ?? (job as any).job_date)} />
+                  <Row label="Start time" value={(job as any).start_time ?? "—"} />
+                  <Row label="End time" value={(job as any).end_time ?? "—"} />
+                  <Row label="Site" value={(job as any).site_name ?? "—"} />
+                  <Row label="Address" value={(job as any).site_address ?? "—"} />
+                  <Row label="Created" value={fmtDateTime((job as any).created_at)} />
                 </div>
               </section>
 
@@ -393,7 +386,7 @@ export default async function JobPage({
               </section>
 
               <JobEquipmentManager
-                jobId={job.id}
+                jobId={(job as any).id}
                 initialAllocations={allocationList}
                 craneOptions={((craneList as any[]) ?? []).map((c: any) => ({
                   value: c.id,
@@ -420,9 +413,9 @@ export default async function JobPage({
                   value: p.id,
                   label: `${p.po_number ?? "PO"}${p.status ? ` • ${p.status}` : ""}`,
                 }))}
-                defaultDate={job.job_date}
-                defaultStartTime={job.start_time}
-                defaultEndTime={job.end_time}
+                defaultDate={(job as any).start_date ?? (job as any).job_date}
+                defaultStartTime={(job as any).start_time}
+                defaultEndTime={(job as any).end_time}
               />
             </div>
 
@@ -444,10 +437,10 @@ export default async function JobPage({
                 <h2 style={sectionTitle}>Legacy primary operator</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Operator" value={job.operator_name ?? "—"} />
-                  <Row label="Phone" value={job.operator_phone ?? "—"} />
-                  <Row label="Email" value={job.operator_email ?? "—"} />
-                  <Row label="Status" value={job.operator_status ?? "—"} />
+                  <Row label="Operator" value={(job as any).operator_name ?? linkedOperator?.full_name ?? "—"} />
+                  <Row label="Phone" value={(job as any).operator_phone ?? linkedOperator?.phone ?? "—"} />
+                  <Row label="Email" value={(job as any).operator_email ?? linkedOperator?.email ?? "—"} />
+                  <Row label="Status" value={(job as any).operator_status ?? linkedOperator?.status ?? "—"} />
                 </div>
               </section>
 
@@ -455,11 +448,11 @@ export default async function JobPage({
                 <h2 style={sectionTitle}>Operator Activity</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Started" value={fmtDateTime(job.started_at)} />
-                  <Row label="Arrived on site" value={fmtDateTime(job.arrived_on_site_at)} />
-                  <Row label="Lift completed" value={fmtDateTime(job.lift_completed_at)} />
-                  <Row label="Job completed" value={fmtDateTime(job.completed_at)} />
-                  <Row label="Worked time" value={job.worked_time ?? "—"} />
+                  <Row label="Started" value={fmtDateTime((job as any).started_at)} />
+                  <Row label="Arrived on site" value={fmtDateTime((job as any).arrived_on_site_at)} />
+                  <Row label="Lift completed" value={fmtDateTime((job as any).lift_completed_at)} />
+                  <Row label="Job completed" value={fmtDateTime((job as any).completed_at)} />
+                  <Row label="Worked time" value={(job as any).worked_time ?? "—"} />
                 </div>
               </section>
 
@@ -467,14 +460,14 @@ export default async function JobPage({
                 <h2 style={sectionTitle}>Invoice Status</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Invoice status" value={job.invoice_status ?? "Not Invoiced"} />
-                  <Row label="Invoice #" value={job.invoice_number ?? "—"} />
-                  <Row label="Invoice created" value={fmtDate(job.invoice_created_at ?? job.invoice_date)} />
-                  <Row label="Invoice due" value={fmtDate(job.invoice_due_date)} />
+                  <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
+                  <Row label="Invoice #" value={(job as any).invoice_number ?? "—"} />
+                  <Row label="Invoice created" value={fmtDate((job as any).invoice_created_at ?? (job as any).invoice_date)} />
+                  <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
                   <Row label="Allocated subtotal" value={money(allocatedSellSubtotal)} />
                   <Row label="VAT" value={money(liveVat)} />
                   <Row label="Allocated total" value={money(allocatedTotal)} />
-                  <Row label="Invoice notes" value={job.invoice_notes ?? "—"} />
+                  <Row label="Invoice notes" value={(job as any).invoice_notes ?? "—"} />
                 </div>
               </section>
             </div>
@@ -512,6 +505,21 @@ function AssetListBlock({
   );
 }
 
+function Row({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div style={rowStyle}>
+      <div style={rowLabel}>{label}</div>
+      <div style={rowValue}>{value}</div>
+    </div>
+  );
+}
+
 const pageHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
@@ -523,9 +531,8 @@ const pageHeader: React.CSSProperties = {
 
 const layoutGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.05fr 0.95fr",
+  gridTemplateColumns: "1.2fr 0.8fr",
   gap: 18,
-  alignItems: "start",
 };
 
 const cardStyle: React.CSSProperties = {
@@ -544,42 +551,42 @@ const sectionTitle: React.CSSProperties = {
 
 const summaryGrid: React.CSSProperties = {
   display: "grid",
-  gap: 2,
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 10,
 };
 
 const rowStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.36)",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const rowLabel: React.CSSProperties = {
-  fontSize: 14,
-  opacity: 0.72,
-  minWidth: 140,
+  fontSize: 12,
+  opacity: 0.74,
+  fontWeight: 800,
 };
 
 const rowValue: React.CSSProperties = {
-  fontWeight: 800,
-  textAlign: "right",
+  marginTop: 4,
+  fontWeight: 900,
+  wordBreak: "break-word",
 };
 
 const listItemStyle: React.CSSProperties = {
-  padding: 10,
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.48)",
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.36)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const listEmptyStyle: React.CSSProperties = {
   padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.40)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 700,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.28)",
+  border: "1px dashed rgba(0,0,0,0.12)",
+  opacity: 0.75,
 };
 
 const secondaryBtn: React.CSSProperties = {
