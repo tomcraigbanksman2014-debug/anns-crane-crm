@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import JobEquipmentManager from "./JobEquipmentManager";
 import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
+import DuplicateJobButton from "./DuplicateJobButton";
 import { redirect } from "next/navigation";
 
 function fmtDate(value: string | null | undefined) {
@@ -392,6 +393,7 @@ export default async function JobDetailPage({
             <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
               Edit job
             </a>
+            <DuplicateJobButton jobId={params.id} />
             {String((job as any)?.status ?? "").toLowerCase() !== "cancelled" ? (
               <form action={`/api/jobs/${params.id}/cancel`} method="POST">
                 <button type="submit" style={cancelBtn}>
@@ -735,12 +737,25 @@ export default async function JobDetailPage({
                 <h2 style={sectionTitle}>Commercial</h2>
 
                 <div style={summaryGrid}>
+                  <Row
+                    label="Price mode"
+                    value={(job as any)?.price_mode === "per_day" ? "Price per day" : "Full job price"}
+                  />
+                  <Row
+                    label="Price per day"
+                    value={
+                      (job as any)?.price_per_day != null && Number((job as any)?.price_per_day) > 0
+                        ? money((job as any)?.price_per_day)
+                        : "—"
+                    }
+                  />
                   <Row label="Quoted / agreed sell" value={money((job as any).price ?? allocatedSellSubtotal)} />
                   <Row label="Allocated sell subtotal" value={money(allocatedSellSubtotal)} />
                   <Row label="VAT" value={money(liveVat)} />
                   <Row label="Invoice total" value={money((job as any).total_invoice ?? allocatedTotal)} />
                   <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
                   <Row label="Part paid amount" value={money((job as any).part_paid_amount ?? 0)} />
+                  <Row label="Exclude weekends" value={(job as any)?.exclude_weekends ? "Yes" : "No"} />
                 </div>
               </section>
 
