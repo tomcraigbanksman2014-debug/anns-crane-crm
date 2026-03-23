@@ -76,6 +76,16 @@ type DashboardStats = {
   completedCraneJobsNotInvoiced?: number;
   completedTransportJobsNotInvoiced?: number;
   timesheetsNotSubmitted?: number;
+  weeklyIncomingJobs?: {
+    lastWeek: number;
+    thisWeek: number;
+    nextWeek: number;
+  };
+  weeklyPurchaseOrderCosts?: {
+    lastWeek: number;
+    thisWeek: number;
+    nextWeek: number;
+  };
   upcomingBookings?: Array<{
     id: string;
     start_at?: string | null;
@@ -224,6 +234,18 @@ export default function DashboardPage() {
         ]
       : [];
 
+  if (loading) {
+    return (
+      <ClientShell>
+        <div className="dash-shell" style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+          <Panel title="Loading dashboard">
+            <EmptyState text="Loading..." />
+          </Panel>
+        </div>
+      </ClientShell>
+    );
+  }
+
   return (
     <ClientShell>
       <style>{`
@@ -257,27 +279,19 @@ export default function DashboardPage() {
           .dash-activity-row {
             align-items: flex-start !important;
           }
-
-          .dash-warning-link {
-            white-space: normal !important;
-            width: 100%;
-            text-align: center;
-          }
         }
       `}</style>
 
       <div
         className="dash-shell"
         style={{
-          width: "100%",
-          maxWidth: 1250,
-          boxSizing: "border-box",
+          width: "min(1400px, 96vw)",
+          margin: "0 auto",
           background: "rgba(255,255,255,0.18)",
-          borderRadius: 14,
-          padding: 24,
-          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
           border: "1px solid rgba(255,255,255,0.4)",
-          overflowX: "hidden",
+          borderRadius: 24,
+          padding: 18,
+          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
         }}
       >
         <div
@@ -290,161 +304,136 @@ export default function DashboardPage() {
             alignItems: "center",
           }}
         >
-          <div style={{ minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 28, lineHeight: 1.1 }}>Dashboard</h1>
-            <p style={{ marginTop: 8, opacity: 0.85 }}>
-              {loading ? (
-                "Loading session..."
-              ) : (
-                <>
-                  Signed in as <b>{username}</b> {role ? `(${role})` : ""}
-                </>
-              )}
-            </p>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 34 }}>Dashboard</h1>
+            <div style={{ marginTop: 6, opacity: 0.75 }}>
+              Welcome back, <strong>{username || "user"}</strong>
+              {role ? ` • ${role}` : ""}
+            </div>
           </div>
 
-          <button
-            className="dash-signout"
-            onClick={signOut}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid rgba(0,0,0,0.12)",
-              background: "rgba(255,255,255,0.45)",
-              cursor: "pointer",
-              fontWeight: 900,
-              flexShrink: 0,
-            }}
-          >
-            Sign out
-          </button>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button className="dash-signout" onClick={signOut} style={searchGhostBtn}>
+              Sign out
+            </button>
+          </div>
         </div>
 
-        {passwordDaysLeft !== null && passwordDaysLeft <= 14 && passwordDaysLeft > 0 ? (
-          <div style={alertBox("warn", false)}>
-            Password expires in {passwordDaysLeft} day{passwordDaysLeft === 1 ? "" : "s"}. Please update it soon.
+        {typeof passwordDaysLeft === "number" && passwordDaysLeft <= 30 ? (
+          <div style={alertBox(passwordDaysLeft <= 7 ? "bad" : "warn", true)}>
+            <div>
+              Your password expires in <strong>{passwordDaysLeft}</strong> day{passwordDaysLeft === 1 ? "" : "s"}.
+            </div>
+            <a href="/change-password" style={warningLinkStyle}>
+              Change password
+            </a>
           </div>
         ) : null}
 
         {(stats?.certExpired ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
-            <span>
+            <div>
               ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
-            </span>
-            <a href="/equipment?cert=expired" className="dash-warning-link" style={warningLinkStyle}>
-              View expired equipment →
+            </div>
+            <a href="/equipment?cert=expired" style={warningLinkStyle}>
+              Open equipment
             </a>
           </div>
         ) : null}
 
         {(stats?.certExpiringSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
-            <span>
+            <div>
               ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
-            </span>
-            <a href="/equipment?cert=expiring" className="dash-warning-link" style={warningLinkStyle}>
-              View expiring equipment →
+            </div>
+            <a href="/equipment?cert=expiring" style={warningLinkStyle}>
+              Review expiries
             </a>
           </div>
         ) : null}
 
         {(stats?.lolerOverdue ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
-            <span>
+            <div>
               ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
-            </span>
-            <a href="/equipment?loler=overdue" className="dash-warning-link" style={warningLinkStyle}>
-              View overdue LOLER →
+            </div>
+            <a href="/equipment?loler=overdue" style={warningLinkStyle}>
+              Review LOLER
             </a>
           </div>
         ) : null}
 
         {(stats?.lolerDueSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
-            <span>
+            <div>
               ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
-            </span>
-            <a href="/equipment?loler=due" className="dash-warning-link" style={warningLinkStyle}>
-              View LOLER due soon →
+            </div>
+            <a href="/equipment?loler=due" style={warningLinkStyle}>
+              Review LOLER
             </a>
           </div>
         ) : null}
 
         {(stats?.maintenanceEquipment ?? 0) > 0 ? (
-          <div
-            style={{
-              marginTop: 14,
-              padding: "12px 14px",
-              borderRadius: 12,
-              background: "rgba(0,120,255,0.10)",
-              border: "1px solid rgba(0,120,255,0.18)",
-              fontWeight: 800,
-            }}
-          >
-            ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
+          <div style={alertBox("warn", false)}>
+            <div>
+              ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
+            </div>
           </div>
         ) : null}
 
-        <div style={{ marginTop: 14 }}>
-          <DashboardSearch />
-        </div>
-
         <div
-          className="dash-search-shortcuts"
+          className="dash-three-col"
           style={{
             marginTop: 14,
             display: "grid",
-            gridTemplateColumns: "1.3fr 1fr",
+            gridTemplateColumns: "1.3fr 1fr 1fr",
             gap: 14,
           }}
         >
-          <Panel
-            title="Search the whole CRM"
-            subtitle="Use one search across customers, jobs, transport, quotes, bookings, equipment and audit log."
-          >
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/search" style={searchActionBtn}>
-                Open global search
-              </a>
-              <a href="/search?type=bookings" style={searchGhostBtn}>
-                Search bookings
-              </a>
-              <a href="/search?type=jobs" style={searchGhostBtn}>
-                Search jobs
-              </a>
-              <a href="/search?type=transport" style={searchGhostBtn}>
-                Search transport
-              </a>
+          <Panel title="Quick search" subtitle="Search customers, jobs, quotes, equipment and more">
+            <DashboardSearch />
+            <div
+              className="dash-search-shortcuts"
+              style={{
+                marginTop: 12,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <a href="/search?type=customers" style={searchGhostBtn}>Customers</a>
+              <a href="/search?type=jobs" style={searchGhostBtn}>Jobs</a>
+              <a href="/search?type=transport" style={searchGhostBtn}>Transport</a>
+              <a href="/search?type=quotes" style={searchGhostBtn}>Quotes</a>
+              <a href="/search?type=equipment" style={searchGhostBtn}>Equipment</a>
+              <a href="/search?type=audit" style={searchGhostBtn}>Audit</a>
             </div>
           </Panel>
 
-          <Panel
-            title="Quick links"
-            subtitle="Jump straight into the most-used areas."
-          >
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/search?type=customers" style={searchGhostBtn}>
-                Customers
-              </a>
-              <a href="/search?type=quotes" style={searchGhostBtn}>
-                Quotes
-              </a>
-              <a href="/search?type=equipment" style={searchGhostBtn}>
-                Equipment
-              </a>
-              <a href="/search?type=audit" style={searchGhostBtn}>
-                Audit
-              </a>
+          <Panel title="Shortcuts" subtitle="Common areas">
+            <div style={{ display: "grid", gap: 10 }}>
+              {[...tiles, ...adminTiles].map((tile) => (
+                <a key={tile.href} href={tile.href} style={cardStyle(tile.tone)}>
+                  {tile.label}
+                </a>
+              ))}
             </div>
           </Panel>
-        </div>
 
-        <div style={{ marginTop: 14 }}>
-          <OperatorQualificationAlertSummary />
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <OperatorComplianceAlerts />
+          <Panel title="Operator overview" subtitle="Quick access to operator checks">
+            <div
+              className="dash-operator-alert-grid"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: 12,
+              }}
+            >
+              <OperatorQualificationAlertSummary />
+              <OperatorComplianceAlerts />
+            </div>
+          </Panel>
         </div>
 
         <div
@@ -486,6 +475,49 @@ export default function DashboardPage() {
             subtext="Fleet utilisation"
             badge={<StatusPill text="Use" />}
           />
+        </div>
+
+        <div style={{ marginTop: 14 }}>
+          <Panel title="Weekly jobs and costs" subtitle="Incoming from crane jobs and purchase order costs by week">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <div style={certCard("neutral")}>
+                <div style={smallTitle}>Jobs incoming last week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.lastWeek ?? 0)}</div>
+                <div style={smallHelp}>Crane jobs overlapping last week</div>
+              </div>
+              <div style={certCard("neutral")}>
+                <div style={smallTitle}>Jobs incoming this week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.thisWeek ?? 0)}</div>
+                <div style={smallHelp}>Crane jobs overlapping this week</div>
+              </div>
+              <div style={certCard("neutral")}>
+                <div style={smallTitle}>Jobs incoming next week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.nextWeek ?? 0)}</div>
+                <div style={smallHelp}>Crane jobs overlapping next week</div>
+              </div>
+              <div style={certCard("warn")}>
+                <div style={smallTitle}>PO costs last week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.lastWeek ?? 0)}</div>
+                <div style={smallHelp}>Purchase orders due / ordered in last week</div>
+              </div>
+              <div style={certCard("warn")}>
+                <div style={smallTitle}>PO costs this week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.thisWeek ?? 0)}</div>
+                <div style={smallHelp}>Purchase orders due / ordered this week</div>
+              </div>
+              <div style={certCard("warn")}>
+                <div style={smallTitle}>PO costs next week</div>
+                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.nextWeek ?? 0)}</div>
+                <div style={smallHelp}>Purchase orders due / ordered next week</div>
+              </div>
+            </div>
+          </Panel>
         </div>
 
         <div style={{ marginTop: 14 }}>
@@ -565,129 +597,104 @@ export default function DashboardPage() {
               }}
             >
               <a href="/equipment?loler=overdue" style={certCard("bad")}>
-                <div style={smallTitle}>Overdue</div>
+                <div style={smallTitle}>Overdue LOLER</div>
                 <div style={bigValue}>{stats?.lolerOverdue ?? 0}</div>
-                <div style={smallHelp}>Immediate compliance attention needed</div>
+                <div style={smallHelp}>Equipment needing immediate attention</div>
               </a>
 
               <a href="/equipment?loler=due" style={certCard("warn")}>
                 <div style={smallTitle}>Due in 30 days</div>
                 <div style={bigValue}>{stats?.lolerDueSoon ?? 0}</div>
-                <div style={smallHelp}>Book upcoming LOLER inspections</div>
+                <div style={smallHelp}>Schedule inspections ahead of time</div>
               </a>
-
-              <a href="/equipment?loler=indate" style={certCard("neutral")}>
-                <div style={smallTitle}>In date view</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>Open compliant fleet</div>
-                <div style={smallHelp}>See equipment with LOLER in date</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Service & maintenance" subtitle="Monitor service history coverage and recent workshop activity">
-            <div
-              className="dash-service-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.2fr)",
-                gap: 14,
-              }}
-            >
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-                  gap: 12,
-                }}
-              >
-                <a href="/equipment" style={certCard("neutral")}>
-                  <div style={smallTitle}>With service history</div>
-                  <div style={bigValue}>{stats?.equipmentWithServiceHistory ?? 0}</div>
-                  <div style={smallHelp}>Equipment with at least one recorded service entry</div>
-                </a>
-
-                <a href="/equipment" style={certCard("warn")}>
-                  <div style={smallTitle}>No service history</div>
-                  <div style={bigValue}>{stats?.equipmentWithoutServiceHistory ?? 0}</div>
-                  <div style={smallHelp}>Equipment with no recorded service entries yet</div>
-                </a>
-              </div>
-
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 900, marginBottom: 10 }}>Recent service activity</div>
-
-                {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
-                  <EmptyState text="No service activity recorded yet." />
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {stats.recentServiceLog.map((entry) => {
-                      const equipment = first(entry.equipment);
-
-                      return (
-                        <div key={entry.id} className="dash-activity-row" style={activityRow}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 900 }}>
-                              {equipment?.name ?? "Equipment"} • {String(entry.entry_type ?? "note").toUpperCase()}
-                            </div>
-                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                              {fmtDate(entry.service_date)} • {entry.engineer ?? "No engineer"}
-                            </div>
-                          </div>
-                          <div style={{ flexShrink: 0 }}>
-                            <StatusPill text={entry.entry_type ?? "—"} />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </div>
           </Panel>
         </div>
 
         <div
+          className="dash-service-grid"
           style={{
             marginTop: 14,
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-            gap: 12,
-          }}
-        >
-          {tiles.map((t) => (
-            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
-              {t.label}
-            </a>
-          ))}
-          {adminTiles.map((t) => (
-            <a key={t.href} href={t.href} style={cardStyle(t.tone)}>
-              {t.label}
-            </a>
-          ))}
-        </div>
-
-        <div
-          className="dash-three-col"
-          style={{
-            marginTop: 18,
-            display: "grid",
-            gridTemplateColumns: "1.2fr 1fr 1fr",
+            gridTemplateColumns: "1fr 1fr",
             gap: 14,
           }}
         >
-          <Panel title="Today's jobs" subtitle="Work scheduled for today">
-            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
-              <EmptyState text="No jobs scheduled for today." />
+          <Panel title="Service coverage" subtitle="How much of the equipment register has recent service history">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                gap: 12,
+              }}
+            >
+              <div style={certCard("neutral")}>
+                <div style={smallTitle}>With service history</div>
+                <div style={bigValue}>{stats?.equipmentWithServiceHistory ?? 0}</div>
+                <div style={smallHelp}>Equipment with service log records</div>
+              </div>
+
+              <div style={certCard("neutral")}>
+                <div style={smallTitle}>Without service history</div>
+                <div style={bigValue}>{stats?.equipmentWithoutServiceHistory ?? 0}</div>
+                <div style={smallHelp}>Equipment with no recent service records</div>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="Recent service log" subtitle="Latest service and inspection records">
+            {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
+              <EmptyState text="No recent service log entries." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.todayJobs.slice(0, 6).map((b) => {
+                {stats.recentServiceLog.slice(0, 8).map((row) => {
+                  const equipment = first(row.equipment);
+                  return (
+                    <div key={row.id} style={rowLink}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 900 }}>
+                          {equipment?.name ?? "Equipment"} • {row.entry_type ?? "Entry"}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                          {fmtDate(row.service_date)} • {row.engineer ?? "No engineer"}
+                        </div>
+                        {row.notes ? (
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>
+                            {row.notes}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div style={{ flexShrink: 0 }}>
+                        <StatusPill text={row.entry_type ?? "—"} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <div
+          className="dash-two-col"
+          style={{
+            marginTop: 14,
+            display: "grid",
+            gridTemplateColumns: "1.1fr 1fr",
+            gap: 14,
+          }}
+        >
+          <Panel title="Today’s bookings" subtitle="Live and upcoming work due today">
+            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
+              <EmptyState text="No jobs for today." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.todayJobs.slice(0, 8).map((b) => {
                   const client = first(b.clients);
                   const equipment = first(b.equipment);
 
                   return (
-                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
+                    <div key={b.id} style={rowLink}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 900 }}>
                           {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
@@ -699,15 +706,21 @@ export default function DashboardPage() {
                       <div style={{ flexShrink: 0 }}>
                         <StatusPill text={b.status ?? "—"} />
                       </div>
-                    </a>
+                    </div>
                   );
                 })}
               </div>
             )}
           </Panel>
 
-          <Panel title="Fleet status" subtitle="Cranes and trucks only">
-            <div style={{ display: "grid", gap: 10 }}>
+          <Panel title="Fleet snapshot" subtitle="Live totals across cranes and vehicles">
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                gap: 12,
+              }}
+            >
               <MiniStat label="Cranes on hire now" value={stats?.onHireEquipment ?? 0} />
               <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
               <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
@@ -715,39 +728,38 @@ export default function DashboardPage() {
               <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
               <MiniStat label="Total vehicles" value={stats?.totalVehicles ?? 0} />
             </div>
-          </Panel>
 
-          <Panel title="Overdue / unpaid invoices" subtitle="Jobs needing payment attention">
-            {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
-              <EmptyState text="No overdue or unpaid invoices." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.overdueInvoices.slice(0, 6).map((b) => {
-                  const client = first(b.clients);
-
-                  return (
-                    <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"}
+            <div style={{ marginTop: 14 }}>
+              {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
+                <EmptyState text="No overdue invoices found." />
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {stats.overdueInvoices.slice(0, 6).map((b) => {
+                    const client = first(b.clients);
+                    return (
+                      <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 900 }}>
+                            {client?.company_name ?? "Customer"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                            {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)}
+                          </div>
                         </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDate(b.start_at) : fmtDate(b.start_date)}
+                        <div style={{ textAlign: "right", flexShrink: 0 }}>
+                          <div style={{ fontWeight: 900 }}>
+                            {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
+                          </div>
+                          <div style={{ marginTop: 4 }}>
+                            <StatusPill text={b.invoice_status ?? "—"} />
+                          </div>
                         </div>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
-                        </div>
-                        <div style={{ marginTop: 4 }}>
-                          <StatusPill text={b.invoice_status ?? "—"} />
-                        </div>
-                      </div>
-                    </a>
-                  );
-                })}
-              </div>
-            )}
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </Panel>
         </div>
 
