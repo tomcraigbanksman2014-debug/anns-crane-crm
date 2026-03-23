@@ -104,38 +104,11 @@ export async function GET(req: Request) {
     const rangeStart = isoDate(weekStart);
     const rangeEnd = isoDate(weekEnd);
 
-    const [
-      { data: transportJobs, error: jobsError },
-      { data: vehicles, error: vehiclesError },
-      { data: operators, error: operatorsError },
-    ] = await Promise.all([
+    const [jobsRes, vehiclesRes, operatorsRes] = await Promise.all([
       supabase
         .from("transport_jobs")
         .select(`
-          id,
-          transport_number,
-          linked_job_id,
-          linked_transport_job_id,
-          client_id,
-          vehicle_id,
-          operator_id,
-          supplier_id,
-          supplier_reference,
-          supplier_cost,
-          job_type,
-          collection_address,
-          delivery_address,
-          transport_date,
-          collection_time,
-          delivery_date,
-          delivery_time,
-          load_description,
-          status,
-          price,
-          agreed_sell_rate,
-          price_mode,
-          price_per_day,
-          archived,
+          *,
           clients:client_id (
             id,
             company_name
@@ -157,17 +130,21 @@ export async function GET(req: Request) {
         .order("full_name", { ascending: true }),
     ]);
 
-    if (jobsError) {
-      return NextResponse.json({ error: jobsError.message }, { status: 400 });
+    if (jobsRes.error) {
+      return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
     }
-    if (vehiclesError) {
-      return NextResponse.json({ error: vehiclesError.message }, { status: 400 });
+    if (vehiclesRes.error) {
+      return NextResponse.json({ error: vehiclesRes.error.message }, { status: 400 });
     }
-    if (operatorsError) {
-      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
+    if (operatorsRes.error) {
+      return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
     }
 
-    const activeJobs = (transportJobs ?? [])
+    const transportJobs = jobsRes.data ?? [];
+    const vehicles = vehiclesRes.data ?? [];
+    const operators = operatorsRes.data ?? [];
+
+    const activeJobs = transportJobs
       .filter((row: any) => lower(row.status) !== "cancelled")
       .filter((row: any) =>
         overlapsRange(row.transport_date, row.delivery_date ?? row.transport_date, rangeStart, rangeEnd)
@@ -177,12 +154,12 @@ export async function GET(req: Request) {
         effective_price: effectiveTransportPrice(row),
       }));
 
-    const vehicleRows = (vehicles ?? []).map((vehicle: any) => {
+    const vehicleRows = vehicles.map((vehicle: any) => {
       const items = activeJobs
         .filter((row: any) => row.vehicle_id === vehicle.id)
         .map((row: any) => {
           const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
-          const operator = (operators ?? []).find((o: any) => o.id === row.operator_id) ?? null;
+          const operator = operators.find((o: any) => o.id === row.operator_id) ?? null;
 
           return {
             job_id: row.id,
@@ -219,7 +196,7 @@ export async function GET(req: Request) {
       .filter((row: any) => !row.vehicle_id)
       .map((row: any) => {
         const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
-        const operator = (operators ?? []).find((o: any) => o.id === row.operator_id) ?? null;
+        const operator = operators.find((o: any) => o.id === row.operator_id) ?? null;
 
         return {
           job_id: row.id,
