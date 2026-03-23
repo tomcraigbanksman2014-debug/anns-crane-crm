@@ -130,8 +130,8 @@ function parseOtherSupplierReference(value: string | null | undefined) {
     supplierReferenceOnly: refPart
       ? refPart.replace(/^ref:\s*/i, "").trim()
       : parts.length > 1
-      ? parts.slice(1).join(" | ")
-      : "",
+        ? parts.slice(1).join(" | ")
+        : "",
   };
 }
 
@@ -484,7 +484,7 @@ export default async function TransportJobDetailPage({
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back
               </a>
-              <DuplicateTransportJobButton transportJobId={params.id} />
+              <DuplicateTransportJobButton jobId={params.id} />
             </div>
           </div>
 
@@ -501,8 +501,8 @@ export default async function TransportJobDetailPage({
                     { label: "Customer", value: client?.company_name ?? "—" },
                     { label: "Job type", value: prettyJobType((item as any)?.job_type) },
                     { label: "Status", value: (item as any)?.status ?? "—" },
-                    { label: "Collection date", value: fmtDate((item as any)?.transport_date) },
-                    { label: "Delivery date", value: fmtDate((item as any)?.delivery_date) },
+                    { label: "Collection date", value: (item as any)?.transport_date ?? "—" },
+                    { label: "Delivery date", value: (item as any)?.delivery_date ?? "—" },
                     { label: "Collection time", value: (item as any)?.collection_time ?? "—" },
                     { label: "Delivery time", value: (item as any)?.delivery_time ?? "—" },
                   ]}
