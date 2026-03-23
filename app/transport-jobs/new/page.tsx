@@ -192,6 +192,7 @@ async function createTransportJob(formData: FormData) {
     clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
   const loadDescription = clean(formData.get("load_description")) || null;
+
   const status = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
     clientId,
     vehicleId,
@@ -201,6 +202,7 @@ async function createTransportJob(formData: FormData) {
     deliveryDate,
     deliveryTime,
   });
+
   const notes = clean(formData.get("notes")) || null;
 
   const agreedSellRate = money(numberOrZero(formData.get("agreed_sell_rate")));
@@ -215,10 +217,10 @@ async function createTransportJob(formData: FormData) {
   const invoiceVat = money(invoiceSubtotal * 0.2);
   const totalInvoice = money(invoiceSubtotal + invoiceVat);
 
-  if (!collectionAddress || !deliveryAddress || !transportDate) {
+  if (!collectionAddress || !transportDate) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Pickup address, delivery address and collection date are required."
+        "Site / pickup address and collection date are required."
       )}`
     );
   }
@@ -443,7 +445,23 @@ export default async function NewTransportJobPage({
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
               <div style={sectionHelp}>
-                Core planning details for the movement. Pickup address, delivery address and collection date are required.
+                Core planning details for the movement. Site / pickup address and collection date are required.
+              </div>
+
+              <div
+                id="on_site_hiab_notice"
+                style={{
+                  display: "none",
+                  marginBottom: 12,
+                  padding: "12px 14px",
+                  borderRadius: 12,
+                  background: "rgba(0,120,255,0.10)",
+                  border: "1px solid rgba(0,120,255,0.18)",
+                  fontWeight: 700,
+                }}
+              >
+                On-site HIAB mode: use the first address as the main site location. The second address can be left the
+                same or used for a work area / secondary location on the same site.
               </div>
 
               <div style={gridStyle}>
@@ -512,6 +530,7 @@ export default async function NewTransportJobPage({
                 />
 
                 <SelectField
+                  id="job_type"
                   label="Job type"
                   name="job_type"
                   defaultValue="haulage"
@@ -521,6 +540,7 @@ export default async function NewTransportJobPage({
                     { value: "collection", label: "collection" },
                     { value: "ballast", label: "ballast" },
                     { value: "crane_support", label: "crane_support" },
+                    { value: "on_site_hiab", label: "on_site_hiab" },
                   ]}
                 />
 
@@ -553,8 +573,9 @@ export default async function NewTransportJobPage({
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <label style={labelStyle}>Pickup address</label>
+                <label id="collection_address_label" style={labelStyle}>Pickup address</label>
                 <textarea
+                  id="collection_address"
                   name="collection_address"
                   rows={3}
                   style={textareaStyle}
@@ -563,8 +584,9 @@ export default async function NewTransportJobPage({
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <label style={labelStyle}>Delivery address</label>
+                <label id="delivery_address_label" style={labelStyle}>Delivery address</label>
                 <textarea
+                  id="delivery_address"
                   name="delivery_address"
                   rows={3}
                   style={textareaStyle}
@@ -573,8 +595,9 @@ export default async function NewTransportJobPage({
               </div>
 
               <div style={{ marginTop: 12 }}>
-                <label style={labelStyle}>Load description</label>
+                <label id="load_description_label" style={labelStyle}>Load description</label>
                 <textarea
+                  id="load_description"
                   name="load_description"
                   rows={3}
                   style={textareaStyle}
