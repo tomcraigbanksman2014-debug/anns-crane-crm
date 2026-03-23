@@ -144,31 +144,11 @@ export async function GET(req: Request) {
     const from = isoDate(weekStart);
     const to = isoDate(weekEnd);
 
-    const [
-      { data: jobs, error: jobsError },
-      { data: allocations, error: allocationsError },
-      { data: operators, error: operatorsError },
-      { data: cranes, error: cranesError },
-    ] = await Promise.all([
+    const [jobsRes, allocationsRes, operatorsRes, cranesRes] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
-          id,
-          job_number,
-          job_date,
-          start_date,
-          end_date,
-          start_time,
-          end_time,
-          status,
-          site_name,
-          site_address,
-          operator_id,
-          crane_id,
-          price,
-          price_mode,
-          price_per_day,
-          exclude_weekends,
+          *,
           clients:client_id (company_name),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, reg_number)
@@ -182,7 +162,7 @@ export async function GET(req: Request) {
           job_id,
           crane_id,
           operator_id,
-          source_type,
+          asset_type,
           item_name,
           start_date,
           end_date,
@@ -192,18 +172,7 @@ export async function GET(req: Request) {
           supplier_cost,
           notes,
           jobs:job_id (
-            id,
-            job_number,
-            job_date,
-            start_date,
-            end_date,
-            status,
-            site_name,
-            site_address,
-            price,
-            price_mode,
-            price_per_day,
-            exclude_weekends,
+            *,
             clients:client_id (company_name)
           ),
           operators:operator_id (id, full_name),
@@ -215,21 +184,23 @@ export async function GET(req: Request) {
       supabase.from("cranes").select("id, name, reg_number"),
     ]);
 
-    if (jobsError) {
-      return NextResponse.json({ error: jobsError.message }, { status: 400 });
+    if (jobsRes.error) {
+      return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
+    }
+    if (allocationsRes.error) {
+      return NextResponse.json({ error: allocationsRes.error.message }, { status: 400 });
+    }
+    if (operatorsRes.error) {
+      return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
+    }
+    if (cranesRes.error) {
+      return NextResponse.json({ error: cranesRes.error.message }, { status: 400 });
     }
 
-    if (allocationsError) {
-      return NextResponse.json({ error: allocationsError.message }, { status: 400 });
-    }
-
-    if (operatorsError) {
-      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
-    }
-
-    if (cranesError) {
-      return NextResponse.json({ error: cranesError.message }, { status: 400 });
-    }
+    const jobs = jobsRes.data ?? [];
+    const allocations = allocationsRes.data ?? [];
+    const operators = operatorsRes.data ?? [];
+    const cranes = cranesRes.data ?? [];
 
     const days = Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(weekStart);
@@ -250,60 +221,98 @@ export async function GET(req: Request) {
       };
     });
 
-    const allocationItems = (allocations ?? [])
-      .map((row: any) => {
-        const job = first(row.jobs);
-        const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
-        const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
-        const excludeWeekends = Boolean(job?.exclude_weekends);
-        const workingDates = activeWorkingDates(startDate, endDate, excludeWeekends);
+    const activeJobs = jobs.filter((job: any) => String(job?.status ?? "").toLowerCase() !== "cancelled");
 
-        return {
-          id: "alloc_" + row.id,
-          allocation_id: row.id,
-          job_id: row.job_id,
-          job_number: job?.job_number ?? null,
-          job_date: startDate,
-          start_date: startDate,
-          end_date: endDate,
-          start_time: row.start_time ?? null,
-          end_time: row.end_time ?? null,
-          status: job?.status ?? null,
-          site_name: job?.site_name ?? null,
-          site_address: job?.site_address ?? null,
-          operator_id: row.operator_id ?? null,
-          equipment_id: row.crane_id ?? null,
-          source_type: row.source_type ?? null,
-          item_name: row.item_name ?? null,
-          clients: job?.clients ?? null,
-          operators: row.operators ?? null,
-          equipment: row.cranes ?? null,
-          agreed_sell_rate: num(row?.agreed_sell_rate),
-          supplier_cost: num(row?.supplier_cost),
-          price_mode: job?.price_mode ?? "full_job",
-          price_per_day: num(job?.price_per_day),
-          job_price: effectiveJobPrice(job),
-          exclude_weekends: excludeWeekends,
-          working_dates: workingDates,
-          billable_days: countBillableDays(startDate, endDate, excludeWeekends),
-          notes: row?.notes ?? null,
-        };
-      })
-      .filter((item) =>
-        overlapsWorkingWeek(item.start_date, item.end_date, from, to, Boolean(item.exclude_weekends))
-      );
-
-    const allocationJobIds = new Set(allocationItems.map((item) => item.job_id));
-
-    const directJobItems = (jobs ?? [])
+    const jobsInRange = activeJobs
+      .filter((job: any) =>
+        overlapsWorkingWeek(
+          job.start_date ?? job.job_date,
+          job.end_date ?? job.start_date ?? job.job_date,
+          from,
+          to,
+          Boolean(job.exclude_weekends)
+        )
+      )
       .map((job: any) => {
         const startDate = job.start_date ?? job.job_date ?? null;
-        const endDate = job.end_date ?? startDate ?? null;
-        const excludeWeekends = Boolean(job?.exclude_weekends);
-        const workingDates = activeWorkingDates(startDate, endDate, excludeWeekends);
+        const endDate = job.end_date ?? job.start_date ?? job.job_date ?? null;
+        const workingDates = activeWorkingDates(startDate, endDate, Boolean(job.exclude_weekends));
 
         return {
-          id: "job_" + job.id,
+          ...job,
+          working_dates: workingDates,
+          billable_days: countBillableDays(startDate, endDate, Boolean(job.exclude_weekends)),
+          effective_price: effectiveJobPrice(job),
+        };
+      });
+
+    const activeAllocations = allocations.filter((row: any) => {
+      const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
+      const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
+
+      return overlapsWorkingWeek(
+        row.start_date,
+        row.end_date ?? row.start_date,
+        from,
+        to,
+        excludeWeekends
+      );
+    });
+
+    const allocationItems = activeAllocations.map((row: any) => {
+      const job = first(row.jobs);
+      const operator = first(row.operators);
+      const crane = first(row.cranes);
+      const client = first(job?.clients);
+      const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
+      const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
+      const excludeWeekends = Boolean(job?.exclude_weekends);
+
+      return {
+        id: `alloc_${row.id}`,
+        allocation_id: row.id,
+        job_id: row.job_id,
+        job_number: job?.job_number ?? null,
+        job_date: startDate,
+        start_date: startDate,
+        end_date: endDate,
+        start_time: row.start_time ?? job?.start_time ?? null,
+        end_time: row.end_time ?? job?.end_time ?? null,
+        status: job?.status ?? null,
+        site_name: job?.site_name ?? null,
+        site_address: job?.site_address ?? null,
+        operator_id: row.operator_id ?? job?.operator_id ?? null,
+        equipment_id: row.crane_id ?? job?.crane_id ?? null,
+        item_name: row.item_name ?? null,
+        clients: client ? [client] : [],
+        operators: operator ? [operator] : [],
+        equipment: crane ? [crane] : [],
+        agreed_sell_rate: num(row.agreed_sell_rate),
+        supplier_cost: num(row.supplier_cost),
+        price_mode: job?.price_mode ?? "full_job",
+        price_per_day: num(job?.price_per_day),
+        job_price: effectiveJobPrice(job),
+        exclude_weekends: excludeWeekends,
+        working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
+        billable_days: countBillableDays(startDate, endDate, excludeWeekends),
+        notes: row.notes ?? null,
+      };
+    });
+
+    const allocatedJobIds = new Set(allocationItems.map((item: any) => item.job_id));
+
+    const directJobItems = jobsInRange
+      .filter((job: any) => !allocatedJobIds.has(job.id))
+      .map((job: any) => {
+        const client = first(job.clients);
+        const operator = first(job.operators);
+        const crane = first(job.cranes);
+        const startDate = job.start_date ?? job.job_date ?? null;
+        const endDate = job.end_date ?? startDate ?? null;
+        const excludeWeekends = Boolean(job.exclude_weekends);
+
+        return {
+          id: `job_${job.id}`,
           allocation_id: null,
           job_id: job.id,
           job_number: job.job_number ?? null,
@@ -317,26 +326,21 @@ export async function GET(req: Request) {
           site_address: job.site_address ?? null,
           operator_id: job.operator_id ?? null,
           equipment_id: job.crane_id ?? null,
-          source_type: "owned",
           item_name: null,
-          clients: job.clients ?? null,
-          operators: job.operators ?? null,
-          equipment: job.cranes ?? null,
+          clients: client ? [client] : [],
+          operators: operator ? [operator] : [],
+          equipment: crane ? [crane] : [],
           agreed_sell_rate: 0,
           supplier_cost: 0,
-          price_mode: job?.price_mode ?? "full_job",
-          price_per_day: num(job?.price_per_day),
+          price_mode: job.price_mode ?? "full_job",
+          price_per_day: num(job.price_per_day),
           job_price: effectiveJobPrice(job),
           exclude_weekends: excludeWeekends,
-          working_dates: workingDates,
+          working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
           billable_days: countBillableDays(startDate, endDate, excludeWeekends),
           notes: null,
         };
-      })
-      .filter((item) =>
-        overlapsWorkingWeek(item.start_date, item.end_date, from, to, Boolean(item.exclude_weekends))
-      )
-      .filter((item) => !allocationJobIds.has(item.job_id));
+      });
 
     return NextResponse.json({
       week_start: from,
@@ -346,7 +350,7 @@ export async function GET(req: Request) {
       items: [...allocationItems, ...directJobItems],
       operators: operators ?? [],
       equipment:
-        (cranes ?? []).map((row: any) => ({
+        cranes.map((row: any) => ({
           id: row.id,
           name: row.name ?? null,
           asset_number: row.reg_number ?? null,
