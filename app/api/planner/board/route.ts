@@ -5,7 +5,6 @@ function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
   const d = new Date(base);
   d.setHours(0, 0, 0, 0);
-
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
@@ -48,17 +47,13 @@ function isWeekend(date: Date) {
 function dateRangeInclusive(startDate: string, endDate: string) {
   const start = parseDateOnly(startDate);
   const end = parseDateOnly(endDate);
-
   if (!start || !end || end < start) return [];
-
   const dates: string[] = [];
   const cursor = new Date(start);
-
   while (cursor <= end) {
     dates.push(isoDate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return dates;
 }
 
@@ -69,19 +64,13 @@ function activeWorkingDates(
 ) {
   const start = String(startDate ?? "").trim();
   const end = String(endDate ?? startDate ?? "").trim();
-
   if (!start || !end) return [];
-
   const allDates = dateRangeInclusive(start, end);
-
-  if (!excludeWeekends) {
-    return allDates;
-  }
+  if (!excludeWeekends) return allDates;
 
   return allDates.filter((value) => {
     const d = parseDateOnly(value);
-    if (!d) return false;
-    return !isWeekend(d);
+    return d ? !isWeekend(d) : false;
   });
 }
 
@@ -119,17 +108,41 @@ function effectiveJobPrice(job: any) {
   return num(job?.price);
 }
 
-function bankHolidaysEnglandAndWales2026() {
-  return [
-    { date: "2026-01-01", label: "New Year’s Day" },
-    { date: "2026-04-03", label: "Good Friday" },
-    { date: "2026-04-06", label: "Easter Monday" },
-    { date: "2026-05-04", label: "Early May bank holiday" },
-    { date: "2026-05-25", label: "Spring bank holiday" },
-    { date: "2026-08-31", label: "Summer bank holiday" },
-    { date: "2026-12-25", label: "Christmas Day" },
-    { date: "2026-12-28", label: "Boxing Day (substitute day)" },
-  ];
+function bankHolidaysByYear(year: number) {
+  const map: Record<number, Array<{ date: string; label: string }>> = {
+    2025: [
+      { date: "2025-01-01", label: "New Year’s Day" },
+      { date: "2025-04-18", label: "Good Friday" },
+      { date: "2025-04-21", label: "Easter Monday" },
+      { date: "2025-05-05", label: "Early May bank holiday" },
+      { date: "2025-05-26", label: "Spring bank holiday" },
+      { date: "2025-08-25", label: "Summer bank holiday" },
+      { date: "2025-12-25", label: "Christmas Day" },
+      { date: "2025-12-26", label: "Boxing Day" },
+    ],
+    2026: [
+      { date: "2026-01-01", label: "New Year’s Day" },
+      { date: "2026-04-03", label: "Good Friday" },
+      { date: "2026-04-06", label: "Easter Monday" },
+      { date: "2026-05-04", label: "Early May bank holiday" },
+      { date: "2026-05-25", label: "Spring bank holiday" },
+      { date: "2026-08-31", label: "Summer bank holiday" },
+      { date: "2026-12-25", label: "Christmas Day" },
+      { date: "2026-12-28", label: "Boxing Day (substitute day)" },
+    ],
+    2027: [
+      { date: "2027-01-01", label: "New Year’s Day" },
+      { date: "2027-03-26", label: "Good Friday" },
+      { date: "2027-03-29", label: "Easter Monday" },
+      { date: "2027-05-03", label: "Early May bank holiday" },
+      { date: "2027-05-31", label: "Spring bank holiday" },
+      { date: "2027-08-30", label: "Summer bank holiday" },
+      { date: "2027-12-27", label: "Christmas Day (substitute day)" },
+      { date: "2027-12-28", label: "Boxing Day (substitute day)" },
+    ],
+  };
+
+  return map[year] ?? [];
 }
 
 export async function GET(req: Request) {
@@ -143,6 +156,9 @@ export async function GET(req: Request) {
 
     const from = isoDate(weekStart);
     const to = isoDate(weekEnd);
+    const bankHolidays = bankHolidaysByYear(weekStart.getFullYear()).filter(
+      (h) => h.date >= from && h.date <= to
+    );
 
     const [jobsRes, allocationsRes, operatorsRes, cranesRes] = await Promise.all([
       supabase
@@ -205,9 +221,8 @@ export async function GET(req: Request) {
     const days = Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(weekStart);
       d.setDate(d.getDate() + i);
-
       const dayIso = isoDate(d);
-      const holiday = bankHolidaysEnglandAndWales2026().find((h) => h.date === dayIso);
+      const holiday = bankHolidays.find((h) => h.date === dayIso);
 
       return {
         date: dayIso,
@@ -346,7 +361,7 @@ export async function GET(req: Request) {
       week_start: from,
       week_end: to,
       days,
-      bank_holidays: bankHolidaysEnglandAndWales2026().filter((h) => h.date >= from && h.date <= to),
+      bank_holidays: bankHolidays,
       items: [...allocationItems, ...directJobItems],
       operators: operators ?? [],
       equipment:
