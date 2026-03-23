@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export default function TransportDocumentUploadForm({
@@ -8,62 +7,17 @@ export default function TransportDocumentUploadForm({
 }: {
   transportJobId: string;
 }) {
-  const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
-  const [documentType, setDocumentType] = useState("other");
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setMsg(null);
-
-    if (!file) {
-      setMsg("Please choose a file.");
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("document_type", documentType);
-
-      const res = await fetch(`/api/transport-jobs/${transportJobId}/documents/upload`, {
-        method: "POST",
-        body: formData,
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setMsg(data?.error || "Could not upload document.");
-        return;
-      }
-
-      setFile(null);
-      setDocumentType("other");
-
-      const input = document.getElementById("transport-doc-upload") as HTMLInputElement | null;
-      if (input) input.value = "";
-
-      router.refresh();
-    } catch {
-      setMsg("Could not upload document.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   return (
-    <form onSubmit={onSubmit}>
+    <form
+      action={`/api/transport-jobs/${transportJobId}/documents/upload`}
+      method="POST"
+      encType="multipart/form-data"
+      onSubmit={() => setSaving(true)}
+    >
       <div style={{ display: "grid", gap: 10 }}>
-        <select
-          value={documentType}
-          onChange={(e) => setDocumentType(e.target.value)}
-          style={selectStyle}
-        >
+        <select name="document_type" defaultValue="other" style={selectStyle}>
           <option value="rams">RAMS</option>
           <option value="site_drawing">Site Drawing</option>
           <option value="photo">Photo</option>
@@ -74,9 +28,9 @@ export default function TransportDocumentUploadForm({
         </select>
 
         <input
-          id="transport-doc-upload"
+          name="file"
           type="file"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          required
           style={inputStyle}
         />
 
@@ -85,8 +39,6 @@ export default function TransportDocumentUploadForm({
             {saving ? "Uploading..." : "Upload document"}
           </button>
         </div>
-
-        {msg ? <div style={errorText}>{msg}</div> : null}
       </div>
     </form>
   );
@@ -120,9 +72,4 @@ const primaryBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
-};
-
-const errorText: React.CSSProperties = {
-  fontSize: 13,
-  color: "#b00020",
 };
