@@ -22,14 +22,14 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname === "/") return true;
   if (pathname.startsWith("/dashboard")) return true;
   if (pathname.startsWith("/search")) return true;
+  if (pathname.startsWith("/quotes")) return true;
+  if (pathname.startsWith("/customers")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
   if (pathname.startsWith("/planner")) return true;
   if (pathname.startsWith("/transport-planner")) return true;
   if (pathname.startsWith("/transport-map")) return true;
   if (pathname.startsWith("/calendar")) return true;
-  if (pathname.startsWith("/quotes")) return true;
-  if (pathname.startsWith("/customers")) return true;
   if (pathname.startsWith("/purchase-orders")) return true;
   if (pathname.startsWith("/suppliers")) return true;
   if (pathname.startsWith("/cranes")) return true;
@@ -183,11 +183,12 @@ export default function ClientShell({
       { label: "Customers", href: "/customers" },
 
       { label: "Jobs", href: "/jobs" },
-      { label: "Planner", href: "/planner" },
-
       { label: "Transport Jobs", href: "/transport-jobs" },
+
+      { label: "Planner", href: "/planner" },
       { label: "Transport Planner", href: "/transport-planner" },
       { label: "Transport Map", href: "/transport-map" },
+      { label: "Calendar", href: "/calendar" },
 
       { label: "Purchase Orders", href: "/purchase-orders" },
       { label: "Suppliers", href: "/suppliers" },
@@ -196,9 +197,8 @@ export default function ClientShell({
       { label: "Vehicles", href: "/vehicles" },
       { label: "Equipment", href: "/equipment" },
       { label: "Operators", href: "/operators" },
-
-      { label: "Calendar", href: "/calendar" },
       { label: "Timesheets", href: "/timesheets" },
+
       { label: "My Jobs", href: "/operator/jobs" },
 
       { label: "Settings", href: "/settings" },
