@@ -15,6 +15,10 @@ function num(value: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function lower(value: any) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 function overlapsDateRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
@@ -27,127 +31,137 @@ function overlapsDateRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
-function dateIsWithinRange(
-  targetDate: string | null | undefined,
-  rangeStart: string,
-  rangeEnd: string
-) {
-  if (!targetDate) return false;
-  return targetDate >= rangeStart && targetDate <= rangeEnd;
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
 export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
 
-    const today = new Date();
-    const todayStr = isoDate(today);
-
-    const weekStartDate = new Date(today);
-    const weekDay = weekStartDate.getDay();
-    const diff = weekDay === 0 ? -6 : 1 - weekDay;
-    weekStartDate.setDate(weekStartDate.getDate() + diff);
-    weekStartDate.setHours(0, 0, 0, 0);
-
-    const weekEndDate = new Date(weekStartDate);
-    weekEndDate.setDate(weekEndDate.getDate() + 6);
-
-    const weekStart = isoDate(weekStartDate);
-    const weekEnd = isoDate(weekEndDate);
-
-    const monthStartDate = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthEndDate = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-
-    const monthStart = isoDate(monthStartDate);
-    const monthEnd = isoDate(monthEndDate);
+    const now = new Date();
+    const today = isoDate(now);
+    const next30Days = isoDate(addDays(now, 30));
 
     const [
+      { data: bookings, error: bookingsError },
       { data: jobs, error: jobsError },
-      { data: transportJobs, error: transportError },
-      { data: quotes, error: quotesError },
+      { data: transportJobs, error: transportJobsError },
       { data: cranes, error: cranesError },
       { data: vehicles, error: vehiclesError },
       { data: equipment, error: equipmentError },
-      { data: operators, error: operatorsError },
-      { data: clients, error: clientsError },
+      { data: recentAudit, error: auditError },
+      { data: recentServiceLog, error: serviceLogError },
     ] = await Promise.all([
+      supabase
+        .from("bookings")
+        .select(`
+          id,
+          start_date,
+          end_date,
+          start_at,
+          status,
+          location,
+          invoice_status,
+          total_invoice,
+          payment_received,
+          clients:client_id (
+            company_name
+          ),
+          equipment:equipment_id (
+            name
+          )
+        `),
+
       supabase
         .from("jobs")
         .select(`
           id,
-          status,
-          archived,
           job_date,
           start_date,
           end_date,
+          status,
           invoice_status,
           total_invoice,
           amount_paid,
-          clients:client_id (
-            id,
-            company_name
-          )
+          submitted_to_office_at,
+          archived
         `),
 
       supabase
         .from("transport_jobs")
         .select(`
           id,
-          status,
-          archived,
           transport_date,
           delivery_date,
+          status,
           invoice_status,
           total_invoice,
           amount_paid,
-          clients:client_id (
-            id,
-            company_name
-          )
-        `),
-
-      supabase
-        .from("quotes")
-        .select(`
-          id,
-          status,
-          archived,
-          quote_date,
-          valid_until,
-          amount
+          vehicle_id,
+          operator_id,
+          archived
         `),
 
       supabase
         .from("cranes")
-        .select("id, status, archived"),
+        .select("id, archived"),
 
       supabase
         .from("vehicles")
-        .select("id, status, archived"),
+        .select("id, archived"),
 
       supabase
         .from("equipment")
-        .select("id, status, archived"),
+        .select(`
+          id,
+          archived,
+          status,
+          certification_expires_on,
+          loler_due_on
+        `),
 
       supabase
-        .from("operators")
-        .select("id, status, archived"),
+        .from("audit_log")
+        .select(`
+          id,
+          actor_username,
+          action,
+          entity_type,
+          created_at
+        `)
+        .order("created_at", { ascending: false })
+        .limit(20),
 
       supabase
-        .from("clients")
-        .select("id, archived"),
+        .from("equipment_service_log")
+        .select(`
+          id,
+          entry_type,
+          service_date,
+          engineer,
+          notes,
+          created_at,
+          equipment:equipment_id (
+            name
+          )
+        `)
+        .order("service_date", { ascending: false })
+        .limit(20),
     ]);
+
+    if (bookingsError) {
+      return NextResponse.json({ error: bookingsError.message }, { status: 400 });
+    }
 
     if (jobsError) {
       return NextResponse.json({ error: jobsError.message }, { status: 400 });
     }
 
-    if (transportError) {
-      return NextResponse.json({ error: transportError.message }, { status: 400 });
-    }
-
-    if (quotesError) {
-      return NextResponse.json({ error: quotesError.message }, { status: 400 });
+    if (transportJobsError) {
+      return NextResponse.json({ error: transportJobsError.message }, { status: 400 });
     }
 
     if (cranesError) {
@@ -162,198 +176,205 @@ export async function GET() {
       return NextResponse.json({ error: equipmentError.message }, { status: 400 });
     }
 
-    if (operatorsError) {
-      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
+    if (auditError) {
+      return NextResponse.json({ error: auditError.message }, { status: 400 });
     }
 
-    if (clientsError) {
-      return NextResponse.json({ error: clientsError.message }, { status: 400 });
+    if (serviceLogError) {
+      return NextResponse.json({ error: serviceLogError.message }, { status: 400 });
     }
 
-    const activeJobs = (jobs ?? []).filter((job: any) => !job.archived);
-    const activeTransportJobs = (transportJobs ?? []).filter((job: any) => !job.archived);
-    const activeQuotes = (quotes ?? []).filter((quote: any) => !quote.archived);
-
-    const jobsToday = activeJobs.filter((job: any) =>
-      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, todayStr, todayStr)
+    const activeBookings = (bookings ?? []).filter(
+      (b: any) => lower(b.status) !== "cancelled"
     );
 
-    const jobsThisWeek = activeJobs.filter((job: any) =>
-      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, weekStart, weekEnd)
+    const activeJobs = (jobs ?? []).filter(
+      (j: any) => !j.archived && lower(j.status) !== "cancelled"
     );
 
-    const jobsThisMonth = activeJobs.filter((job: any) =>
-      overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, monthStart, monthEnd)
+    const activeTransportJobs = (transportJobs ?? []).filter(
+      (j: any) => !j.archived && lower(j.status) !== "cancelled"
     );
 
-    const liveJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "in_progress");
+    const activeCranes = (cranes ?? []).filter((c: any) => !c.archived);
+    const activeVehicles = (vehicles ?? []).filter((v: any) => !v.archived);
+    const activeEquipment = (equipment ?? []).filter((e: any) => !e.archived);
 
-    const confirmedJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "confirmed");
-
-    const draftJobs = activeJobs.filter((job: any) => String(job.status ?? "").toLowerCase() === "draft");
-
-    const completedJobsThisMonth = activeJobs.filter(
-      (job: any) =>
-        String(job.status ?? "").toLowerCase() === "completed" &&
-        overlapsDateRange(job.start_date ?? job.job_date, job.end_date ?? job.job_date, monthStart, monthEnd)
+    const bookingsTodayRows = activeBookings.filter((b: any) =>
+      overlapsDateRange(b.start_date, b.end_date ?? b.start_date, today, today)
     );
 
-    const transportToday = activeTransportJobs.filter((job: any) =>
-      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, todayStr, todayStr)
+    const activeHiresRows = activeBookings.filter((b: any) =>
+      overlapsDateRange(b.start_date, b.end_date ?? b.start_date, today, today)
     );
 
-    const transportThisWeek = activeTransportJobs.filter((job: any) =>
-      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, weekStart, weekEnd)
-    );
+    const todayJobs = bookingsTodayRows
+      .sort((a: any, b: any) =>
+        String(a.start_at ?? a.start_date ?? "").localeCompare(
+          String(b.start_at ?? b.start_date ?? "")
+        )
+      )
+      .slice(0, 12);
 
-    const transportThisMonth = activeTransportJobs.filter((job: any) =>
-      overlapsDateRange(job.transport_date, job.delivery_date ?? job.transport_date, monthStart, monthEnd)
-    );
+    const upcomingBookings = activeBookings
+      .filter((b: any) => {
+        const start = String(b.start_date ?? "");
+        return !!start && start > today;
+      })
+      .sort((a: any, b: any) =>
+        String(a.start_at ?? a.start_date ?? "").localeCompare(
+          String(b.start_at ?? b.start_date ?? "")
+        )
+      )
+      .slice(0, 12);
 
-    const liveTransport = activeTransportJobs.filter(
-      (job: any) => String(job.status ?? "").toLowerCase() === "in_progress"
-    );
+    const overdueInvoices = activeBookings
+      .filter((b: any) => {
+        const total = num(b.total_invoice);
+        const paid = num(b.payment_received);
+        return total > paid && lower(b.invoice_status) !== "paid";
+      })
+      .sort((a: any, b: any) =>
+        String(a.start_at ?? a.start_date ?? "").localeCompare(
+          String(b.start_at ?? b.start_date ?? "")
+        )
+      )
+      .slice(0, 12)
+      .map((b: any) => ({
+        ...b,
+        href: `/bookings/${b.id}`,
+      }));
 
-    const activeQuotesCount = activeQuotes.filter(
-      (quote: any) =>
-        String(quote.status ?? "").toLowerCase() !== "accepted" &&
-        String(quote.status ?? "").toLowerCase() !== "rejected"
+    const totalCranes = activeCranes.length;
+    const totalVehicles = activeVehicles.length;
+    const totalEquipment = activeEquipment.length;
+
+    const onHireEquipment = activeJobs.filter((j: any) =>
+      overlapsDateRange(j.start_date ?? j.job_date, j.end_date ?? j.job_date, today, today)
     ).length;
 
-    const acceptedQuotesThisMonth = activeQuotes.filter(
-      (quote: any) =>
-        String(quote.status ?? "").toLowerCase() === "accepted" &&
-        dateIsWithinRange(quote.quote_date, monthStart, monthEnd)
-    );
+    const reservedCranesLater = activeJobs.filter((j: any) => {
+      const start = String(j.start_date ?? j.job_date ?? "");
+      return !!start && start > today && start <= next30Days;
+    }).length;
 
-    const quotePipelineValue = activeQuotes.reduce((sum: number, quote: any) => {
-      const status = String(quote.status ?? "").toLowerCase();
-      if (status === "accepted" || status === "rejected") return sum;
-      return sum + num(quote.amount);
+    const vehiclesOnWorkToday = activeTransportJobs.filter((j: any) =>
+      overlapsDateRange(j.transport_date, j.delivery_date ?? j.transport_date, today, today)
+    ).length;
+
+    const availableCranesNow = Math.max(totalCranes - onHireEquipment, 0);
+    const availableVehiclesNow = Math.max(totalVehicles - vehiclesOnWorkToday, 0);
+
+    const outstandingBookingInvoices = activeBookings.reduce((sum: number, b: any) => {
+      const total = num(b.total_invoice);
+      const paid = num(b.payment_received);
+      return sum + Math.max(total - paid, 0);
     }, 0);
 
-    const quoteWonValueThisMonth = acceptedQuotesThisMonth.reduce(
-      (sum: number, quote: any) => sum + num(quote.amount),
+    const outstandingJobInvoices = activeJobs.reduce((sum: number, j: any) => {
+      const total = num(j.total_invoice);
+      const paid = num(j.amount_paid);
+      return sum + Math.max(total - paid, 0);
+    }, 0);
+
+    const outstandingTransportInvoices = activeTransportJobs.reduce((sum: number, j: any) => {
+      const total = num(j.total_invoice);
+      const paid = num(j.amount_paid);
+      return sum + Math.max(total - paid, 0);
+    }, 0);
+
+    const outstandingInvoices =
+      outstandingBookingInvoices + outstandingJobInvoices + outstandingTransportInvoices;
+
+    const utilisationPct =
+      totalCranes > 0 ? Math.round((onHireEquipment / totalCranes) * 100) : 0;
+
+    const certExpired = activeEquipment.filter((e: any) => {
+      const d = String(e.certification_expires_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const certExpiringSoon = activeEquipment.filter((e: any) => {
+      const d = String(e.certification_expires_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const lolerOverdue = activeEquipment.filter((e: any) => {
+      const d = String(e.loler_due_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const lolerDueSoon = activeEquipment.filter((e: any) => {
+      const d = String(e.loler_due_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const maintenanceEquipment = activeEquipment.filter((e: any) => {
+      const status = lower(e.status);
+      return status === "maintenance" || status === "repair" || status === "workshop";
+    }).length;
+
+    const serviceHistoryIds = new Set(
+      (recentServiceLog ?? [])
+        .map((row: any) => String(row.equipment_id ?? ""))
+        .filter(Boolean)
+    );
+
+    const equipmentWithServiceHistory = activeEquipment.filter((e: any) =>
+      serviceHistoryIds.has(String(e.id))
+    ).length;
+
+    const equipmentWithoutServiceHistory = Math.max(
+      totalEquipment - equipmentWithServiceHistory,
       0
     );
 
-    const craneInvoiceOutstanding = activeJobs.reduce((sum: number, job: any) => {
-      const total = num(job.total_invoice);
-      const paid = num(job.amount_paid);
-      return sum + Math.max(total - paid, 0);
-    }, 0);
+    const unassignedTransportJobs = activeTransportJobs.filter(
+      (j: any) => !j.vehicle_id || !j.operator_id
+    ).length;
 
-    const transportInvoiceOutstanding = activeTransportJobs.reduce((sum: number, job: any) => {
-      const total = num(job.total_invoice);
-      const paid = num(job.amount_paid);
-      return sum + Math.max(total - paid, 0);
-    }, 0);
-
-    const outstandingInvoicesTotal = craneInvoiceOutstanding + transportInvoiceOutstanding;
-
-    const dueForInvoicingJobs = activeJobs.filter((job: any) => {
-      const status = String(job.status ?? "").toLowerCase();
-      const invoiceStatus = String(job.invoice_status ?? "Not Invoiced").toLowerCase();
-      return status === "completed" && invoiceStatus === "not invoiced";
+    const completedCraneJobsNotInvoiced = activeJobs.filter((j: any) => {
+      return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
     }).length;
 
-    const dueForInvoicingTransport = activeTransportJobs.filter((job: any) => {
-      const status = String(job.status ?? "").toLowerCase();
-      const invoiceStatus = String(job.invoice_status ?? "Not Invoiced").toLowerCase();
-      return status === "completed" && invoiceStatus === "not invoiced";
+    const completedTransportJobsNotInvoiced = activeTransportJobs.filter((j: any) => {
+      return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
     }).length;
 
-    const activeCranes = (cranes ?? []).filter((item: any) => !item.archived).length;
-    const activeVehicles = (vehicles ?? []).filter((item: any) => !item.archived).length;
-    const activeEquipment = (equipment ?? []).filter((item: any) => !item.archived).length;
-    const activeOperators = (operators ?? []).filter((item: any) => !item.archived).length;
-    const activeCustomers = (clients ?? []).filter((item: any) => !item.archived).length;
-
-    const unavailableCranes = (cranes ?? []).filter((item: any) => {
-      if (item.archived) return false;
-      return String(item.status ?? "").toLowerCase() !== "available";
+    const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
+      return lower(j.status) === "completed" && !j.submitted_to_office_at;
     }).length;
-
-    const unavailableVehicles = (vehicles ?? []).filter((item: any) => {
-      if (item.archived) return false;
-      return String(item.status ?? "").toLowerCase() !== "active";
-    }).length;
-
-    const inactiveOperators = (operators ?? []).filter((item: any) => {
-      if (item.archived) return false;
-      return String(item.status ?? "").toLowerCase() !== "active";
-    }).length;
-
-    const busiestCustomers = (() => {
-      const counts = new Map<string, { company_name: string; count: number }>();
-
-      for (const job of activeJobs) {
-        const client = first(job.clients);
-        const companyName = String(client?.company_name ?? "").trim();
-        if (!companyName) continue;
-
-        const existing = counts.get(companyName) ?? { company_name: companyName, count: 0 };
-        existing.count += 1;
-        counts.set(companyName, existing);
-      }
-
-      for (const job of activeTransportJobs) {
-        const client = first(job.clients);
-        const companyName = String(client?.company_name ?? "").trim();
-        if (!companyName) continue;
-
-        const existing = counts.get(companyName) ?? { company_name: companyName, count: 0 };
-        existing.count += 1;
-        counts.set(companyName, existing);
-      }
-
-      return Array.from(counts.values())
-        .sort((a, b) => b.count - a.count)
-        .slice(0, 5);
-    })();
 
     return NextResponse.json({
-      today: todayStr,
-      week_start: weekStart,
-      week_end: weekEnd,
-      month_start: monthStart,
-      month_end: monthEnd,
-
-      jobs_today: jobsToday.length,
-      jobs_this_week: jobsThisWeek.length,
-      jobs_this_month: jobsThisMonth.length,
-      jobs_live: liveJobs.length,
-      jobs_confirmed: confirmedJobs.length,
-      jobs_draft: draftJobs.length,
-      jobs_completed_this_month: completedJobsThisMonth.length,
-
-      transport_today: transportToday.length,
-      transport_this_week: transportThisWeek.length,
-      transport_this_month: transportThisMonth.length,
-      transport_live: liveTransport.length,
-
-      quotes_open: activeQuotesCount,
-      quotes_pipeline_value: quotePipelineValue,
-      quotes_won_this_month: acceptedQuotesThisMonth.length,
-      quotes_won_value_this_month: quoteWonValueThisMonth,
-
-      outstanding_invoices_total: outstandingInvoicesTotal,
-      crane_invoice_outstanding: craneInvoiceOutstanding,
-      transport_invoice_outstanding: transportInvoiceOutstanding,
-      due_for_invoicing_jobs: dueForInvoicingJobs,
-      due_for_invoicing_transport: dueForInvoicingTransport,
-
-      active_cranes: activeCranes,
-      active_vehicles: activeVehicles,
-      active_equipment: activeEquipment,
-      active_operators: activeOperators,
-      active_customers: activeCustomers,
-
-      unavailable_cranes: unavailableCranes,
-      unavailable_vehicles: unavailableVehicles,
-      inactive_operators: inactiveOperators,
-
-      busiest_customers: busiestCustomers,
+      bookingsToday: bookingsTodayRows.length,
+      activeHires: activeHiresRows.length,
+      availableEquipment: Math.max(totalEquipment - activeHiresRows.length, 0),
+      totalEquipment,
+      totalCranes,
+      totalVehicles,
+      availableCranesNow,
+      reservedCranesLater,
+      availableVehiclesNow,
+      outstandingInvoices,
+      utilisationPct,
+      onHireEquipment,
+      reservedEquipment: 0,
+      certExpiringSoon,
+      certExpired,
+      maintenanceEquipment,
+      equipmentWithServiceHistory,
+      equipmentWithoutServiceHistory,
+      lolerDueSoon,
+      lolerOverdue,
+      unassignedTransportJobs,
+      completedCraneJobsNotInvoiced,
+      completedTransportJobsNotInvoiced,
+      timesheetsNotSubmitted,
+      upcomingBookings,
+      overdueInvoices,
+      recentAudit: recentAudit ?? [],
+      todayJobs,
+      recentServiceLog: recentServiceLog ?? [],
     });
   } catch (e: any) {
     return NextResponse.json(
