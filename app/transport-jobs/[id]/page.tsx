@@ -5,8 +5,8 @@ import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
-import DocumentUploadForm from "../../jobs/[id]/DocumentUploadForm";
-import DocumentDeleteButton from "../../jobs/[id]/DocumentDeleteButton";
+import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
+import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -49,10 +49,6 @@ const INVOICE_STATUSES = [
   "Part Paid",
   "Paid",
 ];
-
-function looksLikeCrossHire(item: any) {
-  return !!item?.supplier_id || Number(item?.supplier_cost ?? 0) > 0;
-}
 
 function buildTimeOptions() {
   const options: Array<{ value: string; label: string }> = [];
@@ -137,6 +133,17 @@ function parseOtherSupplierReference(value: string | null | undefined) {
   };
 }
 
+function prettyJobType(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "haulage") return "Haulage";
+  if (v === "delivery") return "Delivery";
+  if (v === "collection") return "Collection";
+  if (v === "ballast") return "Ballast";
+  if (v === "crane_support") return "Crane Support";
+  if (v === "on_site_hiab") return "On-site HIAB";
+  return value ?? "—";
+}
+
 function documentTypeLabel(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (!raw) return "Other";
@@ -149,17 +156,6 @@ function documentTypeLabel(value: string | null | undefined) {
 function documentHref(filePath: string | null | undefined) {
   if (!filePath || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
-}
-
-function prettyJobType(value: string | null | undefined) {
-  const v = String(value ?? "").toLowerCase();
-  if (v === "haulage") return "Haulage";
-  if (v === "delivery") return "Delivery";
-  if (v === "collection") return "Collection";
-  if (v === "ballast") return "Ballast";
-  if (v === "crane_support") return "Crane Support";
-  if (v === "on_site_hiab") return "On-site HIAB";
-  return value ?? "—";
 }
 
 async function updateTransportJob(formData: FormData) {
@@ -258,19 +254,22 @@ async function updateTransportJob(formData: FormData) {
   const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
 
   if (
+    collectionTime &&
+    deliveryTime &&
+    transportDate &&
+    deliveryDate &&
     collectionDateTime &&
     deliveryDateTime &&
-    deliveryDateTime.getTime() < collectionDateTime.getTime()
+    collectionDateTime > deliveryDateTime
   ) {
     redirect(
       `/transport-jobs/${id}?error=${encodeURIComponent(
-        "Delivery date/time cannot be before the collection date/time."
+        "Delivery date/time cannot be earlier than collection date/time."
       )}`
     );
   }
 
-  const requestedStatus = clean(formData.get("status")) || "planned";
-  const status = normaliseTransportStatus(requestedStatus, {
+  const nextStatus = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
     clientId,
     vehicleId,
     operatorId,
@@ -289,18 +288,19 @@ async function updateTransportJob(formData: FormData) {
     supplier_id: supplierId,
     supplier_reference: supplierReference,
     supplier_cost: numberOrNull(formData.get("supplier_cost")),
-    job_type: clean(formData.get("job_type")) || "haulage",
-    transport_date: transportDate,
-    collection_time: collectionTime,
-    delivery_date: deliveryDate,
-    delivery_time: deliveryTime,
+    job_type: clean(formData.get("job_type")) || null,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
     collection_lat: pickupCoords?.lat ?? null,
     collection_lng: pickupCoords?.lng ?? null,
     delivery_lat: deliveryCoords?.lat ?? null,
     delivery_lng: deliveryCoords?.lng ?? null,
-    status,
+    transport_date: transportDate,
+    collection_time: collectionTime,
+    delivery_date: deliveryDate,
+    delivery_time: deliveryTime,
+    load_description: clean(formData.get("load_description")) || null,
+    status: nextStatus,
     price: agreedSellRate,
     agreed_sell_rate: agreedSellRate,
     invoice_status: invoiceStatus,
@@ -331,7 +331,6 @@ async function updateTransportJob(formData: FormData) {
       transport_number: existingRow?.transport_number ?? null,
       before: {
         linked_job_id: existingRow?.linked_job_id ?? null,
-        linked_transport_job_id: existingRow?.linked_transport_job_id ?? null,
         client_id: existingRow?.client_id ?? null,
         vehicle_id: existingRow?.vehicle_id ?? null,
         operator_id: existingRow?.operator_id ?? null,
@@ -350,19 +349,18 @@ async function updateTransportJob(formData: FormData) {
       },
       after: {
         linked_job_id: linkedJobId,
-        linked_transport_job_id: linkedTransportJobId,
         client_id: clientId,
         vehicle_id: vehicleId,
         operator_id: operatorId,
         supplier_id: supplierId,
         supplier_reference: supplierReference,
         supplier_cost: numberOrNull(formData.get("supplier_cost")),
-        job_type: clean(formData.get("job_type")) || "haulage",
+        job_type: clean(formData.get("job_type")) || null,
         transport_date: transportDate,
         collection_time: collectionTime,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
-        status,
+        status: nextStatus,
         agreed_sell_rate: agreedSellRate,
         invoice_status: invoiceStatus,
         total_invoice: totalInvoice,
@@ -370,142 +368,7 @@ async function updateTransportJob(formData: FormData) {
     },
   });
 
-  redirect(
-    `/transport-jobs/${id}?success=${encodeURIComponent(
-      status === "confirmed" && requestedStatus === "confirmed"
-        ? "Transport job updated."
-        : requestedStatus === "confirmed" && status !== "confirmed"
-          ? "Transport job updated. Status stayed Planned because key fields are still missing."
-          : "Transport job updated."
-    )}`
-  );
-}
-
-async function createPurchaseOrderFromTransportJob(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-
-  const transportJobId = String(formData.get("transport_job_id") ?? "").trim();
-  const linkedJobId = String(formData.get("linked_job_id") ?? "").trim();
-
-  if (!transportJobId) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  if (!linkedJobId) {
-    redirect(
-      `/transport-jobs/${transportJobId}?error=${encodeURIComponent(
-        "Link this transport job to a crane job before creating purchase orders."
-      )}`
-    );
-  }
-
-  const supplierId = String(formData.get("supplier_id") ?? "").trim() || null;
-  const orderDate = String(formData.get("order_date") ?? "").trim() || null;
-  const requiredDate = String(formData.get("required_date") ?? "").trim() || null;
-  const supplierReference = String(formData.get("supplier_reference") ?? "").trim() || null;
-  const notes = String(formData.get("notes") ?? "").trim() || null;
-  const status = String(formData.get("status") ?? "").trim() || "draft";
-
-  const { data: transportRow } = await supabase
-    .from("transport_jobs")
-    .select("id, transport_number, linked_job_id")
-    .eq("id", transportJobId)
-    .maybeSingle();
-
-  const d = new Date();
-  const poNumber = `PO-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
-    d.getDate()
-  ).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(
-    d.getMinutes()
-  ).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
-
-  const { data: created, error } = await supabase
-    .from("purchase_orders")
-    .insert({
-      po_number: poNumber,
-      supplier_id: supplierId,
-      job_id: linkedJobId,
-      status,
-      order_date: orderDate,
-      required_date: requiredDate,
-      supplier_reference: supplierReference,
-      total_cost: 0,
-      notes,
-      updated_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
-
-  if (error || !created?.id) {
-    redirect(
-      `/transport-jobs/${transportJobId}?error=${encodeURIComponent(
-        error?.message ?? "Could not create purchase order."
-      )}`
-    );
-  }
-
-  if (supplierId) {
-    await supabase.from("supplier_correspondence").insert({
-      supplier_id: supplierId,
-      type: status === "sent" ? "email" : "note",
-      subject: status === "sent" ? "Purchase Order Sent" : "Purchase Order Created",
-      message: [
-        `Purchase order ${poNumber} created from transport job ${transportRow?.transport_number ?? ""}.`,
-        supplierReference ? `Supplier ref: ${supplierReference}.` : "",
-        requiredDate ? `Required date: ${requiredDate}.` : "",
-        notes ? `Notes: ${notes}` : "",
-      ]
-        .filter(Boolean)
-        .join(" "),
-      created_by: "system",
-    });
-  }
-
-  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
-}
-
-function statusBadgeStyle(status: string | null | undefined): React.CSSProperties {
-  const value = String(status ?? "").toLowerCase();
-
-  if (value === "confirmed") {
-    return {
-      background: "rgba(59,130,246,0.14)",
-      color: "#1d4ed8",
-      border: "1px solid rgba(59,130,246,0.22)",
-    };
-  }
-
-  if (value === "in_progress") {
-    return {
-      background: "rgba(249,115,22,0.14)",
-      color: "#c2410c",
-      border: "1px solid rgba(249,115,22,0.22)",
-    };
-  }
-
-  if (value === "completed") {
-    return {
-      background: "rgba(16,185,129,0.14)",
-      color: "#047857",
-      border: "1px solid rgba(16,185,129,0.22)",
-    };
-  }
-
-  if (value === "cancelled") {
-    return {
-      background: "rgba(239,68,68,0.14)",
-      color: "#b91c1c",
-      border: "1px solid rgba(239,68,68,0.22)",
-    };
-  }
-
-  return {
-    background: "rgba(148,163,184,0.18)",
-    color: "#334155",
-    border: "1px solid rgba(148,163,184,0.24)",
-  };
+  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
 }
 
 export default async function TransportJobDetailPage({
@@ -528,8 +391,7 @@ export default async function TransportJobDetailPage({
     { data: vehicles },
     { data: operators },
     { data: suppliers },
-    { data: linkedJobDocuments },
-    { data: purchaseOrders },
+    { data: transportDocuments },
   ] = await Promise.all([
     supabase
       .from("transport_jobs")
@@ -606,28 +468,9 @@ export default async function TransportJobDetailPage({
       .order("company_name", { ascending: true }),
 
     supabase
-      .from("job_documents")
-      .select("id, job_id, file_name, file_path, file_type, document_type, created_at")
-      .order("created_at", { ascending: false }),
-
-    supabase
-      .from("purchase_orders")
-      .select(`
-        id,
-        po_number,
-        status,
-        job_id,
-        supplier_id,
-        order_date,
-        required_date,
-        supplier_reference,
-        total_cost,
-        notes,
-        suppliers:supplier_id (
-          id,
-          company_name
-        )
-      `)
+      .from("transport_job_documents")
+      .select("id, transport_job_id, file_name, file_path, file_type, document_type, created_at")
+      .eq("transport_job_id", params.id)
       .order("created_at", { ascending: false }),
   ]);
 
@@ -641,15 +484,6 @@ export default async function TransportJobDetailPage({
 
   const parsedOtherSupplier = parseOtherSupplierReference((item as any)?.supplier_reference);
   const isOtherSupplier = !(item as any)?.supplier_id && !!parsedOtherSupplier.otherSupplierName;
-
-  const linkedJobId = String((item as any)?.linked_job_id ?? "");
-  const documentsForLinkedJob = linkedJobId
-    ? ((linkedJobDocuments as any[]) ?? []).filter((doc) => doc.job_id === linkedJobId)
-    : [];
-
-  const purchaseOrdersForLinkedJob = linkedJobId
-    ? ((purchaseOrders as any[]) ?? []).filter((po) => po.job_id === linkedJobId)
-    : [];
 
   return (
     <ClientShell>
@@ -685,23 +519,7 @@ export default async function TransportJobDetailPage({
                   rows={[
                     { label: "Customer", value: client?.company_name ?? "—" },
                     { label: "Job type", value: prettyJobType((item as any)?.job_type) },
-                    {
-                      label: "Status",
-                      value: (
-                        <span
-                          style={{
-                            display: "inline-block",
-                            padding: "6px 10px",
-                            borderRadius: 999,
-                            fontSize: 12,
-                            fontWeight: 900,
-                            ...statusBadgeStyle((item as any)?.status),
-                          }}
-                        >
-                          {(item as any)?.status ?? "—"}
-                        </span>
-                      ),
-                    },
+                    { label: "Status", value: (item as any)?.status ?? "—" },
                     { label: "Collection date", value: (item as any)?.transport_date ?? "—" },
                     { label: "Delivery date", value: (item as any)?.delivery_date ?? "—" },
                     { label: "Collection time", value: (item as any)?.collection_time ?? "—" },
@@ -805,7 +623,7 @@ export default async function TransportJobDetailPage({
                     <SelectField
                       label="Job type"
                       name="job_type"
-                      defaultValue={(item as any)?.job_type ?? "haulage"}
+                      defaultValue={(item as any)?.job_type ?? ""}
                       options={[
                         { value: "haulage", label: "haulage" },
                         { value: "delivery", label: "delivery" },
@@ -817,7 +635,6 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      id="transport_date"
                       label="Collection date"
                       name="transport_date"
                       type="date"
@@ -825,7 +642,6 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
-                      id="collection_time"
                       label="Collection time"
                       name="collection_time"
                       defaultValue={(item as any)?.collection_time ?? ""}
@@ -833,7 +649,6 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      id="delivery_date"
                       label="Delivery date"
                       name="delivery_date"
                       type="date"
@@ -841,7 +656,6 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
-                      id="delivery_time"
                       label="Delivery time"
                       name="delivery_time"
                       defaultValue={(item as any)?.delivery_time ?? ""}
@@ -849,7 +663,6 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      id="agreed_sell_rate"
                       label="Charge rate"
                       name="agreed_sell_rate"
                       type="number"
@@ -1036,38 +849,17 @@ export default async function TransportJobDetailPage({
                   </div>
                 </section>
 
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={primaryBtn}>
-                    Save transport job
-                  </button>
-                </div>
+                <section style={sectionCard}>
+                  <div style={sectionTitle}>Transport Documents</div>
 
-                <TransportJobDetailFormEnhancer />
-              </form>
+                  <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
+                    <TransportDocumentUploadForm transportJobId={params.id} />
 
-              <section style={sectionCard}>
-                <div style={sectionHeaderRow}>
-                  <div>
-                    <div style={sectionTitle}>Documents</div>
-                    <div style={mutedText}>
-                      These are using the linked crane job record so you can keep transport and crane paperwork together without schema changes.
-                    </div>
-                  </div>
-                </div>
-
-                {!linkedJobId ? (
-                  <div style={warningBox}>
-                    Link this transport job to a crane job to use documents here.
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", gap: 14 }}>
-                    <DocumentUploadForm jobId={linkedJobId} />
-
-                    {documentsForLinkedJob.length === 0 ? (
-                      <div style={emptyState}>No documents uploaded against the linked crane job yet.</div>
+                    {(transportDocuments ?? []).length === 0 ? (
+                      <div style={emptyState}>No documents uploaded yet.</div>
                     ) : (
                       <div style={{ display: "grid", gap: 10 }}>
-                        {documentsForLinkedJob.map((doc: any) => (
+                        {(transportDocuments ?? []).map((doc: any) => (
                           <div key={doc.id} style={listCard}>
                             <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                               <div style={{ minWidth: 0 }}>
@@ -1088,7 +880,10 @@ export default async function TransportJobDetailPage({
                                 >
                                   Open
                                 </a>
-                                <DocumentDeleteButton jobId={linkedJobId} documentId={doc.id} />
+                                <TransportDocumentDeleteButton
+                                  transportJobId={params.id}
+                                  documentId={doc.id}
+                                />
                               </div>
                             </div>
                           </div>
@@ -1096,141 +891,16 @@ export default async function TransportJobDetailPage({
                       </div>
                     )}
                   </div>
-                )}
-              </section>
+                </section>
 
-              <section style={sectionCard}>
-                <div style={sectionHeaderRow}>
-                  <div>
-                    <div style={sectionTitle}>Purchase Orders</div>
-                    <div style={mutedText}>
-                      These are linked through the crane job connected to this transport job.
-                    </div>
-                  </div>
-
-                  {linkedJobId ? (
-                    <a
-                      href={`/purchase-orders/new?job_id=${linkedJobId}${(item as any)?.supplier_id ? `&supplier_id=${(item as any)?.supplier_id}` : ""}`}
-                      style={secondaryBtn}
-                    >
-                      Open full PO editor
-                    </a>
-                  ) : null}
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button type="submit" style={primaryBtn}>
+                    Save transport job
+                  </button>
                 </div>
 
-                {!linkedJobId ? (
-                  <div style={warningBox}>
-                    Link this transport job to a crane job before creating purchase orders.
-                  </div>
-                ) : (
-                  <>
-                    <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12 }}>
-                      <input type="hidden" name="transport_job_id" value={params.id} />
-                      <input type="hidden" name="linked_job_id" value={linkedJobId} />
-
-                      <div style={gridStyle}>
-                        <SelectField
-                          label="Supplier"
-                          name="supplier_id"
-                          defaultValue={(item as any)?.supplier_id ?? ""}
-                          options={(suppliers ?? []).map((s: any) => ({
-                            value: s.id,
-                            label: s.company_name ?? "Supplier",
-                          }))}
-                        />
-
-                        <SelectField
-                          label="Status"
-                          name="status"
-                          defaultValue="draft"
-                          options={[
-                            { value: "draft", label: "Draft" },
-                            { value: "sent", label: "Sent" },
-                            { value: "approved", label: "Approved" },
-                            { value: "completed", label: "Completed" },
-                            { value: "cancelled", label: "Cancelled" },
-                          ]}
-                        />
-
-                        <Field
-                          label="Order date"
-                          name="order_date"
-                          type="date"
-                          defaultValue={new Date().toISOString().slice(0, 10)}
-                        />
-
-                        <Field
-                          label="Required date"
-                          name="required_date"
-                          type="date"
-                        />
-
-                        <Field
-                          label="Supplier reference"
-                          name="supplier_reference"
-                          defaultValue={(item as any)?.supplier_reference ?? ""}
-                        />
-                      </div>
-
-                      <div>
-                        <label style={labelStyle}>Notes</label>
-                        <textarea
-                          name="notes"
-                          rows={3}
-                          style={textareaStyle}
-                          defaultValue={`Created from transport job ${(item as any)?.transport_number ?? ""}`}
-                        />
-                      </div>
-
-                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                        <button type="submit" style={primaryBtn}>
-                          Create purchase order
-                        </button>
-                      </div>
-                    </form>
-
-                    <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
-                      {purchaseOrdersForLinkedJob.length === 0 ? (
-                        <div style={emptyState}>No purchase orders linked to the crane job yet.</div>
-                      ) : (
-                        purchaseOrdersForLinkedJob.map((po: any) => {
-                          const poSupplier = first(po.suppliers);
-                          return (
-                            <div key={po.id} style={listCard}>
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                                <div>
-                                  <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
-                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                                    {po.status ?? "draft"}
-                                    {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
-                                    {po.order_date ? ` • Ordered ${po.order_date}` : ""}
-                                    {po.required_date ? ` • Required ${po.required_date}` : ""}
-                                  </div>
-
-                                  {po.supplier_reference || po.notes ? (
-                                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.82 }}>
-                                      {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
-                                        .filter(Boolean)
-                                        .join(" • ")}
-                                    </div>
-                                  ) : null}
-                                </div>
-
-                                <div style={{ textAlign: "right" }}>
-                                  <div style={{ fontWeight: 900 }}>{fmtMoney(po.total_cost ?? 0)}</div>
-                                  <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
-                                    Open PO
-                                  </a>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </>
-                )}
-              </section>
+                <TransportJobDetailFormEnhancer />
+              </form>
             </>
           )}
         </div>
@@ -1481,29 +1151,6 @@ const softPanel: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.06)",
-};
-
-const sectionHeaderRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const mutedText: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 13,
-  opacity: 0.75,
-};
-
-const warningBox: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(245,158,11,0.12)",
-  border: "1px solid rgba(245,158,11,0.24)",
-  color: "#92400e",
 };
 
 const emptyState: React.CSSProperties = {
