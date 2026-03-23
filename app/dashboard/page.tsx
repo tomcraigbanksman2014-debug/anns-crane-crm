@@ -199,7 +199,12 @@ export default function DashboardPage() {
 
       const res = await fetch("/api/dashboard/stats");
       const json = await res.json().catch(() => null);
-      setStats(json);
+
+      if (res.ok && json && !json.error) {
+        setStats(json);
+      } else {
+        setStats(null);
+      }
 
       setLoading(false);
     }
@@ -961,16 +966,6 @@ const warningLinkStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   whiteSpace: "nowrap",
-};
-
-const searchActionBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
-  color: "#fff",
-  fontWeight: 900,
 };
 
 const searchGhostBtn: React.CSSProperties = {
