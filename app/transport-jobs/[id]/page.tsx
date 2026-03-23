@@ -5,6 +5,8 @@ import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
+import DocumentUploadForm from "../../jobs/[id]/DocumentUploadForm";
+import DocumentDeleteButton from "../../jobs/[id]/DocumentDeleteButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -135,6 +137,20 @@ function parseOtherSupplierReference(value: string | null | undefined) {
   };
 }
 
+function documentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "Other";
+  return raw
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function documentHref(filePath: string | null | undefined) {
+  if (!filePath || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
+}
+
 function prettyJobType(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
   if (v === "haulage") return "Haulage";
@@ -242,22 +258,19 @@ async function updateTransportJob(formData: FormData) {
   const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
 
   if (
-    collectionTime &&
-    deliveryTime &&
-    transportDate &&
-    deliveryDate &&
     collectionDateTime &&
     deliveryDateTime &&
-    collectionDateTime > deliveryDateTime
+    deliveryDateTime.getTime() < collectionDateTime.getTime()
   ) {
     redirect(
       `/transport-jobs/${id}?error=${encodeURIComponent(
-        "Delivery date/time cannot be earlier than collection date/time."
+        "Delivery date/time cannot be before the collection date/time."
       )}`
     );
   }
 
-  const nextStatus = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
+  const requestedStatus = clean(formData.get("status")) || "planned";
+  const status = normaliseTransportStatus(requestedStatus, {
     clientId,
     vehicleId,
     operatorId,
@@ -276,19 +289,18 @@ async function updateTransportJob(formData: FormData) {
     supplier_id: supplierId,
     supplier_reference: supplierReference,
     supplier_cost: numberOrNull(formData.get("supplier_cost")),
-    job_type: clean(formData.get("job_type")) || null,
+    job_type: clean(formData.get("job_type")) || "haulage",
+    transport_date: transportDate,
+    collection_time: collectionTime,
+    delivery_date: deliveryDate,
+    delivery_time: deliveryTime,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
     collection_lat: pickupCoords?.lat ?? null,
     collection_lng: pickupCoords?.lng ?? null,
     delivery_lat: deliveryCoords?.lat ?? null,
     delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: transportDate,
-    collection_time: collectionTime,
-    delivery_date: deliveryDate,
-    delivery_time: deliveryTime,
-    load_description: clean(formData.get("load_description")) || null,
-    status: nextStatus,
+    status,
     price: agreedSellRate,
     agreed_sell_rate: agreedSellRate,
     invoice_status: invoiceStatus,
@@ -319,6 +331,7 @@ async function updateTransportJob(formData: FormData) {
       transport_number: existingRow?.transport_number ?? null,
       before: {
         linked_job_id: existingRow?.linked_job_id ?? null,
+        linked_transport_job_id: existingRow?.linked_transport_job_id ?? null,
         client_id: existingRow?.client_id ?? null,
         vehicle_id: existingRow?.vehicle_id ?? null,
         operator_id: existingRow?.operator_id ?? null,
@@ -337,18 +350,19 @@ async function updateTransportJob(formData: FormData) {
       },
       after: {
         linked_job_id: linkedJobId,
+        linked_transport_job_id: linkedTransportJobId,
         client_id: clientId,
         vehicle_id: vehicleId,
         operator_id: operatorId,
         supplier_id: supplierId,
         supplier_reference: supplierReference,
         supplier_cost: numberOrNull(formData.get("supplier_cost")),
-        job_type: clean(formData.get("job_type")) || null,
+        job_type: clean(formData.get("job_type")) || "haulage",
         transport_date: transportDate,
         collection_time: collectionTime,
         delivery_date: deliveryDate,
         delivery_time: deliveryTime,
-        status: nextStatus,
+        status,
         agreed_sell_rate: agreedSellRate,
         invoice_status: invoiceStatus,
         total_invoice: totalInvoice,
@@ -356,7 +370,142 @@ async function updateTransportJob(formData: FormData) {
     },
   });
 
-  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
+  redirect(
+    `/transport-jobs/${id}?success=${encodeURIComponent(
+      status === "confirmed" && requestedStatus === "confirmed"
+        ? "Transport job updated."
+        : requestedStatus === "confirmed" && status !== "confirmed"
+          ? "Transport job updated. Status stayed Planned because key fields are still missing."
+          : "Transport job updated."
+    )}`
+  );
+}
+
+async function createPurchaseOrderFromTransportJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const transportJobId = String(formData.get("transport_job_id") ?? "").trim();
+  const linkedJobId = String(formData.get("linked_job_id") ?? "").trim();
+
+  if (!transportJobId) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  if (!linkedJobId) {
+    redirect(
+      `/transport-jobs/${transportJobId}?error=${encodeURIComponent(
+        "Link this transport job to a crane job before creating purchase orders."
+      )}`
+    );
+  }
+
+  const supplierId = String(formData.get("supplier_id") ?? "").trim() || null;
+  const orderDate = String(formData.get("order_date") ?? "").trim() || null;
+  const requiredDate = String(formData.get("required_date") ?? "").trim() || null;
+  const supplierReference = String(formData.get("supplier_reference") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  const status = String(formData.get("status") ?? "").trim() || "draft";
+
+  const { data: transportRow } = await supabase
+    .from("transport_jobs")
+    .select("id, transport_number, linked_job_id")
+    .eq("id", transportJobId)
+    .maybeSingle();
+
+  const d = new Date();
+  const poNumber = `PO-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
+    d.getDate()
+  ).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(
+    d.getMinutes()
+  ).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
+
+  const { data: created, error } = await supabase
+    .from("purchase_orders")
+    .insert({
+      po_number: poNumber,
+      supplier_id: supplierId,
+      job_id: linkedJobId,
+      status,
+      order_date: orderDate,
+      required_date: requiredDate,
+      supplier_reference: supplierReference,
+      total_cost: 0,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !created?.id) {
+    redirect(
+      `/transport-jobs/${transportJobId}?error=${encodeURIComponent(
+        error?.message ?? "Could not create purchase order."
+      )}`
+    );
+  }
+
+  if (supplierId) {
+    await supabase.from("supplier_correspondence").insert({
+      supplier_id: supplierId,
+      type: status === "sent" ? "email" : "note",
+      subject: status === "sent" ? "Purchase Order Sent" : "Purchase Order Created",
+      message: [
+        `Purchase order ${poNumber} created from transport job ${transportRow?.transport_number ?? ""}.`,
+        supplierReference ? `Supplier ref: ${supplierReference}.` : "",
+        requiredDate ? `Required date: ${requiredDate}.` : "",
+        notes ? `Notes: ${notes}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      created_by: "system",
+    });
+  }
+
+  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
+}
+
+function statusBadgeStyle(status: string | null | undefined): React.CSSProperties {
+  const value = String(status ?? "").toLowerCase();
+
+  if (value === "confirmed") {
+    return {
+      background: "rgba(59,130,246,0.14)",
+      color: "#1d4ed8",
+      border: "1px solid rgba(59,130,246,0.22)",
+    };
+  }
+
+  if (value === "in_progress") {
+    return {
+      background: "rgba(249,115,22,0.14)",
+      color: "#c2410c",
+      border: "1px solid rgba(249,115,22,0.22)",
+    };
+  }
+
+  if (value === "completed") {
+    return {
+      background: "rgba(16,185,129,0.14)",
+      color: "#047857",
+      border: "1px solid rgba(16,185,129,0.22)",
+    };
+  }
+
+  if (value === "cancelled") {
+    return {
+      background: "rgba(239,68,68,0.14)",
+      color: "#b91c1c",
+      border: "1px solid rgba(239,68,68,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(148,163,184,0.18)",
+    color: "#334155",
+    border: "1px solid rgba(148,163,184,0.24)",
+  };
 }
 
 export default async function TransportJobDetailPage({
@@ -379,6 +528,8 @@ export default async function TransportJobDetailPage({
     { data: vehicles },
     { data: operators },
     { data: suppliers },
+    { data: linkedJobDocuments },
+    { data: purchaseOrders },
   ] = await Promise.all([
     supabase
       .from("transport_jobs")
@@ -453,6 +604,31 @@ export default async function TransportJobDetailPage({
       .from("suppliers")
       .select("id, company_name, category")
       .order("company_name", { ascending: true }),
+
+    supabase
+      .from("job_documents")
+      .select("id, job_id, file_name, file_path, file_type, document_type, created_at")
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("purchase_orders")
+      .select(`
+        id,
+        po_number,
+        status,
+        job_id,
+        supplier_id,
+        order_date,
+        required_date,
+        supplier_reference,
+        total_cost,
+        notes,
+        suppliers:supplier_id (
+          id,
+          company_name
+        )
+      `)
+      .order("created_at", { ascending: false }),
   ]);
 
   const client = first((item as any)?.clients);
@@ -465,6 +641,15 @@ export default async function TransportJobDetailPage({
 
   const parsedOtherSupplier = parseOtherSupplierReference((item as any)?.supplier_reference);
   const isOtherSupplier = !(item as any)?.supplier_id && !!parsedOtherSupplier.otherSupplierName;
+
+  const linkedJobId = String((item as any)?.linked_job_id ?? "");
+  const documentsForLinkedJob = linkedJobId
+    ? ((linkedJobDocuments as any[]) ?? []).filter((doc) => doc.job_id === linkedJobId)
+    : [];
+
+  const purchaseOrdersForLinkedJob = linkedJobId
+    ? ((purchaseOrders as any[]) ?? []).filter((po) => po.job_id === linkedJobId)
+    : [];
 
   return (
     <ClientShell>
@@ -500,7 +685,23 @@ export default async function TransportJobDetailPage({
                   rows={[
                     { label: "Customer", value: client?.company_name ?? "—" },
                     { label: "Job type", value: prettyJobType((item as any)?.job_type) },
-                    { label: "Status", value: (item as any)?.status ?? "—" },
+                    {
+                      label: "Status",
+                      value: (
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...statusBadgeStyle((item as any)?.status),
+                          }}
+                        >
+                          {(item as any)?.status ?? "—"}
+                        </span>
+                      ),
+                    },
                     { label: "Collection date", value: (item as any)?.transport_date ?? "—" },
                     { label: "Delivery date", value: (item as any)?.delivery_date ?? "—" },
                     { label: "Collection time", value: (item as any)?.collection_time ?? "—" },
@@ -763,27 +964,35 @@ export default async function TransportJobDetailPage({
                     />
                   </div>
 
-                  {(supplierFromLookup || isOtherSupplier || looksLikeCrossHire(item)) ? (
-                    <div style={{ marginTop: 12, fontSize: 13, opacity: 0.8 }}>
-                      Current supplier: {supplierFromLookup?.company_name ?? parsedOtherSupplier.otherSupplierName ?? "—"}
+                  {(item as any)?.supplier_id || supplierFromLookup || isOtherSupplier ? (
+                    <div style={{ marginTop: 12, ...softPanel }}>
+                      <div style={{ fontWeight: 900, marginBottom: 6 }}>Current supplier details</div>
+                      <div style={{ fontSize: 14, opacity: 0.85 }}>
+                        {isOtherSupplier
+                          ? `Other supplier: ${parsedOtherSupplier.otherSupplierName || "—"}`
+                          : supplierFromLookup?.company_name || "—"}
+                        {(item as any)?.supplier_cost
+                          ? ` • Cost ${fmtMoney((item as any)?.supplier_cost)}`
+                          : ""}
+                        {(item as any)?.supplier_reference
+                          ? ` • Ref ${(item as any)?.supplier_reference}`
+                          : ""}
+                      </div>
                     </div>
                   ) : null}
                 </details>
 
-                <details id="invoice_details_section" open style={detailsCard}>
-                  <summary style={detailsSummary}>Invoice details</summary>
-                  <div style={detailsHelp}>
-                    Invoice VAT and total are calculated automatically from the subtotal.
-                  </div>
+                <section style={sectionCard}>
+                  <div style={sectionTitle}>Invoice</div>
 
                   <div style={gridStyle}>
                     <SelectField
                       label="Invoice status"
                       name="invoice_status"
                       defaultValue={(item as any)?.invoice_status ?? "Not Invoiced"}
-                      options={INVOICE_STATUSES.map((status) => ({
-                        value: status,
-                        label: status,
+                      options={INVOICE_STATUSES.map((value) => ({
+                        value,
+                        label: value,
                       }))}
                     />
 
@@ -794,46 +1003,25 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
-                      label="Invoice created"
+                      label="Invoice date"
                       name="invoice_created_at"
                       type="date"
                       defaultValue={(item as any)?.invoice_created_at ?? ""}
                     />
 
                     <Field
-                      label="Invoice due"
+                      label="Due date"
                       name="invoice_due_at"
                       type="date"
                       defaultValue={(item as any)?.invoice_due_at ?? ""}
                     />
 
                     <Field
-                      id="invoice_subtotal"
                       label="Invoice subtotal"
                       name="invoice_subtotal"
                       type="number"
                       step="0.01"
-                      defaultValue={String((item as any)?.invoice_subtotal ?? (item as any)?.agreed_sell_rate ?? 0)}
-                    />
-
-                    <Field
-                      id="invoice_vat"
-                      label="Invoice VAT"
-                      name="invoice_vat"
-                      type="number"
-                      step="0.01"
-                      defaultValue={String((item as any)?.invoice_vat ?? 0)}
-                      readOnly
-                    />
-
-                    <Field
-                      id="total_invoice"
-                      label="Total invoice"
-                      name="total_invoice"
-                      type="number"
-                      step="0.01"
-                      defaultValue={String((item as any)?.total_invoice ?? 0)}
-                      readOnly
+                      defaultValue={String((item as any)?.invoice_subtotal ?? (item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)}
                     />
                   </div>
 
@@ -841,24 +1029,208 @@ export default async function TransportJobDetailPage({
                     <label style={labelStyle}>Invoice notes</label>
                     <textarea
                       name="invoice_notes"
-                      rows={3}
+                      rows={4}
                       style={textareaStyle}
                       defaultValue={(item as any)?.invoice_notes ?? ""}
                     />
                   </div>
-                </details>
+                </section>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={saveBtn}>
-                    Save changes
+                  <button type="submit" style={primaryBtn}>
+                    Save transport job
                   </button>
-                  <a href="/transport-jobs" style={secondaryBtn}>
-                    Back to jobs
-                  </a>
                 </div>
+
+                <TransportJobDetailFormEnhancer />
               </form>
 
-              <TransportJobDetailFormEnhancer />
+              <section style={sectionCard}>
+                <div style={sectionHeaderRow}>
+                  <div>
+                    <div style={sectionTitle}>Documents</div>
+                    <div style={mutedText}>
+                      These are using the linked crane job record so you can keep transport and crane paperwork together without schema changes.
+                    </div>
+                  </div>
+                </div>
+
+                {!linkedJobId ? (
+                  <div style={warningBox}>
+                    Link this transport job to a crane job to use documents here.
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: 14 }}>
+                    <DocumentUploadForm jobId={linkedJobId} />
+
+                    {documentsForLinkedJob.length === 0 ? (
+                      <div style={emptyState}>No documents uploaded against the linked crane job yet.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 10 }}>
+                        {documentsForLinkedJob.map((doc: any) => (
+                          <div key={doc.id} style={listCard}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
+                                  {doc.file_name ?? "Document"}
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                  {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
+                                </div>
+                              </div>
+
+                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                <a
+                                  href={documentHref(doc.file_path)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={secondaryBtn}
+                                >
+                                  Open
+                                </a>
+                                <DocumentDeleteButton jobId={linkedJobId} documentId={doc.id} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+
+              <section style={sectionCard}>
+                <div style={sectionHeaderRow}>
+                  <div>
+                    <div style={sectionTitle}>Purchase Orders</div>
+                    <div style={mutedText}>
+                      These are linked through the crane job connected to this transport job.
+                    </div>
+                  </div>
+
+                  {linkedJobId ? (
+                    <a
+                      href={`/purchase-orders/new?job_id=${linkedJobId}${(item as any)?.supplier_id ? `&supplier_id=${(item as any)?.supplier_id}` : ""}`}
+                      style={secondaryBtn}
+                    >
+                      Open full PO editor
+                    </a>
+                  ) : null}
+                </div>
+
+                {!linkedJobId ? (
+                  <div style={warningBox}>
+                    Link this transport job to a crane job before creating purchase orders.
+                  </div>
+                ) : (
+                  <>
+                    <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12 }}>
+                      <input type="hidden" name="transport_job_id" value={params.id} />
+                      <input type="hidden" name="linked_job_id" value={linkedJobId} />
+
+                      <div style={gridStyle}>
+                        <SelectField
+                          label="Supplier"
+                          name="supplier_id"
+                          defaultValue={(item as any)?.supplier_id ?? ""}
+                          options={(suppliers ?? []).map((s: any) => ({
+                            value: s.id,
+                            label: s.company_name ?? "Supplier",
+                          }))}
+                        />
+
+                        <SelectField
+                          label="Status"
+                          name="status"
+                          defaultValue="draft"
+                          options={[
+                            { value: "draft", label: "Draft" },
+                            { value: "sent", label: "Sent" },
+                            { value: "approved", label: "Approved" },
+                            { value: "completed", label: "Completed" },
+                            { value: "cancelled", label: "Cancelled" },
+                          ]}
+                        />
+
+                        <Field
+                          label="Order date"
+                          name="order_date"
+                          type="date"
+                          defaultValue={new Date().toISOString().slice(0, 10)}
+                        />
+
+                        <Field
+                          label="Required date"
+                          name="required_date"
+                          type="date"
+                        />
+
+                        <Field
+                          label="Supplier reference"
+                          name="supplier_reference"
+                          defaultValue={(item as any)?.supplier_reference ?? ""}
+                        />
+                      </div>
+
+                      <div>
+                        <label style={labelStyle}>Notes</label>
+                        <textarea
+                          name="notes"
+                          rows={3}
+                          style={textareaStyle}
+                          defaultValue={`Created from transport job ${(item as any)?.transport_number ?? ""}`}
+                        />
+                      </div>
+
+                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                        <button type="submit" style={primaryBtn}>
+                          Create purchase order
+                        </button>
+                      </div>
+                    </form>
+
+                    <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+                      {purchaseOrdersForLinkedJob.length === 0 ? (
+                        <div style={emptyState}>No purchase orders linked to the crane job yet.</div>
+                      ) : (
+                        purchaseOrdersForLinkedJob.map((po: any) => {
+                          const poSupplier = first(po.suppliers);
+                          return (
+                            <div key={po.id} style={listCard}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                                <div>
+                                  <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                    {po.status ?? "draft"}
+                                    {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
+                                    {po.order_date ? ` • Ordered ${po.order_date}` : ""}
+                                    {po.required_date ? ` • Required ${po.required_date}` : ""}
+                                  </div>
+
+                                  {po.supplier_reference || po.notes ? (
+                                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.82 }}>
+                                      {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
+                                        .filter(Boolean)
+                                        .join(" • ")}
+                                    </div>
+                                  ) : null}
+                                </div>
+
+                                <div style={{ textAlign: "right" }}>
+                                  <div style={{ fontWeight: 900 }}>{fmtMoney(po.total_cost ?? 0)}</div>
+                                  <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
+                                    Open PO
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
+              </section>
             </>
           )}
         </div>
@@ -875,17 +1247,17 @@ function SummaryCard({
   rows: Array<{ label: string; value: React.ReactNode }>;
 }) {
   return (
-    <div style={summaryCard}>
-      <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 10 }}>{title}</div>
-      <div style={{ display: "grid", gap: 8 }}>
-        {rows.map((row, index) => (
-          <div key={`${title}-${index}`} style={summaryRow}>
+    <section style={summaryCard}>
+      <div style={sectionTitle}>{title}</div>
+      <div style={{ display: "grid", gap: 10 }}>
+        {rows.map((row) => (
+          <div key={`${title}-${row.label}`} style={summaryRow}>
             <div style={summaryLabel}>{row.label}</div>
             <div style={summaryValue}>{row.value}</div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -895,31 +1267,30 @@ function Field({
   name,
   defaultValue,
   type = "text",
-  placeholder,
-  readOnly = false,
   step,
+  placeholder,
 }: {
   id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
-  placeholder?: string;
-  readOnly?: boolean;
   step?: string;
+  placeholder?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
+      <label htmlFor={id} style={labelStyle}>
+        {label}
+      </label>
       <input
         id={id}
         name={name}
         defaultValue={defaultValue}
         type={type}
+        step={step}
         placeholder={placeholder}
         style={inputStyle}
-        readOnly={readOnly}
-        step={step}
       />
     </div>
   );
@@ -940,7 +1311,9 @@ function SelectField({
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
+      <label htmlFor={id} style={labelStyle}>
+        {label}
+      </label>
       <select id={id} name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
@@ -955,8 +1328,8 @@ function SelectField({
 
 const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
+  padding: 20,
+  borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
@@ -964,23 +1337,35 @@ const pageCard: React.CSSProperties = {
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
+  gap: 16,
   flexWrap: "wrap",
 };
 
 const summaryGrid: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
-  gap: 12,
-  marginTop: 16,
+  gap: 16,
+  marginTop: 18,
 };
 
 const summaryCard: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.32)",
+  background: "rgba(255,255,255,0.68)",
   border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
+const sectionCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.68)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 900,
 };
 
 const summaryRow: React.CSSProperties = {
@@ -990,46 +1375,16 @@ const summaryRow: React.CSSProperties = {
 
 const summaryLabel: React.CSSProperties = {
   fontSize: 12,
-  opacity: 0.72,
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+  opacity: 0.65,
   fontWeight: 800,
 };
 
 const summaryValue: React.CSSProperties = {
   fontSize: 14,
-  fontWeight: 900,
-};
-
-const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 14,
-  padding: 16,
-};
-
-const detailsCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 14,
-  padding: 16,
-};
-
-const detailsSummary: React.CSSProperties = {
-  cursor: "pointer",
-  fontSize: 18,
-  fontWeight: 900,
-};
-
-const detailsHelp: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.78,
-  marginTop: 8,
-  marginBottom: 12,
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 900,
-  marginBottom: 8,
+  fontWeight: 600,
+  wordBreak: "break-word",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -1039,18 +1394,17 @@ const gridStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.75,
+  fontSize: 13,
   fontWeight: 800,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
+  minHeight: 42,
+  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
 };
 
@@ -1059,7 +1413,7 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
 };
@@ -1068,10 +1422,10 @@ const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
+  textDecoration: "none",
   background: "#111",
   color: "#fff",
-  textDecoration: "none",
-  fontWeight: 900,
+  fontWeight: 800,
   border: "none",
   cursor: "pointer",
 };
@@ -1080,31 +1434,89 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.65)",
-  color: "#111",
   textDecoration: "none",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.12)",
-};
-
-const saveBtn: React.CSSProperties = {
-  ...primaryBtn,
-};
-
-const successBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
+  background: "rgba(255,255,255,0.82)",
   color: "#111",
   fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.22)",
+  border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(16,185,129,0.12)",
+  border: "1px solid rgba(16,185,129,0.24)",
+};
+
+const detailsCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.68)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 14,
+  padding: 16,
+};
+
+const detailsSummary: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+};
+
+const detailsHelp: React.CSSProperties = {
+  marginTop: 8,
+  marginBottom: 12,
+  fontSize: 13,
+  opacity: 0.75,
+};
+
+const softPanel: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sectionHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const mutedText: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  opacity: 0.75,
+};
+
+const warningBox: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(245,158,11,0.12)",
+  border: "1px solid rgba(245,158,11,0.24)",
+  color: "#92400e",
+};
+
+const emptyState: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.58)",
+  border: "1px dashed rgba(0,0,0,0.10)",
+  opacity: 0.78,
+};
+
+const listCard: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.76)",
+  border: "1px solid rgba(0,0,0,0.06)",
 };
