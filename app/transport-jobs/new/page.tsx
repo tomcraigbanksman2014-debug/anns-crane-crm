@@ -3,7 +3,6 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
-import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -98,6 +97,22 @@ function normaliseTransportStatus(
     !!fields.deliveryTime;
 
   return canConfirm ? "confirmed" : "planned";
+}
+
+function countDaysInclusive(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return count;
 }
 
 async function resolveClientId(
@@ -203,38 +218,18 @@ async function createTransportJob(formData: FormData) {
     deliveryTime,
   });
 
-  const notes = clean(formData.get("notes")) || null;
-
-  const agreedSellRate = money(numberOrZero(formData.get("agreed_sell_rate")));
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
-  const invoiceNumber = clean(formData.get("invoice_number")) || null;
-  const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
-  const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
-  const invoiceNotes = clean(formData.get("invoice_notes")) || null;
-
-  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
-  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
-  const invoiceVat = money(invoiceSubtotal * 0.2);
-  const totalInvoice = money(invoiceSubtotal + invoiceVat);
-
-  if (!collectionAddress || !transportDate) {
+  if (!clientId || !transportDate) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Site / pickup address and collection date are required."
+        "Customer and collection date are required."
       )}`
-    );
-  }
-
-  if (!clientId) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent("Customer is required.")}`
     );
   }
 
   if (rawSupplierId === "other" && !otherSupplierName) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Enter the one-off cross-hire supplier name when using Other."
+        "Please enter the supplier name when Supplier is set to Other."
       )}`
     );
   }
@@ -243,120 +238,109 @@ async function createTransportJob(formData: FormData) {
   const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
 
   if (
-    collectionTime &&
-    deliveryTime &&
-    transportDate &&
-    deliveryDate &&
     collectionDateTime &&
     deliveryDateTime &&
-    collectionDateTime > deliveryDateTime
+    deliveryDateTime.getTime() < collectionDateTime.getTime()
   ) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
-        "Delivery date/time cannot be earlier than collection date/time."
+        "Delivery date/time cannot be before the collection date/time."
       )}`
     );
   }
 
+  const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
+  const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
+
+  const priceMode = clean(formData.get("price_mode")) || "full_job";
+  const agreedSellRateInput = money(numberOrZero(formData.get("agreed_sell_rate")));
+  const pricePerDay = money(numberOrZero(formData.get("price_per_day")));
+  const dayCount = transportDate && deliveryDate ? countDaysInclusive(transportDate, deliveryDate) : 1;
+  const calculatedSellRate =
+    priceMode === "per_day"
+      ? money(pricePerDay * Math.max(dayCount, 1))
+      : agreedSellRateInput;
+
+  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
+  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : calculatedSellRate;
+  const invoiceVat = money(invoiceSubtotal * 0.2);
+  const totalInvoice = money(invoiceSubtotal + invoiceVat);
+
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+
   if (!INVOICE_STATUSES.includes(invoiceStatus)) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent("Invalid invoice status.")}`
-    );
+    redirect(`/transport-jobs/new?error=${encodeURIComponent("Invalid invoice status.")}`);
   }
 
-  const pickupCoords = collectionAddress
-    ? await geocodeAddress(collectionAddress)
-    : null;
-
-  const deliveryCoords = deliveryAddress
-    ? await geocodeAddress(deliveryAddress)
-    : null;
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const payload: Record<string, any> = {
+    transport_number: transportNumber,
+    linked_job_id: linkedJobId,
+    linked_transport_job_id: linkedTransportJobId,
+    client_id: clientId,
+    vehicle_id: vehicleId,
+    operator_id: operatorId,
+    supplier_id: supplierId,
+    supplier_reference: supplierReference,
+    supplier_cost: supplierCost,
+    job_type: jobType,
+    collection_address: collectionAddress,
+    delivery_address: deliveryAddress,
+    collection_lat: pickupCoords?.lat ?? null,
+    collection_lng: pickupCoords?.lng ?? null,
+    delivery_lat: deliveryCoords?.lat ?? null,
+    delivery_lng: deliveryCoords?.lng ?? null,
+    transport_date: transportDate,
+    collection_time: collectionTime,
+    delivery_date: deliveryDate,
+    delivery_time: deliveryTime,
+    load_description: loadDescription,
+    status,
+    price_mode: priceMode,
+    price_per_day: priceMode === "per_day" ? pricePerDay : null,
+    price: calculatedSellRate,
+    agreed_sell_rate: calculatedSellRate,
+    invoice_status: invoiceStatus,
+    invoice_number: clean(formData.get("invoice_number")) || null,
+    invoice_created_at: clean(formData.get("invoice_created_at")) || null,
+    invoice_due_at: clean(formData.get("invoice_due_at")) || null,
+    invoice_notes: clean(formData.get("invoice_notes")) || null,
+    invoice_subtotal: invoiceSubtotal,
+    invoice_vat: invoiceVat,
+    total_invoice: totalInvoice,
+    notes: clean(formData.get("notes")) || null,
+    archived: false,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 
   const { data, error } = await supabase
     .from("transport_jobs")
-    .insert({
-      transport_number: transportNumber,
-      linked_job_id: linkedJobId,
-      linked_transport_job_id: linkedTransportJobId,
-      client_id: clientId,
-      vehicle_id: vehicleId,
-      operator_id: operatorId,
-      supplier_id: supplierId,
-      supplier_reference: supplierReference,
-      supplier_cost: supplierCost,
-      job_type: jobType,
-      collection_address: collectionAddress,
-      delivery_address: deliveryAddress,
-      collection_lat: pickupCoords?.lat ?? null,
-      collection_lng: pickupCoords?.lng ?? null,
-      delivery_lat: deliveryCoords?.lat ?? null,
-      delivery_lng: deliveryCoords?.lng ?? null,
-      transport_date: transportDate,
-      collection_time: collectionTime,
-      delivery_date: deliveryDate,
-      delivery_time: deliveryTime,
-      load_description: loadDescription,
-      status,
-      price: agreedSellRate,
-      agreed_sell_rate: agreedSellRate,
-      invoice_status: invoiceStatus,
-      invoice_number: invoiceNumber,
-      invoice_created_at: invoiceCreatedAt,
-      invoice_due_at: invoiceDueAt,
-      invoice_notes: invoiceNotes,
-      invoice_subtotal: invoiceSubtotal,
-      invoice_vat: invoiceVat,
-      total_invoice: totalInvoice,
-      notes,
-      updated_at: new Date().toISOString(),
-    })
+    .insert(payload)
     .select("id, transport_number")
     .single();
 
   if (error || !data?.id) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent(
-        error?.message ?? "Could not create transport job."
-      )}`
-    );
+    redirect(`/transport-jobs/new?error=${encodeURIComponent(error?.message ?? "Could not create transport job.")}`);
   }
 
   await writeAuditLog({
-    actor_user_id: user?.id ?? null,
-    actor_username: fromAuthEmail(user?.email ?? null) || null,
+    actor_user_id: null,
+    actor_username: fromAuthEmail(null),
     action: "transport_job_created",
     entity_type: "transport_job",
     entity_id: data.id,
     meta: {
       transport_number: data.transport_number,
-      linked_job_id: linkedJobId,
-      linked_transport_job_id: linkedTransportJobId,
-      client_id: clientId,
-      vehicle_id: vehicleId,
-      operator_id: operatorId,
-      supplier_id: supplierId,
-      supplier_cost: supplierCost,
-      job_type: jobType,
-      transport_date: transportDate,
-      collection_time: collectionTime,
-      delivery_date: deliveryDate,
-      delivery_time: deliveryTime,
-      status,
-      agreed_sell_rate: agreedSellRate,
-      invoice_status: invoiceStatus,
-      total_invoice: totalInvoice,
+      price_mode: payload.price_mode,
+      price_per_day: payload.price_per_day,
+      agreed_sell_rate: payload.agreed_sell_rate,
+      client_id: payload.client_id,
+      vehicle_id: payload.vehicle_id,
+      operator_id: payload.operator_id,
     },
   });
 
-  redirect(
-    `/transport-jobs/${data.id}?success=${encodeURIComponent(
-      `${data.transport_number} saved.`
-    )}`
-  );
+  redirect(`/transport-jobs/${data.id}`);
 }
 
 export default async function NewTransportJobPage({
@@ -365,15 +349,7 @@ export default async function NewTransportJobPage({
   searchParams?: { error?: string };
 }) {
   const supabase = createSupabaseServerClient();
-
-  const errorMessage = searchParams?.error
-    ? decodeURIComponent(searchParams.error)
-    : "";
-
-  const defaultSellRate = 0;
-  const defaultInvoiceSubtotal = money(defaultSellRate);
-  const defaultInvoiceVat = money(defaultInvoiceSubtotal * 0.2);
-  const defaultInvoiceTotal = money(defaultInvoiceSubtotal + defaultInvoiceVat);
+  const errorMessage = String(searchParams?.error ?? "");
   const timeOptions = buildTimeOptions();
 
   const [
@@ -384,93 +360,38 @@ export default async function NewTransportJobPage({
     { data: operators },
     { data: suppliers },
   ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, archived")
-      .eq("archived", false)
-      .order("company_name", { ascending: true }),
-
-    supabase
-      .from("jobs")
-      .select("id, job_number, site_name, archived")
-      .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(300),
-
-    supabase
-      .from("transport_jobs")
-      .select("id, transport_number, transport_date, delivery_date, archived")
-      .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(300),
-
-    supabase
-      .from("vehicles")
-      .select("id, name, reg_number, status, archived")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-
-    supabase
-      .from("operators")
-      .select("id, full_name, status, archived")
-      .eq("archived", false)
-      .order("full_name", { ascending: true }),
-
-    supabase
-      .from("suppliers")
-      .select("id, company_name, category")
-      .order("company_name", { ascending: true }),
+    supabase.from("clients").select("id, company_name, archived").eq("archived", false).order("company_name", { ascending: true }),
+    supabase.from("jobs").select("id, job_number, site_name, archived").eq("archived", false).order("created_at", { ascending: false }).limit(300),
+    supabase.from("transport_jobs").select("id, transport_number, transport_date, delivery_date, archived").eq("archived", false).order("created_at", { ascending: false }).limit(300),
+    supabase.from("vehicles").select("id, name, reg_number, status, archived").eq("archived", false).order("name", { ascending: true }),
+    supabase.from("operators").select("id, full_name, status, archived").eq("archived", false).order("full_name", { ascending: true }),
+    supabase.from("suppliers").select("id, company_name, category").order("company_name", { ascending: true }),
   ]);
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
-        <div style={cardStyle}>
-          <div style={topRow}>
+      <div style={{ width: "min(1200px, 96vw)", margin: "0 auto" }}>
+        <div style={pageCard}>
+          <div style={headerRow}>
             <div>
-              <h1 style={{ margin: 0, fontSize: 32 }}>Create Transport Job</h1>
-              <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Create transport work with cleaner defaults, clearer sections and automatic invoice calculation.
+              <h1 style={{ marginTop: 0, fontSize: 32 }}>New Transport Job</h1>
+              <p style={{ opacity: 0.8, marginTop: 6 }}>
+                Create a transport job with pricing mode support.
               </p>
             </div>
 
-            <a href="/transport-jobs" style={btnStyle}>
+            <a href="/transport-jobs" style={secondaryBtn}>
               ← Back
             </a>
           </div>
 
-          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
 
           <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
-              <div style={sectionHelp}>
-                Core planning details for the movement. Site / pickup address and collection date are required.
-              </div>
-
-              <div
-                id="on_site_hiab_notice"
-                style={{
-                  display: "none",
-                  marginBottom: 12,
-                  padding: "12px 14px",
-                  borderRadius: 12,
-                  background: "rgba(0,120,255,0.10)",
-                  border: "1px solid rgba(0,120,255,0.18)",
-                  fontWeight: 700,
-                }}
-              >
-                On-site HIAB mode: use the first address as the main site location. The second address can be left the
-                same or used for a work area / secondary location on the same site.
-              </div>
 
               <div style={gridStyle}>
-                <Field
-                  label="Transport number"
-                  name="transport_number"
-                  defaultValue={generateTransportNumber()}
-                />
-
                 <SelectField
                   label="Linked crane job"
                   name="linked_job_id"
@@ -507,7 +428,7 @@ export default async function NewTransportJobPage({
                     id="other_customer_name"
                     label="Other customer name"
                     name="other_customer_name"
-                    placeholder="Enter customer company name"
+                    placeholder="Enter customer name"
                   />
                 </div>
 
@@ -530,7 +451,6 @@ export default async function NewTransportJobPage({
                 />
 
                 <SelectField
-                  id="job_type"
                   label="Job type"
                   name="job_type"
                   defaultValue="haulage"
@@ -549,15 +469,6 @@ export default async function NewTransportJobPage({
                 <Field id="delivery_date" label="Delivery date" name="delivery_date" type="date" />
                 <SelectField id="delivery_time" label="Delivery time" name="delivery_time" options={timeOptions} />
 
-                <Field
-                  id="agreed_sell_rate"
-                  label="Charge rate"
-                  name="agreed_sell_rate"
-                  type="number"
-                  step="0.01"
-                  defaultValue={String(defaultSellRate)}
-                />
-
                 <SelectField
                   label="Status"
                   name="status"
@@ -572,55 +483,73 @@ export default async function NewTransportJobPage({
                 />
               </div>
 
-              <div style={{ marginTop: 12 }}>
-                <label id="collection_address_label" style={labelStyle}>Pickup address</label>
-                <textarea
-                  id="collection_address"
-                  name="collection_address"
-                  rows={3}
-                  style={textareaStyle}
-                  placeholder="Enter pickup address"
-                />
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Pickup / site address</label>
+                  <textarea id="collection_address" name="collection_address" rows={3} style={textareaStyle} />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Delivery / work area address</label>
+                  <textarea id="delivery_address" name="delivery_address" rows={3} style={textareaStyle} />
+                </div>
               </div>
 
-              <div style={{ marginTop: 12 }}>
-                <label id="delivery_address_label" style={labelStyle}>Delivery address</label>
-                <textarea
-                  id="delivery_address"
-                  name="delivery_address"
-                  rows={3}
-                  style={textareaStyle}
-                  placeholder="Enter delivery address"
-                />
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Load / task description</label>
+                <textarea id="load_description" name="load_description" rows={3} style={textareaStyle} />
               </div>
 
-              <div style={{ marginTop: 12 }}>
-                <label id="load_description_label" style={labelStyle}>Load description</label>
-                <textarea
-                  id="load_description"
-                  name="load_description"
-                  rows={3}
-                  style={textareaStyle}
-                  placeholder="Describe the load, crane parts, ballast, equipment or haulage item"
-                />
-              </div>
-
-              <div style={{ marginTop: 12 }}>
+              <div style={fieldWrap}>
                 <label style={labelStyle}>Notes</label>
-                <textarea
-                  name="notes"
-                  rows={5}
-                  style={textareaStyle}
-                  placeholder="Extra transport instructions"
+                <textarea name="notes" rows={4} style={textareaStyle} />
+              </div>
+            </section>
+
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Pricing</div>
+
+              <div style={gridStyle}>
+                <SelectField
+                  label="Price mode"
+                  name="price_mode"
+                  defaultValue="full_job"
+                  options={[
+                    { value: "full_job", label: "Full job price" },
+                    { value: "per_day", label: "Price per day" },
+                  ]}
+                />
+
+                <Field
+                  id="agreed_sell_rate"
+                  label="Full job price"
+                  name="agreed_sell_rate"
+                  type="number"
+                  step="0.01"
+                  defaultValue="0"
+                />
+
+                <Field
+                  label="Price per day"
+                  name="price_per_day"
+                  type="number"
+                  step="0.01"
+                  defaultValue="0"
+                />
+
+                <Field
+                  id="invoice_subtotal"
+                  label="Invoice subtotal"
+                  name="invoice_subtotal"
+                  type="number"
+                  step="0.01"
+                  defaultValue="0"
                 />
               </div>
             </section>
 
-            <details id="supplier_details_section" style={detailsCard}>
-              <summary style={detailsSummary}>Cross-hire / supplier details</summary>
-              <div style={detailsHelp}>
-                Only open this when the transport job is supplier-backed or cross-hired.
-              </div>
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Cross-hire / supplier details</div>
 
               <div style={gridStyle}>
                 <SelectField
@@ -645,105 +574,41 @@ export default async function NewTransportJobPage({
                   />
                 </div>
 
-                <Field
-                  id="supplier_reference"
-                  label="Supplier reference"
-                  name="supplier_reference"
-                />
-
-                <Field
-                  id="supplier_cost"
-                  label="Supplier cost"
-                  name="supplier_cost"
-                  type="number"
-                  step="0.01"
-                />
+                <Field id="supplier_reference" label="Supplier reference" name="supplier_reference" />
+                <Field id="supplier_cost" label="Supplier cost" name="supplier_cost" type="number" step="0.01" />
               </div>
-            </details>
+            </section>
 
-            <details id="invoice_details_section" open style={detailsCard}>
-              <summary style={detailsSummary}>Invoice details</summary>
-              <div style={detailsHelp}>
-                Invoice VAT and total are calculated automatically from the subtotal.
-              </div>
+            <section id="invoice_details_section" style={sectionCard}>
+              <div style={sectionTitle}>Invoice</div>
 
               <div style={gridStyle}>
                 <SelectField
                   label="Invoice status"
                   name="invoice_status"
                   defaultValue="Not Invoiced"
-                  options={INVOICE_STATUSES.map((status) => ({
-                    value: status,
-                    label: status,
+                  options={INVOICE_STATUSES.map((value) => ({
+                    value,
+                    label: value,
                   }))}
                 />
 
-                <Field
-                  label="Invoice number"
-                  name="invoice_number"
-                />
-
-                <Field
-                  label="Invoice created"
-                  name="invoice_created_at"
-                  type="date"
-                />
-
-                <Field
-                  label="Invoice due"
-                  name="invoice_due_at"
-                  type="date"
-                />
-
-                <Field
-                  id="invoice_subtotal"
-                  label="Invoice subtotal"
-                  name="invoice_subtotal"
-                  type="number"
-                  step="0.01"
-                  defaultValue={String(defaultInvoiceSubtotal)}
-                />
-
-                <Field
-                  id="invoice_vat"
-                  label="Invoice VAT"
-                  name="invoice_vat"
-                  type="number"
-                  step="0.01"
-                  defaultValue={String(defaultInvoiceVat)}
-                  readOnly
-                />
-
-                <Field
-                  id="total_invoice"
-                  label="Total invoice"
-                  name="total_invoice"
-                  type="number"
-                  step="0.01"
-                  defaultValue={String(defaultInvoiceTotal)}
-                  readOnly
-                />
+                <Field label="Invoice number" name="invoice_number" />
+                <Field label="Invoice date" name="invoice_created_at" type="date" />
+                <Field label="Due date" name="invoice_due_at" type="date" />
               </div>
 
-              <div style={{ marginTop: 12 }}>
+              <div style={fieldWrap}>
                 <label style={labelStyle}>Invoice notes</label>
-                <textarea
-                  name="invoice_notes"
-                  rows={3}
-                  style={textareaStyle}
-                  placeholder="Internal invoice notes"
-                />
+                <textarea name="invoice_notes" rows={4} style={textareaStyle} />
               </div>
-            </details>
+            </section>
 
-            <div>
-              <button type="submit" style={saveBtn}>
-                Save transport job
-              </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button type="submit" style={primaryBtn}>Save transport job</button>
+              <a href="/transport-jobs" style={secondaryBtn}>Cancel</a>
             </div>
           </form>
-
-          <TransportJobFormEnhancer />
         </div>
       </div>
     </ClientShell>
@@ -756,32 +621,21 @@ function Field({
   name,
   defaultValue,
   type = "text",
-  placeholder,
-  readOnly = false,
   step,
+  placeholder,
 }: {
   id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
-  placeholder?: string;
-  readOnly?: boolean;
   step?: string;
+  placeholder?: string;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        id={id}
-        name={name}
-        defaultValue={defaultValue}
-        type={type}
-        placeholder={placeholder}
-        style={inputStyle}
-        readOnly={readOnly}
-        step={step}
-      />
+    <div style={fieldWrap}>
+      <label htmlFor={id} style={labelStyle}>{label}</label>
+      <input id={id} name={name} defaultValue={defaultValue} type={type} step={step} placeholder={placeholder} style={inputStyle} />
     </div>
   );
 }
@@ -800,8 +654,8 @@ function SelectField({
   options: Array<{ value: string; label: string }>;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
+    <div style={fieldWrap}>
+      <label htmlFor={id} style={labelStyle}>{label}</label>
       <select id={id} name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
         {options.map((option) => (
@@ -814,59 +668,33 @@ function SelectField({
   );
 }
 
-const cardStyle: React.CSSProperties = {
+const pageCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
+  padding: 20,
+  borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 16,
+  flexWrap: "wrap",
+};
+
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
+  background: "rgba(255,255,255,0.68)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
-};
-
-const detailsCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 14,
-  padding: 16,
-};
-
-const detailsSummary: React.CSSProperties = {
-  cursor: "pointer",
-  fontSize: 18,
-  fontWeight: 900,
-};
-
-const detailsHelp: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.78,
-  marginTop: 8,
-  marginBottom: 12,
 };
 
 const sectionTitle: React.CSSProperties = {
   fontSize: 18,
   fontWeight: 900,
-  marginBottom: 8,
-};
-
-const sectionHelp: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.78,
   marginBottom: 12,
-};
-
-const topRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
 };
 
 const gridStyle: React.CSSProperties = {
@@ -875,19 +703,30 @@ const gridStyle: React.CSSProperties = {
   gap: 12,
 };
 
+const twoCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const fieldWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+};
+
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.75,
+  fontSize: 13,
   fontWeight: 800,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
+  minHeight: 42,
+  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
 };
 
@@ -896,34 +735,36 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
-const btnStyle: React.CSSProperties = {
+const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
   textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
   background: "#111",
   color: "#fff",
-  borderRadius: 10,
+  fontWeight: 800,
   border: "none",
   cursor: "pointer",
+};
+
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
   fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
+  marginTop: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
