@@ -1,83 +1,159 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
-function startOfWeek(dateStr?: string | null) {
-  const base = dateStr ? new Date(dateStr) : new Date();
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function startOfWeekMonday(base: Date) {
   const d = new Date(base);
   d.setHours(0, 0, 0, 0);
-
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   d.setDate(d.getDate() + diff);
   return d;
 }
 
-function endOfWeek(dateStr?: string | null) {
-  const d = startOfWeek(dateStr);
-  d.setDate(d.getDate() + 6);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
-
-function overlapsWeek(
+function overlapsRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
-  weekStart: string,
-  weekEnd: string
+  rangeStart: string,
+  rangeEnd: string
 ) {
-  const start = startDate ?? null;
-  const end = endDate ?? startDate ?? null;
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
   if (!start || !end) return false;
-  return start <= weekEnd && end >= weekStart;
+  return start <= rangeEnd && end >= rangeStart;
+}
+
+function num(value: any) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function lower(value: any) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return 0;
+  }
+
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const day = cursor.getDay();
+    const isWeekend = day === 0 || day === 6;
+
+    if (!excludeWeekends || !isWeekend) {
+      count += 1;
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return count;
+}
+
+function effectiveJobPrice(job: any) {
+  const mode = String(job?.price_mode ?? "full_job").trim().toLowerCase();
+  const startDate = String(job?.start_date ?? job?.job_date ?? "").trim();
+  const endDate = String(job?.end_date ?? job?.job_date ?? "").trim();
+  const excludeWeekends = Boolean(job?.exclude_weekends);
+
+  if (mode === "per_day") {
+    const rate = num(job?.price_per_day);
+    const days = startDate && endDate ? countBillableDays(startDate, endDate, excludeWeekends) : 1;
+    return rate * Math.max(days, 1);
+  }
+
+  return num(job?.price);
+}
+
+function bankHolidaysEnglandAndWales2026() {
+  return [
+    { date: "2026-01-01", label: "New Year’s Day" },
+    { date: "2026-04-03", label: "Good Friday" },
+    { date: "2026-04-06", label: "Easter Monday" },
+    { date: "2026-05-04", label: "Early May bank holiday" },
+    { date: "2026-05-25", label: "Spring bank holiday" },
+    { date: "2026-08-31", label: "Summer bank holiday" },
+    { date: "2026-12-25", label: "Christmas Day" },
+    { date: "2026-12-28", label: "Boxing Day (substitute day)" },
+  ];
 }
 
 export async function GET(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
-    const { searchParams } = new URL(req.url);
-    const date = searchParams.get("date");
+    const url = new URL(req.url);
+    const dateParam = String(url.searchParams.get("date") ?? "").trim();
 
-    const weekStart = startOfWeek(date);
-    const weekEnd = endOfWeek(date);
+    const baseDate = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
+    if (Number.isNaN(baseDate.getTime())) {
+      return NextResponse.json({ error: "Invalid date." }, { status: 400 });
+    }
 
-    const from = isoDate(weekStart);
-    const to = isoDate(weekEnd);
+    const weekStart = startOfWeekMonday(baseDate);
+    const weekEnd = addDays(weekStart, 6);
+
+    const rangeStart = isoDate(weekStart);
+    const rangeEnd = isoDate(weekEnd);
 
     const [
       { data: jobs, error: jobsError },
-      { data: allocations, error: allocationsError },
-      { data: operators, error: operatorsError },
       { data: cranes, error: cranesError },
+      { data: operators, error: operatorsError },
+      { data: allocations, error: allocationsError },
     ] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
           id,
           job_number,
-          job_date,
+          site_name,
+          site_address,
           start_date,
           end_date,
+          job_date,
           start_time,
           end_time,
           status,
-          site_name,
-          site_address,
-          operator_id,
-          crane_id,
-          clients:client_id (company_name),
-          operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number)
+          client_id,
+          price,
+          price_mode,
+          price_per_day,
+          exclude_weekends,
+          clients:client_id (
+            id,
+            company_name
+          )
         `)
-        .not("status", "eq", "cancelled"),
+        .eq("archived", false)
+        .order("start_date", { ascending: true }),
+
+      supabase
+        .from("cranes")
+        .select("id, name, reg_number, capacity, status, archived")
+        .eq("archived", false)
+        .order("name", { ascending: true }),
+
+      supabase
+        .from("operators")
+        .select("id, full_name, status, archived")
+        .eq("archived", false)
+        .order("full_name", { ascending: true }),
 
       supabase
         .from("job_equipment")
@@ -86,137 +162,131 @@ export async function GET(req: Request) {
           job_id,
           crane_id,
           operator_id,
-          source_type,
+          asset_type,
           item_name,
           start_date,
           end_date,
           start_time,
           end_time,
-          jobs:job_id (
-            id,
-            job_number,
-            job_date,
-            start_date,
-            end_date,
-            status,
-            site_name,
-            site_address,
-            clients:client_id (company_name)
-          ),
-          operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number)
+          agreed_sell_rate,
+          supplier_cost,
+          notes
         `)
-        .eq("asset_type", "crane"),
-
-      supabase.from("operators").select("id, full_name"),
-      supabase.from("cranes").select("id, name, reg_number"),
+        .eq("asset_type", "crane")
+        .order("start_date", { ascending: true }),
     ]);
 
     if (jobsError) {
       return NextResponse.json({ error: jobsError.message }, { status: 400 });
     }
-
+    if (cranesError) {
+      return NextResponse.json({ error: cranesError.message }, { status: 400 });
+    }
+    if (operatorsError) {
+      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
+    }
     if (allocationsError) {
       return NextResponse.json({ error: allocationsError.message }, { status: 400 });
     }
 
-    if (operatorsError) {
-      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
-    }
+    const activeJobs = (jobs ?? []).filter((job: any) => lower(job.status) !== "cancelled");
+    const activeAllocations = (allocations ?? []).filter((row: any) =>
+      overlapsRange(row.start_date, row.end_date ?? row.start_date, rangeStart, rangeEnd)
+    );
 
-    if (cranesError) {
-      return NextResponse.json({ error: cranesError.message }, { status: 400 });
-    }
+    const jobsInRange = activeJobs
+      .filter((job: any) =>
+        overlapsRange(
+          job.start_date ?? job.job_date,
+          job.end_date ?? job.start_date ?? job.job_date,
+          rangeStart,
+          rangeEnd
+        )
+      )
+      .map((job: any) => ({
+        ...job,
+        effective_price: effectiveJobPrice(job),
+      }));
 
-    const days = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      return {
-        date: isoDate(d),
-        label: d.toLocaleDateString("en-GB", {
-          weekday: "short",
-          day: "2-digit",
-          month: "2-digit",
-        }),
-      };
-    });
+    const craneRows = (cranes ?? []).map((crane: any) => {
+      const craneAllocations = activeAllocations.filter((row: any) => row.crane_id === crane.id);
 
-    const allocationItems = (allocations ?? [])
-      .map((row: any) => {
-        const job = first(row.jobs);
-        const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
-        const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
+      const items = craneAllocations.map((row: any) => {
+        const job = jobsInRange.find((j: any) => j.id === row.job_id);
+        const operator = (operators ?? []).find((o: any) => o.id === row.operator_id) ?? null;
+        const client = job?.clients && Array.isArray(job.clients) ? job.clients[0] : job?.clients ?? null;
 
         return {
-          id: "alloc_" + row.id,
           allocation_id: row.id,
           job_id: row.job_id,
           job_number: job?.job_number ?? null,
-          job_date: startDate,
-          start_date: startDate,
-          end_date: endDate,
-          start_time: row.start_time ?? null,
-          end_time: row.end_time ?? null,
-          status: job?.status ?? null,
           site_name: job?.site_name ?? null,
           site_address: job?.site_address ?? null,
-          operator_id: row.operator_id ?? null,
-          equipment_id: row.crane_id ?? null,
-          source_type: row.source_type ?? null,
-          item_name: row.item_name ?? null,
-          clients: job?.clients ?? null,
-          operators: row.operators ?? null,
-          equipment: row.cranes ?? null,
+          client_name: client?.company_name ?? null,
+          start_date: row.start_date ?? job?.start_date ?? job?.job_date ?? null,
+          end_date: row.end_date ?? job?.end_date ?? job?.start_date ?? job?.job_date ?? null,
+          start_time: row.start_time ?? job?.start_time ?? null,
+          end_time: row.end_time ?? job?.end_time ?? null,
+          status: job?.status ?? null,
+          operator_name: operator?.full_name ?? null,
+          agreed_sell_rate: num(row.agreed_sell_rate),
+          job_price: num(job?.effective_price),
+          price_mode: job?.price_mode ?? "full_job",
+          price_per_day: num(job?.price_per_day),
+          exclude_weekends: Boolean(job?.exclude_weekends),
+          notes: row.notes ?? null,
         };
+      });
+
+      return {
+        id: crane.id,
+        name: crane.name,
+        reg_number: crane.reg_number,
+        capacity: crane.capacity,
+        status: crane.status,
+        items,
+      };
+    });
+
+    const unallocatedJobs = jobsInRange
+      .filter((job: any) => {
+        const hasCraneAllocation = activeAllocations.some((row: any) => row.job_id === job.id);
+        return !hasCraneAllocation;
       })
-      .filter((item) => overlapsWeek(item.start_date, item.end_date, from, to));
-
-    const allocationJobIds = new Set(allocationItems.map((item) => item.job_id));
-
-    const directJobItems = (jobs ?? [])
       .map((job: any) => {
-        const startDate = job.start_date ?? job.job_date ?? null;
-        const endDate = job.end_date ?? startDate ?? null;
+        const client = job?.clients && Array.isArray(job.clients) ? job.clients[0] : job?.clients ?? null;
 
         return {
-          id: "job_" + job.id,
-          allocation_id: null,
           job_id: job.id,
           job_number: job.job_number ?? null,
-          job_date: startDate,
-          start_date: startDate,
-          end_date: endDate,
+          site_name: job.site_name ?? null,
+          site_address: job.site_address ?? null,
+          client_name: client?.company_name ?? null,
+          start_date: job.start_date ?? job.job_date ?? null,
+          end_date: job.end_date ?? job.start_date ?? job.job_date ?? null,
           start_time: job.start_time ?? null,
           end_time: job.end_time ?? null,
           status: job.status ?? null,
-          site_name: job.site_name ?? null,
-          site_address: job.site_address ?? null,
-          operator_id: job.operator_id ?? null,
-          equipment_id: job.crane_id ?? null,
-          source_type: "owned",
-          item_name: null,
-          clients: job.clients ?? null,
-          operators: job.operators ?? null,
-          equipment: job.cranes ?? null,
+          job_price: num(job.effective_price),
+          price_mode: job.price_mode ?? "full_job",
+          price_per_day: num(job.price_per_day),
+          exclude_weekends: Boolean(job.exclude_weekends),
         };
-      })
-      .filter((item) => overlapsWeek(item.start_date, item.end_date, from, to))
-      .filter((item) => !allocationJobIds.has(item.job_id));
+      });
 
     return NextResponse.json({
-      week_start: from,
-      week_end: to,
-      days,
-      items: [...allocationItems, ...directJobItems],
-      operators: operators ?? [],
-      equipment:
-        (cranes ?? []).map((row: any) => ({
-          id: row.id,
-          name: row.name ?? null,
-          asset_number: row.reg_number ?? null,
-        })) ?? [],
+      week_start: rangeStart,
+      week_end: rangeEnd,
+      bank_holidays: bankHolidaysEnglandAndWales2026().filter(
+        (d) => d.date >= rangeStart && d.date <= rangeEnd
+      ),
+      cranes: craneRows,
+      unallocated_jobs: unallocatedJobs,
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json(
+      { error: e?.message ?? "Could not load planner board." },
+      { status: 400 }
+    );
   }
 }
