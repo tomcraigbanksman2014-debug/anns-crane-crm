@@ -31,6 +31,11 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${money(value).toFixed(2)}`;
 }
 
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
