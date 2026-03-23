@@ -37,6 +37,31 @@ function addDays(base: Date, days: number) {
   return d;
 }
 
+function mondayOf(base: Date) {
+  const d = new Date(base);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function sumRangeTotal(
+  rows: any[],
+  startKey: string,
+  endKey: string,
+  totalKey: string,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  return rows.reduce((sum, row) => {
+    if (!overlapsDateRange(row[startKey], row[endKey] ?? row[startKey], rangeStart, rangeEnd)) {
+      return sum;
+    }
+    return sum + num(row[totalKey]);
+  }, 0);
+}
+
 export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
@@ -87,7 +112,8 @@ export async function GET() {
           total_invoice,
           amount_paid,
           submitted_to_office_at,
-          archived
+          archived,
+          price
         `),
 
       supabase
@@ -341,6 +367,38 @@ export async function GET() {
       return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
     }).length;
 
+    const currentWeekStart = mondayOf(now);
+    const lastWeekStart = addDays(currentWeekStart, -7);
+    const nextWeekStart = addDays(currentWeekStart, 7);
+
+    const weekRanges = {
+      lastWeek: { start: isoDate(lastWeekStart), end: isoDate(addDays(lastWeekStart, 6)) },
+      thisWeek: { start: isoDate(currentWeekStart), end: isoDate(addDays(currentWeekStart, 6)) },
+      nextWeek: { start: isoDate(nextWeekStart), end: isoDate(addDays(nextWeekStart, 6)) },
+    };
+
+    const weeklyIncomingJobs = {
+      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+    };
+
+    const { data: purchaseOrders, error: purchaseOrdersError } = await supabase
+      .from("purchase_orders")
+      .select("id, order_date, required_date, total_cost, status");
+
+    if (purchaseOrdersError) {
+      return NextResponse.json({ error: purchaseOrdersError.message }, { status: 400 });
+    }
+
+    const activePurchaseOrders = (purchaseOrders ?? []).filter((po: any) => lower(po.status) !== "cancelled");
+
+    const weeklyPurchaseOrderCosts = {
+      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+    };
+
     const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
       return lower(j.status) === "completed" && !j.submitted_to_office_at;
     }).length;
@@ -370,6 +428,8 @@ export async function GET() {
       completedCraneJobsNotInvoiced,
       completedTransportJobsNotInvoiced,
       timesheetsNotSubmitted,
+      weeklyIncomingJobs,
+      weeklyPurchaseOrderCosts,
       upcomingBookings,
       overdueInvoices,
       recentAudit: recentAudit ?? [],
