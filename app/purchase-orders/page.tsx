@@ -1,5 +1,6 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import DeletePurchaseOrderButton from "./DeletePurchaseOrderButton";
 
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -197,20 +198,11 @@ export default async function PurchaseOrdersPage({
                           >
                             Open / Save PDF
                           </a>
-                          <form
-                            action={`/api/purchase-orders/${po.id}/delete`}
-                            method="POST"
-                            onSubmit={(e) => {
-                              const ok = window.confirm(
-                                `Delete purchase order ${po.po_number ?? ""}? This cannot be undone.`
-                              );
-                              if (!ok) e.preventDefault();
-                            }}
-                          >
-                            <button type="submit" style={deleteBtn}>
-                              Delete
-                            </button>
-                          </form>
+                          <DeletePurchaseOrderButton
+                            purchaseOrderId={po.id}
+                            poNumber={po.po_number}
+                            compact
+                          />
                         </div>
                       </div>
 
@@ -354,17 +346,6 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const deleteBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.08)",
-  color: "#b00020",
-  fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.18)",
-  cursor: "pointer",
 };
 
 const clearBtn: React.CSSProperties = {
