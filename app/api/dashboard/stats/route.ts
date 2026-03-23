@@ -98,16 +98,32 @@ export async function GET() {
       supabase
         .from("jobs")
         .select(`
-          *,
-          clients:client_id (
-            company_name
-          )
+          id,
+          job_date,
+          start_date,
+          end_date,
+          status,
+          invoice_status,
+          total_invoice,
+          amount_paid,
+          submitted_to_office_at,
+          archived,
+          price
         `),
 
       supabase
         .from("transport_jobs")
         .select(`
-          *
+          id,
+          transport_date,
+          delivery_date,
+          status,
+          invoice_status,
+          total_invoice,
+          amount_paid,
+          vehicle_id,
+          operator_id,
+          archived
         `),
 
       supabase
@@ -170,7 +186,6 @@ export async function GET() {
       return NextResponse.json({ error: purchaseOrdersRes.error.message }, { status: 400 });
     }
 
-    // Optional table: do not break dashboard if missing
     const serviceLogRes = await supabase
       .from("equipment_service_log")
       .select(`
