@@ -1,7 +1,7 @@
-import ClientShell from "../../../ClientShell";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import ClientShell from "../../ClientShell";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
-import { writeAuditLog } from "../../../lib/audit";
+import { writeAuditLog } from "../../lib/audit";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
