@@ -20,6 +20,8 @@ type PlannerItem = {
   price_mode?: string | null;
   price_per_day?: number | null;
   exclude_weekends?: boolean;
+  working_dates?: string[];
+  billable_days?: number | null;
   notes?: string | null;
 };
 
@@ -308,7 +310,12 @@ function PlannerJobCard({
       </div>
 
       {item.exclude_weekends ? (
-        <div style={tagStyle}>Exclude weekends</div>
+        <div style={tagWrap}>
+          <div style={tagStyle}>Exclude weekends</div>
+          <div style={tagHelp}>
+            Billable / active days: {Number(item.billable_days ?? 0)}
+          </div>
+        </div>
       ) : null}
     </a>
   );
@@ -402,15 +409,28 @@ const metaValue: React.CSSProperties = {
   fontWeight: 800,
 };
 
+const tagWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 10,
+};
+
 const tagStyle: React.CSSProperties = {
   display: "inline-block",
-  marginTop: 10,
   padding: "6px 10px",
   borderRadius: 999,
   fontSize: 12,
   fontWeight: 900,
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.22)",
+};
+
+const tagHelp: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.75,
+  fontWeight: 800,
 };
 
 const secondaryBtn: React.CSSProperties = {
