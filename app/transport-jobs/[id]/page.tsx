@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
-import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
 import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
 
@@ -165,6 +164,20 @@ function documentHref(filePath: string | null | undefined) {
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
 }
 
+function countDaysInclusive(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
 async function createPurchaseOrderFromTransportJob(formData: FormData) {
   "use server";
 
@@ -275,7 +288,9 @@ async function updateTransportJob(formData: FormData) {
       status,
       agreed_sell_rate,
       invoice_status,
-      total_invoice
+      total_invoice,
+      price_mode,
+      price_per_day
     `)
     .eq("id", id)
     .maybeSingle();
@@ -286,18 +301,6 @@ async function updateTransportJob(formData: FormData) {
   const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
   const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
 
-  const agreedSellRate = money(numberOrZero(formData.get("agreed_sell_rate")));
-  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
-  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
-  const invoiceVat = money(invoiceSubtotal * 0.2);
-  const totalInvoice = money(invoiceSubtotal + invoiceVat);
-
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
-
-  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Invalid invoice status.")}`);
-  }
-
   const linkedJobId = clean(formData.get("linked_job_id")) || null;
   const linkedTransportJobIdRaw = clean(formData.get("linked_transport_job_id")) || null;
   const linkedTransportJobId = linkedTransportJobIdRaw === id ? null : linkedTransportJobIdRaw;
@@ -306,14 +309,16 @@ async function updateTransportJob(formData: FormData) {
   const operatorId = clean(formData.get("operator_id")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
-  const deliveryDate = clean(formData.get("delivery_date")) || transportDate || null;
+  const deliveryDate =
+    clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
 
   const rawSupplierId = clean(formData.get("supplier_id"));
   const otherSupplierName = clean(formData.get("other_supplier_name"));
   const supplierReferenceInput = clean(formData.get("supplier_reference"));
 
-  const supplierId = rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
+  const supplierId =
+    rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
 
   const supplierReference =
     rawSupplierId === "other"
@@ -349,7 +354,28 @@ async function updateTransportJob(formData: FormData) {
     );
   }
 
-  const nextStatus = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
+  const priceMode = clean(formData.get("price_mode")) || "full_job";
+  const fullJobPrice = money(numberOrZero(formData.get("agreed_sell_rate")));
+  const pricePerDay = money(numberOrZero(formData.get("price_per_day")));
+  const dayCount = transportDate && deliveryDate ? countDaysInclusive(transportDate, deliveryDate) : 1;
+  const agreedSellRate =
+    priceMode === "per_day"
+      ? money(pricePerDay * Math.max(dayCount, 1))
+      : fullJobPrice;
+
+  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
+  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
+  const invoiceVat = money(invoiceSubtotal * 0.2);
+  const totalInvoice = money(invoiceSubtotal + invoiceVat);
+
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+
+  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
+    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Invalid invoice status.")}`);
+  }
+
+  const requestedStatus = clean(formData.get("status")) || "planned";
+  const nextStatus = normaliseTransportStatus(requestedStatus, {
     clientId,
     vehicleId,
     operatorId,
@@ -381,6 +407,8 @@ async function updateTransportJob(formData: FormData) {
     delivery_time: deliveryTime,
     load_description: clean(formData.get("load_description")) || null,
     status: nextStatus,
+    price_mode: priceMode,
+    price_per_day: priceMode === "per_day" ? pricePerDay : null,
     price: agreedSellRate,
     agreed_sell_rate: agreedSellRate,
     invoice_status: invoiceStatus,
@@ -410,40 +438,14 @@ async function updateTransportJob(formData: FormData) {
     meta: {
       transport_number: existingRow?.transport_number ?? null,
       before: {
-        linked_job_id: existingRow?.linked_job_id ?? null,
-        client_id: existingRow?.client_id ?? null,
-        vehicle_id: existingRow?.vehicle_id ?? null,
-        operator_id: existingRow?.operator_id ?? null,
-        supplier_id: existingRow?.supplier_id ?? null,
-        supplier_reference: existingRow?.supplier_reference ?? null,
-        supplier_cost: existingRow?.supplier_cost ?? null,
-        job_type: existingRow?.job_type ?? null,
-        transport_date: existingRow?.transport_date ?? null,
-        collection_time: existingRow?.collection_time ?? null,
-        delivery_date: existingRow?.delivery_date ?? null,
-        delivery_time: existingRow?.delivery_time ?? null,
-        status: existingRow?.status ?? null,
+        price_mode: existingRow?.price_mode ?? null,
+        price_per_day: existingRow?.price_per_day ?? null,
         agreed_sell_rate: existingRow?.agreed_sell_rate ?? null,
-        invoice_status: existingRow?.invoice_status ?? null,
-        total_invoice: existingRow?.total_invoice ?? null,
       },
       after: {
-        linked_job_id: linkedJobId,
-        client_id: clientId,
-        vehicle_id: vehicleId,
-        operator_id: operatorId,
-        supplier_id: supplierId,
-        supplier_reference: supplierReference,
-        supplier_cost: numberOrNull(formData.get("supplier_cost")),
-        job_type: clean(formData.get("job_type")) || null,
-        transport_date: transportDate,
-        collection_time: collectionTime,
-        delivery_date: deliveryDate,
-        delivery_time: deliveryTime,
-        status: nextStatus,
-        agreed_sell_rate: agreedSellRate,
-        invoice_status: invoiceStatus,
-        total_invoice: totalInvoice,
+        price_mode: payload.price_mode,
+        price_per_day: payload.price_per_day,
+        agreed_sell_rate: payload.agreed_sell_rate,
       },
     },
   });
@@ -611,8 +613,8 @@ export default async function TransportJobDetailPage({
           </div>
 
           {error ? <div style={errorBox}>{error.message}</div> : null}
-          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
-          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
+          {successMessage ? <div style={successBox}>{decodeURIComponent(successMessage)}</div> : null}
 
           {!item ? null : (
             <>
@@ -656,6 +658,8 @@ export default async function TransportJobDetailPage({
                 <SummaryCard
                   title="Commercial"
                   rows={[
+                    { label: "Price mode", value: (item as any)?.price_mode === "per_day" ? "Price per day" : "Full job price" },
+                    { label: "Price per day", value: (item as any)?.price_per_day != null ? fmtMoney((item as any).price_per_day) : "—" },
                     { label: "Charge", value: fmtMoney((item as any)?.agreed_sell_rate ?? (item as any)?.price) },
                     { label: "Supplier cost", value: fmtMoney((item as any)?.supplier_cost ?? 0) },
                     { label: "Invoice status", value: (item as any)?.invoice_status ?? "Not Invoiced" },
@@ -765,14 +769,6 @@ export default async function TransportJobDetailPage({
                       options={timeOptions}
                     />
 
-                    <Field
-                      label="Charge rate"
-                      name="agreed_sell_rate"
-                      type="number"
-                      step="0.01"
-                      defaultValue={String((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)}
-                    />
-
                     <SelectField
                       label="Status"
                       name="status"
@@ -824,6 +820,46 @@ export default async function TransportJobDetailPage({
                       rows={5}
                       style={textareaStyle}
                       defaultValue={(item as any)?.notes ?? ""}
+                    />
+                  </div>
+                </section>
+
+                <section style={sectionCard}>
+                  <div style={sectionTitle}>Pricing</div>
+
+                  <div style={gridStyle}>
+                    <SelectField
+                      label="Price mode"
+                      name="price_mode"
+                      defaultValue={(item as any)?.price_mode ?? "full_job"}
+                      options={[
+                        { value: "full_job", label: "Full job price" },
+                        { value: "per_day", label: "Price per day" },
+                      ]}
+                    />
+
+                    <Field
+                      label="Full job price"
+                      name="agreed_sell_rate"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any)?.price_mode === "per_day" ? 0 : ((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0))}
+                    />
+
+                    <Field
+                      label="Price per day"
+                      name="price_per_day"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any)?.price_per_day ?? 0)}
+                    />
+
+                    <Field
+                      label="Invoice subtotal"
+                      name="invoice_subtotal"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any)?.invoice_subtotal ?? (item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)}
                     />
                   </div>
                 </section>
@@ -931,14 +967,6 @@ export default async function TransportJobDetailPage({
                       type="date"
                       defaultValue={(item as any)?.invoice_due_at ?? ""}
                     />
-
-                    <Field
-                      label="Invoice subtotal"
-                      name="invoice_subtotal"
-                      type="number"
-                      step="0.01"
-                      defaultValue={String((item as any)?.invoice_subtotal ?? (item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)}
-                    />
                   </div>
 
                   <div style={{ marginTop: 12 }}>
@@ -997,21 +1025,7 @@ export default async function TransportJobDetailPage({
                 </section>
 
                 <section style={sectionCard}>
-                  <div style={sectionHeaderRow}>
-                    <div>
-                      <div style={sectionTitle}>Transport Purchase Orders</div>
-                      <div style={mutedText}>
-                        Use these for direct cross-hired transport suppliers.
-                      </div>
-                    </div>
-
-                    <a
-                      href={`/purchase-orders/new?transport_job_id=${params.id}${(item as any)?.supplier_id ? `&supplier_id=${(item as any).supplier_id}` : ""}`}
-                      style={secondaryBtn}
-                    >
-                      Open full PO editor
-                    </a>
-                  </div>
+                  <div style={sectionTitle}>Transport Purchase Orders</div>
 
                   <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12 }}>
                     <input type="hidden" name="transport_job_id" value={params.id} />
@@ -1123,8 +1137,6 @@ export default async function TransportJobDetailPage({
                     Save transport job
                   </button>
                 </div>
-
-                <TransportJobDetailFormEnhancer />
               </form>
             </>
           )}
@@ -1391,19 +1403,4 @@ const listCard: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.76)",
   border: "1px solid rgba(0,0,0,0.06)",
-};
-
-const sectionHeaderRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const mutedText: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 13,
-  opacity: 0.75,
 };
