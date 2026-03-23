@@ -4,7 +4,7 @@ import PlannerBoard from "./PlannerBoard";
 export default function PlannerPage() {
   return (
     <ClientShell>
-      <div style={{ width: "min(1460px, 99vw)", margin: "0 auto" }}>
+      <div style={{ width: "100%", maxWidth: "100%", margin: "0 auto" }}>
         <PlannerBoard />
       </div>
     </ClientShell>
