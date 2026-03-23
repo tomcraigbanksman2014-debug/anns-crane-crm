@@ -24,19 +24,19 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/search")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
+  if (pathname.startsWith("/planner")) return true;
   if (pathname.startsWith("/transport-planner")) return true;
   if (pathname.startsWith("/transport-map")) return true;
-  if (pathname.startsWith("/vehicles")) return true;
-  if (pathname.startsWith("/cranes")) return true;
-  if (pathname.startsWith("/timesheets")) return true;
+  if (pathname.startsWith("/calendar")) return true;
   if (pathname.startsWith("/quotes")) return true;
   if (pathname.startsWith("/customers")) return true;
+  if (pathname.startsWith("/purchase-orders")) return true;
+  if (pathname.startsWith("/suppliers")) return true;
+  if (pathname.startsWith("/cranes")) return true;
+  if (pathname.startsWith("/vehicles")) return true;
   if (pathname.startsWith("/equipment")) return true;
   if (pathname.startsWith("/operators")) return true;
-  if (pathname.startsWith("/suppliers")) return true;
-  if (pathname.startsWith("/purchase-orders")) return true;
-  if (pathname.startsWith("/calendar")) return true;
-  if (pathname.startsWith("/planner")) return true;
+  if (pathname.startsWith("/timesheets")) return true;
   if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
@@ -178,22 +178,29 @@ export default function ClientShell({
     () => [
       { label: "Dashboard", href: "/" },
       { label: "Search", href: "/search" },
+
+      { label: "Quotes", href: "/quotes" },
+      { label: "Customers", href: "/customers" },
+
       { label: "Jobs", href: "/jobs" },
+      { label: "Planner", href: "/planner" },
+
       { label: "Transport Jobs", href: "/transport-jobs" },
       { label: "Transport Planner", href: "/transport-planner" },
       { label: "Transport Map", href: "/transport-map" },
-      { label: "Vehicles", href: "/vehicles" },
+
+      { label: "Purchase Orders", href: "/purchase-orders" },
+      { label: "Suppliers", href: "/suppliers" },
+
       { label: "Cranes", href: "/cranes" },
-      { label: "Timesheets", href: "/timesheets" },
-      { label: "My Jobs", href: "/operator/jobs" },
-      { label: "Quotes", href: "/quotes" },
-      { label: "Customers", href: "/customers" },
+      { label: "Vehicles", href: "/vehicles" },
       { label: "Equipment", href: "/equipment" },
       { label: "Operators", href: "/operators" },
-      { label: "Suppliers", href: "/suppliers" },
-      { label: "Purchase Orders", href: "/purchase-orders" },
+
       { label: "Calendar", href: "/calendar" },
-      { label: "Planner", href: "/planner" },
+      { label: "Timesheets", href: "/timesheets" },
+      { label: "My Jobs", href: "/operator/jobs" },
+
       { label: "Settings", href: "/settings" },
       { label: "Qualification Rules", href: "/admin/qualification-rules" },
       { label: "Staff Accounts", href: "/admin/users" },
