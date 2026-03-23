@@ -44,19 +44,16 @@ function lower(value: any) {
 function countDaysInclusive(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
-
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
     return 0;
   }
 
   let count = 0;
   const cursor = new Date(start);
-
   while (cursor <= end) {
     count += 1;
     cursor.setDate(cursor.getDate() + 1);
   }
-
   return count;
 }
 
@@ -74,17 +71,41 @@ function effectiveTransportPrice(row: any) {
   return num(row?.agreed_sell_rate ?? row?.price);
 }
 
-function bankHolidaysEnglandAndWales2026() {
-  return [
-    { date: "2026-01-01", label: "New Year’s Day" },
-    { date: "2026-04-03", label: "Good Friday" },
-    { date: "2026-04-06", label: "Easter Monday" },
-    { date: "2026-05-04", label: "Early May bank holiday" },
-    { date: "2026-05-25", label: "Spring bank holiday" },
-    { date: "2026-08-31", label: "Summer bank holiday" },
-    { date: "2026-12-25", label: "Christmas Day" },
-    { date: "2026-12-28", label: "Boxing Day (substitute day)" },
-  ];
+function bankHolidaysByYear(year: number) {
+  const map: Record<number, Array<{ date: string; label: string }>> = {
+    2025: [
+      { date: "2025-01-01", label: "New Year’s Day" },
+      { date: "2025-04-18", label: "Good Friday" },
+      { date: "2025-04-21", label: "Easter Monday" },
+      { date: "2025-05-05", label: "Early May bank holiday" },
+      { date: "2025-05-26", label: "Spring bank holiday" },
+      { date: "2025-08-25", label: "Summer bank holiday" },
+      { date: "2025-12-25", label: "Christmas Day" },
+      { date: "2025-12-26", label: "Boxing Day" },
+    ],
+    2026: [
+      { date: "2026-01-01", label: "New Year’s Day" },
+      { date: "2026-04-03", label: "Good Friday" },
+      { date: "2026-04-06", label: "Easter Monday" },
+      { date: "2026-05-04", label: "Early May bank holiday" },
+      { date: "2026-05-25", label: "Spring bank holiday" },
+      { date: "2026-08-31", label: "Summer bank holiday" },
+      { date: "2026-12-25", label: "Christmas Day" },
+      { date: "2026-12-28", label: "Boxing Day (substitute day)" },
+    ],
+    2027: [
+      { date: "2027-01-01", label: "New Year’s Day" },
+      { date: "2027-03-26", label: "Good Friday" },
+      { date: "2027-03-29", label: "Easter Monday" },
+      { date: "2027-05-03", label: "Early May bank holiday" },
+      { date: "2027-05-31", label: "Spring bank holiday" },
+      { date: "2027-08-30", label: "Summer bank holiday" },
+      { date: "2027-12-27", label: "Christmas Day (substitute day)" },
+      { date: "2027-12-28", label: "Boxing Day (substitute day)" },
+    ],
+  };
+
+  return map[year] ?? [];
 }
 
 export async function GET(req: Request) {
@@ -103,6 +124,9 @@ export async function GET(req: Request) {
 
     const rangeStart = isoDate(weekStart);
     const rangeEnd = isoDate(weekEnd);
+    const bankHolidays = bankHolidaysByYear(weekStart.getFullYear()).filter(
+      (d) => d.date >= rangeStart && d.date <= rangeEnd
+    );
 
     const [jobsRes, vehiclesRes, operatorsRes] = await Promise.all([
       supabase
@@ -223,9 +247,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       week_start: rangeStart,
       week_end: rangeEnd,
-      bank_holidays: bankHolidaysEnglandAndWales2026().filter(
-        (d) => d.date >= rangeStart && d.date <= rangeEnd
-      ),
+      bank_holidays: bankHolidays,
       vehicles: vehicleRows,
       unallocated_jobs: unallocatedJobs,
     });
