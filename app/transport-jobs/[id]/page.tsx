@@ -33,6 +33,13 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${money(value).toFixed(2)}`;
 }
 
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
+}
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -158,6 +165,81 @@ function documentHref(filePath: string | null | undefined) {
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
 }
 
+async function createPurchaseOrderFromTransportJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const transportJobId = clean(formData.get("transport_job_id"));
+  if (!transportJobId) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const supplierId = clean(formData.get("supplier_id")) || null;
+  const orderDate = clean(formData.get("order_date")) || null;
+  const requiredDate = clean(formData.get("required_date")) || null;
+  const supplierReference = clean(formData.get("supplier_reference")) || null;
+  const notes = clean(formData.get("notes")) || null;
+  const status = clean(formData.get("status")) || "draft";
+
+  const { data: transportRow } = await supabase
+    .from("transport_jobs")
+    .select("id, transport_number")
+    .eq("id", transportJobId)
+    .maybeSingle();
+
+  const d = new Date();
+  const poNumber = `PO-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
+    d.getDate()
+  ).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(
+    d.getMinutes()
+  ).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
+
+  const { data: created, error } = await supabase
+    .from("purchase_orders")
+    .insert({
+      po_number: poNumber,
+      supplier_id: supplierId,
+      transport_job_id: transportJobId,
+      status,
+      order_date: orderDate,
+      required_date: requiredDate,
+      supplier_reference: supplierReference,
+      total_cost: 0,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !created?.id) {
+    redirect(
+      `/transport-jobs/${transportJobId}?error=${encodeURIComponent(
+        error?.message ?? "Could not create purchase order."
+      )}`
+    );
+  }
+
+  if (supplierId) {
+    await supabase.from("supplier_correspondence").insert({
+      supplier_id: supplierId,
+      type: status === "sent" ? "email" : "note",
+      subject: status === "sent" ? "Purchase Order Sent" : "Purchase Order Created",
+      message: [
+        `Purchase order ${poNumber} created from transport job ${transportRow?.transport_number ?? ""}.`,
+        supplierReference ? `Supplier ref: ${supplierReference}.` : "",
+        requiredDate ? `Required date: ${requiredDate}.` : "",
+        notes ? `Notes: ${notes}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      created_by: "system",
+    });
+  }
+
+  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -224,16 +306,14 @@ async function updateTransportJob(formData: FormData) {
   const operatorId = clean(formData.get("operator_id")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
-  const deliveryDate =
-    clean(formData.get("delivery_date")) || transportDate || null;
+  const deliveryDate = clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
 
   const rawSupplierId = clean(formData.get("supplier_id"));
   const otherSupplierName = clean(formData.get("other_supplier_name"));
   const supplierReferenceInput = clean(formData.get("supplier_reference"));
 
-  const supplierId =
-    rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
+  const supplierId = rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
 
   const supplierReference =
     rawSupplierId === "other"
@@ -392,6 +472,7 @@ export default async function TransportJobDetailPage({
     { data: operators },
     { data: suppliers },
     { data: transportDocuments },
+    { data: purchaseOrders },
   ] = await Promise.all([
     supabase
       .from("transport_jobs")
@@ -470,6 +551,28 @@ export default async function TransportJobDetailPage({
     supabase
       .from("transport_job_documents")
       .select("id, transport_job_id, file_name, file_path, file_type, document_type, created_at")
+      .eq("transport_job_id", params.id)
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("purchase_orders")
+      .select(`
+        id,
+        po_number,
+        status,
+        job_id,
+        transport_job_id,
+        supplier_id,
+        order_date,
+        required_date,
+        supplier_reference,
+        total_cost,
+        notes,
+        suppliers:supplier_id (
+          id,
+          company_name
+        )
+      `)
       .eq("transport_job_id", params.id)
       .order("created_at", { ascending: false }),
   ]);
@@ -893,6 +996,128 @@ export default async function TransportJobDetailPage({
                   </div>
                 </section>
 
+                <section style={sectionCard}>
+                  <div style={sectionHeaderRow}>
+                    <div>
+                      <div style={sectionTitle}>Transport Purchase Orders</div>
+                      <div style={mutedText}>
+                        Use these for direct cross-hired transport suppliers.
+                      </div>
+                    </div>
+
+                    <a
+                      href={`/purchase-orders/new?transport_job_id=${params.id}${(item as any)?.supplier_id ? `&supplier_id=${(item as any).supplier_id}` : ""}`}
+                      style={secondaryBtn}
+                    >
+                      Open full PO editor
+                    </a>
+                  </div>
+
+                  <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12 }}>
+                    <input type="hidden" name="transport_job_id" value={params.id} />
+
+                    <div style={gridStyle}>
+                      <SelectField
+                        label="Supplier"
+                        name="supplier_id"
+                        defaultValue={(item as any)?.supplier_id ?? ""}
+                        options={(suppliers ?? []).map((s: any) => ({
+                          value: s.id,
+                          label: s.company_name ?? "Supplier",
+                        }))}
+                      />
+
+                      <SelectField
+                        label="Status"
+                        name="status"
+                        defaultValue="draft"
+                        options={[
+                          { value: "draft", label: "Draft" },
+                          { value: "sent", label: "Sent" },
+                          { value: "approved", label: "Approved" },
+                          { value: "completed", label: "Completed" },
+                          { value: "cancelled", label: "Cancelled" },
+                        ]}
+                      />
+
+                      <Field
+                        label="Order date"
+                        name="order_date"
+                        type="date"
+                        defaultValue={new Date().toISOString().slice(0, 10)}
+                      />
+
+                      <Field
+                        label="Required date"
+                        name="required_date"
+                        type="date"
+                      />
+
+                      <Field
+                        label="Supplier reference"
+                        name="supplier_reference"
+                        defaultValue={(item as any)?.supplier_reference ?? ""}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={labelStyle}>Notes</label>
+                      <textarea
+                        name="notes"
+                        rows={3}
+                        style={textareaStyle}
+                        defaultValue={`Created from transport job ${(item as any)?.transport_number ?? ""}`}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                      <button type="submit" style={primaryBtn}>
+                        Create purchase order
+                      </button>
+                    </div>
+                  </form>
+
+                  <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+                    {((purchaseOrders as any[]) ?? []).length === 0 ? (
+                      <div style={emptyState}>No purchase orders linked to this transport job yet.</div>
+                    ) : (
+                      ((purchaseOrders as any[]) ?? []).map((po: any) => {
+                        const poSupplier = first(po.suppliers);
+                        return (
+                          <div key={po.id} style={listCard}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div>
+                                <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                  {po.status ?? "draft"}
+                                  {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
+                                  {po.order_date ? ` • Ordered ${fmtDate(po.order_date)}` : ""}
+                                  {po.required_date ? ` • Required ${fmtDate(po.required_date)}` : ""}
+                                </div>
+
+                                {po.supplier_reference || po.notes ? (
+                                  <div style={{ marginTop: 8, fontSize: 13, opacity: 0.82 }}>
+                                    {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
+                                      .filter(Boolean)
+                                      .join(" • ")}
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <div style={{ textAlign: "right" }}>
+                                <div style={{ fontWeight: 900 }}>{fmtMoney(po.total_cost ?? 0)}</div>
+                                <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
+                                  Open PO
+                                </a>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </section>
+
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button type="submit" style={primaryBtn}>
                     Save transport job
@@ -1166,4 +1391,19 @@ const listCard: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.76)",
   border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sectionHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const mutedText: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  opacity: 0.75,
 };
