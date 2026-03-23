@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import POLinesEditorClient from "../POLinesEditorClient";
 import { redirect } from "next/navigation";
+import DeletePurchaseOrderButton from "../DeletePurchaseOrderButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -338,20 +339,10 @@ export default async function PurchaseOrderDetailPage({
                 Open / Save PDF
               </a>
               {po ? (
-                <form
-                  action={`/api/purchase-orders/${params.id}/delete`}
-                  method="POST"
-                  onSubmit={(e) => {
-                    const ok = window.confirm(
-                      `Delete purchase order ${po.po_number ?? ""}? This cannot be undone.`
-                    );
-                    if (!ok) e.preventDefault();
-                  }}
-                >
-                  <button type="submit" style={deleteBtn}>
-                    Delete purchase order
-                  </button>
-                </form>
+                <DeletePurchaseOrderButton
+                  purchaseOrderId={params.id}
+                  poNumber={po.po_number}
+                />
               ) : null}
             </div>
           </div>
@@ -624,17 +615,6 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const deleteBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.08)",
-  color: "#b00020",
-  fontWeight: 800,
-  border: "1px solid rgba(255,0,0,0.18)",
-  cursor: "pointer",
 };
 
 const linkedMetaBox: React.CSSProperties = {
