@@ -1,6 +1,9 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import JobEquipmentManager from "./JobEquipmentManager";
+import DocumentUploadForm from "./DocumentUploadForm";
+import DocumentDeleteButton from "./DocumentDeleteButton";
+import { redirect } from "next/navigation";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -107,10 +110,100 @@ function allocationMeta(item: any, label: string) {
     .join(" • ");
 }
 
+function documentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "Other";
+  return raw
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function documentHref(filePath: string | null | undefined) {
+  if (!filePath || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
+}
+
+async function createPurchaseOrderFromJob(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const jobId = String(formData.get("job_id") ?? "").trim();
+  if (!jobId) {
+    redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
+  }
+
+  const supplierId = String(formData.get("supplier_id") ?? "").trim() || null;
+  const orderDate = String(formData.get("order_date") ?? "").trim() || null;
+  const requiredDate = String(formData.get("required_date") ?? "").trim() || null;
+  const supplierReference = String(formData.get("supplier_reference") ?? "").trim() || null;
+  const notes = String(formData.get("notes") ?? "").trim() || null;
+  const status = String(formData.get("status") ?? "").trim() || "draft";
+
+  const { data: jobRow } = await supabase
+    .from("jobs")
+    .select("id, job_number, site_name")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  const d = new Date();
+  const poNumber = `PO-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(
+    d.getDate()
+  ).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(
+    d.getMinutes()
+  ).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
+
+  const { data: created, error } = await supabase
+    .from("purchase_orders")
+    .insert({
+      po_number: poNumber,
+      supplier_id: supplierId,
+      job_id: jobId,
+      status,
+      order_date: orderDate,
+      required_date: requiredDate,
+      supplier_reference: supplierReference,
+      total_cost: 0,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (error || !created?.id) {
+    redirect(
+      `/jobs/${jobId}?error=${encodeURIComponent(error?.message ?? "Could not create purchase order.")}`
+    );
+  }
+
+  if (supplierId) {
+    await supabase.from("supplier_correspondence").insert({
+      supplier_id: supplierId,
+      type: status === "sent" ? "email" : "note",
+      subject: status === "sent" ? "Purchase Order Sent" : "Purchase Order Created",
+      message: [
+        `Purchase order ${poNumber} created from crane job ${jobRow?.job_number ? `#${jobRow.job_number}` : ""}.`,
+        jobRow?.site_name ? `Site: ${jobRow.site_name}.` : "",
+        supplierReference ? `Supplier ref: ${supplierReference}.` : "",
+        requiredDate ? `Required date: ${requiredDate}.` : "",
+        notes ? `Notes: ${notes}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      created_by: "system",
+    });
+  }
+
+  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
+}
+
 export default async function JobDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { error?: string; success?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
@@ -122,6 +215,7 @@ export default async function JobDetailPage({
     { data: operatorList },
     { data: supplierList },
     { data: poList },
+    { data: jobDocuments },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -222,7 +316,28 @@ export default async function JobDetailPage({
 
     supabase
       .from("purchase_orders")
-      .select("id, po_number, status")
+      .select(`
+        id,
+        po_number,
+        status,
+        job_id,
+        supplier_id,
+        order_date,
+        required_date,
+        supplier_reference,
+        total_cost,
+        notes,
+        suppliers:supplier_id (
+          id,
+          company_name
+        )
+      `)
+      .order("created_at", { ascending: false }),
+
+    supabase
+      .from("job_documents")
+      .select("id, file_name, file_path, file_type, document_type, created_at")
+      .eq("job_id", params.id)
       .order("created_at", { ascending: false }),
   ]);
 
@@ -252,6 +367,10 @@ export default async function JobDetailPage({
 
   const liveVat = Number((job as any)?.invoice_vat ?? 0);
   const allocatedTotal = allocatedSellSubtotal + liveVat;
+  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
+  const searchErrorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const linkedPurchaseOrders = ((poList as any[]) ?? []).filter((item: any) => item.job_id === params.id);
+  const documents = (jobDocuments as any[]) ?? [];
 
   return (
     <ClientShell>
@@ -284,6 +403,8 @@ export default async function JobDetailPage({
         </div>
 
         {jobError ? <div style={errorBox}>{jobError.message}</div> : null}
+        {searchErrorMessage ? <div style={errorBox}>{searchErrorMessage}</div> : null}
+        {successMessage ? <div style={successBox}>{successMessage}</div> : null}
         {!job ? <div style={errorBox}>Job not found.</div> : null}
 
         {job ? (
@@ -408,9 +529,170 @@ export default async function JobDetailPage({
                   label: `${p.po_number ?? "PO"}${p.status ? ` • ${p.status}` : ""}`,
                 }))}
                 defaultDate={(job as any).start_date ?? (job as any).job_date}
-                defaultStartTime={job.start_time}
-                defaultEndTime={job.end_time}
+                defaultStartTime={(job as any).start_time}
+                defaultEndTime={(job as any).end_time}
               />
+
+              <section style={cardStyle}>
+                <div style={sectionHeaderRow}>
+                  <h2 style={sectionTitle}>Job Documents</h2>
+                </div>
+
+                <div style={{ display: "grid", gap: 14 }}>
+                  <DocumentUploadForm jobId={(job as any).id} />
+
+                  {documents.length === 0 ? (
+                    <div style={listEmptyStyle}>No documents uploaded yet.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {documents.map((doc: any) => (
+                        <div key={doc.id} style={listItemStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900, wordBreak: "break-word" }}>{doc.file_name ?? "Document"}</div>
+                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                {documentTypeLabel(doc.document_type)} • {fmtDateTime(doc.created_at)}
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <a
+                                href={documentHref(doc.file_path)}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={secondaryBtn}
+                              >
+                                Open
+                              </a>
+                              <DocumentDeleteButton jobId={(job as any).id} documentId={doc.id} />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section style={cardStyle}>
+                <div style={sectionHeaderRow}>
+                  <h2 style={sectionTitle}>Purchase Orders</h2>
+                  <a
+                    href={`/purchase-orders/new?job_id=${params.id}${(job as any)?.supplier_id ? `&supplier_id=${(job as any).supplier_id}` : ""}`}
+                    style={secondaryBtn}
+                  >
+                    Open full PO editor
+                  </a>
+                </div>
+
+                <form action={createPurchaseOrderFromJob} style={{ display: "grid", gap: 12 }}>
+                  <input type="hidden" name="job_id" value={params.id} />
+
+                  <div style={summaryGrid}>
+                    <div>
+                      <label style={rowLabel}>Supplier</label>
+                      <select name="supplier_id" defaultValue={(job as any)?.supplier_id ?? ""} style={inputStyle}>
+                        <option value="">No supplier selected</option>
+                        {((supplierList as any[]) ?? []).map((supplier: any) => (
+                          <option key={supplier.id} value={supplier.id}>
+                            {supplier.company_name ?? "Supplier"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={rowLabel}>Status</label>
+                      <select name="status" defaultValue="draft" style={inputStyle}>
+                        <option value="draft">Draft</option>
+                        <option value="sent">Sent</option>
+                        <option value="approved">Approved</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={rowLabel}>Order date</label>
+                      <input
+                        name="order_date"
+                        type="date"
+                        defaultValue={new Date().toISOString().slice(0, 10)}
+                        style={inputStyle}
+                      />
+                    </div>
+
+                    <div>
+                      <label style={rowLabel}>Required date</label>
+                      <input name="required_date" type="date" style={inputStyle} />
+                    </div>
+
+                    <div>
+                      <label style={rowLabel}>Supplier reference</label>
+                      <input
+                        name="supplier_reference"
+                        defaultValue={primarySupplierReference ?? ""}
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label style={rowLabel}>Notes</label>
+                    <textarea
+                      name="notes"
+                      rows={3}
+                      defaultValue={`Created from job ${(job as any)?.job_number ? `#${(job as any).job_number}` : ""}${(job as any)?.site_name ? ` • ${(job as any).site_name}` : ""}`}
+                      style={textareaStyle}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button type="submit" style={primaryBtn}>
+                      Create purchase order
+                    </button>
+                  </div>
+                </form>
+
+                <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+                  {linkedPurchaseOrders.length === 0 ? (
+                    <div style={listEmptyStyle}>No purchase orders linked to this job yet.</div>
+                  ) : (
+                    linkedPurchaseOrders.map((po: any) => {
+                      const poSupplier = first(po.suppliers);
+                      return (
+                        <div key={po.id} style={listItemStyle}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
+                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                {po.status ?? "draft"}
+                                {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
+                                {po.order_date ? ` • Ordered ${fmtDate(po.order_date)}` : ""}
+                                {po.required_date ? ` • Required ${fmtDate(po.required_date)}` : ""}
+                              </div>
+                              {po.supplier_reference || po.notes ? (
+                                <div style={{ marginTop: 8, fontSize: 13, opacity: 0.82 }}>
+                                  {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontWeight: 900 }}>{money(po.total_cost ?? 0)}</div>
+                              <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
+                                Open PO
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
             </div>
 
             <div style={{ display: "grid", gap: 18 }}>
@@ -442,60 +724,35 @@ export default async function JobDetailPage({
                 <h2 style={sectionTitle}>Operator Activity</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Started" value={fmtDateTime((job as any).started_at)} />
-                  <Row label="Arrived on site" value={fmtDateTime((job as any).arrived_on_site_at)} />
-                  <Row label="Lift completed" value={fmtDateTime((job as any).lift_completed_at)} />
-                  <Row label="Job completed" value={fmtDateTime((job as any).completed_at)} />
-                  <Row label="Worked time" value={(job as any).worked_time ?? "—"} />
+                  <Row label="Booked on" value={fmtDate((job as any).booked_date ?? (job as any).start_date)} />
+                  <Row label="Sign in" value={(job as any).operator_sign_in_time ?? "—"} />
+                  <Row label="Break deduction" value={(job as any).break_duration ? `${(job as any).break_duration} mins` : "—"} />
+                  <Row label="Hours worked" value={(job as any).hours_worked ?? "—"} />
                 </div>
               </section>
 
               <section style={cardStyle}>
-                <h2 style={sectionTitle}>Invoice Status</h2>
+                <h2 style={sectionTitle}>Commercial</h2>
 
                 <div style={summaryGrid}>
-                  <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
-                  <Row label="Invoice #" value={(job as any).invoice_number ?? "—"} />
-                  <Row label="Invoice created" value={fmtDate((job as any).invoice_created_at ?? (job as any).invoice_date)} />
-                  <Row label="Invoice due" value={fmtDate((job as any).invoice_due_date)} />
-                  <Row label="Allocated subtotal" value={money(allocatedSellSubtotal)} />
+                  <Row label="Quoted / agreed sell" value={money((job as any).price ?? allocatedSellSubtotal)} />
+                  <Row label="Allocated sell subtotal" value={money(allocatedSellSubtotal)} />
                   <Row label="VAT" value={money(liveVat)} />
-                  <Row label="Allocated total" value={money(allocatedTotal)} />
-                  <Row label="Invoice notes" value={(job as any).invoice_notes ?? "—"} />
+                  <Row label="Invoice total" value={money((job as any).total_invoice ?? allocatedTotal)} />
+                  <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
+                  <Row label="Part paid amount" value={money((job as any).part_paid_amount ?? 0)} />
                 </div>
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Notes</h2>
+                <div style={noteBox}>{(job as any).notes ?? "No notes added."}</div>
               </section>
             </div>
           </div>
         ) : null}
       </div>
     </ClientShell>
-  );
-}
-
-function AssetListBlock({
-  title,
-  items,
-}: {
-  title: string;
-  items: Array<{ name: string; meta: string }>;
-}) {
-  return (
-    <div>
-      <div style={{ fontWeight: 900, marginBottom: 8 }}>{title}</div>
-
-      {items.length === 0 ? (
-        <div style={listEmptyStyle}>None added.</div>
-      ) : (
-        <div style={{ display: "grid", gap: 8 }}>
-          {items.map((item, index) => (
-            <div key={`${title}-${index}`} style={listItemStyle}>
-              <div style={{ fontWeight: 800 }}>{item.name}</div>
-              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.74 }}>{item.meta}</div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -514,73 +771,111 @@ function Row({
   );
 }
 
+function AssetListBlock({
+  title,
+  items,
+}: {
+  title: string;
+  items: Array<{ name: string; meta: string }>;
+}) {
+  return (
+    <div>
+      <div style={{ fontWeight: 900, marginBottom: 8 }}>{title}</div>
+      {items.length === 0 ? (
+        <div style={listEmptyStyle}>None allocated.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 10 }}>
+          {items.map((item, index) => (
+            <div key={`${title}-${index}`} style={listItemStyle}>
+              <div style={{ fontWeight: 800 }}>{item.name}</div>
+              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{item.meta}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const pageHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
+  gap: 16,
   flexWrap: "wrap",
   marginBottom: 18,
 };
 
 const layoutGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.2fr 0.8fr",
+  gridTemplateColumns: "minmax(0, 2fr) minmax(320px, 1fr)",
   gap: 18,
 };
 
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
+  borderRadius: 16,
+  border: "1px solid rgba(255,255,255,0.38)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  backdropFilter: "blur(6px)",
 };
 
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
-  fontSize: 22,
+  fontSize: 20,
 };
 
 const summaryGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 10,
+  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+  gap: 12,
 };
 
 const rowStyle: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "12px 14px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.36)",
-  border: "1px solid rgba(0,0,0,0.08)",
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
 };
 
 const rowLabel: React.CSSProperties = {
   fontSize: 12,
-  opacity: 0.74,
-  fontWeight: 800,
+  fontWeight: 900,
+  opacity: 0.7,
+  textTransform: "uppercase",
+  letterSpacing: 0.4,
+  marginBottom: 6,
 };
 
 const rowValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
+  fontSize: 15,
+  lineHeight: 1.45,
   wordBreak: "break-word",
 };
 
-const listItemStyle: React.CSSProperties = {
-  padding: "10px 12px",
+const noteBox: React.CSSProperties = {
+  padding: "12px 14px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.36)",
-  border: "1px solid rgba(0,0,0,0.08)",
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
+  whiteSpace: "pre-wrap",
 };
 
 const listEmptyStyle: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "12px 14px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.28)",
-  border: "1px dashed rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.55)",
+  border: "1px dashed rgba(0,0,0,0.10)",
   opacity: 0.75,
+};
+
+const listItemStyle: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
 };
 
 const secondaryBtn: React.CSSProperties = {
@@ -613,4 +908,54 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 14,
+  marginBottom: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(16,185,129,0.12)",
+  border: "1px solid rgba(16,185,129,0.24)",
+};
+
+const sectionHeaderRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 42,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+};
+
+const textareaStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+  resize: "vertical",
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  border: "none",
+  cursor: "pointer",
 };
