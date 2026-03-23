@@ -32,6 +32,47 @@ function quoteToJobStatus(value: string | undefined) {
   return "draft";
 }
 
+function numberOrZero(value: FormDataEntryValue | null) {
+  const n = Number(String(value ?? "").trim());
+  return Number.isFinite(n) ? n : 0;
+}
+
+function countDaysInclusive(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const day = cursor.getDay();
+    const isWeekend = day === 0 || day === 6;
+
+    if (!excludeWeekends || !isWeekend) {
+      count += 1;
+    }
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return count;
+}
+
 async function resolveClientId(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   selectedClientId: string | null,
@@ -137,6 +178,19 @@ async function createJob(formData: FormData) {
     );
   }
 
+  const priceMode = clean(formData.get("price_mode")) || "full_job";
+  const excludeWeekends = clean(formData.get("exclude_weekends")) === "on";
+  const fullJobPrice = numberOrZero(formData.get("full_job_price"));
+  const pricePerDay = numberOrZero(formData.get("price_per_day"));
+
+  const totalDays = countDaysInclusive(startDate, endDate);
+  const billableDays = countBillableDays(startDate, endDate, excludeWeekends);
+
+  const calculatedSubtotal =
+    priceMode === "per_day"
+      ? Number((pricePerDay * billableDays).toFixed(2))
+      : Number(fullJobPrice.toFixed(2));
+
   const payload: Record<string, any> = {
     client_id: clientId,
     equipment_id: primaryEquipmentId,
@@ -154,7 +208,11 @@ async function createJob(formData: FormData) {
     lift_type: clean(formData.get("lift_type")) || null,
     status: clean(formData.get("status")) || "draft",
     notes: clean(formData.get("notes")) || null,
-    invoice_subtotal: Number(formData.get("quote_amount") ?? 0) || 0,
+    price_mode: priceMode,
+    price_per_day: priceMode === "per_day" ? pricePerDay : null,
+    exclude_weekends: excludeWeekends,
+    price: calculatedSubtotal,
+    invoice_subtotal: calculatedSubtotal,
     archived: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -183,6 +241,7 @@ async function createJob(formData: FormData) {
       end_date: endDate,
       start_time: startTime,
       end_time: endTime,
+      agreed_sell_rate: calculatedSubtotal,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -303,8 +362,6 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
           <form action={createJob} style={{ display: "grid", gap: 14, marginTop: 18 }}>
-            <input type="hidden" name="quote_amount" value={prefilledAmount || "0"} />
-
             <div style={fieldWrap}>
               <label style={labelStyle}>Customer *</label>
               <select
@@ -442,6 +499,55 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               </div>
             </div>
 
+            <section style={pricingBox}>
+              <h3 style={pricingHeading}>Pricing</h3>
+
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Price mode</label>
+                  <select id="price_mode" name="price_mode" style={inputStyle} defaultValue={prefilledAmount ? "full_job" : "full_job"}>
+                    <option value="full_job">Full job price</option>
+                    <option value="per_day">Price per day</option>
+                  </select>
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Exclude weekends on multi-day jobs</label>
+                  <label style={checkboxRow}>
+                    <input type="checkbox" name="exclude_weekends" />
+                    Free up weekends and continue the job after
+                  </label>
+                </div>
+              </div>
+
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Full job price</label>
+                  <input
+                    id="full_job_price"
+                    name="full_job_price"
+                    type="number"
+                    step="0.01"
+                    style={inputStyle}
+                    defaultValue={prefilledAmount || ""}
+                    placeholder="0.00"
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Price per day</label>
+                  <input
+                    id="price_per_day"
+                    name="price_per_day"
+                    type="number"
+                    step="0.01"
+                    style={inputStyle}
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+            </section>
+
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Primary equipment</label>
@@ -521,7 +627,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
-                Create job
+                Save job
               </button>
               <a href="/jobs" style={secondaryBtn}>
                 Cancel
@@ -530,45 +636,6 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           </form>
         </div>
       </div>
-
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `
-            (function () {
-              var customerSelect = document.getElementById("client_id");
-              var otherCustomerWrap = document.getElementById("other_customer_wrap");
-              var otherCustomerInput = document.getElementById("other_customer_name");
-              var startDateInput = document.querySelector('input[name="start_date"]');
-              var endDateInput = document.querySelector('input[name="end_date"]');
-
-              function toggleOtherCustomer() {
-                if (!customerSelect || !otherCustomerWrap || !otherCustomerInput) return;
-                var isOther = customerSelect.value === "other";
-                otherCustomerWrap.style.display = isOther ? "grid" : "none";
-                otherCustomerInput.required = isOther;
-                if (!isOther) otherCustomerInput.value = "";
-              }
-
-              function syncEndDate() {
-                if (!startDateInput || !endDateInput) return;
-                if (!endDateInput.value) {
-                  endDateInput.value = startDateInput.value || "";
-                }
-              }
-
-              if (customerSelect) {
-                customerSelect.addEventListener("change", toggleOtherCustomer);
-                toggleOtherCustomer();
-              }
-
-              if (startDateInput) {
-                startDateInput.addEventListener("change", syncEndDate);
-                syncEndDate();
-              }
-            })();
-          `,
-        }}
-      />
     </ClientShell>
   );
 }
@@ -581,36 +648,45 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const infoBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const infoMetaStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  opacity: 0.75,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.25)",
+};
+
 const fieldWrap: React.CSSProperties = {
   display: "grid",
   gap: 6,
 };
 
-const twoCol: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-};
-
-const threeCol: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
-  gap: 12,
-};
-
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 800,
-  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
+  minHeight: 42,
+  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
 };
 
@@ -619,19 +695,52 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
+const twoCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 12,
+};
+
+const threeCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
+};
+
+const pricingBox: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.45)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const pricingHeading: React.CSSProperties = {
+  margin: 0,
+  fontSize: 18,
+};
+
+const checkboxRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  minHeight: 42,
+};
+
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
-  fontWeight: 900,
+  fontWeight: 800,
   border: "none",
   cursor: "pointer",
 };
@@ -645,27 +754,4 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const infoBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.18)",
-  fontWeight: 700,
-};
-
-const infoMetaStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  opacity: 0.78,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
