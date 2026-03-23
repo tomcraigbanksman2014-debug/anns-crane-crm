@@ -141,9 +141,12 @@ async function createPurchaseOrder(formData: FormData) {
 export default async function NewPurchaseOrderPage({
   searchParams,
 }: {
-  searchParams?: { error?: string };
+  searchParams?: { error?: string; job_id?: string; supplier_id?: string };
 }) {
   const supabase = createSupabaseServerClient();
+
+  const selectedJobId = String(searchParams?.job_id ?? "").trim();
+  const selectedSupplierId = String(searchParams?.supplier_id ?? "").trim();
 
   const [{ data: suppliers }, { data: jobs }] = await Promise.all([
     supabase
@@ -156,6 +159,11 @@ export default async function NewPurchaseOrderPage({
       .order("created_at", { ascending: false })
       .limit(200),
   ]);
+
+  const selectedJob =
+    (jobs ?? []).find((j: any) => j.id === selectedJobId) ?? null;
+  const selectedSupplier =
+    (suppliers ?? []).find((s: any) => s.id === selectedSupplierId) ?? null;
 
   const errorMessage = searchParams?.error
     ? decodeURIComponent(searchParams.error)
@@ -171,6 +179,17 @@ export default async function NewPurchaseOrderPage({
               <p style={{ opacity: 0.8, marginTop: 6 }}>
                 Create a supplier purchase order and go straight to the PO record.
               </p>
+              {selectedJob || selectedSupplier ? (
+                <div style={hintText}>
+                  {selectedJob
+                    ? `Preselected job: #${selectedJob.job_number ?? "—"}${selectedJob.site_name ? ` • ${selectedJob.site_name}` : ""}`
+                    : ""}
+                  {selectedJob && selectedSupplier ? " • " : ""}
+                  {selectedSupplier
+                    ? `Preselected supplier: ${selectedSupplier.company_name ?? "Supplier"}`
+                    : ""}
+                </div>
+              ) : null}
             </div>
 
             <a href="/purchase-orders" style={secondaryBtn}>
@@ -191,6 +210,7 @@ export default async function NewPurchaseOrderPage({
                 <SelectField
                   label="Supplier"
                   name="supplier_id"
+                  defaultValue={selectedSupplierId}
                   options={(suppliers ?? []).map((s: any) => ({
                     value: s.id,
                     label: s.company_name,
@@ -199,6 +219,7 @@ export default async function NewPurchaseOrderPage({
                 <SelectField
                   label="Linked job"
                   name="job_id"
+                  defaultValue={selectedJobId}
                   options={(jobs ?? []).map((j: any) => ({
                     value: j.id,
                     label: `Job #${j.job_number ?? "—"}${
@@ -323,13 +344,24 @@ const cardStyle: React.CSSProperties = {
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
+  gap: 16,
   flexWrap: "wrap",
 };
 
+const hintText: React.CSSProperties = {
+  marginTop: 10,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.06)",
+  fontSize: 13,
+  opacity: 0.82,
+};
+
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
+  marginTop: 18,
+  background: "rgba(255,255,255,0.68)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
@@ -342,18 +374,17 @@ const gridStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 800,
-  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
+  minHeight: 42,
+  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
 };
 
@@ -362,19 +393,19 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
-  fontWeight: 900,
+  fontWeight: 800,
   border: "none",
   cursor: "pointer",
 };
@@ -384,7 +415,7 @@ const secondaryBtn: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
+  background: "rgba(255,255,255,0.82)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
@@ -392,7 +423,6 @@ const secondaryBtn: React.CSSProperties = {
 
 const errorBox: React.CSSProperties = {
   marginTop: 14,
-  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
