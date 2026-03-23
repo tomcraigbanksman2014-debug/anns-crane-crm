@@ -20,18 +20,6 @@ function startOfWeekMonday(base: Date) {
   return d;
 }
 
-function overlapsRange(
-  startDate: string | null | undefined,
-  endDate: string | null | undefined,
-  rangeStart: string,
-  rangeEnd: string
-) {
-  const start = String(startDate ?? "").trim();
-  const end = String(endDate ?? startDate ?? "").trim();
-  if (!start || !end) return false;
-  return start <= rangeEnd && end >= rangeStart;
-}
-
 function num(value: any) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -41,29 +29,75 @@ function lower(value: any) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+function parseDateOnly(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
-    return 0;
-  }
+function isWeekend(date: Date) {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
 
-  let count = 0;
+function dateRangeInclusive(startDate: string, endDate: string) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+
+  if (!start || !end || end < start) return [];
+
+  const dates: string[] = [];
   const cursor = new Date(start);
 
   while (cursor <= end) {
-    const day = cursor.getDay();
-    const isWeekend = day === 0 || day === 6;
-
-    if (!excludeWeekends || !isWeekend) {
-      count += 1;
-    }
-
+    dates.push(isoDate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
 
-  return count;
+  return dates;
+}
+
+function activeWorkingDates(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  excludeWeekends: boolean
+) {
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
+
+  if (!start || !end) return [];
+
+  const allDates = dateRangeInclusive(start, end);
+
+  if (!excludeWeekends) {
+    return allDates;
+  }
+
+  return allDates.filter((value) => {
+    const d = parseDateOnly(value);
+    if (!d) return false;
+    return !isWeekend(d);
+  });
+}
+
+function overlapsWorkingRange(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  rangeStart: string,
+  rangeEnd: string,
+  excludeWeekends: boolean
+) {
+  const workingDates = activeWorkingDates(startDate, endDate, excludeWeekends);
+  return workingDates.some((value) => value >= rangeStart && value <= rangeEnd);
+}
+
+function countBillableDays(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  excludeWeekends: boolean
+) {
+  return activeWorkingDates(startDate, endDate, excludeWeekends).length;
 }
 
 function effectiveJobPrice(job: any) {
@@ -74,7 +108,7 @@ function effectiveJobPrice(job: any) {
 
   if (mode === "per_day") {
     const rate = num(job?.price_per_day);
-    const days = startDate && endDate ? countBillableDays(startDate, endDate, excludeWeekends) : 1;
+    const days = countBillableDays(startDate, endDate, excludeWeekends);
     return rate * Math.max(days, 1);
   }
 
@@ -179,34 +213,56 @@ export async function GET(req: Request) {
     if (jobsError) {
       return NextResponse.json({ error: jobsError.message }, { status: 400 });
     }
+
     if (cranesError) {
       return NextResponse.json({ error: cranesError.message }, { status: 400 });
     }
+
     if (operatorsError) {
       return NextResponse.json({ error: operatorsError.message }, { status: 400 });
     }
+
     if (allocationsError) {
       return NextResponse.json({ error: allocationsError.message }, { status: 400 });
     }
 
     const activeJobs = (jobs ?? []).filter((job: any) => lower(job.status) !== "cancelled");
-    const activeAllocations = (allocations ?? []).filter((row: any) =>
-      overlapsRange(row.start_date, row.end_date ?? row.start_date, rangeStart, rangeEnd)
-    );
 
     const jobsInRange = activeJobs
       .filter((job: any) =>
-        overlapsRange(
+        overlapsWorkingRange(
           job.start_date ?? job.job_date,
           job.end_date ?? job.start_date ?? job.job_date,
           rangeStart,
-          rangeEnd
+          rangeEnd,
+          Boolean(job.exclude_weekends)
         )
       )
-      .map((job: any) => ({
-        ...job,
-        effective_price: effectiveJobPrice(job),
-      }));
+      .map((job: any) => {
+        const startDate = job.start_date ?? job.job_date ?? null;
+        const endDate = job.end_date ?? job.start_date ?? job.job_date ?? null;
+        const workingDates = activeWorkingDates(startDate, endDate, Boolean(job.exclude_weekends));
+
+        return {
+          ...job,
+          working_dates: workingDates,
+          billable_days: countBillableDays(startDate, endDate, Boolean(job.exclude_weekends)),
+          effective_price: effectiveJobPrice(job),
+        };
+      });
+
+    const activeAllocations = (allocations ?? []).filter((row: any) => {
+      const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
+      const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
+
+      return overlapsWorkingRange(
+        row.start_date,
+        row.end_date ?? row.start_date,
+        rangeStart,
+        rangeEnd,
+        excludeWeekends
+      );
+    });
 
     const craneRows = (cranes ?? []).map((crane: any) => {
       const craneAllocations = activeAllocations.filter((row: any) => row.crane_id === crane.id);
@@ -234,6 +290,8 @@ export async function GET(req: Request) {
           price_mode: job?.price_mode ?? "full_job",
           price_per_day: num(job?.price_per_day),
           exclude_weekends: Boolean(job?.exclude_weekends),
+          working_dates: job?.working_dates ?? [],
+          billable_days: num(job?.billable_days),
           notes: row.notes ?? null,
         };
       });
@@ -271,6 +329,8 @@ export async function GET(req: Request) {
           price_mode: job.price_mode ?? "full_job",
           price_per_day: num(job.price_per_day),
           exclude_weekends: Boolean(job.exclude_weekends),
+          working_dates: job.working_dates ?? [],
+          billable_days: num(job.billable_days),
         };
       });
 
