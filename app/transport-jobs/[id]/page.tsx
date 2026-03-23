@@ -1,18 +1,11 @@
-import ClientShell from "../../ClientShell";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
+import ClientShell from "../../../ClientShell";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
-import { geocodeAddress } from "../../lib/geocode";
-import { writeAuditLog } from "../../lib/audit";
-import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
+import { writeAuditLog } from "../../../lib/audit";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
-}
-
-function numberOrZero(value: FormDataEntryValue | null) {
-  const n = Number(String(value ?? "").trim());
-  return Number.isFinite(n) ? n : 0;
 }
 
 function numberOrNull(value: FormDataEntryValue | null) {
@@ -22,13 +15,23 @@ function numberOrNull(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : null;
 }
 
-function money(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+function numberOrZero(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function fmtMoney(value: number | string | null | undefined) {
-  return `£${money(value).toFixed(2)}`;
+function money(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
+}
+
+function moneyNumber(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100) / 100;
 }
 
 function fromAuthEmail(email: string | null) {
@@ -36,15 +39,16 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-const INVOICE_STATUSES = [
-  "Not Invoiced",
-  "Invoiced",
-  "Part Paid",
-  "Paid",
-];
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
+}
 
-function looksLikeCrossHire(item: any) {
-  return !!item?.supplier_id || Number(item?.supplier_cost ?? 0) > 0;
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function buildTimeOptions() {
@@ -62,131 +66,18 @@ function buildTimeOptions() {
   return options;
 }
 
-function parseDateTime(dateValue: string | null, timeValue: string | null) {
-  if (!dateValue || !timeValue) return null;
-  const iso = `${dateValue}T${timeValue}:00`;
-  const dt = new Date(iso);
-  return Number.isNaN(dt.getTime()) ? null : dt;
+function transportTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "—";
+  if (raw === "on_site_hiab") return "On-site HIAB";
+  if (raw === "crane_support") return "Crane support";
+  return raw.replaceAll("_", " ");
 }
 
-function normaliseTransportStatus(
-  input: string | null,
-  fields: {
-    clientId: string | null;
-    vehicleId: string | null;
-    operatorId: string | null;
-    transportDate: string | null;
-    collectionTime: string | null;
-    deliveryDate: string | null;
-    deliveryTime: string | null;
-  }
-) {
-  const requested = String(input ?? "planned").trim().toLowerCase() || "planned";
-
-  if (requested !== "confirmed") {
-    return requested;
-  }
-
-  const canConfirm =
-    !!fields.clientId &&
-    !!fields.vehicleId &&
-    !!fields.operatorId &&
-    !!fields.transportDate &&
-    !!fields.collectionTime &&
-    !!fields.deliveryDate &&
-    !!fields.deliveryTime;
-
-  return canConfirm ? "confirmed" : "planned";
-}
-
-function parseOtherSupplierReference(value: string | null | undefined) {
-  const raw = String(value ?? "").trim();
-  if (!raw) {
-    return {
-      otherSupplierName: "",
-      supplierReferenceOnly: "",
-    };
-  }
-
-  const parts = raw.split("|").map((part) => part.trim()).filter(Boolean);
-
-  if (parts.length === 0) {
-    return {
-      otherSupplierName: "",
-      supplierReferenceOnly: "",
-    };
-  }
-
-  const refPart = parts.find((part) => /^ref:/i.test(part)) ?? "";
-  const namePart = parts.find((part) => !/^ref:/i.test(part)) ?? raw;
-
-  return {
-    otherSupplierName: namePart,
-    supplierReferenceOnly: refPart
-      ? refPart.replace(/^ref:\s*/i, "").trim()
-      : parts.length > 1
-      ? parts.slice(1).join(" | ")
-      : "",
-  };
-}
-
-async function updateTransportJob(formData: FormData) {
+async function updateTransportJob(id: string, formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
-  const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: existingRow } = await supabase
-    .from("transport_jobs")
-    .select(`
-      id,
-      transport_number,
-      linked_job_id,
-      linked_transport_job_id,
-      client_id,
-      vehicle_id,
-      operator_id,
-      supplier_id,
-      supplier_reference,
-      supplier_cost,
-      job_type,
-      transport_date,
-      collection_time,
-      delivery_date,
-      delivery_time,
-      status,
-      agreed_sell_rate,
-      invoice_status,
-      total_invoice
-    `)
-    .eq("id", id)
-    .maybeSingle();
-
-  const collectionAddress = clean(formData.get("collection_address")) || null;
-  const deliveryAddress = clean(formData.get("delivery_address")) || null;
-
-  const pickupCoords = collectionAddress ? await geocodeAddress(collectionAddress) : null;
-  const deliveryCoords = deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
-
-  const agreedSellRate = money(numberOrZero(formData.get("agreed_sell_rate")));
-  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
-  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
-  const invoiceVat = money(invoiceSubtotal * 0.2);
-  const totalInvoice = money(invoiceSubtotal + invoiceVat);
-
-  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
-
-  if (!INVOICE_STATUSES.includes(invoiceStatus)) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent("Invalid invoice status.")}`);
-  }
 
   const linkedJobId = clean(formData.get("linked_job_id")) || null;
   const linkedTransportJobIdRaw = clean(formData.get("linked_transport_job_id")) || null;
@@ -194,103 +85,95 @@ async function updateTransportJob(formData: FormData) {
   const clientId = clean(formData.get("client_id")) || null;
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
+  const jobType = clean(formData.get("job_type")) || null;
+  const collectionAddress = clean(formData.get("collection_address")) || null;
+  const deliveryAddress = clean(formData.get("delivery_address")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
-  const deliveryDate =
-    clean(formData.get("delivery_date")) || transportDate || null;
+  const deliveryDate = clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
+  const loadDescription = clean(formData.get("load_description")) || null;
+  const status = clean(formData.get("status")) || "planned";
+  const notes = clean(formData.get("notes")) || null;
+  const supplierId = clean(formData.get("supplier_id")) || null;
+  const supplierReference = clean(formData.get("supplier_reference")) || null;
+  const supplierCost = numberOrNull(formData.get("supplier_cost"));
+  const agreedSellRate = numberOrZero(formData.get("agreed_sell_rate"));
+  const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
+  const invoiceNumber = clean(formData.get("invoice_number")) || null;
+  const invoiceCreatedAt = clean(formData.get("invoice_created_at")) || null;
+  const invoiceDueAt = clean(formData.get("invoice_due_at")) || null;
+  const invoiceNotes = clean(formData.get("invoice_notes")) || null;
+  const invoiceSubtotalInput = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceSubtotal = invoiceSubtotalInput > 0 ? invoiceSubtotalInput : agreedSellRate;
+  const invoiceVat = moneyNumber(invoiceSubtotal * 0.2);
+  const totalInvoice = moneyNumber(invoiceSubtotal + invoiceVat);
 
-  const rawSupplierId = clean(formData.get("supplier_id"));
-  const otherSupplierName = clean(formData.get("other_supplier_name"));
-  const supplierReferenceInput = clean(formData.get("supplier_reference"));
-
-  const supplierId =
-    rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
-
-  const supplierReference =
-    rawSupplierId === "other"
-      ? [otherSupplierName || null, supplierReferenceInput ? `Ref: ${supplierReferenceInput}` : null]
-          .filter(Boolean)
-          .join(" | ") || null
-      : supplierReferenceInput || null;
-
-  if (rawSupplierId === "other" && !otherSupplierName) {
+  if (!clientId || !collectionAddress || !transportDate) {
     redirect(
       `/transport-jobs/${id}?error=${encodeURIComponent(
-        "Enter the one-off cross-hire supplier name when using Other."
+        "Customer, site / pickup address and collection date are required."
       )}`
     );
   }
 
-  const collectionDateTime = parseDateTime(transportDate, collectionTime);
-  const deliveryDateTime = parseDateTime(deliveryDate, deliveryTime);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (
-    collectionTime &&
-    deliveryTime &&
-    transportDate &&
-    deliveryDate &&
-    collectionDateTime &&
-    deliveryDateTime &&
-    collectionDateTime > deliveryDateTime
-  ) {
+  const { data: current, error: currentError } = await supabase
+    .from("transport_jobs")
+    .select("id, transport_number")
+    .eq("id", id)
+    .single();
+
+  if (currentError || !current) {
     redirect(
-      `/transport-jobs/${id}?error=${encodeURIComponent(
-        "Delivery date/time cannot be earlier than collection date/time."
+      `/transport-jobs?error=${encodeURIComponent(
+        currentError?.message || "Transport job not found."
       )}`
     );
   }
 
-  const nextStatus = normaliseTransportStatus(clean(formData.get("status")) || "planned", {
-    clientId,
-    vehicleId,
-    operatorId,
-    transportDate,
-    collectionTime,
-    deliveryDate,
-    deliveryTime,
-  });
-
-  const payload = {
-    linked_job_id: linkedJobId,
-    linked_transport_job_id: linkedTransportJobId,
-    client_id: clientId,
-    vehicle_id: vehicleId,
-    operator_id: operatorId,
-    supplier_id: supplierId,
-    supplier_reference: supplierReference,
-    supplier_cost: numberOrNull(formData.get("supplier_cost")),
-    job_type: clean(formData.get("job_type")) || null,
-    collection_address: collectionAddress,
-    delivery_address: deliveryAddress,
-    collection_lat: pickupCoords?.lat ?? null,
-    collection_lng: pickupCoords?.lng ?? null,
-    delivery_lat: deliveryCoords?.lat ?? null,
-    delivery_lng: deliveryCoords?.lng ?? null,
-    transport_date: transportDate,
-    collection_time: collectionTime,
-    delivery_date: deliveryDate,
-    delivery_time: deliveryTime,
-    load_description: clean(formData.get("load_description")) || null,
-    status: nextStatus,
-    price: agreedSellRate,
-    agreed_sell_rate: agreedSellRate,
-    invoice_status: invoiceStatus,
-    invoice_number: clean(formData.get("invoice_number")) || null,
-    invoice_created_at: clean(formData.get("invoice_created_at")) || null,
-    invoice_due_at: clean(formData.get("invoice_due_at")) || null,
-    invoice_notes: clean(formData.get("invoice_notes")) || null,
-    invoice_subtotal: invoiceSubtotal,
-    invoice_vat: invoiceVat,
-    total_invoice: totalInvoice,
-    notes: clean(formData.get("notes")) || null,
-    updated_at: new Date().toISOString(),
-  };
-
-  const { error } = await supabase.from("transport_jobs").update(payload).eq("id", id);
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      linked_job_id: linkedJobId,
+      linked_transport_job_id: linkedTransportJobId,
+      client_id: clientId,
+      vehicle_id: vehicleId,
+      operator_id: operatorId,
+      supplier_id: supplierId,
+      supplier_reference: supplierReference,
+      supplier_cost: supplierCost,
+      job_type: jobType,
+      collection_address: collectionAddress,
+      delivery_address: deliveryAddress,
+      transport_date: transportDate,
+      collection_time: collectionTime,
+      delivery_date: deliveryDate,
+      delivery_time: deliveryTime,
+      load_description: loadDescription,
+      status,
+      agreed_sell_rate: agreedSellRate,
+      price: agreedSellRate,
+      invoice_status: invoiceStatus,
+      invoice_number: invoiceNumber,
+      invoice_created_at: invoiceCreatedAt,
+      invoice_due_at: invoiceDueAt,
+      invoice_notes: invoiceNotes,
+      invoice_subtotal: invoiceSubtotal,
+      invoice_vat: invoiceVat,
+      total_invoice: totalInvoice,
+      notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
 
   if (error) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
+    redirect(
+      `/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`
+    );
   }
 
   await writeAuditLog({
@@ -300,95 +183,27 @@ async function updateTransportJob(formData: FormData) {
     entity_type: "transport_job",
     entity_id: id,
     meta: {
-      transport_number: existingRow?.transport_number ?? null,
-      before: {
-        linked_job_id: existingRow?.linked_job_id ?? null,
-        client_id: existingRow?.client_id ?? null,
-        vehicle_id: existingRow?.vehicle_id ?? null,
-        operator_id: existingRow?.operator_id ?? null,
-        supplier_id: existingRow?.supplier_id ?? null,
-        supplier_reference: existingRow?.supplier_reference ?? null,
-        supplier_cost: existingRow?.supplier_cost ?? null,
-        job_type: existingRow?.job_type ?? null,
-        transport_date: existingRow?.transport_date ?? null,
-        collection_time: existingRow?.collection_time ?? null,
-        delivery_date: existingRow?.delivery_date ?? null,
-        delivery_time: existingRow?.delivery_time ?? null,
-        status: existingRow?.status ?? null,
-        agreed_sell_rate: existingRow?.agreed_sell_rate ?? null,
-        invoice_status: existingRow?.invoice_status ?? null,
-        total_invoice: existingRow?.total_invoice ?? null,
-      },
-      after: {
-        linked_job_id: linkedJobId,
-        client_id: clientId,
-        vehicle_id: vehicleId,
-        operator_id: operatorId,
-        supplier_id: supplierId,
-        supplier_reference: supplierReference,
-        supplier_cost: numberOrNull(formData.get("supplier_cost")),
-        job_type: clean(formData.get("job_type")) || null,
-        transport_date: transportDate,
-        collection_time: collectionTime,
-        delivery_date: deliveryDate,
-        delivery_time: deliveryTime,
-        status: nextStatus,
-        agreed_sell_rate: agreedSellRate,
-        invoice_status: invoiceStatus,
-        total_invoice: totalInvoice,
-      },
+      transport_number: current.transport_number,
+      linked_job_id: linkedJobId,
+      linked_transport_job_id: linkedTransportJobId,
+      client_id: clientId,
+      vehicle_id: vehicleId,
+      operator_id: operatorId,
+      supplier_id: supplierId,
+      job_type: jobType,
+      transport_date: transportDate,
+      delivery_date: deliveryDate,
+      status,
+      agreed_sell_rate: agreedSellRate,
+      invoice_status: invoiceStatus,
     },
   });
 
-  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job updated.")}`);
-}
-
-async function cancelJob(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-  const id = clean(formData.get("id"));
-
-  if (!id) {
-    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data: existingRow } = await supabase
-    .from("transport_jobs")
-    .select("id, transport_number, status")
-    .eq("id", id)
-    .maybeSingle();
-
-  const { error } = await supabase
-    .from("transport_jobs")
-    .update({
-      status: "cancelled",
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", id);
-
-  if (error) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(error.message)}`);
-  }
-
-  await writeAuditLog({
-    actor_user_id: user?.id ?? null,
-    actor_username: fromAuthEmail(user?.email ?? null) || null,
-    action: "transport_job_cancelled",
-    entity_type: "transport_job",
-    entity_id: id,
-    meta: {
-      transport_number: existingRow?.transport_number ?? null,
-      previous_status: existingRow?.status ?? null,
-      new_status: "cancelled",
-    },
-  });
-
-  redirect(`/transport-jobs/${id}?success=${encodeURIComponent("Transport job cancelled.")}`);
+  redirect(
+    `/transport-jobs/${id}?success=${encodeURIComponent(
+      `${current.transport_number} updated.`
+    )}`
+  );
 }
 
 export default async function TransportJobDetailPage({
@@ -396,9 +211,11 @@ export default async function TransportJobDetailPage({
   searchParams,
 }: {
   params: { id: string };
-  searchParams?: { success?: string; error?: string };
+  searchParams?: { error?: string; success?: string };
 }) {
   const supabase = createSupabaseServerClient();
+  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
+  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
   const timeOptions = buildTimeOptions();
 
   const [
@@ -415,16 +232,31 @@ export default async function TransportJobDetailPage({
       .select(`
         *,
         clients:client_id (
-          company_name
+          id,
+          company_name,
+          contact_name,
+          email,
+          phone
         ),
         vehicles:vehicle_id (
+          id,
           name,
           reg_number
         ),
         operators:operator_id (
-          full_name
+          id,
+          full_name,
+          phone,
+          email
         ),
-        jobs:linked_job_id (
+        suppliers:supplier_id (
+          id,
+          company_name,
+          email,
+          phone,
+          category
+        ),
+        linked_job:linked_job_id (
           id,
           job_number,
           site_name
@@ -461,13 +293,13 @@ export default async function TransportJobDetailPage({
 
     supabase
       .from("vehicles")
-      .select("id, name, reg_number, status, archived")
+      .select("id, name, reg_number, archived")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
     supabase
       .from("operators")
-      .select("id, full_name, status, archived")
+      .select("id, full_name, archived")
       .eq("archived", false)
       .order("full_name", { ascending: true }),
 
@@ -477,110 +309,76 @@ export default async function TransportJobDetailPage({
       .order("company_name", { ascending: true }),
   ]);
 
-  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
-  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
-
-  const client = Array.isArray((item as any)?.clients)
-    ? (item as any).clients[0]
-    : (item as any)?.clients;
-
-  const vehicle = Array.isArray((item as any)?.vehicles)
-    ? (item as any).vehicles[0]
-    : (item as any)?.vehicles;
-
-  const driver = Array.isArray((item as any)?.operators)
-    ? (item as any).operators[0]
-    : (item as any)?.operators;
-
-  const linkedJob = Array.isArray((item as any)?.jobs)
-    ? (item as any).jobs[0]
-    : (item as any)?.jobs;
-
-  const linkedTransport = Array.isArray((item as any)?.linked_transport)
-    ? (item as any).linked_transport[0]
-    : (item as any)?.linked_transport;
-
-  const supplier =
-    (suppliers ?? []).find((s: any) => s.id === (item as any)?.supplier_id) ?? null;
-
-  const suggestedSellRate = money((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0);
-  const suggestedInvoiceSubtotal = money((item as any)?.invoice_subtotal ?? suggestedSellRate);
-  const suggestedInvoiceVat = money(
-    (item as any)?.invoice_vat ?? (suggestedInvoiceSubtotal > 0 ? suggestedInvoiceSubtotal * 0.2 : 0)
-  );
-  const suggestedInvoiceTotal = money(
-    (item as any)?.total_invoice ?? (suggestedInvoiceSubtotal + suggestedInvoiceVat)
-  );
-  const showSupplierSection = looksLikeCrossHire(item);
-
-  const parsedOtherSupplier = parseOtherSupplierReference((item as any)?.supplier_reference);
-  const isOtherSupplier = !(item as any)?.supplier_id && !!parsedOtherSupplier.otherSupplierName;
-
-  const supplierSummaryValue = supplier?.company_name
-    ? supplier.company_name
-    : parsedOtherSupplier.otherSupplierName || "—";
+  const client = first((item as any)?.clients);
+  const vehicle = first((item as any)?.vehicles);
+  const operator = first((item as any)?.operators);
+  const supplier = first((item as any)?.suppliers);
+  const linkedJob = first((item as any)?.linked_job);
+  const linkedTransport = first((item as any)?.linked_transport);
 
   return (
     <ClientShell>
       <div style={{ width: "min(1280px, 96vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
-          <div style={headerRow}>
+          <div style={topRow}>
             <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>
+              <h1 style={{ margin: 0, fontSize: 32 }}>
                 {(item as any)?.transport_number ?? "Transport Job"}
               </h1>
-              <p style={{ opacity: 0.8, marginTop: 6 }}>
-                View and update transport allocation, costing and invoice details.
+              <p style={{ marginTop: 6, opacity: 0.8 }}>
+                View and update transport job details.
               </p>
             </div>
 
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {item ? <DuplicateTransportJobButton jobId={(item as any).id} /> : null}
-
-              {item && String((item as any).status ?? "").toLowerCase() !== "cancelled" ? (
-                <form action={cancelJob}>
-                  <input type="hidden" name="id" value={(item as any).id} />
-                  <button type="submit" style={cancelBtn}>
-                    Cancel transport job
-                  </button>
-                </form>
-              ) : null}
-
-              <a href="/transport-jobs" style={secondaryBtn}>
-                ← Back to transport jobs
-              </a>
-
-              <a href="/transport-map" style={secondaryBtn}>
-                Open control map
-              </a>
-            </div>
+            <a href="/transport-jobs" style={btnStyle}>
+              ← Back
+            </a>
           </div>
 
-          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
-          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
           {error ? <div style={errorBox}>{error.message}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
 
-          {!item ? (
-            <div style={errorBox}>Transport job not found.</div>
-          ) : (
-            <div style={pageGrid}>
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Transport job details</h2>
-                <div style={sectionHelp}>
-                  Update core planning, allocation, supplier and invoice details for this transport job.
-                </div>
+          {!item ? null : (
+            <>
+              <div style={summaryGrid}>
+                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
+                <InfoRow label="Vehicle" value={`${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`} />
+                <InfoRow label="Operator" value={operator?.full_name ?? "—"} />
+                <InfoRow label="Job type" value={transportTypeLabel((item as any).job_type)} />
+                <InfoRow label="Collection date" value={fmtDate((item as any).transport_date)} />
+                <InfoRow label="Delivery date" value={fmtDate((item as any).delivery_date)} />
+                <InfoRow label="Linked crane job" value={linkedJob?.job_number ? `Job #${linkedJob.job_number}${linkedJob.site_name ? ` • ${linkedJob.site_name}` : ""}` : "—"} />
+                <InfoRow
+                  label="Linked transport job"
+                  value={
+                    linkedTransport?.transport_number
+                      ? `${linkedTransport.transport_number}${linkedTransport.transport_date ? ` • ${linkedTransport.transport_date}` : ""}${linkedTransport.delivery_date && linkedTransport.delivery_date !== linkedTransport.transport_date ? ` → ${linkedTransport.delivery_date}` : ""}`
+                      : "—"
+                  }
+                />
+              </div>
 
-                <form action={updateTransportJob} style={{ display: "grid", gap: 14 }}>
-                  <input type="hidden" name="id" value={(item as any).id} />
+              <form action={updateTransportJob.bind(null, params.id)} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+                <section style={sectionCard}>
+                  <div style={sectionTitle}>Transport job details</div>
+                  <div
+                    id="on_site_hiab_notice"
+                    style={{
+                      display: "none",
+                      marginBottom: 12,
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      background: "rgba(0,120,255,0.10)",
+                      border: "1px solid rgba(0,120,255,0.18)",
+                      fontWeight: 700,
+                    }}
+                  >
+                    On-site HIAB mode: use the first address as the main site location. The second address can be left
+                    the same or used for a work area / secondary location on the same site.
+                  </div>
 
                   <div style={gridStyle}>
-                    <Field
-                      label="Reference"
-                      name="transport_number_readonly"
-                      defaultValue={(item as any).transport_number ?? ""}
-                      disabled
-                    />
-
                     <SelectField
                       label="Linked crane job"
                       name="linked_job_id"
@@ -624,25 +422,27 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
-                      label="Driver"
+                      label="Driver / Operator"
                       name="operator_id"
                       defaultValue={(item as any).operator_id ?? ""}
                       options={(operators ?? []).map((o: any) => ({
                         value: o.id,
-                        label: o.full_name ?? "Driver",
+                        label: o.full_name ?? "Operator",
                       }))}
                     />
 
                     <SelectField
+                      id="job_type"
                       label="Job type"
                       name="job_type"
-                      defaultValue={(item as any).job_type ?? ""}
+                      defaultValue={(item as any).job_type ?? "haulage"}
                       options={[
                         { value: "haulage", label: "haulage" },
                         { value: "delivery", label: "delivery" },
                         { value: "collection", label: "collection" },
                         { value: "ballast", label: "ballast" },
                         { value: "crane_support", label: "crane_support" },
+                        { value: "on_site_hiab", label: "on_site_hiab" },
                       ]}
                     />
 
@@ -667,7 +467,7 @@ export default async function TransportJobDetailPage({
                       label="Delivery date"
                       name="delivery_date"
                       type="date"
-                      defaultValue={(item as any).delivery_date ?? (item as any).transport_date ?? ""}
+                      defaultValue={(item as any).delivery_date ?? ""}
                     />
 
                     <SelectField
@@ -676,6 +476,15 @@ export default async function TransportJobDetailPage({
                       name="delivery_time"
                       defaultValue={(item as any).delivery_time ?? ""}
                       options={timeOptions}
+                    />
+
+                    <Field
+                      id="agreed_sell_rate"
+                      label="Charge rate"
+                      name="agreed_sell_rate"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any).agreed_sell_rate ?? 0)}
                     />
 
                     <SelectField
@@ -690,229 +499,212 @@ export default async function TransportJobDetailPage({
                         { value: "cancelled", label: "cancelled" },
                       ]}
                     />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label id="collection_address_label" style={labelStyle}>Pickup address</label>
+                    <textarea
+                      id="collection_address"
+                      name="collection_address"
+                      rows={3}
+                      style={textareaStyle}
+                      defaultValue={(item as any).collection_address ?? ""}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label id="delivery_address_label" style={labelStyle}>Delivery address</label>
+                    <textarea
+                      id="delivery_address"
+                      name="delivery_address"
+                      rows={3}
+                      style={textareaStyle}
+                      defaultValue={(item as any).delivery_address ?? ""}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label id="load_description_label" style={labelStyle}>Load description</label>
+                    <textarea
+                      id="load_description"
+                      name="load_description"
+                      rows={3}
+                      style={textareaStyle}
+                      defaultValue={(item as any).load_description ?? ""}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <label style={labelStyle}>Notes</label>
+                    <textarea
+                      name="notes"
+                      rows={5}
+                      style={textareaStyle}
+                      defaultValue={(item as any).notes ?? ""}
+                    />
+                  </div>
+                </section>
+
+                <details id="supplier_details_section" style={detailsCard}>
+                  <summary style={detailsSummary}>Cross-hire / supplier details</summary>
+                  <div style={detailsHelp}>
+                    Only open this when the transport job is supplier-backed or cross-hired.
+                  </div>
+
+                  <div style={gridStyle}>
+                    <SelectField
+                      label="Supplier"
+                      name="supplier_id"
+                      defaultValue={(item as any).supplier_id ?? ""}
+                      options={(suppliers ?? []).map((s: any) => ({
+                        value: s.id,
+                        label: s.company_name ?? "Supplier",
+                      }))}
+                    />
 
                     <Field
-                      id="agreed_sell_rate"
-                      label="Charge rate"
-                      name="agreed_sell_rate"
+                      label="Supplier reference"
+                      name="supplier_reference"
+                      defaultValue={(item as any).supplier_reference ?? ""}
+                    />
+
+                    <Field
+                      label="Supplier cost"
+                      name="supplier_cost"
                       type="number"
                       step="0.01"
-                      defaultValue={String(suggestedSellRate)}
+                      defaultValue={String((item as any).supplier_cost ?? "")}
+                    />
+                  </div>
+                </details>
+
+                <details id="invoice_details_section" open style={detailsCard}>
+                  <summary style={detailsSummary}>Invoice details</summary>
+                  <div style={detailsHelp}>
+                    Invoice VAT and total are calculated automatically from the subtotal.
+                  </div>
+
+                  <div style={gridStyle}>
+                    <SelectField
+                      label="Invoice status"
+                      name="invoice_status"
+                      defaultValue={(item as any).invoice_status ?? "Not Invoiced"}
+                      options={[
+                        { value: "Not Invoiced", label: "Not Invoiced" },
+                        { value: "Invoiced", label: "Invoiced" },
+                        { value: "Part Paid", label: "Part Paid" },
+                        { value: "Paid", label: "Paid" },
+                      ]}
+                    />
+
+                    <Field
+                      label="Invoice number"
+                      name="invoice_number"
+                      defaultValue={(item as any).invoice_number ?? ""}
+                    />
+
+                    <Field
+                      label="Invoice created"
+                      name="invoice_created_at"
+                      type="date"
+                      defaultValue={(item as any).invoice_created_at ?? ""}
+                    />
+
+                    <Field
+                      label="Invoice due"
+                      name="invoice_due_at"
+                      type="date"
+                      defaultValue={(item as any).invoice_due_at ?? ""}
+                    />
+
+                    <Field
+                      id="invoice_subtotal"
+                      label="Invoice subtotal"
+                      name="invoice_subtotal"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any).invoice_subtotal ?? (item as any).agreed_sell_rate ?? 0)}
+                    />
+
+                    <Field
+                      id="invoice_vat"
+                      label="Invoice VAT"
+                      name="invoice_vat"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any).invoice_vat ?? 0)}
+                      readOnly
+                    />
+
+                    <Field
+                      id="total_invoice"
+                      label="Total invoice"
+                      name="total_invoice"
+                      type="number"
+                      step="0.01"
+                      defaultValue={String((item as any).total_invoice ?? 0)}
+                      readOnly
                     />
                   </div>
 
-                  <details
-                    id="supplier_details_section"
-                    open={showSupplierSection}
-                    style={detailsCard}
-                  >
-                    <summary style={detailsSummary}>Cross-hire / supplier details</summary>
-
-                    <div style={detailsHelp}>
-                      Only use this section when this transport is supplier-backed or cross-hired.
-                    </div>
-
-                    <div style={gridStyle}>
-                      <SelectField
-                        id="supplier_id"
-                        label="Supplier"
-                        name="supplier_id"
-                        defaultValue={isOtherSupplier ? "other" : (item as any).supplier_id ?? ""}
-                        options={[
-                          ...(suppliers ?? []).map((s: any) => ({
-                            value: s.id,
-                            label: s.company_name ?? "Supplier",
-                          })),
-                          { value: "other", label: "Other" },
-                        ]}
-                      />
-
-                      <div id="other_supplier_wrap" style={{ display: isOtherSupplier ? "block" : "none" }}>
-                        <Field
-                          id="other_supplier_name"
-                          label="Other supplier name"
-                          name="other_supplier_name"
-                          defaultValue={parsedOtherSupplier.otherSupplierName}
-                          placeholder="Enter one-off cross-hire supplier"
-                        />
-                      </div>
-
-                      <Field
-                        id="supplier_reference"
-                        label="Supplier reference"
-                        name="supplier_reference"
-                        defaultValue={
-                          isOtherSupplier
-                            ? parsedOtherSupplier.supplierReferenceOnly
-                            : (item as any).supplier_reference ?? ""
-                        }
-                      />
-
-                      <Field
-                        id="supplier_cost"
-                        label="Supplier cost"
-                        name="supplier_cost"
-                        type="number"
-                        step="0.01"
-                        defaultValue={String((item as any).supplier_cost ?? "")}
-                      />
-                    </div>
-                  </details>
-
-                  <details
-                    id="invoice_details_section"
-                    open
-                    style={detailsCard}
-                  >
-                    <summary style={detailsSummary}>Invoice details</summary>
-
-                    <div style={detailsHelp}>
-                      Invoice VAT and total are calculated automatically from the subtotal.
-                    </div>
-
-                    <div style={gridStyle}>
-                      <SelectField
-                        label="Invoice status"
-                        name="invoice_status"
-                        defaultValue={(item as any).invoice_status ?? "Not Invoiced"}
-                        options={INVOICE_STATUSES.map((status) => ({
-                          value: status,
-                          label: status,
-                        }))}
-                      />
-
-                      <Field
-                        label="Invoice number"
-                        name="invoice_number"
-                        defaultValue={(item as any).invoice_number ?? ""}
-                      />
-
-                      <Field
-                        label="Invoice created"
-                        name="invoice_created_at"
-                        type="date"
-                        defaultValue={
-                          (item as any).invoice_created_at
-                            ? String((item as any).invoice_created_at).slice(0, 10)
-                            : ""
-                        }
-                      />
-
-                      <Field
-                        label="Invoice due"
-                        name="invoice_due_at"
-                        type="date"
-                        defaultValue={
-                          (item as any).invoice_due_at
-                            ? String((item as any).invoice_due_at).slice(0, 10)
-                            : ""
-                        }
-                      />
-
-                      <Field
-                        id="invoice_subtotal"
-                        label="Invoice subtotal"
-                        name="invoice_subtotal"
-                        type="number"
-                        step="0.01"
-                        defaultValue={String(suggestedInvoiceSubtotal)}
-                      />
-
-                      <Field
-                        id="invoice_vat"
-                        label="Invoice VAT"
-                        name="invoice_vat"
-                        type="number"
-                        step="0.01"
-                        defaultValue={String(suggestedInvoiceVat)}
-                        readOnly
-                      />
-
-                      <Field
-                        id="total_invoice"
-                        label="Total invoice"
-                        name="total_invoice"
-                        type="number"
-                        step="0.01"
-                        defaultValue={String(suggestedInvoiceTotal)}
-                        readOnly
-                      />
-                    </div>
-
-                    <FullWidthField
-                      label="Invoice notes"
+                  <div style={{ marginTop: 12 }}>
+                    <label style={labelStyle}>Invoice notes</label>
+                    <textarea
                       name="invoice_notes"
+                      rows={3}
+                      style={textareaStyle}
                       defaultValue={(item as any).invoice_notes ?? ""}
                     />
-                  </details>
-
-                  <FullWidthField
-                    label="Collection address"
-                    name="collection_address"
-                    defaultValue={(item as any).collection_address ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Delivery address"
-                    name="delivery_address"
-                    defaultValue={(item as any).delivery_address ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Load description"
-                    name="load_description"
-                    defaultValue={(item as any).load_description ?? ""}
-                  />
-
-                  <FullWidthField
-                    label="Notes"
-                    name="notes"
-                    defaultValue={(item as any).notes ?? ""}
-                  />
-
-                  <div style={stickySaveBar}>
-                    <div style={{ fontSize: 13, opacity: 0.78, fontWeight: 700 }}>
-                      Check dates, allocation, supplier details and invoice values before saving.
-                    </div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <a href="/transport-jobs" style={secondaryActionBtn}>
-                        Back
-                      </a>
-                      <button type="submit" style={primaryBtn}>
-                        Update transport job
-                      </button>
-                    </div>
                   </div>
-                </form>
-              </section>
+                </details>
 
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Quick summary</h2>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <button type="submit" style={saveBtn}>
+                    Save changes
+                  </button>
+                  <a href="/transport-jobs" style={btnStyle}>
+                    Back to jobs
+                  </a>
+                </div>
+              </form>
 
-                <InfoRow label="Customer" value={client?.company_name ?? "—"} />
-                <InfoRow label="Vehicle" value={vehicle?.name ?? "—"} />
-                <InfoRow label="Driver" value={driver?.full_name ?? "—"} />
-                <InfoRow label="Supplier" value={supplierSummaryValue} />
-                <InfoRow
-                  label="Linked crane job"
-                  value={linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+              <div style={sideGrid}>
+                <InfoCard
+                  title="Customer"
+                  rows={[
+                    { label: "Company", value: client?.company_name ?? "—" },
+                    { label: "Contact", value: client?.contact_name ?? "—" },
+                    { label: "Phone", value: client?.phone ?? "—" },
+                    { label: "Email", value: client?.email ?? "—" },
+                  ]}
                 />
-                <InfoRow label="Collection date" value={(item as any).transport_date ?? "—"} />
-                <InfoRow label="Collection time" value={(item as any).collection_time ?? "—"} />
-                <InfoRow label="Delivery date" value={(item as any).delivery_date ?? (item as any).transport_date ?? "—"} />
-                <InfoRow label="Delivery time" value={(item as any).delivery_time ?? "—"} />
-                <InfoRow label="Status" value={(item as any).status ?? "—"} />
-                <InfoRow label="Charge rate" value={fmtMoney((item as any).agreed_sell_rate ?? (item as any).price)} />
-                <InfoRow label="Supplier cost" value={fmtMoney((item as any).supplier_cost)} />
-                <InfoRow label="Invoice status" value={(item as any).invoice_status ?? "Not Invoiced"} />
-                <InfoRow label="Invoice subtotal" value={fmtMoney((item as any).invoice_subtotal ?? suggestedInvoiceSubtotal)} />
-                <InfoRow label="Invoice VAT" value={fmtMoney((item as any).invoice_vat ?? suggestedInvoiceVat)} />
-                <InfoRow label="Total invoice" value={fmtMoney((item as any).total_invoice ?? suggestedInvoiceTotal)} />
-              </section>
-            </div>
-          )}
 
-          <TransportJobDetailFormEnhancer />
+                <InfoCard
+                  title="Vehicle / Operator"
+                  rows={[
+                    { label: "Vehicle", value: `${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}` },
+                    { label: "Operator", value: operator?.full_name ?? "—" },
+                    { label: "Operator phone", value: operator?.phone ?? "—" },
+                    { label: "Operator email", value: operator?.email ?? "—" },
+                  ]}
+                />
+
+                <InfoCard
+                  title="Supplier / Invoice"
+                  rows={[
+                    { label: "Supplier", value: supplier?.company_name ?? "—" },
+                    { label: "Supplier phone", value: supplier?.phone ?? "—" },
+                    { label: "Supplier email", value: supplier?.email ?? "—" },
+                    { label: "Supplier category", value: supplier?.category ?? "—" },
+                    { label: "Invoice status", value: (item as any).invoice_status ?? "—" },
+                    { label: "Invoice total", value: money((item as any).total_invoice) },
+                  ]}
+                />
+              </div>
+
+              <TransportJobDetailFormEnhancer />
+            </>
+          )}
         </div>
       </div>
     </ClientShell>
@@ -920,25 +712,23 @@ export default async function TransportJobDetailPage({
 }
 
 function Field({
+  id,
   label,
   name,
   defaultValue,
   type = "text",
-  disabled = false,
-  id,
-  step,
   placeholder,
   readOnly = false,
+  step,
 }: {
+  id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   type?: string;
-  disabled?: boolean;
-  id?: string;
-  step?: string;
   placeholder?: string;
   readOnly?: boolean;
+  step?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -948,37 +738,36 @@ function Field({
         name={name}
         defaultValue={defaultValue}
         type={type}
-        step={step}
         placeholder={placeholder}
-        style={readOnly ? readOnlyInputStyle : inputStyle}
-        disabled={disabled}
+        style={inputStyle}
         readOnly={readOnly}
+        step={step}
       />
     </div>
   );
 }
 
 function SelectField({
+  id,
   label,
   name,
   defaultValue,
   options,
-  id,
 }: {
+  id?: string;
   label: string;
   name: string;
   defaultValue?: string;
   options: Array<{ value: string; label: string }>;
-  id?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
       <select id={id} name={name} defaultValue={defaultValue} style={inputStyle}>
         <option value="">— Select —</option>
-        {options.map((o) => (
-          <option key={`${name}-${o.value}`} value={o.value}>
-            {o.label}
+        {options.map((option) => (
+          <option key={`${name}-${option.value}`} value={option.value}>
+            {option.label}
           </option>
         ))}
       </select>
@@ -986,62 +775,44 @@ function SelectField({
   );
 }
 
-function FullWidthField({
-  label,
-  name,
-  defaultValue,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-}) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea name={name} defaultValue={defaultValue} rows={3} style={textareaStyle} />
+    <div style={infoRowStyle}>
+      <div style={infoLabelStyle}>{label}</div>
+      <div style={infoValueStyle}>{value}</div>
     </div>
   );
 }
 
-function InfoRow({
-  label,
-  value,
+function InfoCard({
+  title,
+  rows,
 }: {
-  label: string;
-  value: string;
+  title: string;
+  rows: Array<{ label: string; value: React.ReactNode }>;
 }) {
   return (
-    <div style={infoRow}>
-      <div style={infoLabel}>{label}</div>
-      <div style={infoValue}>{value}</div>
+    <div style={detailsCard}>
+      <div style={{ fontSize: 18, fontWeight: 900, marginBottom: 12 }}>{title}</div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {rows.map((row, index) => (
+          <InfoRow key={`${title}-${index}`} label={row.label} value={row.value} />
+        ))}
+      </div>
     </div>
   );
 }
 
 const cardStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 20,
-  borderRadius: 16,
+  padding: 18,
+  borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const headerRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const pageGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1.15fr 0.85fr",
-  gap: 16,
-};
-
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
+  background: "rgba(255,255,255,0.22)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
@@ -1050,33 +821,49 @@ const sectionCard: React.CSSProperties = {
 const detailsCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.22)",
   border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 12,
-  padding: 12,
-};
-
-const sectionTitle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 8,
-  fontSize: 22,
-};
-
-const sectionHelp: React.CSSProperties = {
-  fontSize: 13,
-  opacity: 0.76,
-  marginBottom: 12,
+  borderRadius: 14,
+  padding: 16,
 };
 
 const detailsSummary: React.CSSProperties = {
   cursor: "pointer",
+  fontSize: 18,
   fontWeight: 900,
-  fontSize: 16,
 };
 
 const detailsHelp: React.CSSProperties = {
-  marginTop: 10,
-  marginBottom: 12,
   fontSize: 13,
   opacity: 0.78,
+  marginTop: 8,
+  marginBottom: 12,
+};
+
+const sectionTitle: React.CSSProperties = {
+  fontSize: 18,
+  fontWeight: 900,
+  marginBottom: 8,
+};
+
+const topRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const summaryGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 10,
+  marginTop: 18,
+};
+
+const sideGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: 16,
+  marginTop: 18,
 };
 
 const gridStyle: React.CSSProperties = {
@@ -1085,26 +872,10 @@ const gridStyle: React.CSSProperties = {
   gap: 12,
 };
 
-const infoRow: React.CSSProperties = {
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
-};
-
-const infoLabel: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
-  fontWeight: 800,
-};
-
-const infoValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
-};
-
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
-  fontWeight: 800,
   opacity: 0.75,
+  fontWeight: 800,
 };
 
 const inputStyle: React.CSSProperties = {
@@ -1113,14 +884,8 @@ const inputStyle: React.CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.90)",
   boxSizing: "border-box",
-};
-
-const readOnlyInputStyle: React.CSSProperties = {
-  ...inputStyle,
-  background: "rgba(240,240,240,0.95)",
-  color: "#333",
 };
 
 const textareaStyle: React.CSSProperties = {
@@ -1128,89 +893,62 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.90)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
-const stickySaveBar: React.CSSProperties = {
-  position: "sticky",
-  bottom: 12,
-  zIndex: 5,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  padding: "14px 16px",
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.88)",
-  border: "1px solid rgba(0,0,0,0.10)",
-  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+const btnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
 };
 
-const primaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "12px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
+const saveBtn: React.CSSProperties = {
+  padding: "10px 16px",
   background: "#111",
   color: "#fff",
-  fontWeight: 900,
+  borderRadius: 10,
   border: "none",
   cursor: "pointer",
-};
-
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const secondaryActionBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const cancelBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#ef4444",
-  color: "#fff",
-  fontWeight: 800,
-  border: "none",
-  cursor: "pointer",
-};
-
-const successBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
-  color: "#0b7a4b",
   fontWeight: 800,
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.25)",
+};
+
+const infoRowStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.30)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const infoLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.74,
+  fontWeight: 800,
+};
+
+const infoValueStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontWeight: 900,
 };
