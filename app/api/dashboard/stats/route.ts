@@ -41,11 +41,24 @@ function overlapsDateRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
+function jobIncomingValue(row: any) {
+  return Math.max(
+    num(row?.invoice_total),
+    num(row?.total_invoice),
+    num(row?.invoice_subtotal),
+    0
+  );
+}
+
+function purchaseOrderValue(row: any) {
+  return num(row?.total_cost);
+}
+
 function sumRangeTotal(
   rows: any[],
   startKey: string,
   endKey: string,
-  totalKey: string,
+  valueGetter: (row: any) => number,
   rangeStart: string,
   rangeEnd: string
 ) {
@@ -53,7 +66,7 @@ function sumRangeTotal(
     if (!overlapsDateRange(row[startKey], row[endKey] ?? row[startKey], rangeStart, rangeEnd)) {
       return sum;
     }
-    return sum + num(row[totalKey]);
+    return sum + valueGetter(row);
   }, 0);
 }
 
@@ -105,10 +118,11 @@ export async function GET() {
           status,
           invoice_status,
           total_invoice,
+          invoice_total,
+          invoice_subtotal,
           amount_paid,
           submitted_to_office_at,
-          archived,
-          price
+          archived
         `),
 
       supabase
@@ -296,7 +310,7 @@ export async function GET() {
     }, 0);
 
     const outstandingJobInvoices = activeJobs.reduce((sum: number, j: any) => {
-      const total = num(j.total_invoice);
+      const total = Math.max(num(j.total_invoice), num(j.invoice_total));
       const paid = num(j.amount_paid);
       return sum + Math.max(total - paid, 0);
     }, 0);
@@ -376,17 +390,17 @@ export async function GET() {
     };
 
     const weeklyIncomingJobs = {
-      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", "price", weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
     };
 
     const activePurchaseOrders = purchaseOrders.filter((po: any) => lower(po.status) !== "cancelled");
 
     const weeklyPurchaseOrderCosts = {
-      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", "total_cost", weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
     };
 
     const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
