@@ -5,11 +5,6 @@ function isoDate(value: Date) {
   return value.toISOString().slice(0, 10);
 }
 
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
-
 function num(value: any) {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
@@ -19,22 +14,60 @@ function lower(value: any) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function mondayOf(base: Date) {
+  const d = new Date(base);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
 function overlapsDateRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
   rangeStart: string,
   rangeEnd: string
 ) {
-  const start = startDate ?? null;
-  const end = endDate ?? startDate ?? null;
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
   if (!start || !end) return false;
   return start <= rangeEnd && end >= rangeStart;
 }
 
-function addDays(base: Date, days: number) {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d;
+function jobIncomingValue(row: any) {
+  return Math.max(
+    num(row?.invoice_total),
+    num(row?.total_invoice),
+    num(row?.invoice_subtotal),
+    0
+  );
+}
+
+function purchaseOrderValue(row: any) {
+  return num(row?.total_cost);
+}
+
+function sumRangeTotal(
+  rows: any[],
+  startKey: string,
+  endKey: string,
+  valueGetter: (row: any) => number,
+  rangeStart: string,
+  rangeEnd: string
+) {
+  return rows.reduce((sum, row) => {
+    if (!overlapsDateRange(row[startKey], row[endKey] ?? row[startKey], rangeStart, rangeEnd)) {
+      return sum;
+    }
+    return sum + valueGetter(row);
+  }, 0);
 }
 
 export async function GET() {
@@ -46,14 +79,14 @@ export async function GET() {
     const next30Days = isoDate(addDays(now, 30));
 
     const [
-      { data: bookings, error: bookingsError },
-      { data: jobs, error: jobsError },
-      { data: transportJobs, error: transportJobsError },
-      { data: cranes, error: cranesError },
-      { data: vehicles, error: vehiclesError },
-      { data: equipment, error: equipmentError },
-      { data: recentAudit, error: auditError },
-      { data: recentServiceLog, error: serviceLogError },
+      bookingsRes,
+      jobsRes,
+      transportJobsRes,
+      cranesRes,
+      vehiclesRes,
+      equipmentRes,
+      recentAuditRes,
+      purchaseOrdersRes,
     ] = await Promise.all([
       supabase
         .from("bookings")
@@ -85,6 +118,8 @@ export async function GET() {
           status,
           invoice_status,
           total_invoice,
+          invoice_total,
+          invoice_subtotal,
           amount_paid,
           submitted_to_office_at,
           archived
@@ -136,69 +171,72 @@ export async function GET() {
         .limit(20),
 
       supabase
-        .from("equipment_service_log")
-        .select(`
-          id,
-          entry_type,
-          service_date,
-          engineer,
-          notes,
-          created_at,
-          equipment:equipment_id (
-            name
-          )
-        `)
-        .order("service_date", { ascending: false })
-        .limit(20),
+        .from("purchase_orders")
+        .select("id, order_date, required_date, total_cost, status"),
     ]);
 
-    if (bookingsError) {
-      return NextResponse.json({ error: bookingsError.message }, { status: 400 });
+    if (bookingsRes.error) {
+      return NextResponse.json({ error: bookingsRes.error.message }, { status: 400 });
+    }
+    if (jobsRes.error) {
+      return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
+    }
+    if (transportJobsRes.error) {
+      return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
+    }
+    if (cranesRes.error) {
+      return NextResponse.json({ error: cranesRes.error.message }, { status: 400 });
+    }
+    if (vehiclesRes.error) {
+      return NextResponse.json({ error: vehiclesRes.error.message }, { status: 400 });
+    }
+    if (equipmentRes.error) {
+      return NextResponse.json({ error: equipmentRes.error.message }, { status: 400 });
+    }
+    if (recentAuditRes.error) {
+      return NextResponse.json({ error: recentAuditRes.error.message }, { status: 400 });
+    }
+    if (purchaseOrdersRes.error) {
+      return NextResponse.json({ error: purchaseOrdersRes.error.message }, { status: 400 });
     }
 
-    if (jobsError) {
-      return NextResponse.json({ error: jobsError.message }, { status: 400 });
-    }
+    const serviceLogRes = await supabase
+      .from("equipment_service_log")
+      .select(`
+        id,
+        equipment_id,
+        entry_type,
+        service_date,
+        engineer,
+        notes,
+        created_at,
+        equipment:equipment_id (
+          name
+        )
+      `)
+      .order("service_date", { ascending: false })
+      .limit(20);
 
-    if (transportJobsError) {
-      return NextResponse.json({ error: transportJobsError.message }, { status: 400 });
-    }
+    const recentServiceLog = serviceLogRes.error ? [] : serviceLogRes.data ?? [];
 
-    if (cranesError) {
-      return NextResponse.json({ error: cranesError.message }, { status: 400 });
-    }
+    const bookings = bookingsRes.data ?? [];
+    const jobs = jobsRes.data ?? [];
+    const transportJobs = transportJobsRes.data ?? [];
+    const cranes = cranesRes.data ?? [];
+    const vehicles = vehiclesRes.data ?? [];
+    const equipment = equipmentRes.data ?? [];
+    const recentAudit = recentAuditRes.data ?? [];
+    const purchaseOrders = purchaseOrdersRes.data ?? [];
 
-    if (vehiclesError) {
-      return NextResponse.json({ error: vehiclesError.message }, { status: 400 });
-    }
-
-    if (equipmentError) {
-      return NextResponse.json({ error: equipmentError.message }, { status: 400 });
-    }
-
-    if (auditError) {
-      return NextResponse.json({ error: auditError.message }, { status: 400 });
-    }
-
-    if (serviceLogError) {
-      return NextResponse.json({ error: serviceLogError.message }, { status: 400 });
-    }
-
-    const activeBookings = (bookings ?? []).filter(
-      (b: any) => lower(b.status) !== "cancelled"
-    );
-
-    const activeJobs = (jobs ?? []).filter(
+    const activeBookings = bookings.filter((b: any) => lower(b.status) !== "cancelled");
+    const activeJobs = jobs.filter((j: any) => !j.archived && lower(j.status) !== "cancelled");
+    const activeTransportJobs = transportJobs.filter(
       (j: any) => !j.archived && lower(j.status) !== "cancelled"
     );
 
-    const activeTransportJobs = (transportJobs ?? []).filter(
-      (j: any) => !j.archived && lower(j.status) !== "cancelled"
-    );
-
-    const activeCranes = (cranes ?? []).filter((c: any) => !c.archived);
-    const activeVehicles = (vehicles ?? []).filter((v: any) => !v.archived);
-    const activeEquipment = (equipment ?? []).filter((e: any) => !e.archived);
+    const activeCranes = cranes.filter((c: any) => !c.archived);
+    const activeVehicles = vehicles.filter((v: any) => !v.archived);
+    const activeEquipment = equipment.filter((e: any) => !e.archived);
 
     const bookingsTodayRows = activeBookings.filter((b: any) =>
       overlapsDateRange(b.start_date, b.end_date ?? b.start_date, today, today)
@@ -272,7 +310,7 @@ export async function GET() {
     }, 0);
 
     const outstandingJobInvoices = activeJobs.reduce((sum: number, j: any) => {
-      const total = num(j.total_invoice);
+      const total = Math.max(num(j.total_invoice), num(j.invoice_total));
       const paid = num(j.amount_paid);
       return sum + Math.max(total - paid, 0);
     }, 0);
@@ -315,7 +353,7 @@ export async function GET() {
     }).length;
 
     const serviceHistoryIds = new Set(
-      (recentServiceLog ?? [])
+      recentServiceLog
         .map((row: any) => String(row.equipment_id ?? ""))
         .filter(Boolean)
     );
@@ -340,6 +378,30 @@ export async function GET() {
     const completedTransportJobsNotInvoiced = activeTransportJobs.filter((j: any) => {
       return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
     }).length;
+
+    const currentWeekStart = mondayOf(now);
+    const lastWeekStart = addDays(currentWeekStart, -7);
+    const nextWeekStart = addDays(currentWeekStart, 7);
+
+    const weekRanges = {
+      lastWeek: { start: isoDate(lastWeekStart), end: isoDate(addDays(lastWeekStart, 6)) },
+      thisWeek: { start: isoDate(currentWeekStart), end: isoDate(addDays(currentWeekStart, 6)) },
+      nextWeek: { start: isoDate(nextWeekStart), end: isoDate(addDays(nextWeekStart, 6)) },
+    };
+
+    const weeklyIncomingJobs = {
+      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+    };
+
+    const activePurchaseOrders = purchaseOrders.filter((po: any) => lower(po.status) !== "cancelled");
+
+    const weeklyPurchaseOrderCosts = {
+      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
+      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
+      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+    };
 
     const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
       return lower(j.status) === "completed" && !j.submitted_to_office_at;
@@ -370,11 +432,13 @@ export async function GET() {
       completedCraneJobsNotInvoiced,
       completedTransportJobsNotInvoiced,
       timesheetsNotSubmitted,
+      weeklyIncomingJobs,
+      weeklyPurchaseOrderCosts,
       upcomingBookings,
       overdueInvoices,
-      recentAudit: recentAudit ?? [],
+      recentAudit,
       todayJobs,
-      recentServiceLog: recentServiceLog ?? [],
+      recentServiceLog,
     });
   } catch (e: any) {
     return NextResponse.json(
