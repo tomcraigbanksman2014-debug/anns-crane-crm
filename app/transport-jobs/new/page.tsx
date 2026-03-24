@@ -115,45 +115,131 @@ function countDaysInclusive(startDate: string, endDate: string) {
   return count;
 }
 
+function normaliseCompanyName(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/limited/g, "ltd")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bthe\b/g, " ")
+    .replace(/\bltd\b/g, " ltd ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalisePhone(value: string | null | undefined) {
+  return String(value ?? "").replace(/\D+/g, "").trim();
+}
+
+function normaliseEmail(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 async function resolveClientId(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   selectedClientId: string | null,
-  otherCustomerName: string | null
+  otherCustomer: {
+    companyName: string | null;
+    contactName: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+  }
 ) {
   if (selectedClientId && selectedClientId !== "other") {
-    return selectedClientId;
+    return { clientId: selectedClientId, duplicateMessage: "" };
   }
 
-  if (!otherCustomerName) {
-    return null;
+  if (!otherCustomer.companyName) {
+    return { clientId: null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
   }
 
-  const { data: existingClients } = await supabase
+  const wantedCompany = normaliseCompanyName(otherCustomer.companyName);
+  const wantedPhone = normalisePhone(otherCustomer.phone);
+  const wantedEmail = normaliseEmail(otherCustomer.email);
+
+  const { data: existingClients, error: existingClientsError } = await supabase
     .from("clients")
-    .select("id, company_name")
-    .ilike("company_name", otherCustomerName)
-    .limit(1);
+    .select("id, company_name, contact_name, phone, email, address, archived")
+    .eq("archived", false)
+    .order("company_name", { ascending: true });
 
-  if (existingClients?.[0]?.id) {
-    return existingClients[0].id;
+  if (existingClientsError) {
+    return { clientId: null, duplicateMessage: existingClientsError.message };
+  }
+
+  const rows = (existingClients ?? []).map((client: any) => ({
+    ...client,
+    normalisedCompany: normaliseCompanyName(client.company_name),
+    normalisedPhone: normalisePhone(client.phone),
+    normalisedEmail: normaliseEmail(client.email),
+  }));
+
+  const strongMatch =
+    rows.find((client: any) => wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        wantedPhone &&
+        client.normalisedCompany === wantedCompany &&
+        client.normalisedPhone === wantedPhone
+    ) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        client.normalisedCompany === wantedCompany &&
+        (
+          (wantedPhone && client.normalisedPhone === wantedPhone) ||
+          (wantedEmail && client.normalisedEmail === wantedEmail)
+        )
+    );
+
+  if (strongMatch?.id) {
+    return { clientId: strongMatch.id, duplicateMessage: "" };
+  }
+
+  const possibleMatches = rows.filter((client: any) => {
+    if (wantedCompany && client.normalisedCompany === wantedCompany) return true;
+    if (wantedPhone && client.normalisedPhone && client.normalisedPhone === wantedPhone) return true;
+    if (wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) return true;
+    return false;
+  });
+
+  if (possibleMatches.length > 0) {
+    const labels = possibleMatches
+      .slice(0, 5)
+      .map((client: any) => client.company_name || "Existing customer")
+      .join(", ");
+
+    return {
+      clientId: null,
+      duplicateMessage: `Possible duplicate customer found: ${labels}. Please select the existing customer from the dropdown instead of using Other.`,
+    };
   }
 
   const { data: insertedClient, error: insertClientError } = await supabase
     .from("clients")
     .insert([
       {
-        company_name: otherCustomerName,
-        notes: "Auto-created from Other customer during transport job creation.",
+        company_name: otherCustomer.companyName,
+        contact_name: otherCustomer.contactName || null,
+        phone: otherCustomer.phone || null,
+        email: otherCustomer.email || null,
+        address: otherCustomer.address || null,
+        notes: "Created from Other customer during transport job creation.",
       },
     ])
     .select("id")
     .single();
 
   if (insertClientError || !insertedClient?.id) {
-    return null;
+    return {
+      clientId: null,
+      duplicateMessage: insertClientError?.message || "Could not create customer.",
+    };
   }
 
-  return insertedClient.id;
+  return { clientId: insertedClient.id, duplicateMessage: "" };
 }
 
 async function createTransportJob(formData: FormData) {
@@ -168,7 +254,11 @@ async function createTransportJob(formData: FormData) {
   const linkedTransportJobId = clean(formData.get("linked_transport_job_id")) || null;
 
   const rawClientId = clean(formData.get("client_id")) || null;
-  const otherCustomerName = clean(formData.get("other_customer_name")) || null;
+  const otherCustomerCompanyName = clean(formData.get("other_customer_name")) || null;
+  const otherCustomerContactName = clean(formData.get("other_customer_contact_name")) || null;
+  const otherCustomerPhone = clean(formData.get("other_customer_phone")) || null;
+  const otherCustomerEmail = clean(formData.get("other_customer_email")) || null;
+  const otherCustomerAddress = clean(formData.get("other_customer_address")) || null;
 
   const vehicleId = clean(formData.get("vehicle_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
@@ -189,15 +279,19 @@ async function createTransportJob(formData: FormData) {
           .join(" | ") || null
       : supplierReferenceInput || null;
 
-  if (rawClientId === "other" && !otherCustomerName) {
-    redirect(
-      `/transport-jobs/new?error=${encodeURIComponent(
-        "Please enter the customer name when Customer is set to Other."
-      )}`
-    );
+  const clientResolution = await resolveClientId(supabase, rawClientId, {
+    companyName: otherCustomerCompanyName,
+    contactName: otherCustomerContactName,
+    phone: otherCustomerPhone,
+    email: otherCustomerEmail,
+    address: otherCustomerAddress,
+  });
+
+  if (clientResolution.duplicateMessage) {
+    redirect(`/transport-jobs/new?error=${encodeURIComponent(clientResolution.duplicateMessage)}`);
   }
 
-  const clientId = await resolveClientId(supabase, rawClientId, otherCustomerName);
+  const clientId = clientResolution.clientId;
 
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
@@ -419,18 +513,9 @@ export default async function NewTransportJobPage({
                       value: c.id,
                       label: c.company_name ?? "Customer",
                     })),
-                    { value: "other", label: "Other" },
+                    { value: "other", label: "Other / create new customer" },
                   ]}
                 />
-
-                <div id="other_customer_wrap" style={{ display: "none" }}>
-                  <Field
-                    id="other_customer_name"
-                    label="Other customer name"
-                    name="other_customer_name"
-                    placeholder="Enter customer name"
-                  />
-                </div>
 
                 <SelectField
                   label="Vehicle"
@@ -481,6 +566,56 @@ export default async function NewTransportJobPage({
                     { value: "cancelled", label: "cancelled" },
                   ]}
                 />
+              </div>
+
+              <div style={newCustomerBox}>
+                <h3 style={newCustomerHeading}>New customer details</h3>
+                <p style={newCustomerHelp}>
+                  Only used if Customer is set to <strong>Other / create new customer</strong>.
+                  Duplicate checks will run against company name, phone and email.
+                </p>
+
+                <div style={gridStyle}>
+                  <Field
+                    id="other_customer_name"
+                    label="New customer company name"
+                    name="other_customer_name"
+                    placeholder="Enter customer name"
+                  />
+
+                  <Field
+                    id="other_customer_contact_name"
+                    label="New customer contact name"
+                    name="other_customer_contact_name"
+                    placeholder="Contact name"
+                  />
+
+                  <Field
+                    id="other_customer_phone"
+                    label="New customer phone"
+                    name="other_customer_phone"
+                    placeholder="Phone"
+                  />
+
+                  <Field
+                    id="other_customer_email"
+                    label="New customer email"
+                    name="other_customer_email"
+                    type="email"
+                    placeholder="Email"
+                  />
+                </div>
+
+                <div style={{ marginTop: 12 }}>
+                  <label style={labelStyle}>New customer address</label>
+                  <textarea
+                    id="other_customer_address"
+                    name="other_customer_address"
+                    rows={3}
+                    style={textareaStyle}
+                    placeholder="Customer address"
+                  />
+                </div>
               </div>
 
               <div style={twoCol}>
@@ -769,4 +904,25 @@ const errorBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
+};
+
+const newCustomerBox: React.CSSProperties = {
+  marginTop: 16,
+  display: "grid",
+  gap: 12,
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const newCustomerHeading: React.CSSProperties = {
+  margin: 0,
+  fontSize: 18,
+};
+
+const newCustomerHelp: React.CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  opacity: 0.8,
 };
