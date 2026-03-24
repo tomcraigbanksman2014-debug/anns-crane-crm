@@ -295,6 +295,7 @@ export default async function OperatorJobsPage() {
           collection_address,
           delivery_address,
           load_description,
+          notes,
           status,
           vehicle_id,
           operator_id,
@@ -534,6 +535,17 @@ export default async function OperatorJobsPage() {
                       <div style={sectionBlock}>
                         <div style={rowLabel}>Load</div>
                         <div style={rowValue}>{job.load_description ?? "—"}</div>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Notes</div>
+                        <div style={rowValue}>{job.notes ?? "—"}</div>
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <a href={`/operator/transport/${job.id}`} style={openBtn}>
+                          Open transport job
+                        </a>
                       </div>
                     </div>
                   );
