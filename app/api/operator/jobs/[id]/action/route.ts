@@ -6,6 +6,33 @@ type Payload = {
   action?: "start" | "arrive" | "lift_complete" | "complete";
 };
 
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
+
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
+function jobIsAssignedToOperator(job: any, operatorId: string) {
+  if (!job) return false;
+
+  if (String(job.operator_id ?? "") === operatorId) return true;
+  if (String(job.main_operator_id ?? "") === operatorId) return true;
+
+  const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
+  return allocations.some((row: any) => String(row?.operator_id ?? "") === operatorId);
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -30,9 +57,6 @@ export async function POST(
     }
 
     const authEmail = String(user.email ?? "").trim().toLowerCase();
-    const authUsername = authEmail.includes("@")
-      ? authEmail.split("@")[0]
-      : authEmail;
 
     const { data: operators, error: operatorsError } = await supabase
       .from("operators")
@@ -44,16 +68,7 @@ export async function POST(
     }
 
     const operator =
-      (operators ?? []).find((op: any) => {
-        const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-        const operatorName = String(op.full_name ?? "").trim().toLowerCase();
-
-        return (
-          operatorEmail === authEmail ||
-          operatorName === authUsername ||
-          (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
-        );
-      }) ?? null;
+      (operators ?? []).find((op: any) => matchesOperatorLogin(authEmail, op)) ?? null;
 
     if (!operator) {
       return NextResponse.json(
@@ -64,7 +79,17 @@ export async function POST(
 
     const { data: job, error: jobError } = await supabase
       .from("jobs")
-      .select("id, operator_id, job_number, status")
+      .select(`
+        id,
+        job_number,
+        status,
+        operator_id,
+        main_operator_id,
+        job_equipment (
+          id,
+          operator_id
+        )
+      `)
       .eq("id", params.id)
       .single();
 
@@ -72,7 +97,7 @@ export async function POST(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    if (job.operator_id !== operator.id) {
+    if (!jobIsAssignedToOperator(job, operator.id)) {
       return NextResponse.json(
         { error: "This job is not assigned to you." },
         { status: 403 }
