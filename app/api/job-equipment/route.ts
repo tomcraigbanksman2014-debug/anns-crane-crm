@@ -47,7 +47,9 @@ export async function POST(req: Request) {
     const itemName = clean(body.item_name);
     const sourceType = clean(body.source_type) ?? "owned";
     const supplierReference = clean(body.supplier_reference);
-    const assetType = clean(body.asset_type) ?? (craneId ? "crane" : vehicleId ? "vehicle" : equipmentId ? "equipment" : "other");
+    const assetType =
+      clean(body.asset_type) ??
+      (craneId ? "crane" : vehicleId ? "vehicle" : equipmentId ? "equipment" : "other");
 
     const agreedCost = numberOrNull(body.agreed_cost) ?? 0;
     const agreedSellRate = numberOrNull(body.agreed_sell_rate) ?? agreedCost;
@@ -57,9 +59,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "job_id is required." }, { status: 400 });
     }
 
-    if (!craneId && !vehicleId && !equipmentId && !itemName) {
+    const hasAsset = Boolean(craneId || vehicleId || equipmentId);
+    const hasLabourInfo = Boolean(itemName || operatorId);
+
+    if (!hasAsset && !hasLabourInfo) {
       return NextResponse.json(
-        { error: "Please select a crane, vehicle, equipment item or enter an item name." },
+        { error: "Please select a crane, vehicle, equipment item, operator, or enter an item name." },
         { status: 400 }
       );
     }
