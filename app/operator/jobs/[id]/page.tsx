@@ -239,9 +239,10 @@ export default async function OperatorJobSheetPage({
   const client = first((job as any).clients);
   const equipment = first((job as any).equipment);
 
-  const visibleDocuments = (allDocuments ?? []).filter((doc: any) => {
+  const visibleDocuments = ((allDocuments ?? []) as any[]).filter((doc: any) => {
     const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
-    return uploadedByCurrentUser || !!doc.share_with_operator;
+    const sharedByOffice = doc.share_with_operator === true;
+    return uploadedByCurrentUser || sharedByOffice;
   });
 
   return (
