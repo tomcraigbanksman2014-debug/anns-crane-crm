@@ -41,19 +41,6 @@ function overlapsDateRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
-function jobIncomingValue(row: any) {
-  return Math.max(
-    num(row?.invoice_total),
-    num(row?.total_invoice),
-    num(row?.invoice_subtotal),
-    0
-  );
-}
-
-function purchaseOrderValue(row: any) {
-  return num(row?.total_cost);
-}
-
 function sumRangeTotal(
   rows: any[],
   startKey: string,
@@ -70,6 +57,41 @@ function sumRangeTotal(
   }, 0);
 }
 
+function makeJobValueMap(jobEquipment: any[]) {
+  const totals = new Map<string, number>();
+
+  for (const row of jobEquipment ?? []) {
+    const jobId = String(row?.job_id ?? "").trim();
+    if (!jobId) continue;
+
+    const sell =
+      num(row?.agreed_sell_rate) > 0
+        ? num(row?.agreed_sell_rate)
+        : num(row?.agreed_cost);
+
+    totals.set(jobId, (totals.get(jobId) ?? 0) + sell);
+  }
+
+  return totals;
+}
+
+function jobIncomingValue(row: any, jobValueMap: Map<string, number>) {
+  const invoiceValue = Math.max(
+    num(row?.invoice_total),
+    num(row?.total_invoice),
+    num(row?.invoice_subtotal),
+    num(row?.invoice_amount)
+  );
+
+  if (invoiceValue > 0) return invoiceValue;
+
+  return jobValueMap.get(String(row?.id ?? "")) ?? 0;
+}
+
+function purchaseOrderValue(row: any) {
+  return num(row?.total_cost);
+}
+
 export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
@@ -81,6 +103,7 @@ export async function GET() {
     const [
       bookingsRes,
       jobsRes,
+      jobEquipmentRes,
       transportJobsRes,
       cranesRes,
       vehiclesRes,
@@ -112,6 +135,7 @@ export async function GET() {
         .from("jobs")
         .select(`
           id,
+          job_number,
           job_date,
           start_date,
           end_date,
@@ -120,9 +144,19 @@ export async function GET() {
           total_invoice,
           invoice_total,
           invoice_subtotal,
+          invoice_amount,
           amount_paid,
           submitted_to_office_at,
           archived
+        `),
+
+      supabase
+        .from("job_equipment")
+        .select(`
+          id,
+          job_id,
+          agreed_sell_rate,
+          agreed_cost
         `),
 
       supabase
@@ -142,7 +176,13 @@ export async function GET() {
 
       supabase
         .from("cranes")
-        .select("id, archived"),
+        .select(`
+          id,
+          archived,
+          status,
+          loler_due_on,
+          inspection_due_on
+        `),
 
       supabase
         .from("vehicles")
@@ -172,7 +212,13 @@ export async function GET() {
 
       supabase
         .from("purchase_orders")
-        .select("id, order_date, required_date, total_cost, status"),
+        .select(`
+          id,
+          order_date,
+          required_date,
+          total_cost,
+          status
+        `),
     ]);
 
     if (bookingsRes.error) {
@@ -180,6 +226,9 @@ export async function GET() {
     }
     if (jobsRes.error) {
       return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
+    }
+    if (jobEquipmentRes.error) {
+      return NextResponse.json({ error: jobEquipmentRes.error.message }, { status: 400 });
     }
     if (transportJobsRes.error) {
       return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
@@ -221,12 +270,15 @@ export async function GET() {
 
     const bookings = bookingsRes.data ?? [];
     const jobs = jobsRes.data ?? [];
+    const jobEquipment = jobEquipmentRes.data ?? [];
     const transportJobs = transportJobsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
     const vehicles = vehiclesRes.data ?? [];
     const equipment = equipmentRes.data ?? [];
     const recentAudit = recentAuditRes.data ?? [];
     const purchaseOrders = purchaseOrdersRes.data ?? [];
+
+    const jobValueMap = makeJobValueMap(jobEquipment);
 
     const activeBookings = bookings.filter((b: any) => lower(b.status) !== "cancelled");
     const activeJobs = jobs.filter((j: any) => !j.archived && lower(j.status) !== "cancelled");
@@ -310,7 +362,13 @@ export async function GET() {
     }, 0);
 
     const outstandingJobInvoices = activeJobs.reduce((sum: number, j: any) => {
-      const total = Math.max(num(j.total_invoice), num(j.invoice_total));
+      const total = Math.max(
+        num(j.total_invoice),
+        num(j.invoice_total),
+        num(j.invoice_amount),
+        num(j.invoice_subtotal),
+        jobValueMap.get(String(j.id)) ?? 0
+      );
       const paid = num(j.amount_paid);
       return sum + Math.max(total - paid, 0);
     }, 0);
@@ -327,30 +385,63 @@ export async function GET() {
     const utilisationPct =
       totalCranes > 0 ? Math.round((onHireEquipment / totalCranes) * 100) : 0;
 
-    const certExpired = activeEquipment.filter((e: any) => {
+    const certExpiredEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.certification_expires_on ?? "");
       return !!d && d < today;
     }).length;
 
-    const certExpiringSoon = activeEquipment.filter((e: any) => {
+    const certExpiringSoonEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.certification_expires_on ?? "");
       return !!d && d >= today && d <= next30Days;
     }).length;
 
-    const lolerOverdue = activeEquipment.filter((e: any) => {
+    const certExpiredCranes = activeCranes.filter((c: any) => {
+      const d = String(c.inspection_due_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const certExpiringSoonCranes = activeCranes.filter((c: any) => {
+      const d = String(c.inspection_due_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const certExpired = certExpiredEquipment + certExpiredCranes;
+    const certExpiringSoon = certExpiringSoonEquipment + certExpiringSoonCranes;
+
+    const lolerOverdueEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.loler_due_on ?? "");
       return !!d && d < today;
     }).length;
 
-    const lolerDueSoon = activeEquipment.filter((e: any) => {
+    const lolerDueSoonEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.loler_due_on ?? "");
       return !!d && d >= today && d <= next30Days;
     }).length;
+
+    const lolerOverdueCranes = activeCranes.filter((c: any) => {
+      const d = String(c.loler_due_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const lolerDueSoonCranes = activeCranes.filter((c: any) => {
+      const d = String(c.loler_due_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const lolerOverdue = lolerOverdueEquipment + lolerOverdueCranes;
+    const lolerDueSoon = lolerDueSoonEquipment + lolerDueSoonCranes;
 
     const maintenanceEquipment = activeEquipment.filter((e: any) => {
       const status = lower(e.status);
       return status === "maintenance" || status === "repair" || status === "workshop";
     }).length;
+
+    const maintenanceCranes = activeCranes.filter((c: any) => {
+      const status = lower(c.status);
+      return status === "maintenance" || status === "repair" || status === "workshop";
+    }).length;
+
+    const maintenanceCount = maintenanceEquipment + maintenanceCranes;
 
     const serviceHistoryIds = new Set(
       recentServiceLog
@@ -390,17 +481,59 @@ export async function GET() {
     };
 
     const weeklyIncomingJobs = {
-      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.lastWeek.start,
+        weekRanges.lastWeek.end
+      ),
+      thisWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.thisWeek.start,
+        weekRanges.thisWeek.end
+      ),
+      nextWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.nextWeek.start,
+        weekRanges.nextWeek.end
+      ),
     };
 
     const activePurchaseOrders = purchaseOrders.filter((po: any) => lower(po.status) !== "cancelled");
 
     const weeklyPurchaseOrderCosts = {
-      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.lastWeek.start,
+        weekRanges.lastWeek.end
+      ),
+      thisWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.thisWeek.start,
+        weekRanges.thisWeek.end
+      ),
+      nextWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.nextWeek.start,
+        weekRanges.nextWeek.end
+      ),
     };
 
     const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
@@ -423,7 +556,7 @@ export async function GET() {
       reservedEquipment: 0,
       certExpiringSoon,
       certExpired,
-      maintenanceEquipment,
+      maintenanceEquipment: maintenanceCount,
       equipmentWithServiceHistory,
       equipmentWithoutServiceHistory,
       lolerDueSoon,
