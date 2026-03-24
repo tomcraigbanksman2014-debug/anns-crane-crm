@@ -198,8 +198,7 @@ export default async function OperatorJobsPage() {
     );
   }
 
-  const today = new Date();
-  const startWindow = new Date(today);
+  const startWindow = new Date();
   startWindow.setDate(startWindow.getDate() - 30);
   const startStr = startWindow.toISOString().slice(0, 10);
 
