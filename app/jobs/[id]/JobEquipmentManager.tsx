@@ -61,6 +61,27 @@ type Allocation = {
   } | null;
 };
 
+type DraftState = {
+  asset_type: string;
+  crane_id: string;
+  vehicle_id: string;
+  equipment_id: string;
+  operator_id: string;
+  source_type: string;
+  supplier_id: string;
+  purchase_order_id: string;
+  item_name: string;
+  start_date: string;
+  end_date: string;
+  start_time: string;
+  end_time: string;
+  agreed_cost: string;
+  agreed_sell_rate: string;
+  supplier_cost: string;
+  supplier_reference: string;
+  notes: string;
+};
+
 function currentAssetType(item: {
   asset_type?: string | null;
   crane_id?: string | null;
@@ -78,7 +99,7 @@ function assetTypeLabel(value: string | null | undefined) {
   const v = String(value ?? "").toLowerCase();
   if (v === "crane") return "Crane";
   if (v === "vehicle") return "Vehicle";
-  if (v === "other") return "Other";
+  if (v === "other") return "Labour / Other";
   return "Lifting Equipment";
 }
 
@@ -166,6 +187,65 @@ function buildTimeOptions() {
   return options;
 }
 
+function buildEmptyDraft(
+  defaultDate?: string | null,
+  defaultStartTime?: string | null,
+  defaultEndTime?: string | null
+): DraftState {
+  return {
+    asset_type: "crane",
+    crane_id: "",
+    vehicle_id: "",
+    equipment_id: "",
+    operator_id: "",
+    source_type: "owned",
+    supplier_id: "",
+    purchase_order_id: "",
+    item_name: "",
+    start_date: defaultDate ?? "",
+    end_date: defaultDate ?? "",
+    start_time: defaultStartTime ?? "",
+    end_time: defaultEndTime ?? "",
+    agreed_cost: "0.00",
+    agreed_sell_rate: "0.00",
+    supplier_cost: "0.00",
+    supplier_reference: "",
+    notes: "",
+  };
+}
+
+function buildDraftFromAllocation(item: Allocation): DraftState {
+  return {
+    asset_type: currentAssetType(item),
+    crane_id: item.crane_id ?? "",
+    vehicle_id: item.vehicle_id ?? "",
+    equipment_id: item.equipment_id ?? "",
+    operator_id: item.operator_id ?? "",
+    source_type: item.source_type ?? "owned",
+    supplier_id: item.supplier_id ?? "",
+    purchase_order_id: item.purchase_order_id ?? "",
+    item_name: String(item.item_name ?? ""),
+    start_date: item.start_date ?? "",
+    end_date: item.end_date ?? "",
+    start_time: item.start_time ?? "",
+    end_time: item.end_time ?? "",
+    agreed_cost: toCostString(item.agreed_cost),
+    agreed_sell_rate: toCostString(item.agreed_sell_rate ?? item.agreed_cost),
+    supplier_cost: toCostString(item.supplier_cost ?? item.agreed_cost),
+    supplier_reference: String(item.supplier_reference ?? ""),
+    notes: String(item.notes ?? ""),
+  };
+}
+
+function allocationDisplayName(item: Allocation) {
+  const assetType = currentAssetType(item);
+
+  if (assetType === "crane") return item.cranes?.name || item.item_name || "Crane";
+  if (assetType === "vehicle") return item.vehicles?.name || item.item_name || "Vehicle";
+  if (assetType === "equipment") return item.equipment?.name || item.item_name || "Equipment";
+  return item.item_name || "Labour / Other";
+}
+
 export default function JobEquipmentManager({
   jobId,
   initialAllocations,
@@ -226,26 +306,9 @@ export default function JobEquipmentManager({
     )
   );
 
-  const [draft, setDraft] = useState({
-    asset_type: "crane",
-    crane_id: "",
-    vehicle_id: "",
-    equipment_id: "",
-    operator_id: "",
-    source_type: "owned",
-    supplier_id: "",
-    purchase_order_id: "",
-    item_name: "",
-    start_date: defaultDate ?? "",
-    end_date: defaultDate ?? "",
-    start_time: defaultStartTime ?? "",
-    end_time: defaultEndTime ?? "",
-    agreed_cost: "0.00",
-    agreed_sell_rate: "0.00",
-    supplier_cost: "0.00",
-    supplier_reference: "",
-    notes: "",
-  });
+  const [draft, setDraft] = useState<DraftState>(
+    buildEmptyDraft(defaultDate, defaultStartTime, defaultEndTime)
+  );
 
   const totals = useMemo(() => {
     const totalCost = allocations.reduce(
@@ -285,6 +348,23 @@ export default function JobEquipmentManager({
       vehicle_id: assetType === "vehicle" ? selectedId || null : null,
       equipment_id: assetType === "equipment" ? selectedId || null : null,
     };
+  }
+
+  function useAllocationAsTemplate(item: Allocation) {
+    setDraft(buildDraftFromAllocation(item));
+    setMessage(
+      "Allocation copied into the add section. Change the operator and dates, then click Add allocation."
+    );
+    window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  }
+
+  function setLabourPreset(label: string) {
+    setDraft((prev) => ({
+      ...prev,
+      asset_type: "other",
+      ...clearAssetIds(),
+      item_name: label,
+    }));
   }
 
   async function addAllocation() {
@@ -353,27 +433,7 @@ export default function JobEquipmentManager({
         [allocation.id]: String(allocation.item_name ?? ""),
       }));
 
-      setDraft({
-        asset_type: "crane",
-        crane_id: "",
-        vehicle_id: "",
-        equipment_id: "",
-        operator_id: "",
-        source_type: "owned",
-        supplier_id: "",
-        purchase_order_id: "",
-        item_name: "",
-        start_date: defaultDate ?? "",
-        end_date: defaultDate ?? "",
-        start_time: defaultStartTime ?? "",
-        end_time: defaultEndTime ?? "",
-        agreed_cost: "0.00",
-        agreed_sell_rate: "0.00",
-        supplier_cost: "0.00",
-        supplier_reference: "",
-        notes: "",
-      });
-
+      setDraft(buildEmptyDraft(defaultDate, defaultStartTime, defaultEndTime));
       setMessage("Allocation added.");
       router.refresh();
     } catch {
@@ -511,10 +571,10 @@ export default function JobEquipmentManager({
       <div style={topRow}>
         <div>
           <h2 style={{ marginTop: 0, marginBottom: 8, fontSize: 22 }}>
-            Equipment Allocations
+            Allocations & Labour
           </h2>
           <div style={{ opacity: 0.72 }}>
-            Add multiple cranes, vehicles, lifting equipment or other hired items to one job.
+            Add cranes, vehicles, lifting equipment, labour-only rows, or split labour by date range.
           </div>
         </div>
 
@@ -522,17 +582,23 @@ export default function JobEquipmentManager({
           <div style={totalsText}>Cranes: {totals.cranes}</div>
           <div style={totalsText}>Vehicles: {totals.vehicles}</div>
           <div style={totalsText}>Equipment: {totals.equipment}</div>
-          <div style={totalsText}>Other: {totals.other}</div>
+          <div style={totalsText}>Labour / Other: {totals.other}</div>
           <div style={totalsStrong}>Sell total: {money(totals.totalSell)}</div>
           <div style={totalsStrong}>Cost total: {money(totals.totalCost)}</div>
         </div>
+      </div>
+
+      <div style={helpBox}>
+        For multi-day jobs with different labour each day, keep the crane allocation as one row and add
+        separate labour rows for each operator/date range. Use <strong>Use as template</strong> to copy a row,
+        then change the operator and dates.
       </div>
 
       {message ? <div style={messageBox}>{message}</div> : null}
 
       <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
         {allocations.length === 0 ? (
-          <div style={emptyStyle}>No equipment allocations added yet.</div>
+          <div style={emptyStyle}>No allocations added yet.</div>
         ) : (
           allocations.map((item) => {
             const assetType = currentAssetType(item);
@@ -552,7 +618,7 @@ export default function JobEquipmentManager({
                       { value: "crane", label: "Crane" },
                       { value: "vehicle", label: "Vehicle" },
                       { value: "equipment", label: "Lifting Equipment" },
-                      { value: "other", label: "Other" },
+                      { value: "other", label: "Labour / Other" },
                     ]}
                     onChange={(value) =>
                       updateAllocation(item.id, {
@@ -562,7 +628,7 @@ export default function JobEquipmentManager({
                               crane_id: null,
                               vehicle_id: null,
                               equipment_id: null,
-                              item_name: item.item_name || "Hired Item",
+                              item_name: item.item_name || "Labour",
                             }
                           : apiAssetPatch(value || "equipment", "")),
                         supplier_id: null,
@@ -583,7 +649,7 @@ export default function JobEquipmentManager({
                     />
                   ) : (
                     <TextField
-                      label="Other item"
+                      label="Labour / other item"
                       value={itemNameDrafts[item.id] ?? String(item.item_name ?? "")}
                       onChange={(value) =>
                         setItemNameDrafts((prev) => ({
@@ -632,7 +698,7 @@ export default function JobEquipmentManager({
 
                   {assetType !== "other" ? (
                     <TextField
-                      label="Item name"
+                      label="Item name / role"
                       value={itemNameDrafts[item.id] ?? String(item.item_name ?? "")}
                       onChange={(value) =>
                         setItemNameDrafts((prev) => ({
@@ -798,17 +864,32 @@ export default function JobEquipmentManager({
 
                 <div style={footerRow}>
                   <div style={{ fontSize: 13, opacity: 0.72 }}>
-                    {assetTypeLabel(assetType)} • {item.item_name || item.cranes?.name || item.vehicles?.name || item.equipment?.name || "Asset"} • {item.operators?.full_name ?? "No operator"} • {item.suppliers?.company_name ?? "No supplier"} • Sell {money(item.agreed_sell_rate ?? item.agreed_cost)} • Cost {money(item.supplier_cost ?? item.agreed_cost)}
+                    {assetTypeLabel(assetType)} • {allocationDisplayName(item)} •{" "}
+                    {item.operators?.full_name ?? "No operator"} •{" "}
+                    {item.suppliers?.company_name ?? "No supplier"} • Sell{" "}
+                    {money(item.agreed_sell_rate ?? item.agreed_cost)} • Cost{" "}
+                    {money(item.supplier_cost ?? item.agreed_cost)}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => deleteAllocation(item.id)}
-                    style={deleteBtn}
-                    disabled={savingId === item.id}
-                  >
-                    Delete
-                  </button>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => useAllocationAsTemplate(item)}
+                      style={templateBtn}
+                      disabled={savingId === item.id}
+                    >
+                      Use as template
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteAllocation(item.id)}
+                      style={deleteBtn}
+                      disabled={savingId === item.id}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -819,6 +900,25 @@ export default function JobEquipmentManager({
       <div style={{ ...allocationCard, marginTop: 16 }}>
         <h3 style={{ marginTop: 0, marginBottom: 10 }}>Add allocation</h3>
 
+        <div style={presetRow}>
+          <span style={presetLabel}>Quick labour rows:</span>
+          <button type="button" style={presetBtn} onClick={() => setLabourPreset("Slinger")}>
+            Slinger
+          </button>
+          <button type="button" style={presetBtn} onClick={() => setLabourPreset("Lift Supervisor")}>
+            Lift Supervisor
+          </button>
+          <button type="button" style={presetBtn} onClick={() => setLabourPreset("Appointed Person")}>
+            Appointed Person
+          </button>
+          <button type="button" style={presetBtn} onClick={() => setLabourPreset("Operator Only")}>
+            Operator Only
+          </button>
+          <button type="button" style={presetBtn} onClick={() => setLabourPreset("Labour Only")}>
+            Labour Only
+          </button>
+        </div>
+
         <div style={gridStyle}>
           <SelectField
             label="Asset type"
@@ -827,7 +927,7 @@ export default function JobEquipmentManager({
               { value: "crane", label: "Crane" },
               { value: "vehicle", label: "Vehicle" },
               { value: "equipment", label: "Lifting Equipment" },
-              { value: "other", label: "Other" },
+              { value: "other", label: "Labour / Other" },
             ]}
             onChange={(value) =>
               setDraft((prev) => ({
@@ -835,7 +935,7 @@ export default function JobEquipmentManager({
                 asset_type: value || "crane",
                 ...clearAssetIds(),
                 supplier_id: "",
-                item_name: value === "other" ? prev.item_name || "Hired Item" : prev.item_name,
+                item_name: value === "other" ? prev.item_name || "Labour" : prev.item_name,
               }))
             }
           />
@@ -854,7 +954,7 @@ export default function JobEquipmentManager({
             />
           ) : (
             <TextField
-              label="Other item"
+              label="Labour / other item"
               value={draft.item_name}
               onChange={(value) =>
                 setDraft((prev) => ({ ...prev, item_name: value }))
@@ -889,7 +989,7 @@ export default function JobEquipmentManager({
 
           {draft.asset_type !== "other" ? (
             <TextField
-              label="Item name"
+              label="Item name / role"
               value={draft.item_name}
               onChange={(value) =>
                 setDraft((prev) => ({ ...prev, item_name: value }))
@@ -1103,6 +1203,16 @@ const topRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const helpBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
 const totalsBox: React.CSSProperties = {
   display: "flex",
   gap: 14,
@@ -1142,6 +1252,31 @@ const footerRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const presetRow: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+  marginBottom: 12,
+};
+
+const presetLabel: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  opacity: 0.75,
+};
+
+const presetBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.86)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
+};
+
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
@@ -1179,6 +1314,17 @@ const saveBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const templateBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.86)",
+  color: "#111",
+  fontWeight: 900,
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
+};
+
 const deleteBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 12px",
@@ -1200,9 +1346,9 @@ const messageBox: React.CSSProperties = {
 };
 
 const emptyStyle: React.CSSProperties = {
-  padding: 14,
+  padding: "12px 14px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.4)",
-  border: "1px solid rgba(0,0,0,0.06)",
+  background: "rgba(255,255,255,0.72)",
+  border: "1px dashed rgba(0,0,0,0.10)",
   opacity: 0.75,
 };
