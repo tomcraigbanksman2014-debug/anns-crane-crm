@@ -1,6 +1,5 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import OperatorJobActions from "./OperatorJobActions";
 import OperatorTransportTracker from "../transport/OperatorTransportTracker";
 import OperatorSignOutButton from "./OperatorSignOutButton";
 import { redirect } from "next/navigation";
@@ -15,13 +14,6 @@ function fmtDate(value: string | null | undefined) {
     month: "2-digit",
     year: "numeric",
   });
-}
-
-function fmtDateTime(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-GB");
 }
 
 function prettyStatus(value: string | null | undefined) {
@@ -96,51 +88,79 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-async function resolveUserRole(supabase: any, user: any) {
-  const authEmail = String(user?.email ?? "").trim().toLowerCase();
-  const authUsername = fromAuthEmail(user?.email ?? null).toLowerCase();
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
 
-  const masterAdminEmail = String(process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? "")
-    .trim()
-    .toLowerCase();
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
 
-  if (authEmail && masterAdminEmail && authEmail === masterAdminEmail) {
-    return { role: "admin" as const, operator: null };
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
+function jobIsAssignedToOperator(job: any, operatorId: string) {
+  if (!job) return false;
+
+  if (String(job.operator_id ?? "") === operatorId) return true;
+  if (String(job.main_operator_id ?? "") === operatorId) return true;
+
+  const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
+  return allocations.some((row: any) => String(row?.operator_id ?? "") === operatorId);
+}
+
+function displayAsset(job: any) {
+  const directEquipment = first(job?.equipment);
+  if (directEquipment?.name) {
+    return {
+      name: directEquipment.name,
+      extra: directEquipment.capacity ? ` • ${directEquipment.capacity}` : "",
+    };
   }
 
-  const metadataRole = String(user?.user_metadata?.role ?? "").trim().toLowerCase();
+  const allocations = Array.isArray(job?.job_equipment) ? job.job_equipment : [];
 
-  const { data: operators } = await supabase
-    .from("operators")
-    .select("id, full_name, email, status")
-    .eq("status", "active")
-    .order("full_name", { ascending: true });
+  const craneAllocation = allocations.find((row: any) => {
+    const crane = first(row?.cranes);
+    return !!crane?.name;
+  });
 
-  const matchedOperator =
-    (operators ?? []).find((op: any) => {
-      const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-      const operatorName = String(op.full_name ?? "").trim().toLowerCase();
-
-      return (
-        operatorEmail === authEmail ||
-        operatorName === authUsername ||
-        (!!authUsername && !!operatorEmail && operatorEmail.startsWith(`${authUsername}@`))
-      );
-    }) ?? null;
-
-  if (matchedOperator) {
-    return { role: "operator" as const, operator: matchedOperator };
+  if (craneAllocation) {
+    const crane = first(craneAllocation.cranes);
+    return {
+      name: crane?.name ?? "Crane",
+      extra: crane?.capacity ? ` • ${crane.capacity}` : "",
+    };
   }
 
-  if (metadataRole === "admin") {
-    return { role: "admin" as const, operator: null };
+  const equipmentAllocation = allocations.find((row: any) => {
+    const equipment = first(row?.equipment);
+    return !!equipment?.name;
+  });
+
+  if (equipmentAllocation) {
+    const equipment = first(equipmentAllocation.equipment);
+    return {
+      name: equipment?.name ?? "Equipment",
+      extra: equipment?.capacity ? ` • ${equipment.capacity}` : "",
+    };
   }
 
-  if (metadataRole === "staff") {
-    return { role: "staff" as const, operator: null };
+  const otherAllocation = allocations.find((row: any) => !!row?.item_name);
+  if (otherAllocation) {
+    return {
+      name: otherAllocation.item_name ?? "Other",
+      extra: "",
+    };
   }
 
-  return { role: "" as const, operator: null };
+  return { name: "—", extra: "" };
 }
 
 export default async function OperatorJobsPage() {
@@ -155,13 +175,27 @@ export default async function OperatorJobsPage() {
     redirect("/login?next=/operator/jobs");
   }
 
-  const resolved = await resolveUserRole(supabase, user);
+  const authEmail = String(user.email ?? "").trim().toLowerCase();
+  const username = fromAuthEmail(user.email ?? null).toLowerCase();
 
-  if (resolved.role !== "operator") {
-    redirect("/");
+  const { data: operators, error: operatorsError } = await supabase
+    .from("operators")
+    .select("id, full_name, email, status")
+    .eq("status", "active")
+    .order("full_name", { ascending: true });
+
+  if (operatorsError) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+          <div style={errorBox}>{operatorsError.message}</div>
+        </div>
+      </ClientShell>
+    );
   }
 
-  const operator = resolved.operator;
+  const operator =
+    (operators ?? []).find((op: any) => matchesOperatorLogin(authEmail, op)) ?? null;
 
   if (!operator) {
     return (
@@ -172,25 +206,15 @@ export default async function OperatorJobsPage() {
               <div>
                 <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>My Jobs</h1>
                 <p style={{ marginTop: 6, opacity: 0.8 }}>
-                  No operator record is linked to your login yet.
+                  No operator record is linked to this login.
                 </p>
               </div>
-
               <OperatorSignOutButton />
             </div>
 
             <div style={infoBox}>
-              Ask an admin to make the operator full name match your username, or
-              make the operator email start with your login name.
-            </div>
-
-            <div style={debugBox}>
-              <div>
-                <strong>Detected login email:</strong> {String(user.email ?? "").trim().toLowerCase() || "—"}
-              </div>
-              <div style={{ marginTop: 6 }}>
-                <strong>Detected login username:</strong> {fromAuthEmail(user.email ?? null).toLowerCase() || "—"}
-              </div>
+              This login is using <strong>{authEmail || "—"}</strong> and username{" "}
+              <strong>{username || "—"}</strong>.
             </div>
           </div>
         </div>
@@ -199,7 +223,7 @@ export default async function OperatorJobsPage() {
   }
 
   const startWindow = new Date();
-  startWindow.setDate(startWindow.getDate() - 30);
+  startWindow.setDate(startWindow.getDate() - 60);
   const startStr = startWindow.toISOString().slice(0, 10);
 
   const [{ data: jobs, error: jobsError }, { data: transportJobs, error: transportJobsError }] =
@@ -224,6 +248,8 @@ export default async function OperatorJobsPage() {
           arrived_on_site_at,
           lift_completed_at,
           completed_at,
+          operator_id,
+          main_operator_id,
           clients:client_id (
             company_name,
             contact_name,
@@ -235,13 +261,28 @@ export default async function OperatorJobsPage() {
             asset_number,
             type,
             capacity
+          ),
+          job_equipment (
+            id,
+            operator_id,
+            item_name,
+            cranes:crane_id (
+              id,
+              name,
+              capacity
+            ),
+            equipment:equipment_id (
+              id,
+              name,
+              capacity
+            )
           )
         `)
-        .eq("operator_id", operator.id)
         .neq("status", "cancelled")
         .gte("job_date", startStr)
         .order("job_date", { ascending: true })
-        .order("start_time", { ascending: true }),
+        .order("start_time", { ascending: true })
+        .limit(300),
 
       supabase
         .from("transport_jobs")
@@ -256,6 +297,7 @@ export default async function OperatorJobsPage() {
           load_description,
           status,
           vehicle_id,
+          operator_id,
           vehicles:vehicle_id (
             id,
             name,
@@ -269,8 +311,11 @@ export default async function OperatorJobsPage() {
         .order("collection_time", { ascending: true }),
     ]);
 
-  const jobsList = jobs ?? [];
-  const transportList = transportJobs ?? [];
+  const jobsList = ((jobs ?? []) as any[]).filter((job) =>
+    jobIsAssignedToOperator(job, operator.id)
+  );
+
+  const transportList = (transportJobs ?? []) as any[];
 
   return (
     <ClientShell>
@@ -322,7 +367,7 @@ export default async function OperatorJobsPage() {
             <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
               {jobsList.map((job: any) => {
                 const client = first(job.clients);
-                const equipment = first(job.equipment);
+                const asset = displayAsset(job);
 
                 return (
                   <div key={job.id} style={jobCard}>
@@ -340,7 +385,7 @@ export default async function OperatorJobsPage() {
                           Job #{job.job_number ?? "—"}
                         </div>
                         <div style={{ marginTop: 4, opacity: 0.78 }}>
-                          {fmtDate(job.job_date)}
+                          {fmtDate(job.start_date ?? job.job_date)}
                         </div>
                       </div>
 
@@ -364,10 +409,10 @@ export default async function OperatorJobsPage() {
                     </div>
 
                     <div style={sectionBlock}>
-                      <div style={rowLabel}>Crane</div>
+                      <div style={rowLabel}>Crane / equipment</div>
                       <div style={rowValue}>
-                        {equipment?.name ?? "—"}
-                        {equipment?.capacity ? ` • ${equipment.capacity}` : ""}
+                        {asset.name}
+                        {asset.extra}
                       </div>
                     </div>
 
@@ -408,24 +453,6 @@ export default async function OperatorJobsPage() {
                       <div style={rowLabel}>Notes</div>
                       <div style={rowValue}>{job.notes ?? "—"}</div>
                     </div>
-
-                    <div style={timelineBox}>
-                      <div style={timelineTitle}>Job activity</div>
-                      <div style={timelineRow}>
-                        <strong>Started:</strong> {fmtDateTime(job.started_at)}
-                      </div>
-                      <div style={timelineRow}>
-                        <strong>Arrived on site:</strong> {fmtDateTime(job.arrived_on_site_at)}
-                      </div>
-                      <div style={timelineRow}>
-                        <strong>Lift completed:</strong> {fmtDateTime(job.lift_completed_at)}
-                      </div>
-                      <div style={timelineRow}>
-                        <strong>Job completed:</strong> {fmtDateTime(job.completed_at)}
-                      </div>
-                    </div>
-
-                    <OperatorJobActions jobId={job.id} />
 
                     <div style={{ marginTop: 12 }}>
                       <a href={`/operator/jobs/${job.id}`} style={openBtn}>
@@ -545,15 +572,6 @@ const infoBox: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const debugBox: React.CSSProperties = {
-  marginTop: 12,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontSize: 14,
-};
-
 const errorBox: React.CSSProperties = {
   marginTop: 18,
   padding: "12px 14px",
@@ -591,24 +609,6 @@ const rowValue: React.CSSProperties = {
   marginTop: 4,
   fontSize: 15,
   fontWeight: 700,
-};
-
-const timelineBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const timelineTitle: React.CSSProperties = {
-  fontWeight: 900,
-  marginBottom: 8,
-};
-
-const timelineRow: React.CSSProperties = {
-  fontSize: 14,
-  marginTop: 6,
 };
 
 const openBtn: React.CSSProperties = {
