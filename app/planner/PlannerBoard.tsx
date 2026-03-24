@@ -38,6 +38,7 @@ type PlannerItem = {
   working_dates?: string[];
   billable_days?: number | null;
   notes?: string | null;
+  planner_group?: string | null;
 };
 
 type PlannerPerson = {
@@ -160,6 +161,21 @@ function getStatusTone(status: string | null | undefined): React.CSSProperties {
   };
 }
 
+function formatDateRange(item: PlannerItem) {
+  const start = String(item.start_date ?? item.job_date ?? "").trim();
+  const end = String(item.end_date ?? item.start_date ?? item.job_date ?? "").trim();
+  if (!start && !end) return "No dates";
+  if (start && end && start === end) return start;
+  return `${start || "—"} → ${end || "—"}`;
+}
+
+function formatWorkingDays(item: PlannerItem) {
+  const dates = Array.isArray(item.working_dates) ? item.working_dates : [];
+  if (dates.length === 0) return "No working days";
+  if (dates.length === 1) return dates[0];
+  return `${dates[0]} → ${dates[dates.length - 1]} • ${dates.length} day${dates.length === 1 ? "" : "s"}`;
+}
+
 export default function PlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
   const [loading, setLoading] = useState(true);
@@ -230,8 +246,16 @@ export default function PlannerBoard() {
     });
   }, [data]);
 
-  const unassignedItems = useMemo(() => {
-    return (data?.items ?? []).filter((item) => !item.equipment_id);
+  const unassignedCraneItems = useMemo(() => {
+    return (data?.items ?? []).filter(
+      (item) => !item.equipment_id && String(item.planner_group ?? "") !== "labour_only"
+    );
+  }, [data]);
+
+  const labourOnlyItems = useMemo(() => {
+    return (data?.items ?? []).filter(
+      (item) => !item.equipment_id && String(item.planner_group ?? "") === "labour_only"
+    );
   }, [data]);
 
   function moveWeek(delta: number) {
@@ -267,11 +291,11 @@ export default function PlannerBoard() {
 
       {!loading && !error ? (
         <>
-          {unassignedItems.length > 0 ? (
+          {unassignedCraneItems.length > 0 ? (
             <section style={sectionCard}>
               <div style={sectionTitle}>Unassigned crane jobs</div>
               <div style={{ display: "grid", gap: 10 }}>
-                {unassignedItems.map((item) => (
+                {unassignedCraneItems.map((item) => (
                   <a
                     key={item.id}
                     href={`/jobs/${item.job_id}`}
@@ -298,8 +322,59 @@ export default function PlannerBoard() {
                       </div>
                     </div>
 
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.78 }}>
+                      <div><strong>Date span:</strong> {formatDateRange(item)}</div>
+                      <div style={{ marginTop: 4 }}><strong>Working days:</strong> {formatWorkingDays(item)}</div>
+                    </div>
+
                     <div style={tagWrap}>
                       <div style={pillWarn}>No crane assigned</div>
+                      {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {labourOnlyItems.length > 0 ? (
+            <section style={sectionCard}>
+              <div style={sectionTitle}>Labour only / no lifting asset</div>
+              <div style={{ display: "grid", gap: 10 }}>
+                {labourOnlyItems.map((item) => (
+                  <a
+                    key={item.id}
+                    href={`/jobs/${item.job_id}`}
+                    style={{ ...jobCardStyle, ...getStatusTone(item.status) }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 1000 }}>
+                          Job {item.job_number ? `#${item.job_number}` : ""}
+                          {getClientName(item) ? ` • ${getClientName(item)}` : ""}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.82 }}>
+                          {item.site_name ?? item.site_address ?? "No site"}
+                        </div>
+                      </div>
+
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                          {String(item.price_mode ?? "full_job") === "per_day"
+                            ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
+                            : "Full job"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.78 }}>
+                      <div><strong>Date span:</strong> {formatDateRange(item)}</div>
+                      <div style={{ marginTop: 4 }}><strong>Working days:</strong> {formatWorkingDays(item)}</div>
+                    </div>
+
+                    <div style={tagWrap}>
+                      <div style={pillLabour}>Labour only</div>
                       {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
                     </div>
                   </a>
@@ -505,6 +580,16 @@ const pillWarn: React.CSSProperties = {
   fontWeight: 900,
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.22)",
+};
+
+const pillLabour: React.CSSProperties = {
+  display: "inline-block",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 900,
+  background: "rgba(155,89,182,0.14)",
+  border: "1px solid rgba(155,89,182,0.22)",
 };
 
 const pillNeutral: React.CSSProperties = {
