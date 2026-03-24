@@ -199,7 +199,9 @@ export default async function OperatorJobsPage() {
   }
 
   const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
+  const startWindow = new Date(today);
+  startWindow.setDate(startWindow.getDate() - 30);
+  const startStr = startWindow.toISOString().slice(0, 10);
 
   const [{ data: jobs, error: jobsError }, { data: transportJobs, error: transportJobsError }] =
     await Promise.all([
@@ -209,6 +211,8 @@ export default async function OperatorJobsPage() {
           id,
           job_number,
           job_date,
+          start_date,
+          end_date,
           start_time,
           end_time,
           status,
@@ -235,7 +239,8 @@ export default async function OperatorJobsPage() {
           )
         `)
         .eq("operator_id", operator.id)
-        .gte("job_date", todayStr)
+        .neq("status", "cancelled")
+        .gte("job_date", startStr)
         .order("job_date", { ascending: true })
         .order("start_time", { ascending: true }),
 
@@ -259,7 +264,8 @@ export default async function OperatorJobsPage() {
           )
         `)
         .eq("operator_id", operator.id)
-        .gte("transport_date", todayStr)
+        .neq("status", "cancelled")
+        .gte("transport_date", startStr)
         .order("transport_date", { ascending: true })
         .order("collection_time", { ascending: true }),
     ]);
@@ -312,7 +318,7 @@ export default async function OperatorJobsPage() {
           {jobsError ? (
             <div style={errorBox}>{jobsError.message}</div>
           ) : jobsList.length === 0 ? (
-            <div style={infoBox}>No upcoming crane jobs assigned.</div>
+            <div style={infoBox}>No crane jobs assigned.</div>
           ) : (
             <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
               {jobsList.map((job: any) => {
@@ -503,12 +509,6 @@ export default async function OperatorJobsPage() {
                         <div style={rowLabel}>Load</div>
                         <div style={rowValue}>{job.load_description ?? "—"}</div>
                       </div>
-
-                      <div style={{ marginTop: 12 }}>
-                        <a href="/operator/transport" style={openBtn}>
-                          Open transport sheet
-                        </a>
-                      </div>
                     </div>
                   );
                 })}
@@ -532,9 +532,36 @@ const cardStyle: React.CSSProperties = {
 const topBarStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "flex-start",
   gap: 12,
+  alignItems: "center",
   flexWrap: "wrap",
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 18,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
+};
+
+const debugBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 18,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.18)",
+  fontWeight: 800,
 };
 
 const jobCard: React.CSSProperties = {
@@ -552,7 +579,7 @@ const transportCard: React.CSSProperties = {
 };
 
 const sectionBlock: React.CSSProperties = {
-  marginTop: 12,
+  marginTop: 10,
 };
 
 const rowLabel: React.CSSProperties = {
@@ -590,34 +617,7 @@ const openBtn: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.52)",
-  color: "#111",
+  background: "#111",
+  color: "#fff",
   fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const infoBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.18)",
-  fontWeight: 700,
-};
-
-const debugBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontSize: 14,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
