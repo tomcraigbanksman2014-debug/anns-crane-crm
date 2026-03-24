@@ -85,7 +85,6 @@ async function updateJob(formData: FormData) {
     price_mode: priceMode,
     price_per_day: priceMode === "per_day" ? pricePerDay : null,
     exclude_weekends: excludeWeekends,
-    price: calculatedSubtotal,
     invoice_subtotal: calculatedSubtotal,
     updated_at: new Date().toISOString(),
   };
@@ -137,7 +136,9 @@ export default async function EditJobPage({
         hire_type,
         lift_type,
         notes,
-        price,
+        invoice_subtotal,
+        invoice_amount,
+        total_invoice,
         price_mode,
         price_per_day,
         exclude_weekends
@@ -164,6 +165,9 @@ export default async function EditJobPage({
     customersError?.message ||
     equipmentError?.message ||
     "";
+
+  const currentFullJobPrice =
+    job?.invoice_subtotal ?? job?.invoice_amount ?? job?.total_invoice ?? 0;
 
   return (
     <ClientShell>
@@ -326,7 +330,7 @@ export default async function EditJobPage({
                     name="full_job_price"
                     type="number"
                     step="0.01"
-                    defaultValue={job.price_mode === "per_day" ? "" : String(job.price ?? 0)}
+                    defaultValue={job.price_mode === "per_day" ? "" : String(currentFullJobPrice ?? 0)}
                     style={inputStyle}
                   />
                 </div>
