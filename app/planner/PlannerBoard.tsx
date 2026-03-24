@@ -87,8 +87,11 @@ function mondayOf(base: Date) {
   return d;
 }
 
-function isoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+function isoDateLocal(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function itemMatchesDay(item: PlannerItem, dayIso: string) {
@@ -112,11 +115,6 @@ function getClientName(item: PlannerItem) {
 function getOperatorName(item: PlannerItem) {
   const operator = first(item.operators);
   return (operator as any)?.full_name ?? "Unassigned";
-}
-
-function getEquipmentName(item: PlannerItem) {
-  const equipment = first(item.equipment);
-  return (equipment as any)?.name ?? item.item_name ?? "Unassigned";
 }
 
 function getDisplayPrice(item: PlannerItem) {
@@ -163,7 +161,7 @@ function getStatusTone(status: string | null | undefined): React.CSSProperties {
 }
 
 export default function PlannerBoard() {
-  const [weekStart, setWeekStart] = useState<string>(() => isoDate(mondayOf(new Date())));
+  const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
@@ -207,7 +205,7 @@ export default function PlannerBoard() {
     return Array.from({ length: 7 }, (_, i) => {
       const d = addDays(base, i);
       return {
-        date: isoDate(d),
+        date: isoDateLocal(d),
         label: d.toLocaleDateString("en-GB", {
           weekday: "short",
           day: "2-digit",
@@ -238,7 +236,7 @@ export default function PlannerBoard() {
 
   function moveWeek(delta: number) {
     const base = new Date(`${weekStart}T00:00:00`);
-    setWeekStart(isoDate(addDays(base, delta * 7)));
+    setWeekStart(isoDateLocal(addDays(base, delta * 7)));
   }
 
   return (
@@ -255,7 +253,7 @@ export default function PlannerBoard() {
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
             ← Previous week
           </button>
-          <button type="button" onClick={() => setWeekStart(isoDate(mondayOf(new Date())))} style={secondaryBtn}>
+          <button type="button" onClick={() => setWeekStart(isoDateLocal(mondayOf(new Date())))} style={secondaryBtn}>
             This week
           </button>
           <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
