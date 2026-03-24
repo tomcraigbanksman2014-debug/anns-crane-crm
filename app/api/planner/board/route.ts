@@ -105,7 +105,17 @@ function effectiveJobPrice(job: any) {
     return rate * Math.max(days, 1);
   }
 
-  return num(job?.price);
+  return (
+    num(job?.invoice_subtotal) ||
+    num(job?.invoice_amount) ||
+    num(job?.total_invoice)
+  );
+}
+
+function isPlannerVisibleStatus(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+  if (!s) return true;
+  return s !== "cancelled" && s !== "draft";
 }
 
 function bankHolidaysByYear(year: number) {
@@ -145,6 +155,28 @@ function bankHolidaysByYear(year: number) {
   return map[year] ?? [];
 }
 
+function classifyUnassignedType(job: any) {
+  const siteName = String(job?.site_name ?? "").trim().toLowerCase();
+  const notes = String(job?.notes ?? "").trim().toLowerCase();
+  const hireType = String(job?.hire_type ?? "").trim().toLowerCase();
+  const liftType = String(job?.lift_type ?? "").trim().toLowerCase();
+
+  const combined = `${siteName} ${notes} ${hireType} ${liftType}`;
+
+  if (
+    combined.includes("labour only") ||
+    combined.includes("labour-only") ||
+    combined.includes("slinger") ||
+    combined.includes("lift supervisor") ||
+    combined.includes("supervisor only") ||
+    combined.includes("operator only")
+  ) {
+    return "labour_only";
+  }
+
+  return "unassigned_crane";
+}
+
 export async function GET(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
@@ -168,8 +200,7 @@ export async function GET(req: Request) {
           clients:client_id (company_name),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, reg_number)
-        `)
-        .not("status", "eq", "cancelled"),
+        `),
 
       supabase
         .from("job_equipment")
@@ -236,7 +267,7 @@ export async function GET(req: Request) {
       };
     });
 
-    const activeJobs = jobs.filter((job: any) => String(job?.status ?? "").toLowerCase() !== "cancelled");
+    const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
 
     const jobsInRange = activeJobs
       .filter((job: any) =>
@@ -263,6 +294,8 @@ export async function GET(req: Request) {
 
     const activeAllocations = allocations.filter((row: any) => {
       const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
+      if (!linkedJob) return false;
+
       const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
 
       return overlapsWorkingWeek(
@@ -310,7 +343,8 @@ export async function GET(req: Request) {
         exclude_weekends: excludeWeekends,
         working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
         billable_days: countBillableDays(startDate, endDate, excludeWeekends),
-        notes: row.notes ?? null,
+        notes: row.notes ?? job?.notes ?? null,
+        planner_group: "allocated",
       };
     });
 
@@ -353,7 +387,8 @@ export async function GET(req: Request) {
           exclude_weekends: excludeWeekends,
           working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
           billable_days: countBillableDays(startDate, endDate, excludeWeekends),
-          notes: null,
+          notes: job.notes ?? null,
+          planner_group: classifyUnassignedType(job),
         };
       });
 
