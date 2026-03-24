@@ -8,6 +8,7 @@ export default function TransportDocumentUploadForm({
   transportJobId: string;
 }) {
   const [saving, setSaving] = useState(false);
+  const [shareWithOperator, setShareWithOperator] = useState(false);
 
   return (
     <form
@@ -33,6 +34,17 @@ export default function TransportDocumentUploadForm({
           required
           style={inputStyle}
         />
+
+        <label style={checkboxRow}>
+          <input
+            type="checkbox"
+            name="share_with_operator"
+            value="true"
+            checked={shareWithOperator}
+            onChange={(e) => setShareWithOperator(e.target.checked)}
+          />
+          <span>Share with operator</span>
+        </label>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button type="submit" disabled={saving} style={primaryBtn}>
@@ -62,6 +74,14 @@ const selectStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.88)",
   boxSizing: "border-box",
   fontSize: 14,
+};
+
+const checkboxRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 14,
+  fontWeight: 700,
 };
 
 const primaryBtn: React.CSSProperties = {
