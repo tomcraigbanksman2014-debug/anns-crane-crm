@@ -41,19 +41,6 @@ function overlapsDateRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
-function jobIncomingValue(row: any) {
-  return Math.max(
-    num(row?.invoice_total),
-    num(row?.total_invoice),
-    num(row?.invoice_subtotal),
-    0
-  );
-}
-
-function purchaseOrderValue(row: any) {
-  return num(row?.total_cost);
-}
-
 function sumRangeTotal(
   rows: any[],
   startKey: string,
@@ -70,6 +57,41 @@ function sumRangeTotal(
   }, 0);
 }
 
+function makeJobValueMap(jobEquipment: any[]) {
+  const totals = new Map<string, number>();
+
+  for (const row of jobEquipment ?? []) {
+    const jobId = String(row?.job_id ?? "").trim();
+    if (!jobId) continue;
+
+    const sell =
+      num(row?.agreed_sell_rate) > 0
+        ? num(row?.agreed_sell_rate)
+        : num(row?.agreed_cost);
+
+    totals.set(jobId, (totals.get(jobId) ?? 0) + sell);
+  }
+
+  return totals;
+}
+
+function jobIncomingValue(row: any, jobValueMap: Map<string, number>) {
+  const invoiceValue = Math.max(
+    num(row?.invoice_total),
+    num(row?.total_invoice),
+    num(row?.invoice_subtotal),
+    num(row?.invoice_amount)
+  );
+
+  if (invoiceValue > 0) return invoiceValue;
+
+  return jobValueMap.get(String(row?.id ?? "")) ?? 0;
+}
+
+function purchaseOrderValue(row: any) {
+  return num(row?.total_cost);
+}
+
 export async function GET() {
   try {
     const supabase = createSupabaseServerClient();
@@ -79,27 +101,38 @@ export async function GET() {
     const next30Days = isoDate(addDays(now, 30));
 
     const [
-      bookingsRes,
       jobsRes,
+      jobEquipmentRes,
       transportJobsRes,
       cranesRes,
       vehiclesRes,
       equipmentRes,
       recentAuditRes,
       purchaseOrdersRes,
+      recentServiceLogRes,
     ] = await Promise.all([
       supabase
         .from("bookings")
         .select(`
           id,
+          job_number,
+          client_id,
+          site_name,
+          site_address,
+          job_date,
           start_date,
           end_date,
-          start_at,
+          start_time,
+          end_time,
           status,
-          location,
           invoice_status,
           total_invoice,
-          payment_received,
+          invoice_total,
+          invoice_subtotal,
+          invoice_amount,
+          amount_paid,
+          submitted_to_office_at,
+          archived,
           clients:client_id (
             company_name
           ),
@@ -109,40 +142,49 @@ export async function GET() {
         `),
 
       supabase
-        .from("jobs")
+        .from("job_equipment")
         .select(`
           id,
-          job_date,
-          start_date,
-          end_date,
-          status,
-          invoice_status,
-          total_invoice,
-          invoice_total,
-          invoice_subtotal,
-          amount_paid,
-          submitted_to_office_at,
-          archived
+          job_id,
+          agreed_sell_rate,
+          agreed_cost
         `),
 
       supabase
         .from("transport_jobs")
         .select(`
           id,
+          transport_number,
+          client_id,
+          collection_address,
+          delivery_address,
           transport_date,
           delivery_date,
+          collection_time,
+          delivery_time,
           status,
           invoice_status,
           total_invoice,
+          invoice_total,
+          invoice_subtotal,
           amount_paid,
           vehicle_id,
           operator_id,
-          archived
+          archived,
+          clients:client_id (
+            company_name
+          )
         `),
 
       supabase
         .from("cranes")
-        .select("id, archived"),
+        .select(`
+          id,
+          archived,
+          status,
+          loler_due_on,
+          inspection_due_on
+        `),
 
       supabase
         .from("vehicles")
@@ -172,14 +214,37 @@ export async function GET() {
 
       supabase
         .from("purchase_orders")
-        .select("id, order_date, required_date, total_cost, status"),
+        .select(`
+          id,
+          order_date,
+          required_date,
+          total_cost,
+          status
+        `),
+
+      supabase
+        .from("equipment_service_log")
+        .select(`
+          id,
+          equipment_id,
+          entry_type,
+          service_date,
+          engineer,
+          notes,
+          created_at,
+          equipment:equipment_id (
+            name
+          )
+        `)
+        .order("service_date", { ascending: false })
+        .limit(20),
     ]);
 
-    if (bookingsRes.error) {
-      return NextResponse.json({ error: bookingsRes.error.message }, { status: 400 });
-    }
     if (jobsRes.error) {
       return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
+    }
+    if (jobEquipmentRes.error) {
+      return NextResponse.json({ error: jobEquipmentRes.error.message }, { status: 400 });
     }
     if (transportJobsRes.error) {
       return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
@@ -200,35 +265,18 @@ export async function GET() {
       return NextResponse.json({ error: purchaseOrdersRes.error.message }, { status: 400 });
     }
 
-    const serviceLogRes = await supabase
-      .from("equipment_service_log")
-      .select(`
-        id,
-        equipment_id,
-        entry_type,
-        service_date,
-        engineer,
-        notes,
-        created_at,
-        equipment:equipment_id (
-          name
-        )
-      `)
-      .order("service_date", { ascending: false })
-      .limit(20);
-
-    const recentServiceLog = serviceLogRes.error ? [] : serviceLogRes.data ?? [];
-
-    const bookings = bookingsRes.data ?? [];
     const jobs = jobsRes.data ?? [];
+    const jobEquipment = jobEquipmentRes.data ?? [];
     const transportJobs = transportJobsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
     const vehicles = vehiclesRes.data ?? [];
     const equipment = equipmentRes.data ?? [];
     const recentAudit = recentAuditRes.data ?? [];
     const purchaseOrders = purchaseOrdersRes.data ?? [];
+    const recentServiceLog = recentServiceLogRes.error ? [] : recentServiceLogRes.data ?? [];
 
-    const activeBookings = bookings.filter((b: any) => lower(b.status) !== "cancelled");
+    const jobValueMap = makeJobValueMap(jobEquipment);
+
     const activeJobs = jobs.filter((j: any) => !j.archived && lower(j.status) !== "cancelled");
     const activeTransportJobs = transportJobs.filter(
       (j: any) => !j.archived && lower(j.status) !== "cancelled"
@@ -238,79 +286,127 @@ export async function GET() {
     const activeVehicles = vehicles.filter((v: any) => !v.archived);
     const activeEquipment = equipment.filter((e: any) => !e.archived);
 
-    const bookingsTodayRows = activeBookings.filter((b: any) =>
-      overlapsDateRange(b.start_date, b.end_date ?? b.start_date, today, today)
+    const craneJobsTodayRows = activeJobs.filter((j: any) =>
+      overlapsDateRange(j.start_date ?? j.job_date, j.end_date ?? j.job_date, today, today)
     );
 
-    const activeHiresRows = activeBookings.filter((b: any) =>
-      overlapsDateRange(b.start_date, b.end_date ?? b.start_date, today, today)
+    const transportJobsTodayRows = activeTransportJobs.filter((j: any) =>
+      overlapsDateRange(j.transport_date, j.delivery_date ?? j.transport_date, today, today)
     );
 
-    const todayJobs = bookingsTodayRows
-      .sort((a: any, b: any) =>
-        String(a.start_at ?? a.start_date ?? "").localeCompare(
-          String(b.start_at ?? b.start_date ?? "")
-        )
-      )
+    const todayJobs = [
+      ...craneJobsTodayRows.map((j: any) => ({
+        id: `job-${j.id}`,
+        href: `/jobs/${j.id}`,
+        title: `Job #${j.job_number ?? "—"}`,
+        subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.site_name ?? j.site_address ?? "No site"}`,
+        time: j.start_time ?? "—",
+        status: j.status ?? "—",
+      })),
+      ...transportJobsTodayRows.map((j: any) => ({
+        id: `transport-${j.id}`,
+        href: `/transport-jobs/${j.id}`,
+        title: `${j.transport_number ?? "Transport job"}`,
+        subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.delivery_address ?? j.collection_address ?? "No address"}`,
+        time: j.collection_time ?? "—",
+        status: j.status ?? "—",
+      })),
+    ].slice(0, 12);
+
+    const upcomingJobs = [
+      ...activeJobs
+        .filter((j: any) => String(j.start_date ?? j.job_date ?? "") > today)
+        .map((j: any) => ({
+          id: `job-${j.id}`,
+          href: `/jobs/${j.id}`,
+          title: `Job #${j.job_number ?? "—"}`,
+          subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.site_name ?? j.site_address ?? "No site"}`,
+          when: String(j.start_date ?? j.job_date ?? ""),
+          status: j.status ?? "—",
+        })),
+      ...activeTransportJobs
+        .filter((j: any) => String(j.transport_date ?? "") > today)
+        .map((j: any) => ({
+          id: `transport-${j.id}`,
+          href: `/transport-jobs/${j.id}`,
+          title: `${j.transport_number ?? "Transport job"}`,
+          subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.delivery_address ?? j.collection_address ?? "No address"}`,
+          when: String(j.transport_date ?? ""),
+          status: j.status ?? "—",
+        })),
+    ]
+      .sort((a, b) => a.when.localeCompare(b.when))
       .slice(0, 12);
 
-    const upcomingBookings = activeBookings
-      .filter((b: any) => {
-        const start = String(b.start_date ?? "");
-        return !!start && start > today;
-      })
-      .sort((a: any, b: any) =>
-        String(a.start_at ?? a.start_date ?? "").localeCompare(
-          String(b.start_at ?? b.start_date ?? "")
-        )
-      )
+    const overdueInvoices = [
+      ...activeJobs
+        .filter((j: any) => {
+          const total = Math.max(
+            num(j.total_invoice),
+            num(j.invoice_total),
+            num(j.invoice_amount),
+            num(j.invoice_subtotal),
+            jobValueMap.get(String(j.id)) ?? 0
+          );
+          const paid = num(j.amount_paid);
+          return total > paid && lower(j.invoice_status) !== "paid";
+        })
+        .map((j: any) => ({
+          id: `job-${j.id}`,
+          href: `/jobs/${j.id}`,
+          title: `Job #${j.job_number ?? "—"}`,
+          subtitle: j.clients?.company_name ?? "Customer",
+          invoice_status: j.invoice_status ?? "—",
+          amount:
+            Math.max(
+              num(j.total_invoice),
+              num(j.invoice_total),
+              num(j.invoice_amount),
+              num(j.invoice_subtotal),
+              jobValueMap.get(String(j.id)) ?? 0
+            ) - num(j.amount_paid),
+        })),
+      ...activeTransportJobs
+        .filter((j: any) => {
+          const total = num(j.total_invoice);
+          const paid = num(j.amount_paid);
+          return total > paid && lower(j.invoice_status) !== "paid";
+        })
+        .map((j: any) => ({
+          id: `transport-${j.id}`,
+          href: `/transport-jobs/${j.id}`,
+          title: `${j.transport_number ?? "Transport job"}`,
+          subtitle: j.clients?.company_name ?? "Customer",
+          invoice_status: j.invoice_status ?? "—",
+          amount: num(j.total_invoice) - num(j.amount_paid),
+        })),
+    ]
+      .sort((a, b) => b.amount - a.amount)
       .slice(0, 12);
-
-    const overdueInvoices = activeBookings
-      .filter((b: any) => {
-        const total = num(b.total_invoice);
-        const paid = num(b.payment_received);
-        return total > paid && lower(b.invoice_status) !== "paid";
-      })
-      .sort((a: any, b: any) =>
-        String(a.start_at ?? a.start_date ?? "").localeCompare(
-          String(b.start_at ?? b.start_date ?? "")
-        )
-      )
-      .slice(0, 12)
-      .map((b: any) => ({
-        ...b,
-        href: `/bookings/${b.id}`,
-      }));
 
     const totalCranes = activeCranes.length;
     const totalVehicles = activeVehicles.length;
     const totalEquipment = activeEquipment.length;
 
-    const onHireEquipment = activeJobs.filter((j: any) =>
-      overlapsDateRange(j.start_date ?? j.job_date, j.end_date ?? j.job_date, today, today)
-    ).length;
-
-    const reservedCranesLater = activeJobs.filter((j: any) => {
+    const cranesOnHireNow = craneJobsTodayRows.length;
+    const cranesReservedLater = activeJobs.filter((j: any) => {
       const start = String(j.start_date ?? j.job_date ?? "");
       return !!start && start > today && start <= next30Days;
     }).length;
 
-    const vehiclesOnWorkToday = activeTransportJobs.filter((j: any) =>
-      overlapsDateRange(j.transport_date, j.delivery_date ?? j.transport_date, today, today)
-    ).length;
+    const vehiclesOnWorkToday = transportJobsTodayRows.length;
 
-    const availableCranesNow = Math.max(totalCranes - onHireEquipment, 0);
+    const availableCranesNow = Math.max(totalCranes - cranesOnHireNow, 0);
     const availableVehiclesNow = Math.max(totalVehicles - vehiclesOnWorkToday, 0);
 
-    const outstandingBookingInvoices = activeBookings.reduce((sum: number, b: any) => {
-      const total = num(b.total_invoice);
-      const paid = num(b.payment_received);
-      return sum + Math.max(total - paid, 0);
-    }, 0);
-
     const outstandingJobInvoices = activeJobs.reduce((sum: number, j: any) => {
-      const total = Math.max(num(j.total_invoice), num(j.invoice_total));
+      const total = Math.max(
+        num(j.total_invoice),
+        num(j.invoice_total),
+        num(j.invoice_amount),
+        num(j.invoice_subtotal),
+        jobValueMap.get(String(j.id)) ?? 0
+      );
       const paid = num(j.amount_paid);
       return sum + Math.max(total - paid, 0);
     }, 0);
@@ -321,36 +417,68 @@ export async function GET() {
       return sum + Math.max(total - paid, 0);
     }, 0);
 
-    const outstandingInvoices =
-      outstandingBookingInvoices + outstandingJobInvoices + outstandingTransportInvoices;
+    const outstandingInvoices = outstandingJobInvoices + outstandingTransportInvoices;
 
     const utilisationPct =
-      totalCranes > 0 ? Math.round((onHireEquipment / totalCranes) * 100) : 0;
+      totalCranes > 0 ? Math.round((cranesOnHireNow / totalCranes) * 100) : 0;
 
-    const certExpired = activeEquipment.filter((e: any) => {
+    const certExpiredEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.certification_expires_on ?? "");
       return !!d && d < today;
     }).length;
 
-    const certExpiringSoon = activeEquipment.filter((e: any) => {
+    const certExpiringSoonEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.certification_expires_on ?? "");
       return !!d && d >= today && d <= next30Days;
     }).length;
 
-    const lolerOverdue = activeEquipment.filter((e: any) => {
+    const certExpiredCranes = activeCranes.filter((c: any) => {
+      const d = String(c.inspection_due_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const certExpiringSoonCranes = activeCranes.filter((c: any) => {
+      const d = String(c.inspection_due_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const certExpired = certExpiredEquipment + certExpiredCranes;
+    const certExpiringSoon = certExpiringSoonEquipment + certExpiringSoonCranes;
+
+    const lolerOverdueEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.loler_due_on ?? "");
       return !!d && d < today;
     }).length;
 
-    const lolerDueSoon = activeEquipment.filter((e: any) => {
+    const lolerDueSoonEquipment = activeEquipment.filter((e: any) => {
       const d = String(e.loler_due_on ?? "");
       return !!d && d >= today && d <= next30Days;
     }).length;
+
+    const lolerOverdueCranes = activeCranes.filter((c: any) => {
+      const d = String(c.loler_due_on ?? "");
+      return !!d && d < today;
+    }).length;
+
+    const lolerDueSoonCranes = activeCranes.filter((c: any) => {
+      const d = String(c.loler_due_on ?? "");
+      return !!d && d >= today && d <= next30Days;
+    }).length;
+
+    const lolerOverdue = lolerOverdueEquipment + lolerOverdueCranes;
+    const lolerDueSoon = lolerDueSoonEquipment + lolerDueSoonCranes;
 
     const maintenanceEquipment = activeEquipment.filter((e: any) => {
       const status = lower(e.status);
       return status === "maintenance" || status === "repair" || status === "workshop";
     }).length;
+
+    const maintenanceCranes = activeCranes.filter((c: any) => {
+      const status = lower(c.status);
+      return status === "maintenance" || status === "repair" || status === "workshop";
+    }).length;
+
+    const maintenanceCount = maintenanceEquipment + maintenanceCranes;
 
     const serviceHistoryIds = new Set(
       recentServiceLog
@@ -372,11 +500,11 @@ export async function GET() {
     ).length;
 
     const completedCraneJobsNotInvoiced = activeJobs.filter((j: any) => {
-      return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
+      return lower(j.status) === "completed" && lower(j.invoice_status || "not invoiced") === "not invoiced";
     }).length;
 
     const completedTransportJobsNotInvoiced = activeTransportJobs.filter((j: any) => {
-      return lower(j.status) === "completed" && lower(j.invoice_status || "Not Invoiced") === "not invoiced";
+      return lower(j.status) === "completed" && lower(j.invoice_status || "not invoiced") === "not invoiced";
     }).length;
 
     const currentWeekStart = mondayOf(now);
@@ -390,17 +518,59 @@ export async function GET() {
     };
 
     const weeklyIncomingJobs = {
-      lastWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activeJobs, "start_date", "end_date", jobIncomingValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.lastWeek.start,
+        weekRanges.lastWeek.end
+      ),
+      thisWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.thisWeek.start,
+        weekRanges.thisWeek.end
+      ),
+      nextWeek: sumRangeTotal(
+        activeJobs,
+        "start_date",
+        "end_date",
+        (row) => jobIncomingValue(row, jobValueMap),
+        weekRanges.nextWeek.start,
+        weekRanges.nextWeek.end
+      ),
     };
 
     const activePurchaseOrders = purchaseOrders.filter((po: any) => lower(po.status) !== "cancelled");
 
     const weeklyPurchaseOrderCosts = {
-      lastWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.lastWeek.start, weekRanges.lastWeek.end),
-      thisWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.thisWeek.start, weekRanges.thisWeek.end),
-      nextWeek: sumRangeTotal(activePurchaseOrders, "order_date", "required_date", purchaseOrderValue, weekRanges.nextWeek.start, weekRanges.nextWeek.end),
+      lastWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.lastWeek.start,
+        weekRanges.lastWeek.end
+      ),
+      thisWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.thisWeek.start,
+        weekRanges.thisWeek.end
+      ),
+      nextWeek: sumRangeTotal(
+        activePurchaseOrders,
+        "order_date",
+        "required_date",
+        purchaseOrderValue,
+        weekRanges.nextWeek.start,
+        weekRanges.nextWeek.end
+      ),
     };
 
     const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
@@ -408,22 +578,21 @@ export async function GET() {
     }).length;
 
     return NextResponse.json({
-      bookingsToday: bookingsTodayRows.length,
-      activeHires: activeHiresRows.length,
-      availableEquipment: Math.max(totalEquipment - activeHiresRows.length, 0),
+      jobsToday: todayJobs.length,
+      activeCraneJobs: craneJobsTodayRows.length,
+      activeTransportToday: transportJobsTodayRows.length,
       totalEquipment,
       totalCranes,
       totalVehicles,
       availableCranesNow,
-      reservedCranesLater,
+      reservedCranesLater: cranesReservedLater,
       availableVehiclesNow,
       outstandingInvoices,
       utilisationPct,
-      onHireEquipment,
-      reservedEquipment: 0,
+      cranesOnHireNow,
       certExpiringSoon,
       certExpired,
-      maintenanceEquipment,
+      maintenanceEquipment: maintenanceCount,
       equipmentWithServiceHistory,
       equipmentWithoutServiceHistory,
       lolerDueSoon,
@@ -434,7 +603,7 @@ export async function GET() {
       timesheetsNotSubmitted,
       weeklyIncomingJobs,
       weeklyPurchaseOrderCosts,
-      upcomingBookings,
+      upcomingJobs,
       overdueInvoices,
       recentAudit,
       todayJobs,

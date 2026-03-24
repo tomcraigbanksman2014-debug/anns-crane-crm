@@ -105,12 +105,7 @@ function effectiveJobPrice(job: any) {
     return rate * Math.max(days, 1);
   }
 
-  return Math.max(
-    num(job?.invoice_total),
-    num(job?.total_invoice),
-    num(job?.invoice_subtotal),
-    0
-  );
+  return num(job?.price);
 }
 
 function bankHolidaysByYear(year: number) {

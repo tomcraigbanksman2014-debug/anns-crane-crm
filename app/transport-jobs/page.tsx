@@ -36,6 +36,7 @@ function prettyJobType(value: string | null | undefined) {
   if (v === "collection") return "Collection";
   if (v === "ballast") return "Ballast";
   if (v === "crane_support") return "Crane Support";
+  if (v === "on_site_hiab") return "On-site HIAB";
   return value ?? "—";
 }
 
@@ -518,21 +519,8 @@ export default async function TransportJobsPage({
                               <div style={{ fontSize: 12, opacity: 0.92, fontWeight: 900 }}>
                                 Outstanding: {fmtMoney(amountOutstanding)}
                               </div>
-                            </div>
-                          </td>
-                        ) : null}
 
-                        <td style={tdStyle}>
-                          <div style={{ display: "grid", gap: 8 }}>
-                            <a href={`/transport-jobs/${item.id}`} style={actionBtn}>
-                              Open
-                            </a>
-
-                            {showInvoices ? (
-                              <form
-                                action={updateTransportInvoiceStatus}
-                                style={{ display: "grid", gap: 8 }}
-                              >
+                              <form action={updateTransportInvoiceStatus} style={{ display: "grid", gap: 6 }}>
                                 <input type="hidden" name="transport_job_id" value={item.id} />
                                 <input type="hidden" name="return_view" value={view} />
                                 <input type="hidden" name="return_q" value={q} />
@@ -562,6 +550,19 @@ export default async function TransportJobsPage({
                                   Save
                                 </button>
                               </form>
+                            </div>
+                          </td>
+                        ) : null}
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            <a href={`/transport-jobs/${item.id}`} style={actionBtn}>
+                              Open
+                            </a>
+                            {item.archived ? (
+                              <a href={`/transport-jobs/archived`} style={ghostBtn}>
+                                Archived
+                              </a>
                             ) : null}
                           </div>
                         </td>
@@ -578,60 +579,54 @@ export default async function TransportJobsPage({
   );
 }
 
-function MiniStat({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | number;
-}) {
+function MiniStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div style={miniStatCard}>
-      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 800 }}>{label}</div>
-      <div style={{ marginTop: 4, fontSize: 22, fontWeight: 1000 }}>{value}</div>
+    <div style={statCard}>
+      <div style={statLabel}>{label}</div>
+      <div style={statValue}>{value}</div>
     </div>
   );
 }
 
-function invoicePill(value: string | null | undefined): React.CSSProperties {
-  const v = String(value ?? "").toLowerCase();
+function invoicePill(status: string | null | undefined): React.CSSProperties {
+  const value = String(status ?? "Not Invoiced").toLowerCase();
 
-  if (v === "paid") {
+  if (value === "paid") {
     return {
       display: "inline-block",
       padding: "6px 10px",
       borderRadius: 999,
-      fontSize: 12,
+      background: "rgba(16,185,129,0.14)",
+      color: "#047857",
       fontWeight: 900,
-      background: "rgba(0,180,120,0.12)",
-      color: "#0b7a4b",
-      border: "1px solid rgba(0,180,120,0.20)",
+      fontSize: 12,
+      width: "fit-content",
     };
   }
 
-  if (v === "part paid") {
+  if (value === "part paid") {
     return {
       display: "inline-block",
       padding: "6px 10px",
       borderRadius: 999,
-      fontSize: 12,
+      background: "rgba(245,158,11,0.14)",
+      color: "#b45309",
       fontWeight: 900,
-      background: "rgba(255,170,0,0.14)",
-      color: "#8a5200",
-      border: "1px solid rgba(255,170,0,0.24)",
+      fontSize: 12,
+      width: "fit-content",
     };
   }
 
-  if (v === "invoiced") {
+  if (value === "invoiced") {
     return {
       display: "inline-block",
       padding: "6px 10px",
       borderRadius: 999,
-      fontSize: 12,
+      background: "rgba(59,130,246,0.14)",
+      color: "#1d4ed8",
       fontWeight: 900,
-      background: "rgba(0,120,255,0.12)",
-      color: "#0b57d0",
-      border: "1px solid rgba(0,120,255,0.20)",
+      fontSize: 12,
+      width: "fit-content",
     };
   }
 
@@ -639,11 +634,11 @@ function invoicePill(value: string | null | undefined): React.CSSProperties {
     display: "inline-block",
     padding: "6px 10px",
     borderRadius: 999,
-    fontSize: 12,
+    background: "rgba(107,114,128,0.14)",
+    color: "#4b5563",
     fontWeight: 900,
-    background: "rgba(120,120,120,0.12)",
-    color: "#555",
-    border: "1px solid rgba(120,120,120,0.18)",
+    fontSize: 12,
+    width: "fit-content",
   };
 }
 
@@ -678,33 +673,15 @@ const searchRow: React.CSSProperties = {
   marginTop: 16,
 };
 
-const searchInput: React.CSSProperties = {
-  flex: "1 1 360px",
-  minWidth: 260,
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
-};
-
 const statsRow: React.CSSProperties = {
-  marginTop: 16,
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: 12,
-};
-
-const miniStatCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.28)",
-  padding: 12,
-  borderRadius: 12,
-  border: "1px solid rgba(0,0,0,0.08)",
+  marginTop: 16,
 };
 
 const thStyle: React.CSSProperties = {
-  padding: "10px 8px",
+  padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
   opacity: 0.78,
@@ -713,11 +690,11 @@ const thStyle: React.CSSProperties = {
 
 const thStyleWide: React.CSSProperties = {
   ...thStyle,
-  minWidth: 290,
+  minWidth: 260,
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: "12px 8px",
+  padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
   verticalAlign: "top",
@@ -725,7 +702,7 @@ const tdStyle: React.CSSProperties = {
 
 const tdStyleWide: React.CSSProperties = {
   ...tdStyle,
-  minWidth: 290,
+  minWidth: 260,
 };
 
 const primaryBtn: React.CSSProperties = {
@@ -745,6 +722,17 @@ const secondaryBtn: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const ghostBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "transparent",
   color: "#111",
   textDecoration: "none",
   fontWeight: 800,
@@ -773,23 +761,26 @@ const actionBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 12px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.65)",
+  background: "rgba(255,255,255,0.75)",
   color: "#111",
   textDecoration: "none",
   fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.12)",
-  textAlign: "center",
+  border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const inlineLinkStyle: React.CSSProperties = {
-  color: "#111",
-  textDecoration: "none",
-  fontWeight: 800,
+const searchInput: React.CSSProperties = {
+  flex: "1 1 320px",
+  minWidth: 260,
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
 };
 
 const miniSelect: React.CSSProperties = {
-  width: "100%",
-  minWidth: 120,
+  minWidth: 140,
   height: 36,
   padding: "0 10px",
   borderRadius: 8,
@@ -799,7 +790,6 @@ const miniSelect: React.CSSProperties = {
 
 const moneyInput: React.CSSProperties = {
   width: "100%",
-  minWidth: 120,
   height: 36,
   padding: "0 10px",
   borderRadius: 8,
@@ -819,6 +809,39 @@ const saveMiniBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const statCard: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.36)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const statLabel: React.CSSProperties = {
+  fontSize: 12,
+  opacity: 0.74,
+  fontWeight: 800,
+};
+
+const statValue: React.CSSProperties = {
+  marginTop: 4,
+  fontWeight: 900,
+  fontSize: 18,
+};
+
+const inlineLinkStyle: React.CSSProperties = {
+  color: "#0b57d0",
+  textDecoration: "none",
+  fontWeight: 800,
+};
+
+const infoBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.20)",
+};
+
 const successBox: React.CSSProperties = {
   marginTop: 16,
   padding: "10px 12px",
@@ -834,24 +857,13 @@ const errorBox: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.22)",
 };
 
 const emptyBox: React.CSSProperties = {
   marginTop: 16,
-  padding: "14px 16px",
+  padding: "18px 16px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+  background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 700,
-};
-
-const infoBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(0,120,255,0.10)",
-  border: "1px solid rgba(0,120,255,0.18)",
-  color: "#111",
-  fontWeight: 700,
 };

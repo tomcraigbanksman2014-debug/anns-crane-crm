@@ -24,17 +24,19 @@ export default function TransportJobDetailFormEnhancer() {
     const vatInput = document.getElementById("invoice_vat") as HTMLInputElement | null;
     const totalInput = document.getElementById("total_invoice") as HTMLInputElement | null;
 
-    const supplierSelect = document.getElementById("supplier_id") as HTMLSelectElement | null;
-    const otherSupplierWrap = document.getElementById("other_supplier_wrap") as HTMLDivElement | null;
-    const otherSupplierInput = document.getElementById("other_supplier_name") as HTMLInputElement | null;
-
-    const supplierCostInput = document.getElementById("supplier_cost") as HTMLInputElement | null;
-    const supplierReferenceInput = document.getElementById("supplier_reference") as HTMLInputElement | null;
-
     const collectionDateInput = document.getElementById("transport_date") as HTMLInputElement | null;
     const collectionTimeInput = document.getElementById("collection_time") as HTMLSelectElement | null;
     const deliveryDateInput = document.getElementById("delivery_date") as HTMLInputElement | null;
     const deliveryTimeInput = document.getElementById("delivery_time") as HTMLSelectElement | null;
+
+    const jobTypeSelect = document.getElementById("job_type") as HTMLSelectElement | null;
+    const collectionAddressLabel = document.getElementById("collection_address_label") as HTMLLabelElement | null;
+    const deliveryAddressLabel = document.getElementById("delivery_address_label") as HTMLLabelElement | null;
+    const loadDescriptionLabel = document.getElementById("load_description_label") as HTMLLabelElement | null;
+    const collectionAddressInput = document.getElementById("collection_address") as HTMLTextAreaElement | null;
+    const deliveryAddressInput = document.getElementById("delivery_address") as HTMLTextAreaElement | null;
+    const loadDescriptionInput = document.getElementById("load_description") as HTMLTextAreaElement | null;
+    const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
 
     if (!subtotalInput || !vatInput || !totalInput) return;
 
@@ -65,18 +67,6 @@ export default function TransportJobDetailFormEnhancer() {
       recalcFromSubtotal();
     }
 
-    function toggleOtherSupplier() {
-      if (!supplierSelect || !otherSupplierWrap || !otherSupplierInput) return;
-
-      const isOther = supplierSelect.value === "other";
-      otherSupplierWrap.style.display = isOther ? "block" : "none";
-      otherSupplierInput.required = isOther;
-
-      if (!isOther) {
-        otherSupplierInput.value = "";
-      }
-    }
-
     function autoSyncDeliveryDate() {
       if (!collectionDateInput || !deliveryDateInput) return;
       if (userManuallyChangedDeliveryDate && deliveryDateInput.value) return;
@@ -92,23 +82,52 @@ export default function TransportJobDetailFormEnhancer() {
       deliveryTimeInput.value = collectionTimeInput.value || "";
     }
 
-    function maybeOpenSupplierSection() {
-      const hasSupplierValue =
-        !!supplierSelect?.value ||
-        !!supplierCostInput?.value ||
-        !!supplierReferenceInput?.value ||
-        !!otherSupplierInput?.value;
+    function applyOnSiteLabels() {
+      if (!jobTypeSelect) return;
+      const isOnSite = jobTypeSelect.value === "on_site_hiab";
 
-      const section = document.getElementById("supplier_details_section") as HTMLDetailsElement | null;
-      if (section && hasSupplierValue) {
-        section.open = true;
+      if (collectionAddressLabel) {
+        collectionAddressLabel.textContent = isOnSite ? "Site address" : "Pickup address";
       }
-    }
 
-    function maybeOpenInvoiceSection() {
-      const section = document.getElementById("invoice_details_section") as HTMLDetailsElement | null;
-      if (section && (parseValue(subtotalInput) > 0 || parseValue(vatInput) > 0 || parseValue(totalInput) > 0)) {
-        section.open = true;
+      if (deliveryAddressLabel) {
+        deliveryAddressLabel.textContent = isOnSite
+          ? "Work area / secondary location"
+          : "Delivery address";
+      }
+
+      if (loadDescriptionLabel) {
+        loadDescriptionLabel.textContent = isOnSite
+          ? "On-site task description"
+          : "Load description";
+      }
+
+      if (collectionAddressInput) {
+        collectionAddressInput.placeholder = isOnSite
+          ? "Enter main site address"
+          : "Enter pickup address";
+      }
+
+      if (deliveryAddressInput) {
+        deliveryAddressInput.placeholder = isOnSite
+          ? "Optional second location on the same site"
+          : "Enter delivery address";
+      }
+
+      if (loadDescriptionInput) {
+        loadDescriptionInput.placeholder = isOnSite
+          ? "Describe the on-site HIAB work, contract lift support or site movement"
+          : "Describe the load, crane parts, ballast, equipment or haulage item";
+      }
+
+      if (hiabNotice) {
+        hiabNotice.style.display = isOnSite ? "block" : "none";
+      }
+
+      if (isOnSite && collectionAddressInput && deliveryAddressInput) {
+        if (!deliveryAddressInput.value.trim() && collectionAddressInput.value.trim()) {
+          deliveryAddressInput.value = collectionAddressInput.value.trim();
+        }
       }
     }
 
@@ -117,8 +136,6 @@ export default function TransportJobDetailFormEnhancer() {
 
     subtotalInput.addEventListener("input", recalcFromSubtotal);
     subtotalInput.addEventListener("change", recalcFromSubtotal);
-
-    supplierSelect?.addEventListener("change", toggleOtherSupplier);
 
     collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
     collectionDateInput?.addEventListener("change", autoSyncDeliveryDate);
@@ -136,10 +153,13 @@ export default function TransportJobDetailFormEnhancer() {
       userManuallyChangedDeliveryTime = true;
     });
 
+    jobTypeSelect?.addEventListener("change", applyOnSiteLabels);
+    collectionAddressInput?.addEventListener("blur", applyOnSiteLabels);
+
     recalcFromSubtotal();
-    toggleOtherSupplier();
-    maybeOpenSupplierSection();
-    maybeOpenInvoiceSection();
+    autoSyncDeliveryDate();
+    autoSyncDeliveryTime();
+    applyOnSiteLabels();
 
     return () => {
       sellRateInput?.removeEventListener("input", syncSubtotalFromSellRate);
@@ -148,12 +168,13 @@ export default function TransportJobDetailFormEnhancer() {
       subtotalInput.removeEventListener("input", recalcFromSubtotal);
       subtotalInput.removeEventListener("change", recalcFromSubtotal);
 
-      supplierSelect?.removeEventListener("change", toggleOtherSupplier);
-
       collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
       collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
 
       collectionTimeInput?.removeEventListener("change", autoSyncDeliveryTime);
+
+      jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
+      collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
     };
   }, []);
 

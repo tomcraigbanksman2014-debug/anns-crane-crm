@@ -1,0 +1,75 @@
+"use client";
+
+import { useState } from "react";
+
+export default function TransportDocumentUploadForm({
+  transportJobId,
+}: {
+  transportJobId: string;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  return (
+    <form
+      action={`/api/transport-jobs/${transportJobId}/documents/upload`}
+      method="POST"
+      encType="multipart/form-data"
+      onSubmit={() => setSaving(true)}
+    >
+      <div style={{ display: "grid", gap: 10 }}>
+        <select name="document_type" defaultValue="other" style={selectStyle}>
+          <option value="rams">RAMS</option>
+          <option value="site_drawing">Site Drawing</option>
+          <option value="photo">Photo</option>
+          <option value="delivery_note">Delivery Note</option>
+          <option value="collection_note">Collection Note</option>
+          <option value="pod">POD</option>
+          <option value="other">Other</option>
+        </select>
+
+        <input
+          name="file"
+          type="file"
+          required
+          style={inputStyle}
+        />
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="submit" disabled={saving} style={primaryBtn}>
+            {saving ? "Uploading..." : "Upload document"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.82)",
+  boxSizing: "border-box",
+};
+
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  padding: "0 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.88)",
+  boxSizing: "border-box",
+  fontSize: 14,
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
+};

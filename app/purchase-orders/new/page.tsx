@@ -39,6 +39,7 @@ async function createPurchaseOrder(formData: FormData) {
   const po_number = clean(formData.get("po_number")) || generatePONumber();
   const supplier_id = clean(formData.get("supplier_id")) || null;
   const job_id = clean(formData.get("job_id")) || null;
+  const transport_job_id = clean(formData.get("transport_job_id")) || null;
   const status = clean(formData.get("status")) || "draft";
   const order_date = clean(formData.get("order_date")) || null;
   const required_date = clean(formData.get("required_date")) || null;
@@ -73,6 +74,7 @@ async function createPurchaseOrder(formData: FormData) {
       po_number,
       supplier_id,
       job_id,
+      transport_job_id,
       status,
       order_date,
       required_date,
@@ -141,11 +143,15 @@ async function createPurchaseOrder(formData: FormData) {
 export default async function NewPurchaseOrderPage({
   searchParams,
 }: {
-  searchParams?: { error?: string };
+  searchParams?: { error?: string; job_id?: string; transport_job_id?: string; supplier_id?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: suppliers }, { data: jobs }] = await Promise.all([
+  const selectedJobId = String(searchParams?.job_id ?? "").trim();
+  const selectedTransportJobId = String(searchParams?.transport_job_id ?? "").trim();
+  const selectedSupplierId = String(searchParams?.supplier_id ?? "").trim();
+
+  const [{ data: suppliers }, { data: jobs }, { data: transportJobs }] = await Promise.all([
     supabase
       .from("suppliers")
       .select("id, company_name")
@@ -153,6 +159,11 @@ export default async function NewPurchaseOrderPage({
     supabase
       .from("jobs")
       .select("id, job_number, site_name")
+      .order("created_at", { ascending: false })
+      .limit(200),
+    supabase
+      .from("transport_jobs")
+      .select("id, transport_number, transport_date")
       .order("created_at", { ascending: false })
       .limit(200),
   ]);
@@ -191,19 +202,28 @@ export default async function NewPurchaseOrderPage({
                 <SelectField
                   label="Supplier"
                   name="supplier_id"
+                  defaultValue={selectedSupplierId}
                   options={(suppliers ?? []).map((s: any) => ({
                     value: s.id,
                     label: s.company_name,
                   }))}
                 />
                 <SelectField
-                  label="Linked job"
+                  label="Linked crane job"
                   name="job_id"
+                  defaultValue={selectedJobId}
                   options={(jobs ?? []).map((j: any) => ({
                     value: j.id,
-                    label: `Job #${j.job_number ?? "—"}${
-                      j.site_name ? ` • ${j.site_name}` : ""
-                    }`,
+                    label: `Job #${j.job_number ?? "—"}${j.site_name ? ` • ${j.site_name}` : ""}`,
+                  }))}
+                />
+                <SelectField
+                  label="Linked transport job"
+                  name="transport_job_id"
+                  defaultValue={selectedTransportJobId}
+                  options={(transportJobs ?? []).map((j: any) => ({
+                    value: j.id,
+                    label: `${j.transport_number ?? "Transport Job"}${j.transport_date ? ` • ${j.transport_date}` : ""}`,
                   }))}
                 />
                 <SelectField
@@ -323,13 +343,14 @@ const cardStyle: React.CSSProperties = {
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
+  gap: 16,
   flexWrap: "wrap",
 };
 
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
+  marginTop: 18,
+  background: "rgba(255,255,255,0.68)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
@@ -342,18 +363,17 @@ const gridStyle: React.CSSProperties = {
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 800,
-  opacity: 0.75,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
+  minHeight: 42,
+  padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
 };
 
@@ -362,19 +382,19 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.92)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
-  fontWeight: 900,
+  fontWeight: 800,
   border: "none",
   cursor: "pointer",
 };
@@ -384,7 +404,7 @@ const secondaryBtn: React.CSSProperties = {
   padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
-  background: "rgba(255,255,255,0.78)",
+  background: "rgba(255,255,255,0.82)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
@@ -392,7 +412,6 @@ const secondaryBtn: React.CSSProperties = {
 
 const errorBox: React.CSSProperties = {
   marginTop: 14,
-  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",

@@ -40,6 +40,15 @@ export default function TransportJobFormEnhancer() {
     const deliveryDateInput = document.getElementById("delivery_date") as HTMLInputElement | null;
     const deliveryTimeInput = document.getElementById("delivery_time") as HTMLSelectElement | null;
 
+    const jobTypeSelect = document.getElementById("job_type") as HTMLSelectElement | null;
+    const collectionAddressLabel = document.getElementById("collection_address_label") as HTMLLabelElement | null;
+    const deliveryAddressLabel = document.getElementById("delivery_address_label") as HTMLLabelElement | null;
+    const loadDescriptionLabel = document.getElementById("load_description_label") as HTMLLabelElement | null;
+    const collectionAddressInput = document.getElementById("collection_address") as HTMLTextAreaElement | null;
+    const deliveryAddressInput = document.getElementById("delivery_address") as HTMLTextAreaElement | null;
+    const loadDescriptionInput = document.getElementById("load_description") as HTMLTextAreaElement | null;
+    const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
+
     if (!subtotalInput || !vatInput || !totalInput) return;
 
     let lastSyncedSubtotal = parseValue(subtotalInput);
@@ -108,6 +117,55 @@ export default function TransportJobFormEnhancer() {
       deliveryTimeInput.value = collectionTimeInput.value || "";
     }
 
+    function applyOnSiteLabels() {
+      if (!jobTypeSelect) return;
+      const isOnSite = jobTypeSelect.value === "on_site_hiab";
+
+      if (collectionAddressLabel) {
+        collectionAddressLabel.textContent = isOnSite ? "Site address" : "Pickup address";
+      }
+
+      if (deliveryAddressLabel) {
+        deliveryAddressLabel.textContent = isOnSite
+          ? "Work area / secondary location"
+          : "Delivery address";
+      }
+
+      if (loadDescriptionLabel) {
+        loadDescriptionLabel.textContent = isOnSite
+          ? "On-site task description"
+          : "Load description";
+      }
+
+      if (collectionAddressInput) {
+        collectionAddressInput.placeholder = isOnSite
+          ? "Enter main site address"
+          : "Enter pickup address";
+      }
+
+      if (deliveryAddressInput) {
+        deliveryAddressInput.placeholder = isOnSite
+          ? "Optional second location on the same site"
+          : "Enter delivery address";
+      }
+
+      if (loadDescriptionInput) {
+        loadDescriptionInput.placeholder = isOnSite
+          ? "Describe the on-site HIAB work, contract lift support or site movement"
+          : "Describe the load, crane parts, ballast, equipment or haulage item";
+      }
+
+      if (hiabNotice) {
+        hiabNotice.style.display = isOnSite ? "block" : "none";
+      }
+
+      if (isOnSite && collectionAddressInput && deliveryAddressInput) {
+        if (!deliveryAddressInput.value.trim() && collectionAddressInput.value.trim()) {
+          deliveryAddressInput.value = collectionAddressInput.value.trim();
+        }
+      }
+    }
+
     function maybeOpenSupplierSection() {
       const hasSupplierValue =
         !!supplierSelect?.value ||
@@ -153,6 +211,9 @@ export default function TransportJobFormEnhancer() {
       userManuallyChangedDeliveryTime = true;
     });
 
+    jobTypeSelect?.addEventListener("change", applyOnSiteLabels);
+    collectionAddressInput?.addEventListener("blur", applyOnSiteLabels);
+
     if (parseValue(subtotalInput) === 0 && sellRateInput) {
       subtotalInput.value = formatMoney(parseValue(sellRateInput));
     }
@@ -162,6 +223,7 @@ export default function TransportJobFormEnhancer() {
     recalcFromSubtotal();
     toggleOtherCustomer();
     toggleOtherSupplier();
+    applyOnSiteLabels();
     maybeOpenSupplierSection();
     maybeOpenInvoiceSection();
 
@@ -179,6 +241,9 @@ export default function TransportJobFormEnhancer() {
       collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
 
       collectionTimeInput?.removeEventListener("change", autoSyncDeliveryTime);
+
+      jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
+      collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
     };
   }, []);
 

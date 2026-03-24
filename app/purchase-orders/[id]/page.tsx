@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import POLinesEditorClient from "../POLinesEditorClient";
 import { redirect } from "next/navigation";
+import DeletePurchaseOrderButton from "../DeletePurchaseOrderButton";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -22,6 +23,41 @@ function parseLines(raw: string): LineInput[] {
   }
 }
 
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function linkedTypeLabel(po: any) {
+  if (po?.transport_job_id) return "Transport";
+  if (po?.job_id) return "Crane Job";
+  return "Unlinked";
+}
+
+function linkedTypeStyle(po: any): React.CSSProperties {
+  if (po?.transport_job_id) {
+    return {
+      background: "rgba(59,130,246,0.12)",
+      color: "#1d4ed8",
+      border: "1px solid rgba(59,130,246,0.22)",
+    };
+  }
+
+  if (po?.job_id) {
+    return {
+      background: "rgba(16,185,129,0.12)",
+      color: "#047857",
+      border: "1px solid rgba(16,185,129,0.22)",
+    };
+  }
+
+  return {
+    background: "rgba(148,163,184,0.18)",
+    color: "#334155",
+    border: "1px solid rgba(148,163,184,0.24)",
+  };
+}
+
 async function updatePurchaseOrder(formData: FormData) {
   "use server";
 
@@ -34,7 +70,7 @@ async function updatePurchaseOrder(formData: FormData) {
 
   const existingResult = await supabase
     .from("purchase_orders")
-    .select("id, po_number, supplier_id, status, total_cost")
+    .select("id, po_number, supplier_id, status, total_cost, job_id, transport_job_id")
     .eq("id", id)
     .single();
 
@@ -45,6 +81,7 @@ async function updatePurchaseOrder(formData: FormData) {
 
   const supplier_id = clean(formData.get("supplier_id")) || null;
   const job_id = clean(formData.get("job_id")) || null;
+  const transport_job_id = clean(formData.get("transport_job_id")) || null;
   const status = clean(formData.get("status")) || "draft";
   const order_date = clean(formData.get("order_date")) || null;
   const required_date = clean(formData.get("required_date")) || null;
@@ -78,6 +115,7 @@ async function updatePurchaseOrder(formData: FormData) {
     .update({
       supplier_id,
       job_id,
+      transport_job_id,
       status,
       order_date,
       required_date,
@@ -142,13 +180,21 @@ async function updatePurchaseOrder(formData: FormData) {
       messages.push(`Required date: ${required_date}.`);
     }
 
+    if (existingPO.job_id !== job_id) {
+      messages.push(`Linked crane job updated.`);
+    }
+
+    if (existingPO.transport_job_id !== transport_job_id) {
+      messages.push(`Linked transport job updated.`);
+    }
+
     const baseType = status === "sent" ? "email" : "note";
     const baseSubject =
       status === "sent" && existingPO.status !== "sent"
         ? "Purchase Order Sent"
         : existingPO.status !== status
-        ? "Purchase Order Status Changed"
-        : "Purchase Order Updated";
+          ? "Purchase Order Status Changed"
+          : "Purchase Order Updated";
 
     await supabase.from("supplier_correspondence").insert({
       supplier_id,
@@ -177,6 +223,7 @@ export default async function PurchaseOrderDetailPage({
     { data: po, error },
     { data: suppliers },
     { data: jobs },
+    { data: transportJobs },
     { data: poLines },
   ] = await Promise.all([
     supabase
@@ -191,6 +238,11 @@ export default async function PurchaseOrderDetailPage({
           id,
           job_number,
           site_name
+        ),
+        transport_jobs:transport_job_id (
+          id,
+          transport_number,
+          transport_date
         )
       `)
       .eq("id", params.id)
@@ -208,11 +260,21 @@ export default async function PurchaseOrderDetailPage({
       .limit(200),
 
     supabase
+      .from("transport_jobs")
+      .select("id, transport_number, transport_date")
+      .order("created_at", { ascending: false })
+      .limit(200),
+
+    supabase
       .from("purchase_order_lines")
       .select("*")
       .eq("purchase_order_id", params.id)
       .order("created_at", { ascending: true }),
   ]);
+
+  const supplier = first((po as any)?.suppliers);
+  const linkedJob = first((po as any)?.jobs);
+  const linkedTransportJob = first((po as any)?.transport_jobs);
 
   const successMessage = searchParams?.success
     ? decodeURIComponent(searchParams.success)
@@ -227,12 +289,41 @@ export default async function PurchaseOrderDetailPage({
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
-              <h1 style={{ marginTop: 0, fontSize: 32 }}>
-                {po?.po_number ?? "Purchase Order"}
-              </h1>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <h1 style={{ marginTop: 0, marginBottom: 0, fontSize: 32 }}>
+                  {po?.po_number ?? "Purchase Order"}
+                </h1>
+                {po ? (
+                  <span
+                    style={{
+                      display: "inline-block",
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 900,
+                      ...linkedTypeStyle(po),
+                    }}
+                  >
+                    {linkedTypeLabel(po)}
+                  </span>
+                ) : null}
+              </div>
+
               <p style={{ opacity: 0.8, marginTop: 6 }}>
                 View, update and save this purchase order as PDF.
               </p>
+
+              {po ? (
+                <div style={linkedMetaBox}>
+                  Supplier: {supplier?.company_name ?? "—"}
+                  {linkedJob
+                    ? ` • Crane Job: ${linkedJob.job_number ?? "—"}${linkedJob.site_name ? ` • ${linkedJob.site_name}` : ""}`
+                    : ""}
+                  {linkedTransportJob
+                    ? ` • Transport Job: ${linkedTransportJob.transport_number ?? "—"}${linkedTransportJob.transport_date ? ` • ${linkedTransportJob.transport_date}` : ""}`
+                    : ""}
+                </div>
+              ) : null}
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -247,6 +338,12 @@ export default async function PurchaseOrderDetailPage({
               >
                 Open / Save PDF
               </a>
+              {po ? (
+                <DeletePurchaseOrderButton
+                  purchaseOrderId={params.id}
+                  poNumber={po.po_number}
+                />
+              ) : null}
             </div>
           </div>
 
@@ -279,13 +376,24 @@ export default async function PurchaseOrderDetailPage({
                     }))}
                   />
                   <SelectField
-                    label="Linked job"
+                    label="Linked crane job"
                     name="job_id"
                     defaultValue={po.job_id ?? ""}
                     options={(jobs ?? []).map((j: any) => ({
                       value: j.id,
                       label: `Job #${j.job_number ?? "—"}${
                         j.site_name ? ` • ${j.site_name}` : ""
+                      }`,
+                    }))}
+                  />
+                  <SelectField
+                    label="Linked transport job"
+                    name="transport_job_id"
+                    defaultValue={po.transport_job_id ?? ""}
+                    options={(transportJobs ?? []).map((j: any) => ({
+                      value: j.id,
+                      label: `${j.transport_number ?? "Transport Job"}${
+                        j.transport_date ? ` • ${j.transport_date}` : ""
                       }`,
                     }))}
                   />
@@ -507,6 +615,16 @@ const secondaryBtn: React.CSSProperties = {
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const linkedMetaBox: React.CSSProperties = {
+  marginTop: 10,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.06)",
+  fontSize: 13,
+  opacity: 0.82,
 };
 
 const successBox: React.CSSProperties = {
