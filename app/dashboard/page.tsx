@@ -44,17 +44,10 @@ function fmtDateTime(value: string | null | undefined) {
   });
 }
 
-function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-GB");
-}
-
 type DashboardStats = {
-  bookingsToday?: number;
-  activeHires?: number;
-  availableEquipment?: number;
+  jobsToday?: number;
+  activeCraneJobs?: number;
+  activeTransportToday?: number;
   totalEquipment?: number;
   totalCranes?: number;
   totalVehicles?: number;
@@ -63,8 +56,7 @@ type DashboardStats = {
   availableVehiclesNow?: number;
   outstandingInvoices?: number;
   utilisationPct?: number | null;
-  onHireEquipment?: number;
-  reservedEquipment?: number;
+  cranesOnHireNow?: number;
   certExpiringSoon?: number;
   certExpired?: number;
   maintenanceEquipment?: number;
@@ -86,23 +78,13 @@ type DashboardStats = {
     thisWeek: number;
     nextWeek: number;
   };
-  upcomingBookings?: Array<{
-    id: string;
-    start_at?: string | null;
-    start_date?: string | null;
-    location?: string | null;
-    status?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-    equipment?: { name?: string | null } | { name?: string | null }[] | null;
-  }>;
   overdueInvoices?: Array<{
     id: string;
-    total_invoice?: number | null;
-    invoice_status?: string | null;
-    start_at?: string | null;
-    start_date?: string | null;
-    href?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
+    title?: string;
+    subtitle?: string;
+    invoice_status?: string;
+    amount?: number;
+    href?: string;
   }>;
   recentAudit?: Array<{
     id: string;
@@ -113,12 +95,19 @@ type DashboardStats = {
   }>;
   todayJobs?: Array<{
     id: string;
-    start_at?: string | null;
-    start_date?: string | null;
-    location?: string | null;
-    status?: string | null;
-    clients?: { company_name?: string | null } | { company_name?: string | null }[] | null;
-    equipment?: { name?: string | null } | { name?: string | null }[] | null;
+    title?: string;
+    subtitle?: string;
+    time?: string;
+    status?: string;
+    href?: string;
+  }>;
+  upcomingJobs?: Array<{
+    id: string;
+    title?: string;
+    subtitle?: string;
+    when?: string;
+    status?: string;
+    href?: string;
   }>;
   recentServiceLog?: Array<{
     id: string;
@@ -220,9 +209,10 @@ export default function DashboardPage() {
   const tiles = useMemo(
     () => [
       { label: "Global Search", href: "/search", tone: "neutral" as const },
-      { label: "Bookings", href: "/bookings", tone: "warn" as const },
       { label: "Quotes", href: "/quotes", tone: "neutral" as const },
       { label: "Customers", href: "/customers", tone: "good" as const },
+      { label: "Jobs", href: "/jobs", tone: "neutral" as const },
+      { label: "Transport Jobs", href: "/transport-jobs", tone: "neutral" as const },
       { label: "Equipment", href: "/equipment", tone: "good" as const },
       { label: "Operators", href: "/operators", tone: "neutral" as const },
       { label: "Calendar", href: "/calendar", tone: "neutral" as const },
@@ -338,10 +328,10 @@ export default function DashboardPage() {
         {(stats?.certExpired ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
             <div>
-              ⚠ {stats?.certExpired} equipment item{stats?.certExpired === 1 ? "" : "s"} have expired certification.
+              ⚠ {stats?.certExpired} asset item{stats?.certExpired === 1 ? "" : "s"} have expired inspection / certification.
             </div>
-            <a href="/equipment?cert=expired" style={warningLinkStyle}>
-              Open equipment
+            <a href="/equipment" style={warningLinkStyle}>
+              Open fleet compliance
             </a>
           </div>
         ) : null}
@@ -349,9 +339,9 @@ export default function DashboardPage() {
         {(stats?.certExpiringSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
             <div>
-              ⚠ {stats?.certExpiringSoon} equipment item{stats?.certExpiringSoon === 1 ? "" : "s"} have certification expiring within 30 days.
+              ⚠ {stats?.certExpiringSoon} asset item{stats?.certExpiringSoon === 1 ? "" : "s"} have inspection / certification expiring within 30 days.
             </div>
-            <a href="/equipment?cert=expiring" style={warningLinkStyle}>
+            <a href="/equipment" style={warningLinkStyle}>
               Review expiries
             </a>
           </div>
@@ -360,9 +350,9 @@ export default function DashboardPage() {
         {(stats?.lolerOverdue ?? 0) > 0 ? (
           <div style={alertBox("bad", true)}>
             <div>
-              ⚠ {stats?.lolerOverdue} equipment item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
+              ⚠ {stats?.lolerOverdue} asset item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
             </div>
-            <a href="/equipment?loler=overdue" style={warningLinkStyle}>
+            <a href="/equipment" style={warningLinkStyle}>
               Review LOLER
             </a>
           </div>
@@ -371,9 +361,9 @@ export default function DashboardPage() {
         {(stats?.lolerDueSoon ?? 0) > 0 ? (
           <div style={alertBox("warn", true)}>
             <div>
-              ⚠ {stats?.lolerDueSoon} equipment item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
+              ⚠ {stats?.lolerDueSoon} asset item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
             </div>
-            <a href="/equipment?loler=due" style={warningLinkStyle}>
+            <a href="/equipment" style={warningLinkStyle}>
               Review LOLER
             </a>
           </div>
@@ -382,7 +372,7 @@ export default function DashboardPage() {
         {(stats?.maintenanceEquipment ?? 0) > 0 ? (
           <div style={alertBox("warn", false)}>
             <div>
-              ℹ {stats?.maintenanceEquipment} equipment item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
+              ℹ {stats?.maintenanceEquipment} asset item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
             </div>
           </div>
         ) : null}
@@ -450,15 +440,15 @@ export default function DashboardPage() {
           }}
         >
           <StatCard
-            title="Bookings today"
-            value={stats?.bookingsToday ?? "-"}
-            subtext="Jobs starting today"
+            title="Jobs today"
+            value={stats?.jobsToday ?? "-"}
+            subtext="Crane and transport work scheduled today"
             badge={<StatusPill text="Today" />}
           />
           <StatCard
-            title="Active hires"
-            value={stats?.activeHires ?? "-"}
-            subtext="Currently live bookings"
+            title="Crane jobs live today"
+            value={stats?.activeCraneJobs ?? "-"}
+            subtext="Crane work active today"
             badge={<StatusPill text="Live" />}
           />
           <StatCard
@@ -470,14 +460,13 @@ export default function DashboardPage() {
           <StatCard
             title="Invoices outstanding"
             value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
-            subtext="Open jobs with unpaid or part-paid invoices"
+            subtext="Crane and transport jobs with unpaid or part-paid invoices"
             badge={<StatusPill text="£" />}
-            href="/jobs?view=active&invoice=outstanding"
           />
           <StatCard
             title="Utilisation"
             value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"}
-            subtext="Fleet utilisation"
+            subtext="Crane fleet utilisation"
             badge={<StatusPill text="Use" />}
           />
         </div>
@@ -563,7 +552,7 @@ export default function DashboardPage() {
         </div>
 
         <div style={{ marginTop: 14 }}>
-          <Panel title="Certification" subtitle="Monitor expired and expiring equipment certificates">
+          <Panel title="Certification" subtitle="Monitor expired and expiring inspections / certification">
             <div
               style={{
                 display: "grid",
@@ -571,22 +560,22 @@ export default function DashboardPage() {
                 gap: 12,
               }}
             >
-              <a href="/equipment?cert=expired" style={certCard("bad")}>
+              <a href="/equipment" style={certCard("bad")}>
                 <div style={smallTitle}>Expired</div>
                 <div style={bigValue}>{stats?.certExpired ?? 0}</div>
-                <div style={smallHelp}>Equipment needing immediate action</div>
+                <div style={smallHelp}>Cranes and equipment needing immediate action</div>
               </a>
 
-              <a href="/equipment?cert=expiring" style={certCard("warn")}>
+              <a href="/equipment" style={certCard("warn")}>
                 <div style={smallTitle}>Expiring in 30 days</div>
                 <div style={bigValue}>{stats?.certExpiringSoon ?? 0}</div>
                 <div style={smallHelp}>Review and schedule renewals</div>
               </a>
 
               <a href="/equipment" style={certCard("neutral")}>
-                <div style={smallTitle}>Open equipment register</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>View all equipment</div>
-                <div style={smallHelp}>See full certification status list</div>
+                <div style={smallTitle}>Open asset register</div>
+                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>View all assets</div>
+                <div style={smallHelp}>See full compliance status list</div>
               </a>
             </div>
           </Panel>
@@ -601,13 +590,13 @@ export default function DashboardPage() {
                 gap: 12,
               }}
             >
-              <a href="/equipment?loler=overdue" style={certCard("bad")}>
+              <a href="/equipment" style={certCard("bad")}>
                 <div style={smallTitle}>Overdue LOLER</div>
                 <div style={bigValue}>{stats?.lolerOverdue ?? 0}</div>
-                <div style={smallHelp}>Equipment needing immediate attention</div>
+                <div style={smallHelp}>Cranes and equipment needing immediate attention</div>
               </a>
 
-              <a href="/equipment?loler=due" style={certCard("warn")}>
+              <a href="/equipment" style={certCard("warn")}>
                 <div style={smallTitle}>Due in 30 days</div>
                 <div style={bigValue}>{stats?.lolerDueSoon ?? 0}</div>
                 <div style={smallHelp}>Schedule inspections ahead of time</div>
@@ -661,7 +650,7 @@ export default function DashboardPage() {
                           {equipment?.name ?? "Equipment"} • {row.entry_type ?? "Entry"}
                         </div>
                         <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {fmtDate(row.service_date)} • {row.engineer ?? "No engineer"}
+                          {fmtDateTime(row.service_date)} • {row.engineer ?? "No engineer"}
                         </div>
                         {row.notes ? (
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>
@@ -689,31 +678,24 @@ export default function DashboardPage() {
             gap: 14,
           }}
         >
-          <Panel title="Today’s bookings" subtitle="Live and upcoming work due today">
+          <Panel title="Today’s work" subtitle="Crane and transport work due today">
             {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
-              <EmptyState text="No jobs for today." />
+              <EmptyState text="No work scheduled for today." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.todayJobs.slice(0, 8).map((b) => {
-                  const client = first(b.clients);
-                  const equipment = first(b.equipment);
-
-                  return (
-                    <div key={b.id} style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
-                        </div>
-                      </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={b.status ?? "—"} />
+                {stats.todayJobs.slice(0, 8).map((b) => (
+                  <a key={b.id} href={b.href ?? "#"} style={rowLink}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900 }}>{b.title ?? "Work item"}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                        {(b.time ?? "—")} • {b.subtitle ?? "No details"}
                       </div>
                     </div>
-                  );
-                })}
+                    <div style={{ flexShrink: 0 }}>
+                      <StatusPill text={b.status ?? "—"} />
+                    </div>
+                  </a>
+                ))}
               </div>
             )}
           </Panel>
@@ -726,7 +708,7 @@ export default function DashboardPage() {
                 gap: 12,
               }}
             >
-              <MiniStat label="Cranes on hire now" value={stats?.onHireEquipment ?? 0} />
+              <MiniStat label="Cranes on hire now" value={stats?.cranesOnHireNow ?? 0} />
               <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
               <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
               <MiniStat label="Total cranes" value={stats?.totalCranes ?? 0} />
@@ -736,32 +718,27 @@ export default function DashboardPage() {
 
             <div style={{ marginTop: 14 }}>
               {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
-                <EmptyState text="No overdue invoices found." />
+                <EmptyState text="No overdue or unpaid invoices." />
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {stats.overdueInvoices.slice(0, 6).map((b) => {
-                    const client = first(b.clients);
-                    return (
-                      <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 900 }}>
-                            {client?.company_name ?? "Customer"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                            {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)}
-                          </div>
+                  {stats.overdueInvoices.slice(0, 6).map((b) => (
+                    <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 900 }}>{b.title ?? "Invoice item"}</div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                          {b.subtitle ?? "No details"}
                         </div>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontWeight: 900 }}>
-                            {typeof b.total_invoice === "number" ? moneyGBP(b.total_invoice) : "—"}
-                          </div>
-                          <div style={{ marginTop: 4 }}>
-                            <StatusPill text={b.invoice_status ?? "—"} />
-                          </div>
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 900 }}>
+                          {typeof b.amount === "number" ? moneyGBP(b.amount) : "—"}
                         </div>
-                      </a>
-                    );
-                  })}
+                        <div style={{ marginTop: 4 }}>
+                          <StatusPill text={b.invoice_status ?? "—"} />
+                        </div>
+                      </div>
+                    </a>
+                  ))}
                 </div>
               )}
             </div>
@@ -777,31 +754,24 @@ export default function DashboardPage() {
             gap: 14,
           }}
         >
-          <Panel title="Upcoming bookings" subtitle="Next jobs coming up">
-            {!stats?.upcomingBookings || stats.upcomingBookings.length === 0 ? (
-              <EmptyState text="No upcoming bookings." />
+          <Panel title="Upcoming work" subtitle="Next jobs coming up">
+            {!stats?.upcomingJobs || stats.upcomingJobs.length === 0 ? (
+              <EmptyState text="No upcoming work." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.upcomingBookings.slice(0, 6).map((b) => {
-                  const client = first(b.clients);
-                  const equipment = first(b.equipment);
-
-                  return (
-                    <a key={b.id} href={`/bookings/${b.id}`} className="dash-row-link" style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {client?.company_name ?? "Customer"} • {equipment?.name ?? "Equipment"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.start_at ? fmtDateTime(b.start_at) : fmtDate(b.start_date)} • {b.location ?? "No location"}
-                        </div>
+                {stats.upcomingJobs.slice(0, 6).map((b) => (
+                  <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900 }}>{b.title ?? "Work item"}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                        {b.when ?? "—"} • {b.subtitle ?? "No details"}
                       </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={b.status ?? "—"} />
-                      </div>
-                    </a>
-                  );
-                })}
+                    </div>
+                    <div style={{ flexShrink: 0 }}>
+                      <StatusPill text={b.status ?? "—"} />
+                    </div>
+                  </a>
+                ))}
               </div>
             )}
           </Panel>
