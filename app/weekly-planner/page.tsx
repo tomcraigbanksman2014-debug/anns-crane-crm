@@ -56,6 +56,21 @@ type TransportJob = {
   operator: { full_name: string | null } | { full_name: string | null }[] | null;
 };
 
+type WeeklyItem = {
+  id: string;
+  href: string;
+  kind: "crane" | "transport" | "labour";
+  title: string;
+  clientName: string;
+  siteText: string;
+  assetText: string;
+  operatorText: string;
+  valueText: string;
+  status: string | null;
+  timesText: string;
+  noteText: string;
+};
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -163,8 +178,8 @@ function effectiveTransportValue(job: TransportJob) {
 
 function money(value: number | null | undefined) {
   const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
+  if (!Number.isFinite(n)) return "£0";
+  return `£${n.toFixed(0)}`;
 }
 
 function bankHolidaysByYear(year: number) {
@@ -209,45 +224,54 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
 
   if (s === "confirmed") {
     return {
-      background: "rgba(0,120,255,0.12)",
-      border: "1px solid rgba(0,120,255,0.20)",
+      background: "rgba(0,120,255,0.10)",
+      border: "1px solid rgba(0,120,255,0.18)",
     };
   }
 
   if (s === "in_progress") {
     return {
-      background: "rgba(255,140,0,0.14)",
-      border: "1px solid rgba(255,140,0,0.22)",
+      background: "rgba(255,140,0,0.12)",
+      border: "1px solid rgba(255,140,0,0.18)",
     };
   }
 
   if (s === "completed") {
     return {
-      background: "rgba(0,180,120,0.12)",
-      border: "1px solid rgba(0,180,120,0.20)",
+      background: "rgba(0,180,120,0.10)",
+      border: "1px solid rgba(0,180,120,0.18)",
     };
   }
 
   return {
     background: "rgba(255,255,255,0.82)",
-    border: "1px solid rgba(0,0,0,0.10)",
+    border: "1px solid rgba(0,0,0,0.08)",
   };
 }
 
-type WeeklyItem = {
-  id: string;
-  href: string;
-  kind: "crane" | "transport" | "labour";
-  title: string;
-  clientName: string;
-  siteText: string;
-  assetText: string;
-  operatorText: string;
-  valueText: string;
-  status: string | null;
-  timesText: string;
-  noteText: string;
-};
+function kindStyle(kind: "crane" | "transport" | "labour"): React.CSSProperties {
+  if (kind === "crane") {
+    return {
+      background: "rgba(0,120,255,0.10)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.16)",
+    };
+  }
+
+  if (kind === "transport") {
+    return {
+      background: "rgba(0,180,120,0.10)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.16)",
+    };
+  }
+
+  return {
+    background: "rgba(155,89,182,0.10)",
+    color: "#7d3c98",
+    border: "1px solid rgba(155,89,182,0.16)",
+  };
+}
 
 export default async function WeeklyPlannerPage({
   searchParams,
@@ -351,7 +375,7 @@ export default async function WeeklyPlannerPage({
   if (craneError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
           <div style={errorBox}>{craneError.message}</div>
         </div>
       </ClientShell>
@@ -361,7 +385,7 @@ export default async function WeeklyPlannerPage({
   if (transportError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
           <div style={errorBox}>{transportError.message}</div>
         </div>
       </ClientShell>
@@ -409,14 +433,14 @@ export default async function WeeklyPlannerPage({
         id: `crane-${job.id}-${d}`,
         href: `/jobs/${job.id}`,
         kind: "crane",
-        title: `Job #${job.job_number ?? ""}`.trim(),
+        title: `#${job.job_number ?? ""}`,
         clientName,
         siteText: job.site_name || job.site_address || "No site",
         assetText: craneAssets.length > 0 ? craneAssets.join(", ") : "Unassigned crane",
         operatorText: "",
         valueText: money(effectiveCraneJobValue(job)),
         status: job.status,
-        timesText: `${job.start_time ?? "—"} → ${job.end_time ?? "—"}`,
+        timesText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
         noteText: job.notes ?? "",
       });
     }
@@ -434,14 +458,14 @@ export default async function WeeklyPlannerPage({
           id: `labour-${labour.id}-${d}`,
           href: `/jobs/${job.id}`,
           kind: "labour",
-          title: labour.item_name || "Labour / Other",
+          title: labour.item_name || "Labour",
           clientName,
           siteText: job.site_name || job.site_address || "No site",
-          assetText: labour.item_name || "Labour / Other",
+          assetText: labour.item_name || "Labour",
           operatorText: operatorName,
           valueText: "",
           status: job.status,
-          timesText: `${job.start_time ?? "—"} → ${job.end_time ?? "—"}`,
+          timesText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
           noteText: job.notes ?? "",
         });
       }
@@ -461,14 +485,14 @@ export default async function WeeklyPlannerPage({
         id: `transport-${job.id}-${d}`,
         href: `/transport-jobs/${job.id}`,
         kind: "transport",
-        title: job.transport_number || "Transport Job",
+        title: job.transport_number || "Transport",
         clientName,
         siteText: `${job.collection_address || "No collection"} → ${job.delivery_address || "No delivery"}`,
         assetText: vehicle?.name ? `${vehicle.name}${vehicle.reg_number ? ` (${vehicle.reg_number})` : ""}` : "Unassigned vehicle",
         operatorText: operator?.full_name || "Unassigned driver",
         valueText: money(effectiveTransportValue(job)),
         status: job.status,
-        timesText: `${job.collection_time ?? "—"} → ${job.delivery_time ?? "—"}`,
+        timesText: `${job.collection_time ?? "—"}-${job.delivery_time ?? "—"}`,
         noteText: job.load_description || job.notes || "",
       });
     }
@@ -476,34 +500,26 @@ export default async function WeeklyPlannerPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1700px, 98vw)", margin: "0 auto" }}>
         <div style={headerRow}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>Weekly Planner</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>
-              High-level weekly view of crane jobs, transport jobs, and labour.
-            </p>
+            <h1 style={{ margin: 0, fontSize: 28 }}>Weekly Planner</h1>
+            <p style={{ marginTop: 4, opacity: 0.78 }}>Compact weekly overview of crane, transport and labour work.</p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href={`/weekly-planner?week=${prevWeek}`} style={secondaryBtn}>
-              ← Previous week
-            </a>
-            <a href={`/weekly-planner?week=${thisWeek}`} style={secondaryBtn}>
-              This week
-            </a>
-            <a href={`/weekly-planner?week=${nextWeek}`} style={secondaryBtn}>
-              Next week →
-            </a>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a href={`/weekly-planner?week=${prevWeek}`} style={secondaryBtn}>← Prev</a>
+            <a href={`/weekly-planner?week=${thisWeek}`} style={secondaryBtn}>This week</a>
+            <a href={`/weekly-planner?week=${nextWeek}`} style={secondaryBtn}>Next →</a>
           </div>
         </div>
 
         <div style={summaryBar}>
-          <div style={summaryItem}>Week commencing {weekStartIso}</div>
-          <div style={summaryItem}>Crane jobs: {craneRows.length}</div>
-          <div style={summaryItem}>Transport jobs: {transportRows.length}</div>
+          <div style={summaryItem}>Week: {weekStartIso}</div>
+          <div style={summaryItem}>Crane: {craneRows.length}</div>
+          <div style={summaryItem}>Transport: {transportRows.length}</div>
           <div style={summaryItem}>
-            Labour rows: {craneRows.reduce((sum, job) => sum + (job.job_equipment?.filter((r) => String(r.asset_type ?? "").toLowerCase() === "other").length ?? 0), 0)}
+            Labour: {craneRows.reduce((sum, job) => sum + (job.job_equipment?.filter((r) => String(r.asset_type ?? "").toLowerCase() === "other").length ?? 0), 0)}
           </div>
         </div>
 
@@ -520,31 +536,26 @@ export default async function WeeklyPlannerPage({
                   ...dayCard,
                   ...(holiday
                     ? {
-                        background: "rgba(255,170,0,0.10)",
-                        border: "1px solid rgba(255,170,0,0.22)",
+                        background: "rgba(255,170,0,0.08)",
+                        border: "1px solid rgba(255,170,0,0.18)",
                       }
                     : {}),
                 }}
               >
                 <div style={dayHeader}>
-                  <div>
-                    <div style={{ fontWeight: 1000, fontSize: 18 }}>{formatDay(day)}</div>
-                    <div style={{ fontSize: 13, opacity: 0.72 }}>{dayIso}</div>
-                  </div>
-                  {holiday ? <div style={holidayPill}>{holiday.label}</div> : null}
+                  <div style={{ fontWeight: 1000, fontSize: 16 }}>{formatDay(day)}</div>
+                  <div style={{ fontSize: 11, opacity: 0.72 }}>{items.length}</div>
                 </div>
 
-                <div style={dayTotals}>
-                  <span style={miniPill}>Total items: {items.length}</span>
-                  <span style={miniPill}>Crane: {items.filter((i) => i.kind === "crane").length}</span>
-                  <span style={miniPill}>Transport: {items.filter((i) => i.kind === "transport").length}</span>
-                  <span style={miniPill}>Labour: {items.filter((i) => i.kind === "labour").length}</span>
+                <div style={{ fontSize: 11, opacity: 0.68 }}>
+                  {dayIso}
+                  {holiday ? ` • ${holiday.label}` : ""}
                 </div>
 
                 {items.length === 0 ? (
-                  <div style={emptyBox}>No planned work.</div>
+                  <div style={emptyBox}>No work</div>
                 ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gap: 6 }}>
                     {items.map((item) => (
                       <a
                         key={item.id}
@@ -552,25 +563,19 @@ export default async function WeeklyPlannerPage({
                         style={{ ...itemCard, ...statusStyle(item.status) }}
                       >
                         <div style={itemTopRow}>
-                          <div style={{ fontWeight: 1000 }}>{item.title}</div>
-                          <div style={kindPill(item.kind)}>
-                            {item.kind === "crane"
-                              ? "Crane"
-                              : item.kind === "transport"
-                              ? "Transport"
-                              : "Labour"}
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0 }}>
+                            <span style={kindPill(item.kind)}>{item.kind === "crane" ? "C" : item.kind === "transport" ? "T" : "L"}</span>
+                            <span style={{ fontWeight: 900, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {item.title}
+                            </span>
                           </div>
+                          {item.valueText ? <span style={valueText}>{item.valueText}</span> : null}
                         </div>
 
-                        <div style={itemText}><strong>{item.clientName}</strong></div>
-                        <div style={itemText}>{item.siteText}</div>
-                        <div style={itemText}>{item.assetText}</div>
-                        {item.operatorText ? <div style={itemText}>{item.operatorText}</div> : null}
-                        <div style={itemMetaRow}>
-                          <span>{item.timesText}</span>
-                          {item.valueText ? <span>{item.valueText}</span> : null}
-                        </div>
-                        {item.noteText ? <div style={noteText}>{item.noteText}</div> : null}
+                        <div style={compactLine}>{item.clientName}</div>
+                        <div style={compactLine}>{item.assetText}</div>
+                        {item.operatorText ? <div style={compactLine}>{item.operatorText}</div> : null}
+                        <div style={metaLine}>{item.timesText}</div>
                       </a>
                     ))}
                   </div>
@@ -584,178 +589,113 @@ export default async function WeeklyPlannerPage({
   );
 }
 
-function kindPill(kind: "crane" | "transport" | "labour"): React.CSSProperties {
-  if (kind === "crane") {
-    return {
-      display: "inline-block",
-      padding: "4px 8px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 900,
-      background: "rgba(0,120,255,0.12)",
-      border: "1px solid rgba(0,120,255,0.20)",
-      color: "#0b57d0",
-    };
-  }
-
-  if (kind === "transport") {
-    return {
-      display: "inline-block",
-      padding: "4px 8px",
-      borderRadius: 999,
-      fontSize: 12,
-      fontWeight: 900,
-      background: "rgba(0,180,120,0.12)",
-      border: "1px solid rgba(0,180,120,0.20)",
-      color: "#0b7a4b",
-    };
-  }
-
-  return {
-    display: "inline-block",
-    padding: "4px 8px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 900,
-    background: "rgba(155,89,182,0.12)",
-    border: "1px solid rgba(155,89,182,0.20)",
-    color: "#7d3c98",
-  };
-}
-
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  gap: 16,
+  gap: 12,
   flexWrap: "wrap",
-  marginBottom: 16,
+  marginBottom: 12,
 };
 
 const summaryBar: React.CSSProperties = {
   display: "flex",
-  gap: 10,
+  gap: 8,
   flexWrap: "wrap",
-  marginBottom: 16,
+  marginBottom: 12,
 };
 
 const summaryItem: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
+  padding: "8px 10px",
+  borderRadius: 8,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
+  fontSize: 13,
 };
 
 const weekGrid: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-  gap: 12,
+  gap: 8,
   alignItems: "start",
 };
 
 const dayCard: React.CSSProperties = {
-  minHeight: 420,
-  padding: 12,
-  borderRadius: 14,
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(255,255,255,0.38)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  minHeight: 340,
+  padding: 8,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.32)",
+  boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
   display: "grid",
-  gap: 12,
+  gap: 6,
   alignContent: "start",
 };
 
 const dayHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 8,
-  alignItems: "flex-start",
-  flexWrap: "wrap",
-};
-
-const holidayPill: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  background: "rgba(255,170,0,0.16)",
-  border: "1px solid rgba(255,170,0,0.24)",
-};
-
-const dayTotals: React.CSSProperties = {
-  display: "flex",
   gap: 6,
-  flexWrap: "wrap",
-};
-
-const miniPill: React.CSSProperties = {
-  display: "inline-block",
-  padding: "4px 8px",
-  borderRadius: 999,
-  fontSize: 11,
-  fontWeight: 800,
-  background: "rgba(255,255,255,0.70)",
-  border: "1px solid rgba(0,0,0,0.08)",
+  alignItems: "center",
 };
 
 const emptyBox: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.60)",
+  padding: "10px 8px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.58)",
   border: "1px dashed rgba(0,0,0,0.10)",
-  opacity: 0.75,
+  opacity: 0.72,
+  fontSize: 12,
 };
 
 const itemCard: React.CSSProperties = {
   display: "block",
   textDecoration: "none",
   color: "#111",
-  padding: 10,
-  borderRadius: 12,
+  padding: 7,
+  borderRadius: 8,
 };
 
 const itemTopRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 8,
-  alignItems: "flex-start",
-  flexWrap: "wrap",
+  gap: 6,
+  alignItems: "center",
 };
 
-const itemText: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  lineHeight: 1.35,
+const compactLine: React.CSSProperties = {
+  marginTop: 3,
+  fontSize: 11,
+  lineHeight: 1.25,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 
-const itemMetaRow: React.CSSProperties = {
-  marginTop: 8,
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.78,
-};
-
-const noteText: React.CSSProperties = {
-  marginTop: 8,
-  fontSize: 12,
+const metaLine: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 10,
   opacity: 0.72,
-  lineHeight: 1.35,
+  fontWeight: 800,
+};
+
+const valueText: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 900,
+  whiteSpace: "nowrap",
 };
 
 const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
+  padding: "8px 12px",
+  borderRadius: 8,
   textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+  fontSize: 13,
 };
 
 const errorBox: React.CSSProperties = {
@@ -766,3 +706,51 @@ const errorBox: React.CSSProperties = {
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
 };
+
+function kindPill(kind: "crane" | "transport" | "labour"): React.CSSProperties {
+  if (kind === "crane") {
+    return {
+      display: "inline-block",
+      minWidth: 18,
+      textAlign: "center",
+      padding: "2px 5px",
+      borderRadius: 999,
+      fontSize: 10,
+      fontWeight: 900,
+      background: "rgba(0,120,255,0.10)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.16)",
+      flexShrink: 0,
+    };
+  }
+
+  if (kind === "transport") {
+    return {
+      display: "inline-block",
+      minWidth: 18,
+      textAlign: "center",
+      padding: "2px 5px",
+      borderRadius: 999,
+      fontSize: 10,
+      fontWeight: 900,
+      background: "rgba(0,180,120,0.10)",
+      color: "#0b7a4b",
+      border: "1px solid rgba(0,180,120,0.16)",
+      flexShrink: 0,
+    };
+  }
+
+  return {
+    display: "inline-block",
+    minWidth: 18,
+    textAlign: "center",
+    padding: "2px 5px",
+    borderRadius: 999,
+    fontSize: 10,
+    fontWeight: 900,
+    background: "rgba(155,89,182,0.10)",
+    color: "#7d3c98",
+    border: "1px solid rgba(155,89,182,0.16)",
+    flexShrink: 0,
+  };
+}
