@@ -59,45 +59,131 @@ function countBillableDays(startDate: string, endDate: string, excludeWeekends: 
   return count;
 }
 
+function normaliseCompanyName(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/limited/g, "ltd")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bthe\b/g, " ")
+    .replace(/\bltd\b/g, " ltd ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalisePhone(value: string | null | undefined) {
+  return String(value ?? "").replace(/\D+/g, "").trim();
+}
+
+function normaliseEmail(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 async function resolveClientId(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   selectedClientId: string | null,
-  otherCustomerName: string | null
+  otherCustomer: {
+    companyName: string | null;
+    contactName: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+  }
 ) {
   if (selectedClientId && selectedClientId !== "other") {
-    return selectedClientId;
+    return { clientId: selectedClientId, duplicateMessage: "" };
   }
 
-  if (!otherCustomerName) {
-    return null;
+  if (!otherCustomer.companyName) {
+    return { clientId: null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
   }
 
-  const { data: existingClients } = await supabase
+  const wantedCompany = normaliseCompanyName(otherCustomer.companyName);
+  const wantedPhone = normalisePhone(otherCustomer.phone);
+  const wantedEmail = normaliseEmail(otherCustomer.email);
+
+  const { data: existingClients, error: existingClientsError } = await supabase
     .from("clients")
-    .select("id, company_name")
-    .ilike("company_name", otherCustomerName)
-    .limit(1);
+    .select("id, company_name, contact_name, phone, email, address, archived")
+    .eq("archived", false)
+    .order("company_name", { ascending: true });
 
-  if (existingClients?.[0]?.id) {
-    return existingClients[0].id;
+  if (existingClientsError) {
+    return { clientId: null, duplicateMessage: existingClientsError.message };
+  }
+
+  const rows = (existingClients ?? []).map((client: any) => ({
+    ...client,
+    normalisedCompany: normaliseCompanyName(client.company_name),
+    normalisedPhone: normalisePhone(client.phone),
+    normalisedEmail: normaliseEmail(client.email),
+  }));
+
+  const strongMatch =
+    rows.find((client: any) => wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        wantedPhone &&
+        client.normalisedCompany === wantedCompany &&
+        client.normalisedPhone === wantedPhone
+    ) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        client.normalisedCompany === wantedCompany &&
+        (
+          (wantedPhone && client.normalisedPhone === wantedPhone) ||
+          (wantedEmail && client.normalisedEmail === wantedEmail)
+        )
+    );
+
+  if (strongMatch?.id) {
+    return { clientId: strongMatch.id, duplicateMessage: "" };
+  }
+
+  const possibleMatches = rows.filter((client: any) => {
+    if (wantedCompany && client.normalisedCompany === wantedCompany) return true;
+    if (wantedPhone && client.normalisedPhone && client.normalisedPhone === wantedPhone) return true;
+    if (wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) return true;
+    return false;
+  });
+
+  if (possibleMatches.length > 0) {
+    const labels = possibleMatches
+      .slice(0, 5)
+      .map((client: any) => client.company_name || "Existing customer")
+      .join(", ");
+
+    return {
+      clientId: null,
+      duplicateMessage: `Possible duplicate customer found: ${labels}. Please select the existing customer from the dropdown instead of using Other.`,
+    };
   }
 
   const { data: insertedClient, error: insertClientError } = await supabase
     .from("clients")
     .insert([
       {
-        company_name: otherCustomerName,
-        notes: "Auto-created from Other customer during job creation.",
+        company_name: otherCustomer.companyName,
+        contact_name: otherCustomer.contactName || null,
+        phone: otherCustomer.phone || null,
+        email: otherCustomer.email || null,
+        address: otherCustomer.address || null,
+        notes: "Created from Other customer during job creation.",
       },
     ])
     .select("id")
     .single();
 
   if (insertClientError || !insertedClient?.id) {
-    return null;
+    return {
+      clientId: null,
+      duplicateMessage: insertClientError?.message || "Could not create customer.",
+    };
   }
 
-  return insertedClient.id;
+  return { clientId: insertedClient.id, duplicateMessage: "" };
 }
 
 async function createJob(formData: FormData) {
@@ -108,8 +194,13 @@ async function createJob(formData: FormData) {
   const primarySelection = clean(formData.get("primary_equipment_selection"));
   const otherItemName = clean(formData.get("other_item_name"));
   const rawClientId = clean(formData.get("client_id")) || null;
-  const otherCustomerName = clean(formData.get("other_customer_name")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
+
+  const otherCustomerCompanyName = clean(formData.get("other_customer_name")) || null;
+  const otherCustomerContactName = clean(formData.get("other_customer_contact_name")) || null;
+  const otherCustomerPhone = clean(formData.get("other_customer_phone")) || null;
+  const otherCustomerEmail = clean(formData.get("other_customer_email")) || null;
+  const otherCustomerAddress = clean(formData.get("other_customer_address")) || null;
 
   const startDate = clean(formData.get("start_date")) || null;
   const endDate = clean(formData.get("end_date")) || null;
@@ -130,15 +221,19 @@ async function createJob(formData: FormData) {
     allocationAssetType = otherItemName ? "other" : null;
   }
 
-  if (rawClientId === "other" && !otherCustomerName) {
-    redirect(
-      `/jobs/new?error=${encodeURIComponent(
-        "Please enter the customer name when Customer is set to Other."
-      )}`
-    );
+  const clientResolution = await resolveClientId(supabase, rawClientId, {
+    companyName: otherCustomerCompanyName,
+    contactName: otherCustomerContactName,
+    phone: otherCustomerPhone,
+    email: otherCustomerEmail,
+    address: otherCustomerAddress,
+  });
+
+  if (clientResolution.duplicateMessage) {
+    redirect(`/jobs/new?error=${encodeURIComponent(clientResolution.duplicateMessage)}`);
   }
 
-  const clientId = await resolveClientId(supabase, rawClientId, otherCustomerName);
+  const clientId = clientResolution.clientId;
 
   if (!clientId || !startDate || !endDate) {
     redirect(
@@ -182,8 +277,8 @@ async function createJob(formData: FormData) {
     operator_id: operatorId,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
-    contact_name: clean(formData.get("contact_name")) || null,
-    contact_phone: clean(formData.get("contact_phone")) || null,
+    contact_name: clean(formData.get("contact_name")) || otherCustomerContactName || null,
+    contact_phone: clean(formData.get("contact_phone")) || otherCustomerPhone || null,
     job_date: startDate,
     start_date: startDate,
     end_date: endDate,
@@ -360,23 +455,74 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                     {client.company_name ?? "Customer"}
                   </option>
                 ))}
-                <option value="other">Other</option>
+                <option value="other">Other / create new customer</option>
               </select>
             </div>
 
-            <div
-              id="other_customer_wrap"
-              style={{ display: prefilledClientId === "other" ? "grid" : "none", gap: 6 }}
-            >
-              <label style={labelStyle}>Other customer name *</label>
-              <input
-                id="other_customer_name"
-                name="other_customer_name"
-                style={inputStyle}
-                defaultValue={prefilledClientId === "other" ? prefilledCompany : ""}
-                placeholder="Enter customer company name"
-              />
-            </div>
+            <section style={newCustomerBox}>
+              <h3 style={newCustomerHeading}>New customer details</h3>
+              <p style={newCustomerHelp}>
+                Only used if Customer is set to <strong>Other / create new customer</strong>.
+                Duplicate checks will run against company name, phone and email.
+              </p>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>New customer company name</label>
+                <input
+                  id="other_customer_name"
+                  name="other_customer_name"
+                  style={inputStyle}
+                  defaultValue={prefilledClientId === "other" ? prefilledCompany : ""}
+                  placeholder="Enter customer company name"
+                />
+              </div>
+
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>New customer contact name</label>
+                  <input
+                    id="other_customer_contact_name"
+                    name="other_customer_contact_name"
+                    style={inputStyle}
+                    defaultValue={prefilledContactName}
+                    placeholder="Contact name"
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>New customer phone</label>
+                  <input
+                    id="other_customer_phone"
+                    name="other_customer_phone"
+                    style={inputStyle}
+                    defaultValue={prefilledContactPhone}
+                    placeholder="Phone"
+                  />
+                </div>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>New customer email</label>
+                <input
+                  id="other_customer_email"
+                  name="other_customer_email"
+                  type="email"
+                  style={inputStyle}
+                  placeholder="Email"
+                />
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>New customer address</label>
+                <textarea
+                  id="other_customer_address"
+                  name="other_customer_address"
+                  rows={3}
+                  style={textareaStyle}
+                  placeholder="Customer address"
+                />
+              </div>
+            </section>
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Site name</label>
@@ -526,96 +672,75 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                     type="number"
                     step="0.01"
                     style={inputStyle}
+                    defaultValue=""
                     placeholder="0.00"
                   />
                 </div>
               </div>
             </section>
 
-            <div style={twoCol}>
+            <section style={pricingBox}>
+              <h3 style={pricingHeading}>Primary equipment</h3>
+
               <div style={fieldWrap}>
-                <label style={labelStyle}>Primary equipment</label>
-                <select
-                  name="primary_equipment_selection"
-                  style={inputStyle}
-                  defaultValue=""
-                >
-                  <option value="">— Optional —</option>
+                <label style={labelStyle}>Primary equipment selection</label>
+                <select name="primary_equipment_selection" style={inputStyle} defaultValue="">
+                  <option value="">— None selected —</option>
 
-                  {(cranes ?? []).length ? (
-                    <optgroup label="Cranes">
-                      {(cranes ?? []).map((item: any) => (
-                        <option key={item.id} value={`crane:${item.id}`}>
-                          {item.name ?? "Crane"}
-                          {item.fleet_number ? ` (${item.fleet_number})` : ""}
-                          {item.reg_number ? ` - ${item.reg_number}` : ""}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
+                  {(cranes ?? []).map((crane: any) => (
+                    <option key={`crane-${crane.id}`} value={`crane:${crane.id}`}>
+                      {crane.name ?? "Crane"}
+                      {crane.reg_number ? ` (${crane.reg_number})` : ""}
+                      {crane.fleet_number ? ` • ${crane.fleet_number}` : ""}
+                    </option>
+                  ))}
 
-                  {(equipment ?? []).length ? (
-                    <optgroup label="Equipment">
-                      {(equipment ?? []).map((item: any) => (
-                        <option key={item.id} value={`equipment:${item.id}`}>
-                          {item.name ?? "Equipment"}
-                          {item.asset_number ? ` (${item.asset_number})` : ""}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ) : null}
+                  {(equipment ?? []).map((asset: any) => (
+                    <option key={`equipment-${asset.id}`} value={`equipment:${asset.id}`}>
+                      {asset.name ?? "Equipment"}
+                      {asset.asset_number ? ` (${asset.asset_number})` : ""}
+                    </option>
+                  ))}
 
-                  <optgroup label="Other">
-                    <option value="other">Other</option>
-                  </optgroup>
+                  <option value="other">Other</option>
                 </select>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Other item name</label>
+                <input
+                  name="other_item_name"
+                  style={inputStyle}
+                  placeholder="Only required if Primary equipment = Other"
+                />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Primary operator</label>
                 <select name="operator_id" style={inputStyle} defaultValue="">
-                  <option value="">— Optional —</option>
-                  {(operators ?? []).map((item: any) => (
-                    <option key={item.id} value={item.id}>
-                      {item.full_name ?? "Operator"}
+                  <option value="">— Unassigned —</option>
+                  {(operators ?? []).map((operator: any) => (
+                    <option key={operator.id} value={operator.id}>
+                      {operator.full_name ?? "Operator"}
                     </option>
                   ))}
                 </select>
               </div>
-            </div>
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Other item name</label>
-              <input
-                name="other_item_name"
-                style={inputStyle}
-                placeholder="Use this if you selected Other above"
-              />
-            </div>
+            </section>
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Notes</label>
               <textarea
                 name="notes"
-                rows={6}
+                rows={4}
                 style={textareaStyle}
-                defaultValue={[
-                  prefilledNotes ? `Quote notes: ${prefilledNotes}` : "",
-                  prefilledAmount ? `Quote amount: £${prefilledAmount}` : "",
-                  quoteId ? `Quote reference: ${quoteId}` : "",
-                ]
-                  .filter(Boolean)
-                  .join("\n")}
+                defaultValue={prefilledNotes}
               />
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
-                Save job
-              </button>
-              <a href="/jobs" style={secondaryBtn}>
-                Cancel
-              </a>
+              <button type="submit" style={primaryBtn}>Save job</button>
+              <a href="/jobs" style={secondaryBtn}>Cancel</a>
             </div>
           </form>
         </div>
@@ -708,6 +833,26 @@ const pricingBox: React.CSSProperties = {
 const pricingHeading: React.CSSProperties = {
   margin: 0,
   fontSize: 18,
+};
+
+const newCustomerBox: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const newCustomerHeading: React.CSSProperties = {
+  margin: 0,
+  fontSize: 18,
+};
+
+const newCustomerHelp: React.CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  opacity: 0.8,
 };
 
 const checkboxRow: React.CSSProperties = {
