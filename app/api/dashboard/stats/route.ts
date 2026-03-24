@@ -112,7 +112,7 @@ export async function GET() {
       recentServiceLogRes,
     ] = await Promise.all([
       supabase
-        .from("bookings")
+        .from("jobs")
         .select(`
           id,
           job_number,
@@ -135,9 +135,6 @@ export async function GET() {
           archived,
           clients:client_id (
             company_name
-          ),
-          equipment:equipment_id (
-            name
           )
         `),
 
@@ -165,8 +162,6 @@ export async function GET() {
           status,
           invoice_status,
           total_invoice,
-          invoice_total,
-          invoice_subtotal,
           amount_paid,
           vehicle_id,
           operator_id,
