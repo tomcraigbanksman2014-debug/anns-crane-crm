@@ -23,6 +23,103 @@ function norm(v: any) {
   return s.length ? s : null;
 }
 
+function normaliseCompanyName(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/limited/g, "ltd")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\bthe\b/g, " ")
+    .replace(/\bltd\b/g, " ltd ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalisePhone(value: string | null | undefined) {
+  return String(value ?? "").replace(/\D+/g, "").trim();
+}
+
+function normaliseEmail(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+async function checkDuplicateClient(
+  supabaseLike: any,
+  payload: {
+    company_name: string;
+    phone: string | null;
+    email: string | null;
+  }
+) {
+  const wantedCompany = normaliseCompanyName(payload.company_name);
+  const wantedPhone = normalisePhone(payload.phone);
+  const wantedEmail = normaliseEmail(payload.email);
+
+  const { data: existingClients, error } = await supabaseLike
+    .from("clients")
+    .select("id, company_name, phone, email, archived")
+    .eq("archived", false)
+    .order("company_name", { ascending: true });
+
+  if (error) {
+    return { error: error.message, duplicateId: null, duplicateMessage: "" };
+  }
+
+  const rows = (existingClients ?? []).map((client: any) => ({
+    ...client,
+    normalisedCompany: normaliseCompanyName(client.company_name),
+    normalisedPhone: normalisePhone(client.phone),
+    normalisedEmail: normaliseEmail(client.email),
+  }));
+
+  const strongMatch =
+    rows.find((client: any) => wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        wantedPhone &&
+        client.normalisedCompany === wantedCompany &&
+        client.normalisedPhone === wantedPhone
+    ) ||
+    rows.find(
+      (client: any) =>
+        wantedCompany &&
+        client.normalisedCompany === wantedCompany &&
+        ((wantedPhone && client.normalisedPhone === wantedPhone) ||
+          (wantedEmail && client.normalisedEmail === wantedEmail))
+    );
+
+  if (strongMatch?.id) {
+    return {
+      error: "",
+      duplicateId: strongMatch.id,
+      duplicateMessage: `Duplicate customer detected: ${strongMatch.company_name}. Please use the existing customer record instead of creating a new one.`,
+    };
+  }
+
+  const possibleMatches = rows.filter((client: any) => {
+    if (wantedCompany && client.normalisedCompany === wantedCompany) return true;
+    if (wantedPhone && client.normalisedPhone && client.normalisedPhone === wantedPhone) return true;
+    if (wantedEmail && client.normalisedEmail && client.normalisedEmail === wantedEmail) return true;
+    return false;
+  });
+
+  if (possibleMatches.length > 0) {
+    const labels = possibleMatches
+      .slice(0, 5)
+      .map((client: any) => client.company_name || "Existing customer")
+      .join(", ");
+
+    return {
+      error: "",
+      duplicateId: null,
+      duplicateMessage: `Possible duplicate customer found: ${labels}. Please search for and use the existing customer instead of creating a new one.`,
+    };
+  }
+
+  return { error: "", duplicateId: null, duplicateMessage: "" };
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as Partial<Payload>;
@@ -69,6 +166,23 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
       }
 
+      const duplicateCheck = await checkDuplicateClient(authClient, {
+        company_name,
+        phone,
+        email,
+      });
+
+      if (duplicateCheck.error) {
+        return NextResponse.json({ error: duplicateCheck.error }, { status: 400 });
+      }
+
+      if (duplicateCheck.duplicateMessage) {
+        return NextResponse.json(
+          { error: duplicateCheck.duplicateMessage, existing_id: duplicateCheck.duplicateId },
+          { status: 400 }
+        );
+      }
+
       const { data, error } = await authClient
         .from("clients")
         .insert([{ company_name, contact_name, phone, email, notes }])
@@ -100,6 +214,23 @@ export async function POST(req: Request) {
     const { data: userRes, error: userErr } = await supabase.auth.getUser();
     if (userErr || !userRes.user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const duplicateCheck = await checkDuplicateClient(supabase, {
+      company_name,
+      phone,
+      email,
+    });
+
+    if (duplicateCheck.error) {
+      return NextResponse.json({ error: duplicateCheck.error }, { status: 400 });
+    }
+
+    if (duplicateCheck.duplicateMessage) {
+      return NextResponse.json(
+        { error: duplicateCheck.duplicateMessage, existing_id: duplicateCheck.duplicateId },
+        { status: 400 }
+      );
     }
 
     const { data, error } = await supabase
