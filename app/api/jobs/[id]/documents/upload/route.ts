@@ -31,6 +31,8 @@ export async function POST(
     const file = formData.get("file");
     const rawDocumentType = String(formData.get("document_type") ?? "other").trim();
     const documentType = allowedTypes.has(rawDocumentType) ? rawDocumentType : "other";
+    const shareWithOperator =
+      String(formData.get("share_with_operator") ?? "false").trim().toLowerCase() === "true";
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
@@ -61,6 +63,7 @@ export async function POST(
         file_type: file.type || null,
         document_type: documentType,
         uploaded_by: user.id,
+        share_with_operator: shareWithOperator,
       },
     ]);
 
@@ -79,6 +82,7 @@ export async function POST(
         file_name: file.name,
         file_path: filePath,
         document_type: documentType,
+        share_with_operator: shareWithOperator,
       },
     });
 
