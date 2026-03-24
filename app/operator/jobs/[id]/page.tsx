@@ -97,6 +97,81 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
+
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
+function jobIsAssignedToOperator(job: any, operatorId: string) {
+  if (!job) return false;
+
+  if (String(job.operator_id ?? "") === operatorId) return true;
+  if (String(job.main_operator_id ?? "") === operatorId) return true;
+
+  const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
+  return allocations.some((row: any) => String(row?.operator_id ?? "") === operatorId);
+}
+
+function displayAsset(job: any) {
+  const directEquipment = first(job?.equipment);
+  if (directEquipment?.name) {
+    return {
+      name: directEquipment.name,
+      extra: directEquipment.capacity ? ` • ${directEquipment.capacity}` : "",
+    };
+  }
+
+  const allocations = Array.isArray(job?.job_equipment) ? job.job_equipment : [];
+
+  const craneAllocation = allocations.find((row: any) => {
+    const crane = first(row?.cranes);
+    return !!crane?.name;
+  });
+
+  if (craneAllocation) {
+    const crane = first(craneAllocation.cranes);
+    return {
+      name: crane?.name ?? "Crane",
+      extra: crane?.capacity ? ` • ${crane.capacity}` : "",
+    };
+  }
+
+  const equipmentAllocation = allocations.find((row: any) => {
+    const equipment = first(row?.equipment);
+    return !!equipment?.name;
+  });
+
+  if (equipmentAllocation) {
+    const equipment = first(equipmentAllocation.equipment);
+    return {
+      name: equipment?.name ?? "Equipment",
+      extra: equipment?.capacity ? ` • ${equipment.capacity}` : "",
+    };
+  }
+
+  const otherAllocation = allocations.find((row: any) => !!row?.item_name);
+  if (otherAllocation) {
+    return {
+      name: otherAllocation.item_name ?? "Other",
+      extra: "",
+    };
+  }
+
+  return { name: "—", extra: "" };
+}
+
 export default async function OperatorJobSheetPage({
   params,
 }: {
@@ -120,9 +195,6 @@ export default async function OperatorJobSheetPage({
   }
 
   const authEmail = String(user.email ?? "").trim().toLowerCase();
-  const authUsername = authEmail.includes("@")
-    ? authEmail.split("@")[0]
-    : authEmail;
 
   const { data: operators, error: operatorsError } = await supabase
     .from("operators")
@@ -140,16 +212,7 @@ export default async function OperatorJobSheetPage({
   }
 
   const operator =
-    (operators ?? []).find((op: any) => {
-      const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-      const operatorName = String(op.full_name ?? "").trim().toLowerCase();
-
-      return (
-        operatorEmail === authEmail ||
-        operatorName === authUsername ||
-        (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
-      );
-    }) ?? null;
+    (operators ?? []).find((op: any) => matchesOperatorLogin(authEmail, op)) ?? null;
 
   if (!operator) {
     return (
@@ -161,50 +224,69 @@ export default async function OperatorJobSheetPage({
     );
   }
 
-  const [{ data: job, error: jobError }, { data: allDocuments, error: docsError }] = await Promise.all([
-    supabase
-      .from("jobs")
-      .select(`
-        id,
-        job_number,
-        job_date,
-        start_time,
-        end_time,
-        status,
-        site_name,
-        site_address,
-        contact_name,
-        contact_phone,
-        notes,
-        started_at,
-        arrived_on_site_at,
-        lift_completed_at,
-        completed_at,
-        operator_id,
-        travel_hours,
-        break_hours,
-        overtime_hours,
-        operator_job_notes,
-        customer_signoff_name,
-        operator_signoff_name,
-        submitted_to_office_at,
-        clients:client_id (
-          company_name
-        ),
-        equipment:equipment_id (
-          name,
-          capacity
-        )
-      `)
-      .eq("id", params.id)
-      .single(),
+  const [{ data: job, error: jobError }, { data: allDocuments, error: docsError }] =
+    await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          id,
+          job_number,
+          job_date,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          status,
+          site_name,
+          site_address,
+          contact_name,
+          contact_phone,
+          notes,
+          started_at,
+          arrived_on_site_at,
+          lift_completed_at,
+          completed_at,
+          operator_id,
+          main_operator_id,
+          travel_hours,
+          break_hours,
+          overtime_hours,
+          operator_job_notes,
+          customer_signoff_name,
+          operator_signoff_name,
+          submitted_to_office_at,
+          clients:client_id (
+            company_name
+          ),
+          equipment:equipment_id (
+            name,
+            capacity
+          ),
+          job_equipment (
+            id,
+            operator_id,
+            item_name,
+            cranes:crane_id (
+              id,
+              name,
+              capacity
+            ),
+            equipment:equipment_id (
+              id,
+              name,
+              capacity
+            )
+          )
+        `)
+        .eq("id", params.id)
+        .single(),
 
-    supabase
-      .from("job_documents")
-      .select("id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator")
-      .eq("job_id", params.id)
-      .order("created_at", { ascending: false }),
-  ]);
+      supabase
+        .from("job_documents")
+        .select("id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator")
+        .eq("job_id", params.id)
+        .order("created_at", { ascending: false }),
+    ]);
 
   if (jobError || !job) {
     return (
@@ -216,7 +298,7 @@ export default async function OperatorJobSheetPage({
     );
   }
 
-  if ((job as any).operator_id !== operator.id) {
+  if (!jobIsAssignedToOperator(job, operator.id)) {
     return (
       <ClientShell>
         <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
@@ -237,7 +319,7 @@ export default async function OperatorJobSheetPage({
   }
 
   const client = first((job as any).clients);
-  const equipment = first((job as any).equipment);
+  const asset = displayAsset(job);
 
   const visibleDocuments = ((allDocuments ?? []) as any[]).filter((doc: any) => {
     const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
@@ -263,7 +345,7 @@ export default async function OperatorJobSheetPage({
                 Job #{(job as any).job_number ?? "—"}
               </h1>
               <div style={{ marginTop: 6, opacity: 0.8 }}>
-                {fmtDate((job as any).job_date)}
+                {fmtDate((job as any).start_date ?? (job as any).job_date)}
               </div>
             </div>
 
@@ -287,10 +369,10 @@ export default async function OperatorJobSheetPage({
           </div>
 
           <div style={sectionBlock}>
-            <div style={rowLabel}>Crane</div>
+            <div style={rowLabel}>Crane / equipment</div>
             <div style={rowValue}>
-              {equipment?.name ?? "—"}
-              {equipment?.capacity ? ` • ${equipment.capacity}` : ""}
+              {asset.name}
+              {asset.extra}
             </div>
           </div>
 
@@ -330,22 +412,6 @@ export default async function OperatorJobSheetPage({
           <div style={sectionBlock}>
             <div style={rowLabel}>Office notes</div>
             <div style={rowValue}>{(job as any).notes ?? "—"}</div>
-          </div>
-
-          <div style={timelineBox}>
-            <div style={timelineTitle}>Job activity</div>
-            <div style={timelineRow}>
-              <strong>Started:</strong> {fmtDateTime((job as any).started_at)}
-            </div>
-            <div style={timelineRow}>
-              <strong>Arrived on site:</strong> {fmtDateTime((job as any).arrived_on_site_at)}
-            </div>
-            <div style={timelineRow}>
-              <strong>Lift completed:</strong> {fmtDateTime((job as any).lift_completed_at)}
-            </div>
-            <div style={timelineRow}>
-              <strong>Job completed:</strong> {fmtDateTime((job as any).completed_at)}
-            </div>
           </div>
 
           <OperatorJobActions jobId={(job as any).id} />
@@ -434,24 +500,6 @@ const rowValue: React.CSSProperties = {
   marginTop: 4,
   fontSize: 15,
   fontWeight: 700,
-};
-
-const timelineBox: React.CSSProperties = {
-  marginTop: 14,
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const timelineTitle: React.CSSProperties = {
-  fontWeight: 900,
-  marginBottom: 8,
-};
-
-const timelineRow: React.CSSProperties = {
-  fontSize: 14,
-  marginTop: 6,
 };
 
 const photoSection: React.CSSProperties = {
