@@ -2,6 +2,15 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../../lib/audit";
 
+const allowedTypes = new Set([
+  "rams",
+  "lift_plan",
+  "site_drawing",
+  "photo",
+  "delivery_note",
+  "other",
+]);
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -70,9 +79,11 @@ export async function POST(
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const rawDocumentType = String(formData.get("document_type") ?? "photo").trim();
+    const documentType = allowedTypes.has(rawDocumentType) ? rawDocumentType : "photo";
 
     if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No photo uploaded" }, { status: 400 });
+      return NextResponse.json({ error: "No document uploaded" }, { status: 400 });
     }
 
     const arrayBuffer = await file.arrayBuffer();
@@ -100,8 +111,9 @@ export async function POST(
           file_name: file.name,
           file_path: filePath,
           file_type: file.type || null,
-          document_type: "photo",
+          document_type: documentType,
           uploaded_by: user.id,
+          share_with_operator: false,
         },
       ]);
 
@@ -112,8 +124,8 @@ export async function POST(
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "operator_job_photo_uploaded",
-      entity_type: "operator_photo_upload",
+      action: "operator_job_document_uploaded",
+      entity_type: "operator_document_upload",
       entity_id: params.id,
       meta: {
         job_id: params.id,
@@ -122,13 +134,14 @@ export async function POST(
         operator_name: operator.full_name ?? null,
         file_name: file.name,
         file_path: filePath,
+        document_type: documentType,
       },
     });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message ?? "Could not upload photo." },
+      { error: e?.message ?? "Could not upload document." },
       { status: 400 }
     );
   }
