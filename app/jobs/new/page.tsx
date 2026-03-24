@@ -37,20 +37,6 @@ function numberOrZero(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function countDaysInclusive(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
-
-  let count = 0;
-  const cursor = new Date(start);
-  while (cursor <= end) {
-    count += 1;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
-}
-
 function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
@@ -183,7 +169,6 @@ async function createJob(formData: FormData) {
   const fullJobPrice = numberOrZero(formData.get("full_job_price"));
   const pricePerDay = numberOrZero(formData.get("price_per_day"));
 
-  const totalDays = countDaysInclusive(startDate, endDate);
   const billableDays = countBillableDays(startDate, endDate, excludeWeekends);
 
   const calculatedSubtotal =
@@ -211,7 +196,6 @@ async function createJob(formData: FormData) {
     price_mode: priceMode,
     price_per_day: priceMode === "per_day" ? pricePerDay : null,
     exclude_weekends: excludeWeekends,
-    price: calculatedSubtotal,
     invoice_subtotal: calculatedSubtotal,
     archived: false,
     created_at: new Date().toISOString(),
@@ -505,7 +489,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               <div style={twoCol}>
                 <div style={fieldWrap}>
                   <label style={labelStyle}>Price mode</label>
-                  <select id="price_mode" name="price_mode" style={inputStyle} defaultValue={prefilledAmount ? "full_job" : "full_job"}>
+                  <select id="price_mode" name="price_mode" style={inputStyle} defaultValue="full_job">
                     <option value="full_job">Full job price</option>
                     <option value="per_day">Price per day</option>
                   </select>
