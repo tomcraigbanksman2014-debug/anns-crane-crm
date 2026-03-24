@@ -11,6 +11,7 @@ export default function DocumentUploadForm({
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [documentType, setDocumentType] = useState("other");
+  const [shareWithOperator, setShareWithOperator] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -29,6 +30,7 @@ export default function DocumentUploadForm({
       const formData = new FormData();
       formData.append("file", file);
       formData.append("document_type", documentType);
+      formData.append("share_with_operator", shareWithOperator ? "true" : "false");
 
       const res = await fetch(`/api/jobs/${jobId}/documents/upload`, {
         method: "POST",
@@ -44,6 +46,7 @@ export default function DocumentUploadForm({
 
       setFile(null);
       setDocumentType("other");
+      setShareWithOperator(false);
 
       const input = document.getElementById("job-doc-upload") as HTMLInputElement | null;
       if (input) input.value = "";
@@ -79,6 +82,15 @@ export default function DocumentUploadForm({
           style={inputStyle}
         />
 
+        <label style={checkboxRow}>
+          <input
+            type="checkbox"
+            checked={shareWithOperator}
+            onChange={(e) => setShareWithOperator(e.target.checked)}
+          />
+          <span>Share with operator</span>
+        </label>
+
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button type="submit" disabled={saving} style={primaryBtn}>
             {saving ? "Uploading..." : "Upload document"}
@@ -109,6 +121,14 @@ const selectStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.88)",
   boxSizing: "border-box",
   fontSize: 14,
+};
+
+const checkboxRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 14,
+  fontWeight: 700,
 };
 
 const primaryBtn: React.CSSProperties = {
