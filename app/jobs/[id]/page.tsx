@@ -246,6 +246,13 @@ export default async function JobDetailPage({
         job_equipment (
           id,
           asset_type,
+          crane_id,
+          vehicle_id,
+          equipment_id,
+          operator_id,
+          source_type,
+          supplier_id,
+          purchase_order_id,
           item_name,
           start_date,
           end_date,
@@ -278,7 +285,13 @@ export default async function JobDetailPage({
           ),
           suppliers:supplier_id (
             id,
-            company_name
+            company_name,
+            category
+          ),
+          purchase_orders:purchase_order_id (
+            id,
+            po_number,
+            status
           )
         )
       `)
@@ -337,7 +350,7 @@ export default async function JobDetailPage({
 
     supabase
       .from("job_documents")
-      .select("id, file_name, file_path, file_type, document_type, created_at")
+      .select("id, file_name, file_path, file_type, document_type, created_at, share_with_operator")
       .eq("job_id", params.id)
       .order("created_at", { ascending: false }),
   ]);
@@ -451,7 +464,7 @@ export default async function JobDetailPage({
                   <Row label="Cranes" value={cranesAllocated.length} />
                   <Row label="Vehicles" value={vehiclesAllocated.length} />
                   <Row label="Lifting equipment" value={equipmentAllocated.length} />
-                  <Row label="Other" value={otherAllocated.length} />
+                  <Row label="Labour / Other" value={otherAllocated.length} />
                   <Row label="Allocated sell" value={money(allocatedSellSubtotal)} />
                   <Row label="Allocated cost" value={money(allocatedCostSubtotal)} />
                 </div>
@@ -482,7 +495,7 @@ export default async function JobDetailPage({
                   />
 
                   <AssetListBlock
-                    title="Other"
+                    title="Labour / Other"
                     items={otherAllocated.map((item) => ({
                       name: allocatedAssetName(item),
                       meta: allocationMeta(item, "other"),
@@ -554,6 +567,7 @@ export default async function JobDetailPage({
                               <div style={{ fontWeight: 900, wordBreak: "break-word" }}>{doc.file_name ?? "Document"}</div>
                               <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
                                 {documentTypeLabel(doc.document_type)} • {fmtDateTime(doc.created_at)}
+                                {doc.share_with_operator ? " • Shared with operator" : ""}
                               </div>
                             </div>
 
@@ -737,25 +751,12 @@ export default async function JobDetailPage({
                 <h2 style={sectionTitle}>Commercial</h2>
 
                 <div style={summaryGrid}>
-                  <Row
-                    label="Price mode"
-                    value={(job as any)?.price_mode === "per_day" ? "Price per day" : "Full job price"}
-                  />
-                  <Row
-                    label="Price per day"
-                    value={
-                      (job as any)?.price_per_day != null && Number((job as any)?.price_per_day) > 0
-                        ? money((job as any)?.price_per_day)
-                        : "—"
-                    }
-                  />
                   <Row label="Quoted / agreed sell" value={money((job as any).price ?? allocatedSellSubtotal)} />
                   <Row label="Allocated sell subtotal" value={money(allocatedSellSubtotal)} />
                   <Row label="VAT" value={money(liveVat)} />
                   <Row label="Invoice total" value={money((job as any).total_invoice ?? allocatedTotal)} />
                   <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
                   <Row label="Part paid amount" value={money((job as any).part_paid_amount ?? 0)} />
-                  <Row label="Exclude weekends" value={(job as any)?.exclude_weekends ? "Yes" : "No"} />
                 </div>
               </section>
 
