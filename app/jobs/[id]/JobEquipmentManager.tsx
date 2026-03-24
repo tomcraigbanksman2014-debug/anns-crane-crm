@@ -138,27 +138,16 @@ function normaliseCategory(value: string | null | undefined) {
 function getAllowedSupplierCategories(assetType: string) {
   const type = String(assetType ?? "").trim().toLowerCase();
 
-  if (type === "crane") {
-    return ["CRANES", "CRANE REPAIR", "CRANE REPAIRS"];
-  }
-
-  if (type === "vehicle") {
-    return ["TRANSPORT", "VEHICLES", "ESCORT", "ESCORTS", "TYRES", "VEHICLE REPAIRS"];
-  }
-
-  if (type === "equipment") {
-    return ["RIGGING GEAR", "LOLER", "PLANT"];
-  }
-
+  if (type === "crane") return ["CRANES", "CRANE REPAIR", "CRANE REPAIRS"];
+  if (type === "vehicle") return ["TRANSPORT", "VEHICLES", "ESCORT", "ESCORTS", "TYRES", "VEHICLE REPAIRS"];
+  if (type === "equipment") return ["RIGGING GEAR", "LOLER", "PLANT"];
   return [];
 }
 
 function filterSuppliersByAssetType(assetType: string, options: Option[]) {
   const type = String(assetType ?? "").toLowerCase();
 
-  if (type === "other") {
-    return options;
-  }
+  if (type === "other") return options;
 
   const allowed = getAllowedSupplierCategories(type);
   const filtered = options.filter((option) =>
@@ -279,35 +268,14 @@ export default function JobEquipmentManager({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
 
-  const [costDrafts, setCostDrafts] = useState<Record<string, string>>(
-    Object.fromEntries(
-      (initialAllocations ?? []).map((item) => [
-        item.id,
-        toCostString(item.supplier_cost ?? item.agreed_cost),
-      ])
-    )
-  );
-
-  const [sellDrafts, setSellDrafts] = useState<Record<string, string>>(
-    Object.fromEntries(
-      (initialAllocations ?? []).map((item) => [
-        item.id,
-        toCostString(item.agreed_sell_rate ?? item.agreed_cost),
-      ])
-    )
-  );
-
-  const [itemNameDrafts, setItemNameDrafts] = useState<Record<string, string>>(
-    Object.fromEntries(
-      (initialAllocations ?? []).map((item) => [
-        item.id,
-        String(item.item_name ?? ""),
-      ])
-    )
-  );
-
   const [draft, setDraft] = useState<DraftState>(
     buildEmptyDraft(defaultDate, defaultStartTime, defaultEndTime)
+  );
+
+  const [rowDrafts, setRowDrafts] = useState<Record<string, DraftState>>(
+    Object.fromEntries(
+      (initialAllocations ?? []).map((item) => [item.id, buildDraftFromAllocation(item)])
+    )
   );
 
   const totals = useMemo(() => {
@@ -350,6 +318,16 @@ export default function JobEquipmentManager({
     };
   }
 
+  function updateRowDraft(id: string, patch: Partial<DraftState>) {
+    setRowDrafts((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        ...patch,
+      },
+    }));
+  }
+
   function useAllocationAsTemplate(item: Allocation) {
     setDraft(buildDraftFromAllocation(item));
     setMessage(
@@ -377,9 +355,7 @@ export default function JobEquipmentManager({
 
       const res = await fetch("/api/job-equipment", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           job_id: jobId,
           asset_type: draft.asset_type,
@@ -420,17 +396,9 @@ export default function JobEquipmentManager({
       }
 
       setAllocations((prev) => [...prev, allocation]);
-      setCostDrafts((prev) => ({
+      setRowDrafts((prev) => ({
         ...prev,
-        [allocation.id]: toCostString(allocation.supplier_cost ?? allocation.agreed_cost),
-      }));
-      setSellDrafts((prev) => ({
-        ...prev,
-        [allocation.id]: toCostString(allocation.agreed_sell_rate ?? allocation.agreed_cost),
-      }));
-      setItemNameDrafts((prev) => ({
-        ...prev,
-        [allocation.id]: String(allocation.item_name ?? ""),
+        [allocation.id]: buildDraftFromAllocation(allocation),
       }));
 
       setDraft(buildEmptyDraft(defaultDate, defaultStartTime, defaultEndTime));
@@ -443,83 +411,71 @@ export default function JobEquipmentManager({
     }
   }
 
-  async function updateAllocation(id: string, patch: Record<string, any>) {
+  async function saveAllocation(id: string) {
+    const row = rowDrafts[id];
+    if (!row) return;
+
     setSavingId(id);
     setMessage("");
 
     try {
+      const supplierCost = parseCost(row.supplier_cost || row.agreed_cost);
+      const agreedSellRate = parseCost(row.agreed_sell_rate);
+
       const res = await fetch(`/api/job-equipment/${id}`, {
         method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(patch),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          asset_type: row.asset_type,
+          crane_id: row.asset_type === "crane" ? row.crane_id || null : null,
+          vehicle_id: row.asset_type === "vehicle" ? row.vehicle_id || null : null,
+          equipment_id: row.asset_type === "equipment" ? row.equipment_id || null : null,
+          operator_id: row.operator_id || null,
+          source_type: row.source_type,
+          supplier_id: row.source_type === "cross_hire" ? row.supplier_id || null : null,
+          purchase_order_id:
+            row.source_type === "cross_hire" ? row.purchase_order_id || null : null,
+          item_name: row.item_name || null,
+          start_date: row.start_date || null,
+          end_date: row.end_date || null,
+          start_time: row.start_time || null,
+          end_time: row.end_time || null,
+          agreed_cost: supplierCost,
+          agreed_sell_rate: agreedSellRate,
+          supplier_cost: supplierCost,
+          supplier_reference: row.supplier_reference || null,
+          notes: row.notes || null,
+        }),
       });
 
       const json = await res.json().catch(() => null);
 
       if (!res.ok) {
-        setMessage(json?.error || "Could not update allocation.");
+        setMessage(json?.error || "Could not save allocation.");
         return;
       }
 
       const allocation = getReturnedAllocation(json);
 
       if (!allocation) {
-        setMessage("Allocation updated but response was incomplete.");
+        setMessage("Allocation saved but response was incomplete.");
         router.refresh();
         return;
       }
 
-      setAllocations((prev) =>
-        prev.map((item) => (item.id === id ? allocation : item))
-      );
-
-      setCostDrafts((prev) => ({
+      setAllocations((prev) => prev.map((item) => (item.id === id ? allocation : item)));
+      setRowDrafts((prev) => ({
         ...prev,
-        [id]: toCostString(allocation.supplier_cost ?? allocation.agreed_cost),
-      }));
-      setSellDrafts((prev) => ({
-        ...prev,
-        [id]: toCostString(allocation.agreed_sell_rate ?? allocation.agreed_cost),
-      }));
-      setItemNameDrafts((prev) => ({
-        ...prev,
-        [id]: String(allocation.item_name ?? ""),
+        [id]: buildDraftFromAllocation(allocation),
       }));
 
+      setMessage("Allocation saved.");
       router.refresh();
     } catch {
-      setMessage("Could not update allocation.");
+      setMessage("Could not save allocation.");
     } finally {
       setSavingId(null);
     }
-  }
-
-  async function commitCost(id: string, item: Allocation) {
-    const raw = costDrafts[id] ?? toCostString(item.supplier_cost ?? item.agreed_cost);
-    const parsed = parseCost(raw);
-
-    await updateAllocation(id, {
-      agreed_cost: parsed,
-      supplier_cost: parsed,
-    });
-  }
-
-  async function commitSellRate(id: string, item: Allocation) {
-    const raw = sellDrafts[id] ?? toCostString(item.agreed_sell_rate ?? item.agreed_cost);
-    const parsed = parseCost(raw);
-
-    await updateAllocation(id, {
-      agreed_sell_rate: parsed,
-    });
-  }
-
-  async function commitItemName(id: string, item: Allocation) {
-    const raw = String(itemNameDrafts[id] ?? item.item_name ?? "").trim();
-    await updateAllocation(id, {
-      item_name: raw.length > 0 ? raw : null,
-    });
   }
 
   async function deleteAllocation(id: string) {
@@ -542,22 +498,13 @@ export default function JobEquipmentManager({
       }
 
       setAllocations((prev) => prev.filter((item) => item.id !== id));
-      setCostDrafts((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setSellDrafts((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
-      setItemNameDrafts((prev) => {
+      setRowDrafts((prev) => {
         const next = { ...prev };
         delete next[id];
         return next;
       });
 
+      setMessage("Allocation deleted.");
       router.refresh();
     } catch {
       setMessage("Could not delete allocation.");
@@ -574,7 +521,7 @@ export default function JobEquipmentManager({
             Allocations & Labour
           </h2>
           <div style={{ opacity: 0.72 }}>
-            Add cranes, vehicles, lifting equipment, labour-only rows, or split labour by date range.
+            Add cranes, equipment, vehicles, labour-only rows, and split labour across different days.
           </div>
         </div>
 
@@ -589,9 +536,9 @@ export default function JobEquipmentManager({
       </div>
 
       <div style={helpBox}>
-        For multi-day jobs with different labour each day, keep the crane allocation as one row and add
-        separate labour rows for each operator/date range. Use <strong>Use as template</strong> to copy a row,
-        then change the operator and dates.
+        For multi-day jobs with different labour each day, keep the crane allocation as one row and
+        add separate labour rows for each operator/date range. Use <strong>Use as template</strong> to
+        copy a row, then change the operator and dates before saving.
       </div>
 
       {message ? <div style={messageBox}>{message}</div> : null}
@@ -601,19 +548,17 @@ export default function JobEquipmentManager({
           <div style={emptyStyle}>No allocations added yet.</div>
         ) : (
           allocations.map((item) => {
-            const assetType = currentAssetType(item);
+            const row = rowDrafts[item.id] ?? buildDraftFromAllocation(item);
+            const assetType = row.asset_type;
             const assetOptions = getOptionsForAssetType(assetType);
-            const filteredSupplierOptions = filterSuppliersByAssetType(
-              assetType,
-              supplierOptions
-            );
+            const filteredSupplierOptions = filterSuppliersByAssetType(assetType, supplierOptions);
 
             return (
               <div key={item.id} style={allocationCard}>
                 <div style={gridStyle}>
                   <SelectField
                     label="Asset type"
-                    value={assetType}
+                    value={row.asset_type}
                     options={[
                       { value: "crane", label: "Crane" },
                       { value: "vehicle", label: "Vehicle" },
@@ -621,226 +566,148 @@ export default function JobEquipmentManager({
                       { value: "other", label: "Labour / Other" },
                     ]}
                     onChange={(value) =>
-                      updateAllocation(item.id, {
-                        ...(value === "other"
-                          ? {
-                              asset_type: "other",
-                              crane_id: null,
-                              vehicle_id: null,
-                              equipment_id: null,
-                              item_name: item.item_name || "Labour",
-                            }
-                          : apiAssetPatch(value || "equipment", "")),
-                        supplier_id: null,
+                      updateRowDraft(item.id, {
+                        asset_type: value || "crane",
+                        ...clearAssetIds(),
+                        supplier_id: "",
+                        item_name: value === "other" ? row.item_name || "Labour" : row.item_name,
                       })
                     }
                     disabled={savingId === item.id}
                   />
 
-                  {assetType !== "other" ? (
+                  {row.asset_type !== "other" ? (
                     <SelectField
-                      label={assetTypeLabel(assetType)}
-                      value={selectedAssetValue(item)}
+                      label={assetTypeLabel(row.asset_type)}
+                      value={selectedAssetValue(row)}
                       options={assetOptions}
                       onChange={(value) =>
-                        updateAllocation(item.id, apiAssetPatch(assetType, value))
+                        updateRowDraft(item.id, {
+                          ...apiAssetPatch(row.asset_type, value),
+                        })
                       }
                       disabled={savingId === item.id}
                     />
                   ) : (
                     <TextField
                       label="Labour / other item"
-                      value={itemNameDrafts[item.id] ?? String(item.item_name ?? "")}
-                      onChange={(value) =>
-                        setItemNameDrafts((prev) => ({
-                          ...prev,
-                          [item.id]: value,
-                        }))
-                      }
-                      onBlur={() => commitItemName(item.id, item)}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          await commitItemName(item.id, item);
-                        }
-                      }}
+                      value={row.item_name}
+                      onChange={(value) => updateRowDraft(item.id, { item_name: value })}
                       disabled={savingId === item.id}
                     />
                   )}
 
                   <SelectField
                     label="Operator"
-                    value={item.operator_id ?? ""}
+                    value={row.operator_id}
                     options={operatorOptions}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        operator_id: value || null,
-                      })
-                    }
+                    onChange={(value) => updateRowDraft(item.id, { operator_id: value })}
                     disabled={savingId === item.id}
                   />
 
                   <SelectField
                     label="Source"
-                    value={item.source_type ?? "owned"}
+                    value={row.source_type}
                     options={[
                       { value: "owned", label: "Owned" },
                       { value: "cross_hire", label: "Cross Hire" },
                     ]}
                     onChange={(value) =>
-                      updateAllocation(item.id, {
+                      updateRowDraft(item.id, {
                         source_type: value || "owned",
-                        supplier_id: value === "cross_hire" ? item.supplier_id : null,
+                        supplier_id: value === "cross_hire" ? row.supplier_id : "",
+                        purchase_order_id: value === "cross_hire" ? row.purchase_order_id : "",
                       })
                     }
                     disabled={savingId === item.id}
                   />
 
-                  {assetType !== "other" ? (
+                  {row.asset_type !== "other" ? (
                     <TextField
                       label="Item name / role"
-                      value={itemNameDrafts[item.id] ?? String(item.item_name ?? "")}
-                      onChange={(value) =>
-                        setItemNameDrafts((prev) => ({
-                          ...prev,
-                          [item.id]: value,
-                        }))
-                      }
-                      onBlur={() => commitItemName(item.id, item)}
-                      onKeyDown={async (e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          await commitItemName(item.id, item);
-                        }
-                      }}
+                      value={row.item_name}
+                      onChange={(value) => updateRowDraft(item.id, { item_name: value })}
                       disabled={savingId === item.id}
                     />
                   ) : null}
 
                   <TextField
                     label="Start date"
-                    value={item.start_date ?? ""}
+                    value={row.start_date}
                     type="date"
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        start_date: value || null,
-                      })
-                    }
+                    onChange={(value) => updateRowDraft(item.id, { start_date: value })}
                     disabled={savingId === item.id}
                   />
 
                   <TextField
                     label="End date"
-                    value={item.end_date ?? ""}
+                    value={row.end_date}
                     type="date"
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        end_date: value || null,
-                      })
-                    }
+                    onChange={(value) => updateRowDraft(item.id, { end_date: value })}
                     disabled={savingId === item.id}
                   />
 
                   <SelectField
                     label="Start time"
-                    value={item.start_time ?? ""}
+                    value={row.start_time}
                     options={timeOptions}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        start_time: value || null,
-                      })
-                    }
+                    onChange={(value) => updateRowDraft(item.id, { start_time: value })}
                     disabled={savingId === item.id}
                   />
 
                   <SelectField
                     label="End time"
-                    value={item.end_time ?? ""}
+                    value={row.end_time}
                     options={timeOptions}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        end_time: value || null,
-                      })
-                    }
+                    onChange={(value) => updateRowDraft(item.id, { end_time: value })}
                     disabled={savingId === item.id}
                   />
 
                   <TextField
                     label="Charge rate"
-                    value={
-                      sellDrafts[item.id] ??
-                      toCostString(item.agreed_sell_rate ?? item.agreed_cost)
-                    }
+                    value={row.agreed_sell_rate}
                     type="text"
                     inputMode="decimal"
-                    onChange={(value) =>
-                      setSellDrafts((prev) => ({ ...prev, [item.id]: value }))
-                    }
-                    onBlur={() => commitSellRate(item.id, item)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        await commitSellRate(item.id, item);
-                      }
-                    }}
+                    onChange={(value) => updateRowDraft(item.id, { agreed_sell_rate: value })}
                     disabled={savingId === item.id}
                   />
 
                   <TextField
                     label="Supplier cost"
-                    value={
-                      costDrafts[item.id] ??
-                      toCostString(item.supplier_cost ?? item.agreed_cost)
-                    }
+                    value={row.supplier_cost}
                     type="text"
                     inputMode="decimal"
                     onChange={(value) =>
-                      setCostDrafts((prev) => ({ ...prev, [item.id]: value }))
-                    }
-                    onBlur={() => commitCost(item.id, item)}
-                    onKeyDown={async (e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        await commitCost(item.id, item);
-                      }
-                    }}
-                    disabled={savingId === item.id}
-                  />
-
-                  <TextField
-                    label="Supplier reference"
-                    value={item.supplier_reference ?? ""}
-                    onChange={(value) =>
-                      updateAllocation(item.id, {
-                        supplier_reference: value || null,
+                      updateRowDraft(item.id, {
+                        supplier_cost: value,
+                        agreed_cost: value,
                       })
                     }
                     disabled={savingId === item.id}
                   />
 
-                  {(item.source_type ?? "owned") === "cross_hire" ? (
+                  <TextField
+                    label="Supplier reference"
+                    value={row.supplier_reference}
+                    onChange={(value) => updateRowDraft(item.id, { supplier_reference: value })}
+                    disabled={savingId === item.id}
+                  />
+
+                  {row.source_type === "cross_hire" ? (
                     <>
                       <SelectField
                         label="Supplier"
-                        value={item.supplier_id ?? ""}
+                        value={row.supplier_id}
                         options={filteredSupplierOptions}
-                        onChange={(value) =>
-                          updateAllocation(item.id, {
-                            supplier_id: value || null,
-                          })
-                        }
+                        onChange={(value) => updateRowDraft(item.id, { supplier_id: value })}
                         disabled={savingId === item.id}
                       />
 
                       <SelectField
                         label="Purchase order"
-                        value={item.purchase_order_id ?? ""}
+                        value={row.purchase_order_id}
                         options={purchaseOrderOptions}
-                        onChange={(value) =>
-                          updateAllocation(item.id, {
-                            purchase_order_id: value || null,
-                          })
-                        }
+                        onChange={(value) => updateRowDraft(item.id, { purchase_order_id: value })}
                         disabled={savingId === item.id}
                       />
                     </>
@@ -849,12 +716,8 @@ export default function JobEquipmentManager({
                   <div style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
                     <label style={labelStyle}>Notes</label>
                     <textarea
-                      value={item.notes ?? ""}
-                      onChange={(e) =>
-                        updateAllocation(item.id, {
-                          notes: e.target.value || null,
-                        })
-                      }
+                      value={row.notes}
+                      onChange={(e) => updateRowDraft(item.id, { notes: e.target.value })}
                       rows={3}
                       style={textareaStyle}
                       disabled={savingId === item.id}
@@ -879,6 +742,15 @@ export default function JobEquipmentManager({
                       disabled={savingId === item.id}
                     >
                       Use as template
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => saveAllocation(item.id)}
+                      style={saveBtn}
+                      disabled={savingId === item.id}
+                    >
+                      {savingId === item.id ? "Saving..." : "Save changes"}
                     </button>
 
                     <button
@@ -935,6 +807,7 @@ export default function JobEquipmentManager({
                 asset_type: value || "crane",
                 ...clearAssetIds(),
                 supplier_id: "",
+                purchase_order_id: "",
                 item_name: value === "other" ? prev.item_name || "Labour" : prev.item_name,
               }))
             }
@@ -956,9 +829,7 @@ export default function JobEquipmentManager({
             <TextField
               label="Labour / other item"
               value={draft.item_name}
-              onChange={(value) =>
-                setDraft((prev) => ({ ...prev, item_name: value }))
-              }
+              onChange={(value) => setDraft((prev) => ({ ...prev, item_name: value }))}
             />
           )}
 
@@ -966,9 +837,7 @@ export default function JobEquipmentManager({
             label="Operator"
             value={draft.operator_id}
             options={operatorOptions}
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, operator_id: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, operator_id: value }))}
           />
 
           <SelectField
@@ -983,6 +852,7 @@ export default function JobEquipmentManager({
                 ...prev,
                 source_type: value || "owned",
                 supplier_id: value === "cross_hire" ? prev.supplier_id : "",
+                purchase_order_id: value === "cross_hire" ? prev.purchase_order_id : "",
               }))
             }
           />
@@ -991,9 +861,7 @@ export default function JobEquipmentManager({
             <TextField
               label="Item name / role"
               value={draft.item_name}
-              onChange={(value) =>
-                setDraft((prev) => ({ ...prev, item_name: value }))
-              }
+              onChange={(value) => setDraft((prev) => ({ ...prev, item_name: value }))}
             />
           ) : null}
 
@@ -1001,36 +869,28 @@ export default function JobEquipmentManager({
             label="Start date"
             value={draft.start_date}
             type="date"
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, start_date: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, start_date: value }))}
           />
 
           <TextField
             label="End date"
             value={draft.end_date}
             type="date"
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, end_date: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, end_date: value }))}
           />
 
           <SelectField
             label="Start time"
             value={draft.start_time}
             options={timeOptions}
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, start_time: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, start_time: value }))}
           />
 
           <SelectField
             label="End time"
             value={draft.end_time}
             options={timeOptions}
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, end_time: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, end_time: value }))}
           />
 
           <TextField
@@ -1038,12 +898,7 @@ export default function JobEquipmentManager({
             value={draft.agreed_sell_rate}
             type="text"
             inputMode="decimal"
-            onChange={(value) =>
-              setDraft((prev) => ({
-                ...prev,
-                agreed_sell_rate: value,
-              }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, agreed_sell_rate: value }))}
           />
 
           <TextField
@@ -1063,9 +918,7 @@ export default function JobEquipmentManager({
           <TextField
             label="Supplier reference"
             value={draft.supplier_reference}
-            onChange={(value) =>
-              setDraft((prev) => ({ ...prev, supplier_reference: value }))
-            }
+            onChange={(value) => setDraft((prev) => ({ ...prev, supplier_reference: value }))}
           />
 
           {draft.source_type === "cross_hire" ? (
@@ -1074,18 +927,14 @@ export default function JobEquipmentManager({
                 label="Supplier"
                 value={draft.supplier_id}
                 options={filterSuppliersByAssetType(draft.asset_type, supplierOptions)}
-                onChange={(value) =>
-                  setDraft((prev) => ({ ...prev, supplier_id: value }))
-                }
+                onChange={(value) => setDraft((prev) => ({ ...prev, supplier_id: value }))}
               />
 
               <SelectField
                 label="Purchase order"
                 value={draft.purchase_order_id}
                 options={purchaseOrderOptions}
-                onChange={(value) =>
-                  setDraft((prev) => ({ ...prev, purchase_order_id: value }))
-                }
+                onChange={(value) => setDraft((prev) => ({ ...prev, purchase_order_id: value }))}
               />
             </>
           ) : null}
@@ -1095,21 +944,14 @@ export default function JobEquipmentManager({
             <textarea
               rows={3}
               value={draft.notes}
-              onChange={(e) =>
-                setDraft((prev) => ({ ...prev, notes: e.target.value }))
-              }
+              onChange={(e) => setDraft((prev) => ({ ...prev, notes: e.target.value }))}
               style={textareaStyle}
             />
           </div>
         </div>
 
         <div style={{ marginTop: 12 }}>
-          <button
-            type="button"
-            onClick={addAllocation}
-            style={saveBtn}
-            disabled={adding}
-          >
+          <button type="button" onClick={addAllocation} style={saveBtn} disabled={adding}>
             {adding ? "Adding..." : "Add allocation"}
           </button>
         </div>
@@ -1158,8 +1000,6 @@ function TextField({
   type = "text",
   inputMode,
   disabled,
-  onBlur,
-  onKeyDown,
 }: {
   label: string;
   value: string;
@@ -1167,8 +1007,6 @@ function TextField({
   type?: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>["inputMode"];
   disabled?: boolean;
-  onBlur?: () => void;
-  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void | Promise<void>;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -1176,8 +1014,6 @@ function TextField({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        onBlur={onBlur}
-        onKeyDown={onKeyDown}
         type={type}
         inputMode={inputMode}
         style={inputStyle}
