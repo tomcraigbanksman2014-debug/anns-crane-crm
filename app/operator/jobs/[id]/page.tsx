@@ -33,6 +33,15 @@ function prettyStatus(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function prettyDocumentType(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return "Other";
+  return raw
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function statusStyle(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
@@ -152,7 +161,7 @@ export default async function OperatorJobSheetPage({
     );
   }
 
-  const [{ data: job, error: jobError }, { data: photos }] = await Promise.all([
+  const [{ data: job, error: jobError }, { data: allDocuments, error: docsError }] = await Promise.all([
     supabase
       .from("jobs")
       .select(`
@@ -192,9 +201,8 @@ export default async function OperatorJobSheetPage({
 
     supabase
       .from("job_documents")
-      .select("id, file_name, file_path, created_at, document_type")
+      .select("id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator")
       .eq("job_id", params.id)
-      .eq("document_type", "photo")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -218,9 +226,23 @@ export default async function OperatorJobSheetPage({
     );
   }
 
+  if (docsError) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+          <div style={errorBox}>{docsError.message}</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
   const client = first((job as any).clients);
   const equipment = first((job as any).equipment);
-  const photoDocs = photos ?? [];
+
+  const visibleDocuments = (allDocuments ?? []).filter((doc: any) => {
+    const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
+    return uploadedByCurrentUser || !!doc.share_with_operator;
+  });
 
   return (
     <ClientShell>
@@ -339,27 +361,37 @@ export default async function OperatorJobSheetPage({
           />
 
           <div style={photoSection}>
-            <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>Site Photos</h2>
+            <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>Job Documents</h2>
 
             <OperatorPhotoUpload jobId={(job as any).id} />
 
             <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-              {photoDocs.length === 0 ? (
-                <div style={infoBox}>No site photos uploaded yet.</div>
+              {visibleDocuments.length === 0 ? (
+                <div style={infoBox}>No shared or uploaded documents yet.</div>
               ) : (
-                photoDocs.map((doc: any) => {
+                visibleDocuments.map((doc: any) => {
                   const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${doc.file_path}`;
+                  const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
 
                   return (
                     <a
                       key={doc.id}
                       href={href}
                       target="_blank"
+                      rel="noreferrer"
                       style={photoLinkCard}
                     >
                       <div style={{ fontWeight: 800 }}>{doc.file_name}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                        Uploaded: {fmtDateTime(doc.created_at)}
+                        {prettyDocumentType(doc.document_type)} • Uploaded: {fmtDateTime(doc.created_at)}
+                      </div>
+                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {uploadedByCurrentUser ? (
+                          <span style={pillNeutral}>Your upload</span>
+                        ) : null}
+                        {doc.share_with_operator ? (
+                          <span style={pillGood}>Shared by office</span>
+                        ) : null}
                       </div>
                     </a>
                   );
@@ -460,9 +492,29 @@ const infoBox: React.CSSProperties = {
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
+  padding: "12px 14px",
+  borderRadius: 12,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.18)",
+  fontWeight: 800,
+};
+
+const pillNeutral: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
+  background: "rgba(255,255,255,0.70)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const pillGood: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.20)",
 };
