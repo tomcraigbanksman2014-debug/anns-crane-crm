@@ -322,7 +322,7 @@ export default async function WeeklyPlannerPage({
   if (craneError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1800px, 99vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1650px, 98vw)", margin: "0 auto" }}>
           <div style={errorBox}>{craneError.message}</div>
         </div>
       </ClientShell>
@@ -332,7 +332,7 @@ export default async function WeeklyPlannerPage({
   if (transportError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1800px, 99vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1650px, 98vw)", margin: "0 auto" }}>
           <div style={errorBox}>{transportError.message}</div>
         </div>
       </ClientShell>
@@ -439,7 +439,7 @@ export default async function WeeklyPlannerPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1800px, 99vw)", margin: "0 auto" }}>
+      <div style={{ width: "100%", maxWidth: 1650, margin: "0 auto" }}>
         <div style={headerRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 28 }}>Weekly Planner</h1>
@@ -550,15 +550,15 @@ const scrollWrap: React.CSSProperties = {
   width: "100%",
   overflowX: "auto",
   overflowY: "hidden",
-  paddingBottom: 6,
+  paddingBottom: 8,
 };
 
 const weekGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(7, minmax(240px, 1fr))",
+  gridTemplateColumns: "repeat(7, 220px)",
   gap: 8,
   alignItems: "start",
-  minWidth: 1700,
+  minWidth: 1592,
 };
 
 const dayColumn: React.CSSProperties = {
@@ -629,7 +629,7 @@ const rowTitle: React.CSSProperties = {
 };
 
 const rowRight: React.CSSProperties = {
-  fontSize: 11,
+  fontSize: 10,
   fontWeight: 800,
   whiteSpace: "nowrap",
   opacity: 0.82,
@@ -637,7 +637,7 @@ const rowRight: React.CSSProperties = {
 
 const rowSub: React.CSSProperties = {
   marginTop: 4,
-  fontSize: 11,
+  fontSize: 10,
   lineHeight: 1.2,
   whiteSpace: "nowrap",
   overflow: "hidden",
