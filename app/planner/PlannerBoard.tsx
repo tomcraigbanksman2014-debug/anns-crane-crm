@@ -1,85 +1,8 @@
-"use client";
+import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
-import { useEffect, useMemo, useState } from "react";
-
-type PlannerDay = {
-  date: string;
-  label: string;
-  is_bank_holiday?: boolean;
-  bank_holiday_label?: string | null;
-};
-
-type PlannerItem = {
-  id: string;
-  allocation_id?: string | null;
-  job_id: string;
-  job_number?: number | string | null;
-  job_date?: string | null;
-  start_date?: string | null;
-  end_date?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  status?: string | null;
-  site_name?: string | null;
-  site_address?: string | null;
-  operator_id?: string | null;
-  equipment_id?: string | null;
-  source_type?: string | null;
-  item_name?: string | null;
-  clients?: any;
-  operators?: any;
-  equipment?: any;
-  agreed_sell_rate?: number | null;
-  supplier_cost?: number | null;
-  price_mode?: string | null;
-  price_per_day?: number | null;
-  job_price?: number | null;
-  exclude_weekends?: boolean;
-  working_dates?: string[];
-  billable_days?: number | null;
-  notes?: string | null;
-  planner_group?: string | null;
-};
-
-type PlannerPerson = {
-  id: string;
-  full_name?: string | null;
-};
-
-type PlannerEquipment = {
-  id: string;
-  name?: string | null;
-  asset_number?: string | null;
-};
-
-type PlannerResponse = {
-  week_start: string;
-  week_end: string;
-  days: PlannerDay[];
-  bank_holidays?: Array<{ date: string; label: string }>;
-  items: PlannerItem[];
-  operators: PlannerPerson[];
-  equipment: PlannerEquipment[];
-};
-
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
-}
-
-function fmtMoney(value: number | string | null | undefined) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return "£0.00";
-  return `£${n.toFixed(2)}`;
-}
-
-function addDays(base: Date, days: number) {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function mondayOf(base: Date) {
+function startOfWeek(dateStr?: string | null) {
+  const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
   const d = new Date(base);
   d.setHours(0, 0, 0, 0);
   const day = d.getDay();
@@ -88,563 +11,398 @@ function mondayOf(base: Date) {
   return d;
 }
 
-function isoDateLocal(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, "0");
-  const day = String(value.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function endOfWeek(dateStr?: string | null) {
+  const d = startOfWeek(dateStr);
+  d.setDate(d.getDate() + 6);
+  d.setHours(23, 59, 59, 999);
+  return d;
 }
 
-function itemMatchesDay(item: PlannerItem, dayIso: string) {
-  const workingDates = Array.isArray(item.working_dates) ? item.working_dates : [];
-  if (workingDates.length > 0) {
-    return workingDates.includes(dayIso);
-  }
-
-  const start = String(item.start_date ?? item.job_date ?? "").trim();
-  const end = String(item.end_date ?? item.start_date ?? item.job_date ?? "").trim();
-  if (!start || !end) return false;
-
-  return start <= dayIso && end >= dayIso;
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function getClientName(item: PlannerItem) {
-  const client = first(item.clients);
-  return (client as any)?.company_name ?? "No customer";
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function getOperatorName(item: PlannerItem) {
-  const operator = first(item.operators);
-  return (operator as any)?.full_name ?? "Unassigned";
+function num(value: any) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
 }
 
-function getDisplayPrice(item: PlannerItem) {
-  const agreed = Number(item.agreed_sell_rate ?? 0);
-  if (agreed > 0) return agreed;
-  return Number(item.job_price ?? 0);
+function parseDateOnly(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function getStatusTone(status: string | null | undefined): React.CSSProperties {
-  const s = String(status ?? "").toLowerCase();
+function isWeekend(date: Date) {
+  const day = date.getDay();
+  return day === 0 || day === 6;
+}
 
-  if (s === "confirmed") {
-    return {
-      background: "rgba(0,120,255,0.12)",
-      border: "1px solid rgba(0,120,255,0.18)",
-    };
+function dateRangeInclusive(startDate: string, endDate: string) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate);
+  if (!start || !end || end < start) return [];
+  const dates: string[] = [];
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    dates.push(isoDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
+function activeWorkingDates(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  excludeWeekends: boolean
+) {
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
+  if (!start || !end) return [];
+  const allDates = dateRangeInclusive(start, end);
+  if (!excludeWeekends) return allDates;
+
+  return allDates.filter((value) => {
+    const d = parseDateOnly(value);
+    return d ? !isWeekend(d) : false;
+  });
+}
+
+function overlapsWorkingWeek(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  weekStart: string,
+  weekEnd: string,
+  excludeWeekends: boolean
+) {
+  const workingDates = activeWorkingDates(startDate, endDate, excludeWeekends);
+  return workingDates.some((date) => date >= weekStart && date <= weekEnd);
+}
+
+function countBillableDays(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  excludeWeekends: boolean
+) {
+  return activeWorkingDates(startDate, endDate, excludeWeekends).length;
+}
+
+function effectiveJobPrice(job: any) {
+  const mode = String(job?.price_mode ?? "full_job").trim().toLowerCase();
+  const startDate = job?.start_date ?? job?.job_date ?? null;
+  const endDate = job?.end_date ?? startDate ?? null;
+  const excludeWeekends = Boolean(job?.exclude_weekends);
+
+  if (mode === "per_day") {
+    const rate = num(job?.price_per_day);
+    const days = countBillableDays(startDate, endDate, excludeWeekends);
+    return rate * Math.max(days, 1);
   }
 
-  if (s === "in_progress") {
-    return {
-      background: "rgba(255,140,0,0.16)",
-      border: "1px solid rgba(255,140,0,0.20)",
-    };
-  }
+  return num(job?.invoice_subtotal) || num(job?.invoice_amount) || num(job?.total_invoice);
+}
 
-  if (s === "completed") {
-    return {
-      background: "rgba(0,180,120,0.14)",
-      border: "1px solid rgba(0,180,120,0.18)",
-    };
-  }
+function isPlannerVisibleStatus(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+  if (!s) return true;
+  return s !== "cancelled";
+}
 
-  if (s === "late_cancelled") {
-    return {
-      background: "rgba(255,0,0,0.10)",
-      border: "1px solid rgba(255,0,0,0.18)",
-    };
-  }
-
-  if (s === "cancelled") {
-    return {
-      background: "rgba(160,160,160,0.10)",
-      border: "1px solid rgba(160,160,160,0.18)",
-    };
-  }
-
-  return {
-    background: "rgba(255,255,255,0.88)",
-    border: "1px solid rgba(0,0,0,0.10)",
+function bankHolidaysByYear(year: number) {
+  const map: Record<number, Array<{ date: string; label: string }>> = {
+    2025: [
+      { date: "2025-01-01", label: "New Year’s Day" },
+      { date: "2025-04-18", label: "Good Friday" },
+      { date: "2025-04-21", label: "Easter Monday" },
+      { date: "2025-05-05", label: "Early May bank holiday" },
+      { date: "2025-05-26", label: "Spring bank holiday" },
+      { date: "2025-08-25", label: "Summer bank holiday" },
+      { date: "2025-12-25", label: "Christmas Day" },
+      { date: "2025-12-26", label: "Boxing Day" },
+    ],
+    2026: [
+      { date: "2026-01-01", label: "New Year’s Day" },
+      { date: "2026-04-03", label: "Good Friday" },
+      { date: "2026-04-06", label: "Easter Monday" },
+      { date: "2026-05-04", label: "Early May bank holiday" },
+      { date: "2026-05-25", label: "Spring bank holiday" },
+      { date: "2026-08-31", label: "Summer bank holiday" },
+      { date: "2026-12-25", label: "Christmas Day" },
+      { date: "2026-12-28", label: "Boxing Day (substitute day)" },
+    ],
+    2027: [
+      { date: "2027-01-01", label: "New Year’s Day" },
+      { date: "2027-03-26", label: "Good Friday" },
+      { date: "2027-03-29", label: "Easter Monday" },
+      { date: "2027-05-03", label: "Early May bank holiday" },
+      { date: "2027-05-31", label: "Spring bank holiday" },
+      { date: "2027-08-30", label: "Summer bank holiday" },
+      { date: "2027-12-27", label: "Christmas Day (substitute day)" },
+      { date: "2027-12-28", label: "Boxing Day (substitute day)" },
+    ],
   };
+
+  return map[year] ?? [];
 }
 
-function formatDateRange(item: PlannerItem) {
-  const start = String(item.start_date ?? item.job_date ?? "").trim();
-  const end = String(item.end_date ?? item.start_date ?? item.job_date ?? "").trim();
-  if (!start && !end) return "No dates";
-  if (start && end && start === end) return start;
-  return `${start || "—"} → ${end || "—"}`;
+function classifyUnassignedType(job: any) {
+  const siteName = String(job?.site_name ?? "").trim().toLowerCase();
+  const notes = String(job?.notes ?? "").trim().toLowerCase();
+  const hireType = String(job?.hire_type ?? "").trim().toLowerCase();
+  const liftType = String(job?.lift_type ?? "").trim().toLowerCase();
+
+  const combined = `${siteName} ${notes} ${hireType} ${liftType}`;
+
+  if (
+    combined.includes("labour only") ||
+    combined.includes("labour-only") ||
+    combined.includes("slinger") ||
+    combined.includes("lift supervisor") ||
+    combined.includes("supervisor only") ||
+    combined.includes("operator only")
+  ) {
+    return "labour_only";
+  }
+
+  return "unassigned_crane";
 }
 
-function formatWorkingDays(item: PlannerItem) {
-  const dates = Array.isArray(item.working_dates) ? item.working_dates : [];
-  if (dates.length === 0) return "No working days";
-  if (dates.length === 1) return dates[0];
-  return `${dates[0]} → ${dates[dates.length - 1]} • ${dates.length} day${dates.length === 1 ? "" : "s"}`;
-}
+export async function GET(req: Request) {
+  try {
+    const supabase = createSupabaseServerClient();
+    const { searchParams } = new URL(req.url);
+    const date = searchParams.get("date");
 
-export default function PlannerBoard() {
-  const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
-  const [loading, setLoading] = useState(true);
-  const [data, setData] = useState<PlannerResponse | null>(null);
-  const [error, setError] = useState("");
+    const weekStart = startOfWeek(date);
+    const weekEnd = endOfWeek(date);
 
-  useEffect(() => {
-    let active = true;
+    const from = isoDate(weekStart);
+    const to = isoDate(weekEnd);
+    const bankHolidays = bankHolidaysByYear(weekStart.getFullYear()).filter(
+      (h) => h.date >= from && h.date <= to
+    );
 
-    async function load() {
-      setLoading(true);
-      setError("");
+    const [jobsRes, allocationsRes, operatorsRes, cranesRes] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          *,
+          clients:client_id (company_name),
+          operators:operator_id (id, full_name),
+          cranes:crane_id (id, name, reg_number)
+        `),
 
-      try {
-        const res = await fetch(`/api/planner/board?date=${encodeURIComponent(weekStart)}`);
-        const json = await res.json();
+      supabase
+        .from("job_equipment")
+        .select(`
+          id,
+          job_id,
+          crane_id,
+          operator_id,
+          asset_type,
+          item_name,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          agreed_sell_rate,
+          supplier_cost,
+          notes,
+          jobs:job_id (
+            *,
+            clients:client_id (company_name)
+          ),
+          operators:operator_id (id, full_name),
+          cranes:crane_id (id, name, reg_number)
+        `)
+        .eq("asset_type", "crane"),
 
-        if (!res.ok) {
-          throw new Error(json?.error || "Could not load planner.");
-        }
+      supabase.from("operators").select("id, full_name"),
+      supabase.from("cranes").select("id, name, reg_number"),
+    ]);
 
-        if (!active) return;
-        setData(json);
-      } catch (e: any) {
-        if (!active) return;
-        setError(e?.message || "Could not load planner.");
-      } finally {
-        if (active) setLoading(false);
-      }
+    if (jobsRes.error) {
+      return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
+    }
+    if (allocationsRes.error) {
+      return NextResponse.json({ error: allocationsRes.error.message }, { status: 400 });
+    }
+    if (operatorsRes.error) {
+      return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
+    }
+    if (cranesRes.error) {
+      return NextResponse.json({ error: cranesRes.error.message }, { status: 400 });
     }
 
-    load();
+    const jobs = jobsRes.data ?? [];
+    const allocations = allocationsRes.data ?? [];
+    const operators = operatorsRes.data ?? [];
+    const cranes = cranesRes.data ?? [];
 
-    return () => {
-      active = false;
-    };
-  }, [weekStart]);
+    const days = Array.from({ length: 7 }).map((_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      const dayIso = isoDate(d);
+      const holiday = bankHolidays.find((h) => h.date === dayIso);
 
-  const visibleDays = useMemo(() => {
-    if (data?.days?.length) return data.days;
-
-    const base = new Date(`${weekStart}T00:00:00`);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = addDays(base, i);
       return {
-        date: isoDateLocal(d),
+        date: dayIso,
         label: d.toLocaleDateString("en-GB", {
           weekday: "short",
           day: "2-digit",
           month: "2-digit",
         }),
-        is_bank_holiday: false,
-        bank_holiday_label: null,
+        is_bank_holiday: Boolean(holiday),
+        bank_holiday_label: holiday?.label ?? null,
       };
     });
-  }, [data, weekStart]);
 
-  const groupedByEquipment = useMemo(() => {
-    const equipmentList = data?.equipment ?? [];
-    const items = data?.items ?? [];
+    const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
 
-    return equipmentList.map((equipment) => {
-      const equipmentItems = items.filter((item) => String(item.equipment_id ?? "") === equipment.id);
+    const jobsInRange = activeJobs
+      .filter((job: any) =>
+        overlapsWorkingWeek(
+          job.start_date ?? job.job_date,
+          job.end_date ?? job.start_date ?? job.job_date,
+          from,
+          to,
+          Boolean(job.exclude_weekends)
+        )
+      )
+      .map((job: any) => {
+        const startDate = job.start_date ?? job.job_date ?? null;
+        const endDate = job.end_date ?? job.start_date ?? job.job_date ?? null;
+        const workingDates = activeWorkingDates(startDate, endDate, Boolean(job.exclude_weekends));
+
+        return {
+          ...job,
+          working_dates: workingDates,
+          billable_days: countBillableDays(startDate, endDate, Boolean(job.exclude_weekends)),
+          effective_price: effectiveJobPrice(job),
+        };
+      });
+
+    const activeAllocations = allocations.filter((row: any) => {
+      const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
+      if (!linkedJob) return false;
+
+      const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
+
+      return overlapsWorkingWeek(
+        row.start_date,
+        row.end_date ?? row.start_date,
+        from,
+        to,
+        excludeWeekends
+      );
+    });
+
+    const allocationItems = activeAllocations.map((row: any) => {
+      const job = first(row.jobs);
+      const operator = first(row.operators);
+      const crane = first(row.cranes);
+      const client = first(job?.clients);
+      const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
+      const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
+      const excludeWeekends = Boolean(job?.exclude_weekends);
+
       return {
-        equipment,
-        items: equipmentItems,
+        id: `alloc_${row.id}`,
+        allocation_id: row.id,
+        job_id: row.job_id,
+        job_number: job?.job_number ?? null,
+        job_date: startDate,
+        start_date: startDate,
+        end_date: endDate,
+        start_time: row.start_time ?? job?.start_time ?? null,
+        end_time: row.end_time ?? job?.end_time ?? null,
+        status: job?.status ?? null,
+        site_name: job?.site_name ?? null,
+        site_address: job?.site_address ?? null,
+        operator_id: row.operator_id ?? job?.operator_id ?? null,
+        equipment_id: row.crane_id ?? job?.crane_id ?? null,
+        item_name: row.item_name ?? null,
+        clients: client ? [client] : [],
+        operators: operator ? [operator] : [],
+        equipment: crane ? [crane] : [],
+        agreed_sell_rate: num(row.agreed_sell_rate),
+        supplier_cost: num(row.supplier_cost),
+        price_mode: job?.price_mode ?? "full_job",
+        price_per_day: num(job?.price_per_day),
+        job_price: effectiveJobPrice(job),
+        exclude_weekends: excludeWeekends,
+        working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
+        billable_days: countBillableDays(startDate, endDate, excludeWeekends),
+        notes: row.notes ?? job?.notes ?? null,
+        planner_group: "allocated",
       };
     });
-  }, [data]);
 
-  const unassignedCraneItems = useMemo(() => {
-    return (data?.items ?? []).filter(
-      (item) => !item.equipment_id && String(item.planner_group ?? "") !== "labour_only"
-    );
-  }, [data]);
+    const allocatedJobIds = new Set(allocationItems.map((item: any) => item.job_id));
 
-  const labourOnlyItems = useMemo(() => {
-    return (data?.items ?? []).filter(
-      (item) => !item.equipment_id && String(item.planner_group ?? "") === "labour_only"
-    );
-  }, [data]);
+    const directJobItems = jobsInRange
+      .filter((job: any) => !allocatedJobIds.has(job.id))
+      .map((job: any) => {
+        const client = first(job.clients);
+        const operator = first(job.operators);
+        const crane = first(job.cranes);
+        const startDate = job.start_date ?? job.job_date ?? null;
+        const endDate = job.end_date ?? startDate ?? null;
+        const excludeWeekends = Boolean(job.exclude_weekends);
 
-  function moveWeek(delta: number) {
-    const base = new Date(`${weekStart}T00:00:00`);
-    setWeekStart(isoDateLocal(addDays(base, delta * 7)));
+        return {
+          id: `job_${job.id}`,
+          allocation_id: null,
+          job_id: job.id,
+          job_number: job.job_number ?? null,
+          job_date: startDate,
+          start_date: startDate,
+          end_date: endDate,
+          start_time: job.start_time ?? null,
+          end_time: job.end_time ?? null,
+          status: job.status ?? null,
+          site_name: job.site_name ?? null,
+          site_address: job.site_address ?? null,
+          operator_id: job.operator_id ?? null,
+          equipment_id: job.crane_id ?? null,
+          item_name: null,
+          clients: client ? [client] : [],
+          operators: operator ? [operator] : [],
+          equipment: crane ? [crane] : [],
+          agreed_sell_rate: 0,
+          supplier_cost: 0,
+          price_mode: job.price_mode ?? "full_job",
+          price_per_day: num(job.price_per_day),
+          job_price: effectiveJobPrice(job),
+          exclude_weekends: excludeWeekends,
+          working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
+          billable_days: countBillableDays(startDate, endDate, excludeWeekends),
+          notes: job.notes ?? null,
+          planner_group: classifyUnassignedType(job),
+        };
+      });
+
+    return NextResponse.json({
+      week_start: from,
+      week_end: to,
+      days,
+      bank_holidays: bankHolidays,
+      items: [...allocationItems, ...directJobItems],
+      operators: operators ?? [],
+      equipment:
+        cranes.map((row: any) => ({
+          id: row.id,
+          name: row.name ?? null,
+          asset_number: row.reg_number ?? null,
+        })) ?? [],
+    });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 400 });
   }
-
-  return (
-    <div style={{ display: "grid", gap: 16 }}>
-      <div style={toolbarStyle}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 28 }}>Crane Planner</h2>
-          <div style={{ marginTop: 6, opacity: 0.75 }}>
-            Week commencing {data?.week_start ?? weekStart}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
-            ← Previous week
-          </button>
-          <button type="button" onClick={() => setWeekStart(isoDateLocal(mondayOf(new Date())))} style={secondaryBtn}>
-            This week
-          </button>
-          <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
-            Next week →
-          </button>
-        </div>
-      </div>
-
-      {loading ? <div style={infoBox}>Loading planner…</div> : null}
-      {error ? <div style={errorBox}>{error}</div> : null}
-
-      {!loading && !error ? (
-        <>
-          {unassignedCraneItems.length > 0 ? (
-            <section style={sectionCard}>
-              <div style={sectionTitle}>Unassigned crane / HIAB jobs</div>
-              <div style={{ display: "grid", gap: 10 }}>
-                {unassignedCraneItems.map((item) => (
-                  <a
-                    key={item.id}
-                    href={`/jobs/${item.job_id}`}
-                    style={{ ...jobCardStyle, ...getStatusTone(item.status) }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>
-                          Job {item.job_number ? `#${item.job_number}` : ""}
-                          {getClientName(item) ? ` • ${getClientName(item)}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.82 }}>
-                          {item.site_name ?? item.site_address ?? "No site"}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                          {String(item.price_mode ?? "full_job") === "per_day"
-                            ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                            : "Full job"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.78 }}>
-                      <div><strong>Date span:</strong> {formatDateRange(item)}</div>
-                      <div style={{ marginTop: 4 }}><strong>Working days:</strong> {formatWorkingDays(item)}</div>
-                    </div>
-
-                    <div style={tagWrap}>
-                      <div style={pillWarn}>No crane assigned</div>
-                      {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          {labourOnlyItems.length > 0 ? (
-            <section style={sectionCard}>
-              <div style={sectionTitle}>Labour only / no lifting asset</div>
-              <div style={{ display: "grid", gap: 10 }}>
-                {labourOnlyItems.map((item) => (
-                  <a
-                    key={item.id}
-                    href={`/jobs/${item.job_id}`}
-                    style={{ ...jobCardStyle, ...getStatusTone(item.status) }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>
-                          Job {item.job_number ? `#${item.job_number}` : ""}
-                          {getClientName(item) ? ` • ${getClientName(item)}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.82 }}>
-                          {item.site_name ?? item.site_address ?? "No site"}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                          {String(item.price_mode ?? "full_job") === "per_day"
-                            ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                            : "Full job"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.78 }}>
-                      <div><strong>Date span:</strong> {formatDateRange(item)}</div>
-                      <div style={{ marginTop: 4 }}><strong>Working days:</strong> {formatWorkingDays(item)}</div>
-                    </div>
-
-                    <div style={tagWrap}>
-                      <div style={pillLabour}>Labour only</div>
-                      {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </section>
-          ) : null}
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {groupedByEquipment.map(({ equipment, items }) => (
-              <section key={equipment.id} style={sectionCard}>
-                <div style={sectionTitleRow}>
-                  <div>
-                    <div style={sectionTitle}>{equipment.name ?? "Crane"}</div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                      {equipment.asset_number ? equipment.asset_number : "No reg"}
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(180px, 1fr))`,
-                    gap: 10,
-                    alignItems: "stretch",
-                  }}
-                >
-                  <div style={headCell}>Lifting asset / Week</div>
-
-                  {visibleDays.map((day) => (
-                    <div
-                      key={day.date}
-                      style={{
-                        ...headCell,
-                        ...(day.is_bank_holiday
-                          ? {
-                              background: "rgba(255,170,0,0.16)",
-                              border: "1px solid rgba(255,170,0,0.24)",
-                            }
-                          : {}),
-                      }}
-                    >
-                      <div>{day.label}</div>
-                      <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                        {day.is_bank_holiday ? day.bank_holiday_label ?? "Bank holiday" : "Working day"}
-                      </div>
-                    </div>
-                  ))}
-
-                  <div style={sideCell}>
-                    <div style={{ fontWeight: 1000 }}>{equipment.name ?? "Crane"}</div>
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                      {equipment.asset_number ?? ""}
-                    </div>
-                  </div>
-
-                  {visibleDays.map((day) => {
-                    const dayItems = items.filter((item) => itemMatchesDay(item, day.date));
-
-                    return (
-                      <div
-                        key={`${equipment.id}-${day.date}`}
-                        style={{
-                          ...dayCell,
-                          ...(day.is_bank_holiday
-                            ? {
-                                background: "rgba(255,170,0,0.08)",
-                                border: "1px solid rgba(255,170,0,0.18)",
-                              }
-                            : {}),
-                        }}
-                      >
-                        {dayItems.length === 0 ? (
-                          <div style={emptyState}>Free</div>
-                        ) : (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            {dayItems.map((item) => (
-                              <a
-                                key={`${item.id}-${day.date}`}
-                                href={`/jobs/${item.job_id}`}
-                                style={{ ...miniJobCard, ...getStatusTone(item.status) }}
-                              >
-                                <div style={{ fontWeight: 1000 }}>
-                                  Job {item.job_number ? `#${item.job_number}` : ""}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {getClientName(item)}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {item.site_name ?? item.site_address ?? "No site"}
-                                </div>
-                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                                  {fmtMoney(getDisplayPrice(item))}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {String(item.price_mode ?? "full_job") === "per_day"
-                                    ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                                    : "Full job"}
-                                </div>
-                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                  {item.start_time ?? "—"} → {item.end_time ?? "—"}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {getOperatorName(item)}
-                                </div>
-                                {item.exclude_weekends ? (
-                                  <div style={{ marginTop: 6 }}>
-                                    <span style={pillNeutral}>Exclude weekends</span>
-                                  </div>
-                                ) : null}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        </>
-      ) : null}
-    </div>
-  );
 }
-
-const toolbarStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-};
-
-const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(255,255,255,0.38)",
-  borderRadius: 16,
-  padding: 16,
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
-
-const sectionTitleRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  flexWrap: "wrap",
-  marginBottom: 12,
-};
-
-const sectionTitle: React.CSSProperties = {
-  fontSize: 20,
-  fontWeight: 1000,
-};
-
-const headCell: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 900,
-};
-
-const sideCell: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const dayCell: React.CSSProperties = {
-  minHeight: 120,
-  padding: 10,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.28)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const jobCardStyle: React.CSSProperties = {
-  display: "block",
-  textDecoration: "none",
-  color: "#111",
-  padding: 14,
-  borderRadius: 14,
-};
-
-const miniJobCard: React.CSSProperties = {
-  display: "block",
-  textDecoration: "none",
-  color: "#111",
-  padding: 10,
-  borderRadius: 10,
-};
-
-const pillWarn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  background: "rgba(255,170,0,0.16)",
-  border: "1px solid rgba(255,170,0,0.22)",
-};
-
-const pillLabour: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  background: "rgba(155,89,182,0.14)",
-  border: "1px solid rgba(155,89,182,0.22)",
-};
-
-const pillNeutral: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  background: "rgba(255,255,255,0.65)",
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const tagWrap: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  marginTop: 10,
-};
-
-const secondaryBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.82)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-  cursor: "pointer",
-};
-
-const infoBox: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.58)",
-  border: "1px dashed rgba(0,0,0,0.10)",
-  opacity: 0.82,
-};
-
-const emptyState: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.6,
-  fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
-};
