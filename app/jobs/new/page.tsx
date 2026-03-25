@@ -579,9 +579,11 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                 <label style={labelStyle}>Status</label>
                 <select name="status" style={inputStyle} defaultValue={defaultStatus}>
                   <option value="draft">draft</option>
+                  <option value="provisional">provisional</option>
                   <option value="confirmed">confirmed</option>
                   <option value="in_progress">in_progress</option>
                   <option value="completed">completed</option>
+                  <option value="late_cancelled">late_cancelled</option>
                   <option value="cancelled">cancelled</option>
                 </select>
               </div>
