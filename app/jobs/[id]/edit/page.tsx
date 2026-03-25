@@ -234,9 +234,11 @@ export default async function EditJobPage({
                 <label style={labelStyle}>Status</label>
                 <select name="status" defaultValue={job.status ?? "draft"} style={inputStyle}>
                   <option value="draft">Draft</option>
+                  <option value="provisional">Provisional</option>
                   <option value="confirmed">Confirmed</option>
                   <option value="in_progress">In Progress</option>
                   <option value="completed">Completed</option>
+                  <option value="late_cancelled">Late Cancelled</option>
                   <option value="cancelled">Cancelled</option>
                 </select>
               </div>
