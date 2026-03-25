@@ -1,5 +1,8 @@
+"use client";
+
+import { useMemo, useState } from "react";
 import ClientShell from "../ClientShell";
-import { createSupabaseServerClient } from "../lib/supabase/server";
+import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 type CraneJob = {
   id: string;
@@ -61,9 +64,12 @@ type WeeklyItem = {
   href: string;
   kind: "crane" | "transport" | "labour";
   title: string;
-  subtitle: string;
-  rightText: string;
+  assetText: string;
+  siteText: string;
+  timeText: string;
+  valueText: string;
   sortTime: string;
+  dayIso: string;
 };
 
 function first<T>(value: T | T[] | null | undefined): T | null {
@@ -128,9 +134,7 @@ function activeWorkingDates(
   const cursor = new Date(startObj);
 
   while (cursor <= endObj) {
-    if (!excludeWeekends || !isWeekend(cursor)) {
-      out.push(isoDate(cursor));
-    }
+    if (!excludeWeekends || !isWeekend(cursor)) out.push(isoDate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
 
@@ -220,222 +224,269 @@ function typeBarColor(kind: "crane" | "transport" | "labour") {
   return "#7d3c98";
 }
 
-export default async function WeeklyPlannerPage({
-  searchParams,
-}: {
-  searchParams?: { week?: string };
-}) {
-  const supabase = createSupabaseServerClient();
+type FilterKind = "all" | "crane" | "transport" | "labour";
 
-  const weekStart = startOfWeek(searchParams?.week ?? null);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-  const weekStartIso = isoDate(days[0]);
-  const weekEndIso = isoDate(days[6]);
-  const prevWeek = isoDate(addDays(weekStart, -7));
-  const nextWeek = isoDate(addDays(weekStart, 7));
-  const thisWeek = isoDate(startOfWeek());
+export default function WeeklyPlannerPage() {
+  const supabase = createSupabaseBrowserClient();
 
-  const bankHolidays = bankHolidaysByYear(weekStart.getFullYear());
+  const [itemsByDay, setItemsByDay] = useState<Record<string, WeeklyItem[]>>({});
+  const [days, setDays] = useState<Date[]>([]);
+  const [weekStartIso, setWeekStartIso] = useState("");
+  const [prevWeek, setPrevWeek] = useState("");
+  const [nextWeek, setNextWeek] = useState("");
+  const [thisWeek, setThisWeek] = useState("");
+  const [bankHolidays, setBankHolidays] = useState<Array<{ date: string; label: string }>>([]);
+  const [craneCount, setCraneCount] = useState(0);
+  const [transportCount, setTransportCount] = useState(0);
+  const [labourCount, setLabourCount] = useState(0);
+  const [filter, setFilter] = useState<FilterKind>("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const [{ data: craneJobs, error: craneError }, { data: transportJobs, error: transportError }] =
-    await Promise.all([
-      supabase
-        .from("jobs")
-        .select(`
-          id,
-          job_number,
-          status,
-          start_date,
-          end_date,
-          job_date,
-          start_time,
-          end_time,
-          site_name,
-          site_address,
-          notes,
-          exclude_weekends,
-          price_mode,
-          price_per_day,
-          invoice_subtotal,
-          invoice_amount,
-          total_invoice,
-          client:client_id (
-            company_name
-          ),
-          job_equipment (
-            id,
-            asset_type,
-            item_name,
-            operator_id,
-            crane:crane_id (
-              name,
-              reg_number
-            ),
-            vehicle:vehicle_id (
-              name,
-              reg_number
-            ),
-            equipment:equipment_id (
-              name,
-              asset_number
-            ),
-            operator:operator_id (
-              full_name
-            )
-          )
-        `)
-        .neq("status", "cancelled"),
+  useMemo(() => {
+    const url = new URL(window.location.href);
+    const weekParam = url.searchParams.get("week");
+    const weekStart = startOfWeek(weekParam);
+    const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+    const weekStartValue = isoDate(weekDays[0]);
 
-      supabase
-        .from("transport_jobs")
-        .select(`
-          id,
-          transport_number,
-          status,
-          transport_date,
-          delivery_date,
-          collection_time,
-          delivery_time,
-          collection_address,
-          delivery_address,
-          load_description,
-          notes,
-          price_mode,
-          price_per_day,
-          price,
-          agreed_sell_rate,
-          total_invoice,
-          client:client_id (
-            company_name
-          ),
-          vehicle:vehicle_id (
-            name,
-            reg_number
-          ),
-          operator:operator_id (
-            full_name
-          )
-        `)
-        .neq("status", "cancelled"),
-    ]);
+    setDays(weekDays);
+    setWeekStartIso(weekStartValue);
+    setPrevWeek(isoDate(addDays(weekStart, -7)));
+    setNextWeek(isoDate(addDays(weekStart, 7)));
+    setThisWeek(isoDate(startOfWeek()));
+    setBankHolidays(bankHolidaysByYear(weekStart.getFullYear()));
+  }, []);
 
-  if (craneError) {
-    return (
-      <ClientShell>
-        <div style={{ width: "100%", boxSizing: "border-box" }}>
-          <div style={errorBox}>{craneError.message}</div>
-        </div>
-      </ClientShell>
-    );
-  }
+  useMemo(() => {
+    if (!weekStartIso || days.length === 0) return;
 
-  if (transportError) {
-    return (
-      <ClientShell>
-        <div style={{ width: "100%", boxSizing: "border-box" }}>
-          <div style={errorBox}>{transportError.message}</div>
-        </div>
-      </ClientShell>
-    );
-  }
+    let active = true;
 
-  const craneRows = ((craneJobs ?? []) as CraneJob[]).filter((job) => {
-    const start = job.start_date ?? job.job_date;
-    const end = job.end_date ?? job.start_date ?? job.job_date;
-    const dates = activeWorkingDates(start, end, Boolean(job.exclude_weekends));
-    return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
-  });
+    async function load() {
+      setLoading(true);
+      setError("");
 
-  const transportRows = ((transportJobs ?? []) as TransportJob[]).filter((job) => {
-    const dates = activeWorkingDates(job.transport_date, job.delivery_date ?? job.transport_date, false);
-    return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
-  });
+      const weekEndIso = isoDate(days[6]);
 
-  const itemsByDay: Record<string, WeeklyItem[]> = Object.fromEntries(
-    days.map((day) => [isoDate(day), [] as WeeklyItem[]])
-  );
+      const [{ data: craneJobs, error: craneError }, { data: transportJobs, error: transportError }] =
+        await Promise.all([
+          supabase
+            .from("jobs")
+            .select(`
+              id,
+              job_number,
+              status,
+              start_date,
+              end_date,
+              job_date,
+              start_time,
+              end_time,
+              site_name,
+              site_address,
+              notes,
+              exclude_weekends,
+              price_mode,
+              price_per_day,
+              invoice_subtotal,
+              invoice_amount,
+              total_invoice,
+              client:client_id (
+                company_name
+              ),
+              job_equipment (
+                id,
+                asset_type,
+                item_name,
+                operator_id,
+                crane:crane_id (
+                  name,
+                  reg_number
+                ),
+                vehicle:vehicle_id (
+                  name,
+                  reg_number
+                ),
+                equipment:equipment_id (
+                  name,
+                  asset_number
+                ),
+                operator:operator_id (
+                  full_name
+                )
+              )
+            `)
+            .neq("status", "cancelled"),
 
-  for (const job of craneRows) {
-    const clientName = first(job.client)?.company_name ?? "No customer";
-    const workingDates = activeWorkingDates(
-      job.start_date ?? job.job_date,
-      job.end_date ?? job.start_date ?? job.job_date,
-      Boolean(job.exclude_weekends)
-    ).filter((d) => d >= weekStartIso && d <= weekEndIso);
+          supabase
+            .from("transport_jobs")
+            .select(`
+              id,
+              transport_number,
+              status,
+              transport_date,
+              delivery_date,
+              collection_time,
+              delivery_time,
+              collection_address,
+              delivery_address,
+              load_description,
+              notes,
+              price_mode,
+              price_per_day,
+              price,
+              agreed_sell_rate,
+              total_invoice,
+              client:client_id (
+                company_name
+              ),
+              vehicle:vehicle_id (
+                name,
+                reg_number
+              ),
+              operator:operator_id (
+                full_name
+              )
+            `)
+            .neq("status", "cancelled"),
+        ]);
 
-    const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
-    const craneAssets = allocations
-      .filter((row) => String(row.asset_type ?? "").toLowerCase() === "crane")
-      .map((row) => {
-        const crane = first(row.crane);
-        return crane?.name ? crane.name : row.item_name || "Unassigned crane";
+      if (!active) return;
+
+      if (craneError) {
+        setError(craneError.message);
+        setLoading(false);
+        return;
+      }
+
+      if (transportError) {
+        setError(transportError.message);
+        setLoading(false);
+        return;
+      }
+
+      const craneRows = ((craneJobs ?? []) as CraneJob[]).filter((job) => {
+        const start = job.start_date ?? job.job_date;
+        const end = job.end_date ?? job.start_date ?? job.job_date;
+        const dates = activeWorkingDates(start, end, Boolean(job.exclude_weekends));
+        return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
       });
 
-    const labourRows = allocations.filter(
-      (row) => String(row.asset_type ?? "").toLowerCase() === "other"
-    );
-
-    for (const d of workingDates) {
-      itemsByDay[d].push({
-        id: `crane-${job.id}-${d}`,
-        href: `/jobs/${job.id}`,
-        kind: "crane",
-        title: `#${job.job_number ?? ""} ${clientName}`.trim(),
-        subtitle: `${craneAssets.length > 0 ? craneAssets.join(", ") : "Unassigned crane"} • ${job.site_name || "No site"}`,
-        rightText: `${job.start_time ?? "—"}-${job.end_time ?? "—"} • ${money(effectiveCraneJobValue(job))}`,
-        sortTime: job.start_time ?? "99:99",
+      const transportRows = ((transportJobs ?? []) as TransportJob[]).filter((job) => {
+        const dates = activeWorkingDates(job.transport_date, job.delivery_date ?? job.transport_date, false);
+        return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
       });
-    }
 
-    for (const labour of labourRows) {
-      const operatorName = first(labour.operator)?.full_name ?? "Unassigned";
-      const labourDates = activeWorkingDates(
-        job.start_date ?? job.job_date,
-        job.end_date ?? job.start_date ?? job.job_date,
-        Boolean(job.exclude_weekends)
-      ).filter((d) => d >= weekStartIso && d <= weekEndIso);
+      const grouped: Record<string, WeeklyItem[]> = Object.fromEntries(
+        days.map((day) => [isoDate(day), [] as WeeklyItem[]])
+      );
 
-      for (const d of labourDates) {
-        itemsByDay[d].push({
-          id: `labour-${labour.id}-${d}`,
-          href: `/jobs/${job.id}`,
-          kind: "labour",
-          title: `${labour.item_name || "Labour"} ${clientName}`.trim(),
-          subtitle: `${operatorName} • ${job.site_name || "No site"}`,
-          rightText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
-          sortTime: job.start_time ?? "99:99",
+      let labourRowsTotal = 0;
+
+      for (const job of craneRows) {
+        const clientName = first(job.client)?.company_name ?? "No customer";
+        const workingDates = activeWorkingDates(
+          job.start_date ?? job.job_date,
+          job.end_date ?? job.start_date ?? job.job_date,
+          Boolean(job.exclude_weekends)
+        ).filter((d) => d >= weekStartIso && d <= weekEndIso);
+
+        const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
+        const craneAssets = allocations
+          .filter((row) => String(row.asset_type ?? "").toLowerCase() === "crane")
+          .map((row) => {
+            const crane = first(row.crane);
+            return crane?.name ? crane.name : row.item_name || "Unassigned crane";
+          });
+
+        const labourRows = allocations.filter(
+          (row) => String(row.asset_type ?? "").toLowerCase() === "other"
+        );
+        labourRowsTotal += labourRows.length;
+
+        for (const d of workingDates) {
+          grouped[d].push({
+            id: `crane-${job.id}-${d}`,
+            href: `/jobs/${job.id}`,
+            kind: "crane",
+            title: `#${job.job_number ?? ""} ${clientName}`.trim(),
+            assetText: craneAssets.length > 0 ? craneAssets.join(", ") : "Unassigned crane",
+            siteText: job.site_name || "No site",
+            timeText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
+            valueText: money(effectiveCraneJobValue(job)),
+            sortTime: job.start_time ?? "99:99",
+            dayIso: d,
+          });
+        }
+
+        for (const labour of labourRows) {
+          const operatorName = first(labour.operator)?.full_name ?? "Unassigned";
+          const labourDates = activeWorkingDates(
+            job.start_date ?? job.job_date,
+            job.end_date ?? job.start_date ?? job.job_date,
+            Boolean(job.exclude_weekends)
+          ).filter((d) => d >= weekStartIso && d <= weekEndIso);
+
+          for (const d of labourDates) {
+            grouped[d].push({
+              id: `labour-${labour.id}-${d}`,
+              href: `/jobs/${job.id}`,
+              kind: "labour",
+              title: `${labour.item_name || "Labour"} ${clientName}`.trim(),
+              assetText: operatorName,
+              siteText: job.site_name || "No site",
+              timeText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
+              valueText: "",
+              sortTime: job.start_time ?? "99:99",
+              dayIso: d,
+            });
+          }
+        }
+      }
+
+      for (const job of transportRows) {
+        const clientName = first(job.client)?.company_name ?? "No customer";
+        const vehicle = first(job.vehicle);
+        const operator = first(job.operator);
+        const dates = activeWorkingDates(job.transport_date, job.delivery_date ?? job.transport_date, false).filter(
+          (d) => d >= weekStartIso && d <= weekEndIso
+        );
+
+        for (const d of dates) {
+          grouped[d].push({
+            id: `transport-${job.id}-${d}`,
+            href: `/transport-jobs/${job.id}`,
+            kind: "transport",
+            title: `${job.transport_number || "Transport"} ${clientName}`.trim(),
+            assetText: vehicle?.name || "Unassigned vehicle",
+            siteText: operator?.full_name || "Unassigned driver",
+            timeText: `${job.collection_time ?? "—"}-${job.delivery_time ?? "—"}`,
+            valueText: money(effectiveTransportValue(job)),
+            sortTime: job.collection_time ?? "99:99",
+            dayIso: d,
+          });
+        }
+      }
+
+      for (const key of Object.keys(grouped)) {
+        grouped[key].sort((a, b) => {
+          if (a.sortTime !== b.sortTime) return a.sortTime.localeCompare(b.sortTime);
+          return a.title.localeCompare(b.title);
         });
       }
+
+      setItemsByDay(grouped);
+      setCraneCount(craneRows.length);
+      setTransportCount(transportRows.length);
+      setLabourCount(labourRowsTotal);
+      setLoading(false);
     }
-  }
 
-  for (const job of transportRows) {
-    const clientName = first(job.client)?.company_name ?? "No customer";
-    const vehicle = first(job.vehicle);
-    const operator = first(job.operator);
-    const dates = activeWorkingDates(job.transport_date, job.delivery_date ?? job.transport_date, false).filter(
-      (d) => d >= weekStartIso && d <= weekEndIso
-    );
-
-    for (const d of dates) {
-      itemsByDay[d].push({
-        id: `transport-${job.id}-${d}`,
-        href: `/transport-jobs/${job.id}`,
-        kind: "transport",
-        title: `${job.transport_number || "Transport"} ${clientName}`.trim(),
-        subtitle: `${vehicle?.name || "Unassigned vehicle"}${operator?.full_name ? ` • ${operator.full_name}` : ""}`,
-        rightText: `${job.collection_time ?? "—"}-${job.delivery_time ?? "—"} • ${money(effectiveTransportValue(job))}`,
-        sortTime: job.collection_time ?? "99:99",
-      });
-    }
-  }
-
-  for (const key of Object.keys(itemsByDay)) {
-    itemsByDay[key].sort((a, b) => {
-      if (a.sortTime !== b.sortTime) return a.sortTime.localeCompare(b.sortTime);
-      return a.title.localeCompare(b.title);
-    });
-  }
+    load();
+    return () => {
+      active = false;
+    };
+  }, [supabase, weekStartIso, days]);
 
   return (
     <ClientShell>
@@ -457,19 +508,28 @@ export default async function WeeklyPlannerPage({
 
         <div style={summaryBar}>
           <div style={summaryItem}>Week: {weekStartIso}</div>
-          <div style={summaryItem}>Crane jobs: {craneRows.length}</div>
-          <div style={summaryItem}>Transport jobs: {transportRows.length}</div>
-          <div style={summaryItem}>
-            Labour rows: {craneRows.reduce((sum, job) => sum + (job.job_equipment?.filter((r) => String(r.asset_type ?? "").toLowerCase() === "other").length ?? 0), 0)}
-          </div>
+          <div style={summaryItem}>Crane jobs: {craneCount}</div>
+          <div style={summaryItem}>Transport jobs: {transportCount}</div>
+          <div style={summaryItem}>Labour rows: {labourCount}</div>
         </div>
+
+        <div style={filterBar}>
+          <FilterButton label="All" active={filter === "all"} onClick={() => setFilter("all")} />
+          <FilterButton label="Crane" active={filter === "crane"} onClick={() => setFilter("crane")} />
+          <FilterButton label="Transport" active={filter === "transport"} onClick={() => setFilter("transport")} />
+          <FilterButton label="Labour" active={filter === "labour"} onClick={() => setFilter("labour")} />
+        </div>
+
+        {error ? <div style={errorBox}>{error}</div> : null}
 
         <div style={scrollWrap}>
           <div style={weekGrid}>
             {days.map((day) => {
               const dayIso = isoDate(day);
               const holiday = bankHolidays.find((h) => h.date === dayIso);
-              const items = itemsByDay[dayIso] ?? [];
+              const rawItems = itemsByDay[dayIso] ?? [];
+              const items =
+                filter === "all" ? rawItems : rawItems.filter((item) => item.kind === filter);
 
               return (
                 <section key={dayIso} style={dayColumn}>
@@ -494,18 +554,29 @@ export default async function WeeklyPlannerPage({
                   </div>
 
                   <div style={itemsWrap}>
-                    {items.length === 0 ? (
+                    {loading ? (
+                      <div style={emptyBox}>Loading…</div>
+                    ) : items.length === 0 ? (
                       <div style={emptyBox}>No work</div>
                     ) : (
                       items.map((item) => (
-                        <a key={item.id} href={item.href} style={rowLink}>
+                        <a
+                          key={item.id}
+                          href={item.href}
+                          style={{
+                            ...rowLink,
+                            ...(item.kind === "labour" ? labourRowLink : {}),
+                          }}
+                        >
                           <div style={{ ...typeBar, background: typeBarColor(item.kind) }} />
                           <div style={rowBody}>
-                            <div style={rowTop}>
-                              <div style={rowTitle}>{item.title}</div>
-                              <div style={rowRight}>{item.rightText}</div>
+                            <div style={rowTitle}>{item.title}</div>
+                            <div style={rowSub}>{item.assetText}</div>
+                            <div style={rowSub2}>{item.siteText}</div>
+                            <div style={rowBottom}>
+                              <span>{item.timeText}</span>
+                              {item.valueText ? <span>{item.valueText}</span> : <span />} 
                             </div>
-                            <div style={rowSub}>{item.subtitle}</div>
                           </div>
                         </a>
                       ))
@@ -518,6 +589,29 @@ export default async function WeeklyPlannerPage({
         </div>
       </div>
     </ClientShell>
+  );
+}
+
+function FilterButton({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...filterBtn,
+        ...(active ? filterBtnActive : {}),
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -551,6 +645,29 @@ const summaryItem: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
   fontSize: 12,
+};
+
+const filterBar: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
+const filterBtn: React.CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.72)",
+  fontWeight: 800,
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const filterBtnActive: React.CSSProperties = {
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
 };
 
 const scrollWrap: React.CSSProperties = {
@@ -612,6 +729,10 @@ const rowLink: React.CSSProperties = {
   overflow: "hidden",
 };
 
+const labourRowLink: React.CSSProperties = {
+  background: "rgba(255,255,255,0.70)",
+};
+
 const typeBar: React.CSSProperties = {
   width: 4,
 };
@@ -619,13 +740,6 @@ const typeBar: React.CSSProperties = {
 const rowBody: React.CSSProperties = {
   padding: "6px 7px",
   minWidth: 0,
-};
-
-const rowTop: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: 5,
-  alignItems: "start",
 };
 
 const rowTitle: React.CSSProperties = {
@@ -637,13 +751,6 @@ const rowTitle: React.CSSProperties = {
   textOverflow: "ellipsis",
 };
 
-const rowRight: React.CSSProperties = {
-  fontSize: 9,
-  fontWeight: 800,
-  whiteSpace: "nowrap",
-  opacity: 0.82,
-};
-
 const rowSub: React.CSSProperties = {
   marginTop: 3,
   fontSize: 9,
@@ -651,7 +758,27 @@ const rowSub: React.CSSProperties = {
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
-  opacity: 0.78,
+  opacity: 0.86,
+};
+
+const rowSub2: React.CSSProperties = {
+  marginTop: 2,
+  fontSize: 9,
+  lineHeight: 1.15,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  opacity: 0.68,
+};
+
+const rowBottom: React.CSSProperties = {
+  marginTop: 4,
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 6,
+  fontSize: 9,
+  fontWeight: 800,
+  opacity: 0.8,
 };
 
 const secondaryBtn: React.CSSProperties = {
