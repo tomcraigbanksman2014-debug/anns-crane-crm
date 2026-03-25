@@ -386,8 +386,16 @@ export default async function WeeklyPlannerPage({
 
     const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
     const craneAssets = allocations
-      .filter((row) => String(row.asset_type ?? "").toLowerCase() === "crane")
+      .filter((row) => {
+        const type = String(row.asset_type ?? "").toLowerCase();
+        return type === "crane" || type === "vehicle";
+      })
       .map((row) => {
+        const type = String(row.asset_type ?? "").toLowerCase();
+        if (type === "vehicle") {
+          const vehicle = first(row.vehicle);
+          return vehicle?.name ? vehicle.name : row.item_name || "HIAB";
+        }
         const crane = first(row.crane);
         return crane?.name ? crane.name : row.item_name || "Unassigned crane";
       });
@@ -479,6 +487,8 @@ export default async function WeeklyPlannerPage({
           </div>
 
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <a href="/jobs/new" style={primaryBtn}>+ Add Job</a>
+            <a href="/transport-jobs/new" style={secondaryBtn}>+ Add Transport Job</a>
             <a href={`/weekly-planner?week=${prevWeek}&filter=${selectedFilter}`} style={secondaryBtn}>← Prev</a>
             <a href={`/weekly-planner?week=${thisWeek}&filter=${selectedFilter}`} style={secondaryBtn}>This week</a>
             <a href={`/weekly-planner?week=${nextWeek}&filter=${selectedFilter}`} style={secondaryBtn}>Next →</a>
@@ -773,6 +783,18 @@ const rowBottom: React.CSSProperties = {
   fontSize: 9,
   fontWeight: 800,
   opacity: 0.8,
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "7px 10px",
+  borderRadius: 8,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  border: "none",
+  fontSize: 12,
 };
 
 const secondaryBtn: React.CSSProperties = {
