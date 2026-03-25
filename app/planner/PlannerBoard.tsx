@@ -300,7 +300,7 @@ export default function PlannerBoard() {
         <>
           {unassignedCraneItems.length > 0 ? (
             <section style={sectionCard}>
-              <div style={sectionTitle}>Unassigned crane jobs</div>
+              <div style={sectionTitle}>Unassigned crane / HIAB jobs</div>
               <div style={{ display: "grid", gap: 10 }}>
                 {unassignedCraneItems.map((item) => (
                   <a
@@ -410,7 +410,7 @@ export default function PlannerBoard() {
                     alignItems: "stretch",
                   }}
                 >
-                  <div style={headCell}>Crane / Week</div>
+                  <div style={headCell}>Lifting asset / Week</div>
 
                   {visibleDays.map((day) => (
                     <div
