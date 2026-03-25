@@ -58,11 +58,27 @@ function statusPillStyle(status: string | null | undefined): React.CSSProperties
     };
   }
 
-  if (s === "cancelled") {
+  if (s === "provisional") {
+    return {
+      background: "rgba(120,120,120,0.12)",
+      color: "#555",
+      border: "1px solid rgba(120,120,120,0.18)",
+    };
+  }
+
+  if (s === "late_cancelled") {
     return {
       background: "rgba(255,0,0,0.10)",
       color: "#b00020",
       border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  if (s === "cancelled") {
+    return {
+      background: "rgba(160,160,160,0.12)",
+      color: "#666",
+      border: "1px solid rgba(160,160,160,0.18)",
     };
   }
 
@@ -407,12 +423,24 @@ export default async function JobDetailPage({
               Edit job
             </a>
             <DuplicateJobButton jobId={params.id} />
-            {String((job as any)?.status ?? "").toLowerCase() !== "cancelled" ? (
-              <form action={`/api/jobs/${params.id}/cancel`} method="POST">
-                <button type="submit" style={cancelBtn}>
-                  Cancel job
-                </button>
-              </form>
+            {![("cancelled"), ("late_cancelled"), ("provisional")].includes(
+              String((job as any)?.status ?? "").toLowerCase()
+            ) ? (
+              <>
+                <form action={`/api/jobs/${params.id}/cancel`} method="POST">
+                  <input type="hidden" name="cancel_mode" value="provisional" />
+                  <button type="submit" style={secondaryBtn}>
+                    Mark provisional
+                  </button>
+                </form>
+
+                <form action={`/api/jobs/${params.id}/cancel`} method="POST">
+                  <input type="hidden" name="cancel_mode" value="late_cancelled" />
+                  <button type="submit" style={cancelBtn}>
+                    Late cancel
+                  </button>
+                </form>
+              </>
             ) : null}
           </div>
         </div>
