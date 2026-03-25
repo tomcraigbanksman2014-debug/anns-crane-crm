@@ -160,6 +160,15 @@ function bankHolidaysByYear(year: number) {
   return map[year] ?? [];
 }
 
+
+
+function isHiabVehicle(vehicle: any) {
+  const haystack = [vehicle?.name, vehicle?.vehicle_type, vehicle?.trailer_type, vehicle?.notes]
+    .map((value) => String(value ?? "").toLowerCase())
+    .join(" ");
+  return haystack.includes("hiab");
+}
+
 function classifyUnassignedType(job: any) {
   const siteName = String(job?.site_name ?? "").trim().toLowerCase();
   const notes = String(job?.notes ?? "").trim().toLowerCase();
@@ -197,7 +206,7 @@ export async function GET(req: Request) {
       (h) => h.date >= from && h.date <= to
     );
 
-    const [jobsRes, allocationsRes, operatorsRes, cranesRes] = await Promise.all([
+    const [jobsRes, allocationsRes, operatorsRes, cranesRes, vehiclesRes] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
@@ -228,12 +237,14 @@ export async function GET(req: Request) {
             clients:client_id (company_name)
           ),
           operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number)
+          cranes:crane_id (id, name, reg_number),
+          vehicles:vehicle_id (id, name, reg_number, vehicle_type, trailer_type, notes)
         `)
-        .eq("asset_type", "crane"),
+        .in("asset_type", ["crane", "vehicle"]),
 
       supabase.from("operators").select("id, full_name"),
       supabase.from("cranes").select("id, name, reg_number"),
+      supabase.from("vehicles").select("id, name, reg_number, vehicle_type, trailer_type, notes, archived").eq("archived", false),
     ]);
 
     if (jobsRes.error) {
@@ -248,11 +259,15 @@ export async function GET(req: Request) {
     if (cranesRes.error) {
       return NextResponse.json({ error: cranesRes.error.message }, { status: 400 });
     }
+    if (vehiclesRes.error) {
+      return NextResponse.json({ error: vehiclesRes.error.message }, { status: 400 });
+    }
 
     const jobs = jobsRes.data ?? [];
     const allocations = allocationsRes.data ?? [];
     const operators = operatorsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
+    const hiabVehicles = (vehiclesRes.data ?? []).filter((vehicle: any) => isHiabVehicle(vehicle));
 
     const days = Array.from({ length: 7 }).map((_, i) => {
       const d = new Date(weekStart);
@@ -316,10 +331,17 @@ export async function GET(req: Request) {
       const job = first(row.jobs);
       const operator = first(row.operators);
       const crane = first(row.cranes);
+      const vehicle = first(row.vehicles);
       const client = first(job?.clients);
       const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
       const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
       const excludeWeekends = Boolean(job?.exclude_weekends);
+      const assetType = String(row.asset_type ?? "").toLowerCase();
+      const assetId = assetType === "vehicle" ? row.vehicle_id : row.crane_id;
+      const assetKey = assetId ? `${assetType}:${assetId}` : null;
+      const assetRecord = assetType === "vehicle"
+        ? (vehicle ? [{ id: vehicle.id, name: vehicle.name, reg_number: vehicle.reg_number }] : [])
+        : (crane ? [crane] : []);
 
       return {
         id: `alloc_${row.id}`,
@@ -335,11 +357,11 @@ export async function GET(req: Request) {
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
-        equipment_id: row.crane_id ?? job?.crane_id ?? null,
-        item_name: row.item_name ?? null,
+        equipment_id: assetKey,
+        item_name: row.item_name ?? (assetType === "vehicle" ? "HIAB" : null),
         clients: client ? [client] : [],
         operators: operator ? [operator] : [],
-        equipment: crane ? [crane] : [],
+        equipment: assetRecord,
         agreed_sell_rate: num(row.agreed_sell_rate),
         supplier_cost: num(row.supplier_cost),
         price_mode: job?.price_mode ?? "full_job",
@@ -379,7 +401,7 @@ export async function GET(req: Request) {
           site_name: job.site_name ?? null,
           site_address: job.site_address ?? null,
           operator_id: job.operator_id ?? null,
-          equipment_id: job.crane_id ?? null,
+          equipment_id: job.crane_id ? `crane:${job.crane_id}` : null,
           item_name: null,
           clients: client ? [client] : [],
           operators: operator ? [operator] : [],
@@ -404,12 +426,18 @@ export async function GET(req: Request) {
       bank_holidays: bankHolidays,
       items: [...allocationItems, ...directJobItems],
       operators: operators ?? [],
-      equipment:
-        cranes.map((row: any) => ({
-          id: row.id,
+      equipment: [
+        ...cranes.map((row: any) => ({
+          id: `crane:${row.id}`,
           name: row.name ?? null,
           asset_number: row.reg_number ?? null,
-        })) ?? [],
+        })),
+        ...hiabVehicles.map((row: any) => ({
+          id: `vehicle:${row.id}`,
+          name: row.name ?? "HIAB",
+          asset_number: row.reg_number ?? null,
+        })),
+      ],
     });
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 400 });
