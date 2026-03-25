@@ -322,7 +322,7 @@ export default async function WeeklyPlannerPage({
   if (craneError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1650px, 98vw)", margin: "0 auto" }}>
+        <div style={{ width: "100%", boxSizing: "border-box" }}>
           <div style={errorBox}>{craneError.message}</div>
         </div>
       </ClientShell>
@@ -332,7 +332,7 @@ export default async function WeeklyPlannerPage({
   if (transportError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1650px, 98vw)", margin: "0 auto" }}>
+        <div style={{ width: "100%", boxSizing: "border-box" }}>
           <div style={errorBox}>{transportError.message}</div>
         </div>
       </ClientShell>
@@ -439,10 +439,10 @@ export default async function WeeklyPlannerPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "100%", maxWidth: 1650, margin: "0 auto" }}>
+      <div style={pageWrap}>
         <div style={headerRow}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 28 }}>Weekly Planner</h1>
+            <h1 style={{ margin: 0, fontSize: 26 }}>Weekly Planner</h1>
             <p style={{ marginTop: 4, opacity: 0.78 }}>
               Clean weekly board for crane, transport and labour work.
             </p>
@@ -484,11 +484,11 @@ export default async function WeeklyPlannerPage({
                         : {}),
                     }}
                   >
-                    <div style={{ fontWeight: 1000, fontSize: 15 }}>{formatDay(day)}</div>
-                    <div style={{ fontSize: 11, opacity: 0.72 }}>{items.length}</div>
+                    <div style={{ fontWeight: 1000, fontSize: 14 }}>{formatDay(day)}</div>
+                    <div style={{ fontSize: 10, opacity: 0.72 }}>{items.length}</div>
                   </div>
 
-                  <div style={{ fontSize: 11, opacity: 0.68, padding: "0 2px" }}>
+                  <div style={{ fontSize: 10, opacity: 0.68, padding: "0 2px" }}>
                     {dayIso}
                     {holiday ? ` • ${holiday.label}` : ""}
                   </div>
@@ -521,55 +521,64 @@ export default async function WeeklyPlannerPage({
   );
 }
 
+const pageWrap: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  boxSizing: "border-box",
+};
+
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
   gap: 12,
   flexWrap: "wrap",
-  marginBottom: 12,
+  marginBottom: 10,
 };
 
 const summaryBar: React.CSSProperties = {
   display: "flex",
   gap: 8,
   flexWrap: "wrap",
-  marginBottom: 12,
+  marginBottom: 10,
 };
 
 const summaryItem: React.CSSProperties = {
-  padding: "8px 10px",
+  padding: "7px 9px",
   borderRadius: 8,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 800,
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const scrollWrap: React.CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
   overflowX: "auto",
   overflowY: "hidden",
   paddingBottom: 8,
+  boxSizing: "border-box",
 };
 
 const weekGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(7, 220px)",
-  gap: 8,
+  gridTemplateColumns: "repeat(7, 170px)",
+  gap: 6,
   alignItems: "start",
-  minWidth: 1592,
+  minWidth: 1226,
 };
 
 const dayColumn: React.CSSProperties = {
   minHeight: 520,
   display: "grid",
-  gap: 8,
+  gap: 6,
   alignContent: "start",
 };
 
 const dayHeader: React.CSSProperties = {
-  padding: "8px 10px",
+  padding: "7px 8px",
   borderRadius: 8,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
@@ -580,16 +589,16 @@ const dayHeader: React.CSSProperties = {
 
 const itemsWrap: React.CSSProperties = {
   display: "grid",
-  gap: 6,
+  gap: 5,
 };
 
 const emptyBox: React.CSSProperties = {
-  padding: "10px 8px",
+  padding: "8px 7px",
   borderRadius: 8,
   background: "rgba(255,255,255,0.58)",
   border: "1px dashed rgba(0,0,0,0.10)",
   opacity: 0.72,
-  fontSize: 12,
+  fontSize: 11,
 };
 
 const rowLink: React.CSSProperties = {
@@ -608,37 +617,37 @@ const typeBar: React.CSSProperties = {
 };
 
 const rowBody: React.CSSProperties = {
-  padding: "7px 8px",
+  padding: "6px 7px",
   minWidth: 0,
 };
 
 const rowTop: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr) auto",
-  gap: 6,
+  gap: 5,
   alignItems: "start",
 };
 
 const rowTitle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 900,
-  lineHeight: 1.2,
+  lineHeight: 1.15,
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
 };
 
 const rowRight: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 9,
   fontWeight: 800,
   whiteSpace: "nowrap",
   opacity: 0.82,
 };
 
 const rowSub: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 10,
-  lineHeight: 1.2,
+  marginTop: 3,
+  fontSize: 9,
+  lineHeight: 1.15,
   whiteSpace: "nowrap",
   overflow: "hidden",
   textOverflow: "ellipsis",
@@ -647,14 +656,14 @@ const rowSub: React.CSSProperties = {
 
 const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "8px 12px",
+  padding: "7px 10px",
   borderRadius: 8,
   textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-  fontSize: 13,
+  fontSize: 12,
 };
 
 const errorBox: React.CSSProperties = {
