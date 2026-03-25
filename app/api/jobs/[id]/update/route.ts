@@ -15,7 +15,7 @@ type Payload = {
   end_date?: string | null;
   start_time?: string | null;
   end_time?: string | null;
-  status?: "draft" | "confirmed" | "in_progress" | "completed" | "cancelled";
+  status?: "draft" | "provisional" | "confirmed" | "in_progress" | "completed" | "cancelled" | "late_cancelled";
   hire_type?: string | null;
   lift_type?: string | null;
   notes?: string | null;
@@ -24,6 +24,18 @@ type Payload = {
 function norm(v: any) {
   const s = String(v ?? "").trim();
   return s.length ? s : null;
+}
+
+function cleanStatus(value: any) {
+  const s = String(value ?? "").trim().toLowerCase();
+
+  if (s === "provisional") return "provisional";
+  if (s === "confirmed") return "confirmed";
+  if (s === "in_progress") return "in_progress";
+  if (s === "completed") return "completed";
+  if (s === "cancelled") return "cancelled";
+  if (s === "late_cancelled") return "late_cancelled";
+  return "draft";
 }
 
 export async function PATCH(
@@ -75,7 +87,7 @@ export async function PATCH(
       end_date: endDate,
       start_time: norm(body.start_time),
       end_time: norm(body.end_time),
-      status: norm(body.status) ?? "draft",
+      status: cleanStatus(body.status),
       hire_type: norm(body.hire_type),
       lift_type: norm(body.lift_type),
       notes: norm(body.notes),
