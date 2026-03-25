@@ -63,7 +63,6 @@ type WeeklyItem = {
   title: string;
   subtitle: string;
   rightText: string;
-  status: string | null;
   sortTime: string;
 };
 
@@ -221,11 +220,6 @@ function typeBarColor(kind: "crane" | "transport" | "labour") {
   return "#7d3c98";
 }
 
-function statusText(status: string | null | undefined) {
-  const s = String(status ?? "").trim();
-  return s || "";
-}
-
 export default async function WeeklyPlannerPage({
   searchParams,
 }: {
@@ -328,7 +322,7 @@ export default async function WeeklyPlannerPage({
   if (craneError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1700px, 98vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1800px, 99vw)", margin: "0 auto" }}>
           <div style={errorBox}>{craneError.message}</div>
         </div>
       </ClientShell>
@@ -338,7 +332,7 @@ export default async function WeeklyPlannerPage({
   if (transportError) {
     return (
       <ClientShell>
-        <div style={{ width: "min(1700px, 98vw)", margin: "0 auto" }}>
+        <div style={{ width: "min(1800px, 99vw)", margin: "0 auto" }}>
           <div style={errorBox}>{transportError.message}</div>
         </div>
       </ClientShell>
@@ -388,8 +382,7 @@ export default async function WeeklyPlannerPage({
         kind: "crane",
         title: `#${job.job_number ?? ""} ${clientName}`.trim(),
         subtitle: `${craneAssets.length > 0 ? craneAssets.join(", ") : "Unassigned crane"} • ${job.site_name || "No site"}`,
-        rightText: `${job.start_time ?? "—"}-${job.end_time ?? "—"} ${money(effectiveCraneJobValue(job))}`,
-        status: job.status,
+        rightText: `${job.start_time ?? "—"}-${job.end_time ?? "—"} • ${money(effectiveCraneJobValue(job))}`,
         sortTime: job.start_time ?? "99:99",
       });
     }
@@ -410,7 +403,6 @@ export default async function WeeklyPlannerPage({
           title: `${labour.item_name || "Labour"} ${clientName}`.trim(),
           subtitle: `${operatorName} • ${job.site_name || "No site"}`,
           rightText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
-          status: job.status,
           sortTime: job.start_time ?? "99:99",
         });
       }
@@ -432,8 +424,7 @@ export default async function WeeklyPlannerPage({
         kind: "transport",
         title: `${job.transport_number || "Transport"} ${clientName}`.trim(),
         subtitle: `${vehicle?.name || "Unassigned vehicle"}${operator?.full_name ? ` • ${operator.full_name}` : ""}`,
-        rightText: `${job.collection_time ?? "—"}-${job.delivery_time ?? "—"} ${money(effectiveTransportValue(job))}`,
-        status: job.status,
+        rightText: `${job.collection_time ?? "—"}-${job.delivery_time ?? "—"} • ${money(effectiveTransportValue(job))}`,
         sortTime: job.collection_time ?? "99:99",
       });
     }
@@ -473,58 +464,57 @@ export default async function WeeklyPlannerPage({
           </div>
         </div>
 
-        <div style={weekGrid}>
-          {days.map((day) => {
-            const dayIso = isoDate(day);
-            const holiday = bankHolidays.find((h) => h.date === dayIso);
-            const items = itemsByDay[dayIso] ?? [];
+        <div style={scrollWrap}>
+          <div style={weekGrid}>
+            {days.map((day) => {
+              const dayIso = isoDate(day);
+              const holiday = bankHolidays.find((h) => h.date === dayIso);
+              const items = itemsByDay[dayIso] ?? [];
 
-            return (
-              <section key={dayIso} style={dayColumn}>
-                <div
-                  style={{
-                    ...dayHeader,
-                    ...(holiday
-                      ? {
-                          background: "rgba(255,170,0,0.12)",
-                          border: "1px solid rgba(255,170,0,0.20)",
-                        }
-                      : {}),
-                  }}
-                >
-                  <div style={{ fontWeight: 1000, fontSize: 15 }}>{formatDay(day)}</div>
-                  <div style={{ fontSize: 11, opacity: 0.72 }}>{items.length}</div>
-                </div>
+              return (
+                <section key={dayIso} style={dayColumn}>
+                  <div
+                    style={{
+                      ...dayHeader,
+                      ...(holiday
+                        ? {
+                            background: "rgba(255,170,0,0.12)",
+                            border: "1px solid rgba(255,170,0,0.20)",
+                          }
+                        : {}),
+                    }}
+                  >
+                    <div style={{ fontWeight: 1000, fontSize: 15 }}>{formatDay(day)}</div>
+                    <div style={{ fontSize: 11, opacity: 0.72 }}>{items.length}</div>
+                  </div>
 
-                <div style={{ fontSize: 11, opacity: 0.68, padding: "0 2px" }}>
-                  {dayIso}
-                  {holiday ? ` • ${holiday.label}` : ""}
-                </div>
+                  <div style={{ fontSize: 11, opacity: 0.68, padding: "0 2px" }}>
+                    {dayIso}
+                    {holiday ? ` • ${holiday.label}` : ""}
+                  </div>
 
-                <div style={itemsWrap}>
-                  {items.length === 0 ? (
-                    <div style={emptyBox}>No work</div>
-                  ) : (
-                    items.map((item) => (
-                      <a key={item.id} href={item.href} style={rowLink}>
-                        <div style={{ ...typeBar, background: typeBarColor(item.kind) }} />
-                        <div style={rowBody}>
-                          <div style={rowTop}>
-                            <div style={rowTitle}>{item.title}</div>
-                            <div style={rowRight}>{item.rightText}</div>
+                  <div style={itemsWrap}>
+                    {items.length === 0 ? (
+                      <div style={emptyBox}>No work</div>
+                    ) : (
+                      items.map((item) => (
+                        <a key={item.id} href={item.href} style={rowLink}>
+                          <div style={{ ...typeBar, background: typeBarColor(item.kind) }} />
+                          <div style={rowBody}>
+                            <div style={rowTop}>
+                              <div style={rowTitle}>{item.title}</div>
+                              <div style={rowRight}>{item.rightText}</div>
+                            </div>
+                            <div style={rowSub}>{item.subtitle}</div>
                           </div>
-                          <div style={rowSub}>{item.subtitle}</div>
-                          {statusText(item.status) ? (
-                            <div style={rowStatus}>{statusText(item.status)}</div>
-                          ) : null}
-                        </div>
-                      </a>
-                    ))
-                  )}
-                </div>
-              </section>
-            );
-          })}
+                        </a>
+                      ))
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         </div>
       </div>
     </ClientShell>
@@ -556,11 +546,19 @@ const summaryItem: React.CSSProperties = {
   fontSize: 13,
 };
 
+const scrollWrap: React.CSSProperties = {
+  width: "100%",
+  overflowX: "auto",
+  overflowY: "hidden",
+  paddingBottom: 6,
+};
+
 const weekGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(7, minmax(240px, 1fr))",
   gap: 8,
   alignItems: "start",
+  minWidth: 1700,
 };
 
 const dayColumn: React.CSSProperties = {
@@ -645,14 +643,6 @@ const rowSub: React.CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   opacity: 0.78,
-};
-
-const rowStatus: React.CSSProperties = {
-  marginTop: 4,
-  fontSize: 10,
-  fontWeight: 800,
-  opacity: 0.62,
-  textTransform: "uppercase",
 };
 
 const secondaryBtn: React.CSSProperties = {
