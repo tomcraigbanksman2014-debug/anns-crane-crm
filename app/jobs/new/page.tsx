@@ -79,6 +79,15 @@ function normaliseEmail(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+
+
+function isHiabVehicle(vehicle: any) {
+  const haystack = [vehicle?.name, vehicle?.vehicle_type, vehicle?.trailer_type, vehicle?.notes]
+    .map((value) => String(value ?? "").toLowerCase())
+    .join(" ");
+  return haystack.includes("hiab");
+}
+
 async function resolveClientId(
   supabase: ReturnType<typeof createSupabaseServerClient>,
   selectedClientId: string | null,
@@ -191,8 +200,18 @@ async function createJob(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  const primarySelection = clean(formData.get("primary_equipment_selection"));
-  const otherItemName = clean(formData.get("other_item_name"));
+  const selectedCraneIds = formData
+    .getAll("selected_crane_ids")
+    .map((value) => clean(value))
+    .filter(Boolean);
+  const selectedHiabIds = formData
+    .getAll("selected_hiab_ids")
+    .map((value) => clean(value))
+    .filter(Boolean);
+  const selectedEquipmentIds = formData
+    .getAll("selected_equipment_ids")
+    .map((value) => clean(value))
+    .filter(Boolean);
   const rawClientId = clean(formData.get("client_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
 
@@ -207,19 +226,8 @@ async function createJob(formData: FormData) {
   const startTime = clean(formData.get("start_time")) || null;
   const endTime = clean(formData.get("end_time")) || null;
 
-  let primaryEquipmentId: string | null = null;
-  let selectedCraneId: string | null = null;
-  let allocationAssetType: "equipment" | "crane" | "other" | null = null;
-
-  if (primarySelection.startsWith("equipment:")) {
-    primaryEquipmentId = primarySelection.replace("equipment:", "") || null;
-    allocationAssetType = primaryEquipmentId ? "equipment" : null;
-  } else if (primarySelection.startsWith("crane:")) {
-    selectedCraneId = primarySelection.replace("crane:", "") || null;
-    allocationAssetType = selectedCraneId ? "crane" : null;
-  } else if (primarySelection === "other") {
-    allocationAssetType = otherItemName ? "other" : null;
-  }
+  const primaryEquipmentId = selectedEquipmentIds[0] || null;
+  const selectedCraneId = selectedCraneIds[0] || null;
 
   const clientResolution = await resolveClientId(supabase, rawClientId, {
     companyName: otherCustomerCompanyName,
@@ -251,14 +259,6 @@ async function createJob(formData: FormData) {
     );
   }
 
-  if (primarySelection === "other" && !otherItemName) {
-    redirect(
-      `/jobs/new?error=${encodeURIComponent(
-        "Please enter an item name when Primary equipment is set to Other."
-      )}`
-    );
-  }
-
   const priceMode = clean(formData.get("price_mode")) || "full_job";
   const excludeWeekends = clean(formData.get("exclude_weekends")) === "on";
   const fullJobPrice = numberOrZero(formData.get("full_job_price"));
@@ -274,6 +274,7 @@ async function createJob(formData: FormData) {
   const payload: Record<string, any> = {
     client_id: clientId,
     equipment_id: primaryEquipmentId,
+    crane_id: selectedCraneId,
     operator_id: operatorId,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
@@ -311,35 +312,61 @@ async function createJob(formData: FormData) {
     );
   }
 
-  if (allocationAssetType) {
-    const allocationPayload: Record<string, any> = {
+  const allocationRows: Array<Record<string, any>> = [];
+
+  for (const craneId of selectedCraneIds) {
+    allocationRows.push({
       job_id: data.id,
-      asset_type: allocationAssetType,
+      asset_type: "crane",
+      crane_id: craneId,
       operator_id: operatorId,
       start_date: startDate,
       end_date: endDate,
       start_time: startTime,
       end_time: endTime,
-      agreed_sell_rate: calculatedSubtotal,
+      agreed_sell_rate: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-    };
+    });
+  }
 
-    if (allocationAssetType === "equipment") {
-      allocationPayload.equipment_id = primaryEquipmentId;
-    }
+  for (const vehicleId of selectedHiabIds) {
+    allocationRows.push({
+      job_id: data.id,
+      asset_type: "vehicle",
+      vehicle_id: vehicleId,
+      operator_id: operatorId,
+      item_name: "HIAB",
+      start_date: startDate,
+      end_date: endDate,
+      start_time: startTime,
+      end_time: endTime,
+      agreed_sell_rate: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
 
-    if (allocationAssetType === "crane") {
-      allocationPayload.crane_id = selectedCraneId;
-    }
+  for (const equipmentId of selectedEquipmentIds) {
+    allocationRows.push({
+      job_id: data.id,
+      asset_type: "equipment",
+      equipment_id: equipmentId,
+      operator_id: operatorId,
+      start_date: startDate,
+      end_date: endDate,
+      start_time: startTime,
+      end_time: endTime,
+      agreed_sell_rate: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
 
-    if (allocationAssetType === "other") {
-      allocationPayload.item_name = otherItemName;
-    }
-
+  if (allocationRows.length > 0) {
     const { error: allocationError } = await supabase
       .from("job_equipment")
-      .insert(allocationPayload);
+      .insert(allocationRows);
 
     if (allocationError) {
       await supabase.from("jobs").delete().eq("id", data.id);
@@ -370,7 +397,7 @@ type PageProps = {
 export default async function NewJobPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: operators }] =
+  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: vehicles }, { data: operators }] =
     await Promise.all([
       supabase
         .from("clients")
@@ -390,6 +417,12 @@ export default async function NewJobPage({ searchParams }: PageProps) {
         .select("id, name, reg_number, fleet_number, archived, status")
         .eq("archived", false)
         .eq("status", "available")
+        .order("name", { ascending: true }),
+
+      supabase
+        .from("vehicles")
+        .select("id, name, reg_number, vehicle_type, trailer_type, notes, archived, status")
+        .eq("archived", false)
         .order("name", { ascending: true }),
 
       supabase
@@ -414,6 +447,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
   const defaultStatus = quoteToJobStatus(searchParams?.quote_status);
   const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
   const timeOptions = buildQuarterHourOptions();
+  const hiabVehicles = (vehicles ?? []).filter((vehicle: any) => isHiabVehicle(vehicle));
 
   return (
     <ClientShell>
@@ -682,39 +716,56 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             </section>
 
             <section style={pricingBox}>
-              <h3 style={pricingHeading}>Primary equipment</h3>
+              <h3 style={pricingHeading}>Assets required</h3>
 
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Primary equipment selection</label>
-                <select name="primary_equipment_selection" style={inputStyle} defaultValue="">
-                  <option value="">— None selected —</option>
+              <div style={assetGroupWrap}>
+                <div>
+                  <div style={assetGroupHeading}>Cranes / HIABs</div>
+                  <div style={assetHelpText}>Tick as many lifting assets as needed for the job.</div>
+                </div>
 
+                <div style={assetListGrid}>
                   {(cranes ?? []).map((crane: any) => (
-                    <option key={`crane-${crane.id}`} value={`crane:${crane.id}`}>
-                      {crane.name ?? "Crane"}
-                      {crane.reg_number ? ` (${crane.reg_number})` : ""}
-                      {crane.fleet_number ? ` • ${crane.fleet_number}` : ""}
-                    </option>
+                    <label key={`crane-${crane.id}`} style={checkboxCard}>
+                      <input type="checkbox" name="selected_crane_ids" value={crane.id} />
+                      <span>
+                        {crane.name ?? "Crane"}
+                        {crane.reg_number ? ` (${crane.reg_number})` : ""}
+                        {crane.fleet_number ? ` • ${crane.fleet_number}` : ""}
+                      </span>
+                    </label>
                   ))}
 
-                  {(equipment ?? []).map((asset: any) => (
-                    <option key={`equipment-${asset.id}`} value={`equipment:${asset.id}`}>
-                      {asset.name ?? "Equipment"}
-                      {asset.asset_number ? ` (${asset.asset_number})` : ""}
-                    </option>
+                  {hiabVehicles.map((vehicle: any) => (
+                    <label key={`vehicle-${vehicle.id}`} style={checkboxCard}>
+                      <input type="checkbox" name="selected_hiab_ids" value={vehicle.id} />
+                      <span>
+                        {vehicle.name ?? "HIAB"}
+                        {vehicle.reg_number ? ` (${vehicle.reg_number})` : ""}
+                        {vehicle.vehicle_type ? ` • ${vehicle.vehicle_type}` : ""}
+                      </span>
+                    </label>
                   ))}
-
-                  <option value="other">Other</option>
-                </select>
+                </div>
               </div>
 
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Other item name</label>
-                <input
-                  name="other_item_name"
-                  style={inputStyle}
-                  placeholder="Only required if Primary equipment = Other"
-                />
+              <div style={assetGroupWrap}>
+                <div>
+                  <div style={assetGroupHeading}>Equipment</div>
+                  <div style={assetHelpText}>Tick any additional lifting equipment needed on the job.</div>
+                </div>
+
+                <div style={assetListGrid}>
+                  {(equipment ?? []).map((asset: any) => (
+                    <label key={`equipment-${asset.id}`} style={checkboxCard}>
+                      <input type="checkbox" name="selected_equipment_ids" value={asset.id} />
+                      <span>
+                        {asset.name ?? "Equipment"}
+                        {asset.asset_number ? ` (${asset.asset_number})` : ""}
+                      </span>
+                    </label>
+                  ))}
+                </div>
               </div>
 
               <div style={fieldWrap}>
@@ -855,6 +906,38 @@ const newCustomerHelp: React.CSSProperties = {
   margin: 0,
   fontSize: 13,
   opacity: 0.8,
+};
+
+const assetGroupWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const assetGroupHeading: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const assetHelpText: React.CSSProperties = {
+  marginTop: 2,
+  fontSize: 12,
+  opacity: 0.72,
+};
+
+const assetListGrid: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const checkboxCard: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  minHeight: 42,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.9)",
 };
 
 const checkboxRow: React.CSSProperties = {
