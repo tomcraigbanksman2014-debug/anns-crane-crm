@@ -15,6 +15,15 @@ function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
 }
 
+function safeDecode(value: string | undefined) {
+  const raw = String(value ?? "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 function numberOrZero(value: FormDataEntryValue | null) {
   const n = Number(String(value ?? "").trim());
   return Number.isFinite(n) ? n : 0;
@@ -54,10 +63,6 @@ function uniqueValues(values: FormDataEntryValue[]) {
 
 function autoRowNote(kind: string) {
   return `${AUTO_ROW_NOTE_PREFIX}:${kind}`;
-}
-
-function isAutoRow(row: any) {
-  return String(row?.notes ?? "").startsWith(AUTO_ROW_NOTE_PREFIX);
 }
 
 function buildAutoRows(args: {
@@ -153,19 +158,19 @@ function DropdownCheckboxGroup({
   title,
   name,
   options,
-  selectedValues,
   hint,
+  selectedValues,
 }: {
   title: string;
   name: string;
   options: CheckboxOption[];
-  selectedValues: string[];
   hint: string;
+  selectedValues: string[];
 }) {
-  const selected = new Set(selectedValues);
+  const selectedSet = new Set(selectedValues);
 
   return (
-    <details style={dropdownWrapStyle} open={selectedValues.length > 0}>
+    <details style={dropdownWrapStyle} open>
       <summary style={dropdownSummaryStyle}>{title}</summary>
       <div style={dropdownHintStyle}>{hint}</div>
       {options.length === 0 ? (
@@ -174,7 +179,12 @@ function DropdownCheckboxGroup({
         <div style={checkboxListStyle}>
           {options.map((option) => (
             <label key={`${name}-${option.value}`} style={checkboxItemStyle}>
-              <input type="checkbox" name={name} value={option.value} defaultChecked={selected.has(option.value)} />
+              <input
+                type="checkbox"
+                name={name}
+                value={option.value}
+                defaultChecked={selectedSet.has(option.value)}
+              />
               <span>
                 <span style={checkboxLabelStyle}>{option.label}</span>
                 {option.muted ? <span style={checkboxMutedStyle}>{option.muted}</span> : null}
@@ -197,8 +207,14 @@ async function updateJob(formData: FormData) {
     redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
   }
 
+  const selectedLiftingAssetSelections = uniqueValues(formData.getAll("selected_lifting_asset_ids"));
+  const selectedEquipmentIds = uniqueValues(formData.getAll("selected_equipment_ids"));
+  const selectedOperatorIds = uniqueValues(formData.getAll("selected_operator_ids"));
+
   const startDate = clean(formData.get("start_date")) || null;
   const endDate = clean(formData.get("end_date")) || null;
+  const startTime = clean(formData.get("start_time")) || null;
+  const endTime = clean(formData.get("end_time")) || null;
 
   if (!startDate || !endDate) {
     redirect(`/jobs/${id}/edit?error=${encodeURIComponent("Start date and end date are required.")}`);
@@ -207,10 +223,6 @@ async function updateJob(formData: FormData) {
   if (endDate < startDate) {
     redirect(`/jobs/${id}/edit?error=${encodeURIComponent("End date cannot be earlier than start date.")}`);
   }
-
-  const selectedLiftingAssetSelections = uniqueValues(formData.getAll("selected_lifting_asset_ids"));
-  const selectedEquipmentIds = uniqueValues(formData.getAll("selected_equipment_ids"));
-  const selectedOperatorIds = uniqueValues(formData.getAll("selected_operator_ids"));
 
   const priceMode = clean(formData.get("price_mode")) || "full_job";
   const excludeWeekends = clean(formData.get("exclude_weekends")) === "on";
@@ -223,9 +235,13 @@ async function updateJob(formData: FormData) {
       ? Number((pricePerDay * billableDays).toFixed(2))
       : Number(fullJobPrice.toFixed(2));
 
+  const firstCraneId =
+    (selectedLiftingAssetSelections.find((value) => value.startsWith("crane:")) || "")
+      .replace(/^crane:/, "") || null;
+
   const payload = {
     client_id: clean(formData.get("client_id")) || null,
-    crane_id: (selectedLiftingAssetSelections.find((value) => value.startsWith("crane:")) || "").replace(/^crane:/, "") || null,
+    crane_id: firstCraneId,
     equipment_id: selectedEquipmentIds[0] || null,
     operator_id: selectedOperatorIds[0] || null,
     main_operator_id: selectedOperatorIds[0] || null,
@@ -236,8 +252,8 @@ async function updateJob(formData: FormData) {
     start_date: startDate,
     end_date: endDate,
     job_date: startDate,
-    start_time: clean(formData.get("start_time")) || null,
-    end_time: clean(formData.get("end_time")) || null,
+    start_time: startTime,
+    end_time: endTime,
     status: clean(formData.get("status")) || "draft",
     hire_type: clean(formData.get("hire_type")) || null,
     lift_type: clean(formData.get("lift_type")) || null,
@@ -258,25 +274,26 @@ async function updateJob(formData: FormData) {
     redirect(`/jobs/${id}/edit?error=${encodeURIComponent(error.message)}`);
   }
 
-  const { data: existingRows, error: existingRowsError } = await supabase
+  const { data: existingAutoRows, error: fetchAutoRowsError } = await supabase
     .from("job_equipment")
-    .select("id, notes")
-    .eq("job_id", id);
+    .select("id")
+    .eq("job_id", id)
+    .like("notes", `${AUTO_ROW_NOTE_PREFIX}%`);
 
-  if (existingRowsError) {
-    redirect(`/jobs/${id}/edit?error=${encodeURIComponent(existingRowsError.message)}`);
+  if (fetchAutoRowsError) {
+    redirect(`/jobs/${id}/edit?error=${encodeURIComponent(fetchAutoRowsError.message)}`);
   }
 
-  const autoRowIds = (existingRows ?? []).filter(isAutoRow).map((row: any) => row.id);
+  const existingAutoRowIds = (existingAutoRows ?? []).map((row: any) => row.id).filter(Boolean);
 
-  if (autoRowIds.length > 0) {
-    const { error: deleteError } = await supabase
+  if (existingAutoRowIds.length > 0) {
+    const { error: deleteAutoRowsError } = await supabase
       .from("job_equipment")
       .delete()
-      .in("id", autoRowIds);
+      .in("id", existingAutoRowIds);
 
-    if (deleteError) {
-      redirect(`/jobs/${id}/edit?error=${encodeURIComponent(deleteError.message)}`);
+    if (deleteAutoRowsError) {
+      redirect(`/jobs/${id}/edit?error=${encodeURIComponent(deleteAutoRowsError.message)}`);
     }
   }
 
@@ -284,8 +301,8 @@ async function updateJob(formData: FormData) {
     jobId: id,
     startDate,
     endDate,
-    startTime: payload.start_time,
-    endTime: payload.end_time,
+    startTime,
+    endTime,
     selectedLiftingAssetSelections,
     selectedEquipmentIds,
     selectedOperatorIds,
@@ -293,12 +310,12 @@ async function updateJob(formData: FormData) {
   });
 
   if (autoRows.length > 0) {
-    const { error: insertError } = await supabase
+    const { error: insertAutoRowsError } = await supabase
       .from("job_equipment")
       .insert(autoRows);
 
-    if (insertError) {
-      redirect(`/jobs/${id}/edit?error=${encodeURIComponent(insertError.message)}`);
+    if (insertAutoRowsError) {
+      redirect(`/jobs/${id}/edit?error=${encodeURIComponent(insertAutoRowsError.message)}`);
     }
   }
 
@@ -319,9 +336,10 @@ export default async function EditJobPage({
     { data: job, error: jobError },
     { data: customers, error: customersError },
     { data: equipment, error: equipmentError },
-    { data: cranes },
-    { data: vehicles },
-    { data: operators },
+    { data: cranes, error: cranesError },
+    { data: vehicles, error: vehiclesError },
+    { data: operators, error: operatorsError },
+    { data: autoAllocations, error: autoAllocationsError },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -351,15 +369,7 @@ export default async function EditJobPage({
         total_invoice,
         price_mode,
         price_per_day,
-        exclude_weekends,
-        job_equipment (
-          id,
-          asset_type,
-          crane_id,
-          equipment_id,
-          operator_id,
-          notes
-        )
+        exclude_weekends
       `)
       .eq("id", params.id)
       .single(),
@@ -372,7 +382,7 @@ export default async function EditJobPage({
 
     supabase
       .from("equipment")
-      .select("id, name, asset_number, archived")
+      .select("id, name, asset_number, archived, status")
       .eq("archived", false)
       .order("name", { ascending: true }),
 
@@ -380,7 +390,6 @@ export default async function EditJobPage({
       .from("cranes")
       .select("id, name, reg_number, fleet_number, archived, status")
       .eq("archived", false)
-      .eq("status", "available")
       .order("name", { ascending: true }),
 
     supabase
@@ -393,8 +402,13 @@ export default async function EditJobPage({
       .from("operators")
       .select("id, full_name, archived, status")
       .eq("archived", false)
-      .eq("status", "active")
       .order("full_name", { ascending: true }),
+
+    supabase
+      .from("job_equipment")
+      .select("id, asset_type, crane_id, vehicle_id, equipment_id, operator_id, notes")
+      .eq("job_id", params.id)
+      .like("notes", `${AUTO_ROW_NOTE_PREFIX}%`),
   ]);
 
   const errorMessage =
@@ -402,59 +416,55 @@ export default async function EditJobPage({
     jobError?.message ||
     customersError?.message ||
     equipmentError?.message ||
+    cranesError?.message ||
+    vehiclesError?.message ||
+    operatorsError?.message ||
+    autoAllocationsError?.message ||
     "";
 
   const currentFullJobPrice =
     job?.invoice_subtotal ?? job?.invoice_amount ?? job?.total_invoice ?? 0;
 
-  const autoRows = ((job as any)?.job_equipment ?? []).filter(isAutoRow);
-  const fallbackRows = autoRows.length > 0 ? autoRows : [];
-
-  const selectedLiftingAssetSelections = Array.from(
-    new Set(
-      [
-        ...(fallbackRows
-          .filter((row: any) => String(row.asset_type ?? "").toLowerCase() === "crane")
-          .map((row: any) => `crane:${String(row.crane_id ?? "")}`)
-          .filter((value: string) => value !== "crane:")),
-        ...(fallbackRows
-          .filter((row: any) => String(row.asset_type ?? "").toLowerCase() === "vehicle")
-          .map((row: any) => `vehicle:${String(row.vehicle_id ?? "")}`)
-          .filter((value: string) => value !== "vehicle:")),
-        job?.crane_id ? `crane:${String((job as any).crane_id)}` : "",
-      ].filter(Boolean)
-    )
+  const selectedLiftingAssetIds = Array.from(
+    new Set([
+      ...((autoAllocations ?? [])
+        .filter((row: any) => row.asset_type === "crane" && row.crane_id)
+        .map((row: any) => `crane:${row.crane_id}`)),
+      ...((autoAllocations ?? [])
+        .filter((row: any) => row.asset_type === "vehicle" && row.vehicle_id)
+        .map((row: any) => `vehicle:${row.vehicle_id}`)),
+      ...(job?.crane_id ? [`crane:${job.crane_id}`] : []),
+    ].filter(Boolean))
   );
 
   const selectedEquipmentIds = Array.from(
-    new Set(
-      [
-        ...(fallbackRows
-          .filter((row: any) => String(row.asset_type ?? "").toLowerCase() === "equipment")
-          .map((row: any) => String(row.equipment_id ?? ""))
-          .filter(Boolean)),
-        job?.equipment_id ? String((job as any).equipment_id) : "",
-      ].filter(Boolean)
-    )
+    new Set([
+      ...((autoAllocations ?? [])
+        .filter((row: any) => row.asset_type === "equipment" && row.equipment_id)
+        .map((row: any) => row.equipment_id)),
+      ...(job?.equipment_id ? [job.equipment_id] : []),
+    ].filter(Boolean))
   );
 
   const selectedOperatorIds = Array.from(
-    new Set(
-      [
-        ...(fallbackRows
-          .map((row: any) => String(row.operator_id ?? ""))
-          .filter(Boolean)),
-        job?.main_operator_id ? String((job as any).main_operator_id) : "",
-        job?.operator_id ? String((job as any).operator_id) : "",
-      ].filter(Boolean)
-    )
+    new Set([
+      ...((autoAllocations ?? [])
+        .filter((row: any) => row.operator_id)
+        .map((row: any) => row.operator_id)),
+      ...(job?.operator_id ? [job.operator_id] : []),
+      ...(job?.main_operator_id && job?.main_operator_id !== job?.operator_id ? [job.main_operator_id] : []),
+    ].filter(Boolean))
   );
 
   const hiabOptions: CheckboxOption[] = [
     ...(cranes ?? []).map((crane: any) => ({
       value: `crane:${crane.id}`,
       label: crane.name ?? "Crane",
-      muted: [crane.reg_number ? `Reg ${crane.reg_number}` : "", crane.fleet_number ? `Fleet ${crane.fleet_number}` : ""]
+      muted: [
+        crane.reg_number ? `Reg ${crane.reg_number}` : "",
+        crane.fleet_number ? `Fleet ${crane.fleet_number}` : "",
+        crane.status ? `Status ${crane.status}` : "",
+      ]
         .filter(Boolean)
         .join(" • "),
     })),
@@ -463,21 +473,27 @@ export default async function EditJobPage({
       .map((vehicle: any) => ({
         value: `vehicle:${vehicle.id}`,
         label: vehicle.name ?? "HIAB",
-        muted: [vehicle.reg_number ? `Reg ${vehicle.reg_number}` : "", vehicle.vehicle_type ? vehicle.vehicle_type : ""]
+        muted: [
+          vehicle.reg_number ? `Reg ${vehicle.reg_number}` : "",
+          vehicle.vehicle_type ? vehicle.vehicle_type : "",
+        ]
           .filter(Boolean)
           .join(" • "),
       }))),
   ];
 
-  const equipmentOptions: CheckboxOption[] = (equipment ?? []).map((item: any) => ({
-    value: item.id,
-    label: item.name ?? "Unnamed equipment",
-    muted: item.asset_number ? `Asset ${item.asset_number}` : "",
+  const equipmentOptions: CheckboxOption[] = (equipment ?? []).map((asset: any) => ({
+    value: asset.id,
+    label: asset.name ?? "Equipment",
+    muted: [asset.asset_number ? `Asset ${asset.asset_number}` : "", asset.status ? `Status ${asset.status}` : ""]
+      .filter(Boolean)
+      .join(" • "),
   }));
 
   const operatorOptions: CheckboxOption[] = (operators ?? []).map((operator: any) => ({
     value: operator.id,
     label: operator.full_name ?? "Operator",
+    muted: operator.status ? `Status ${operator.status}` : "",
   }));
 
   return (
@@ -486,205 +502,213 @@ export default async function EditJobPage({
         <div style={topRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit Job</h1>
-            <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Update live job details.
+            <p style={{ opacity: 0.8, marginTop: 6 }}>
+              Update a crane job using the live jobs schema.
             </p>
           </div>
 
-          <a href={job?.id ? `/jobs/${job.id}` : "/jobs"} style={backBtn}>
+          <a href={job?.id ? `/jobs/${job.id}` : "/jobs"} style={secondaryBtn}>
             ← Back
           </a>
         </div>
 
         {errorMessage ? (
-          <div style={errorBox}>{decodeURIComponent(errorMessage)}</div>
+          <div style={errorBox}>{safeDecode(errorMessage)}</div>
         ) : !job ? (
           <div style={errorBox}>Job not found.</div>
         ) : (
-          <form action={updateJob} style={cardStyle}>
-            <input type="hidden" name="id" value={job.id} />
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Customer</label>
-              <select name="client_id" defaultValue={job.client_id ?? ""} style={inputStyle}>
-                <option value="">Select customer</option>
-                {(customers ?? []).map((customer: any) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.company_name ?? "Unnamed customer"}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div style={grid3}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Job start date *</label>
-                <input type="date" name="start_date" defaultValue={job.start_date ?? job.job_date ?? ""} style={inputStyle} />
-              </div>
+          <div style={cardStyle}>
+            <form action={updateJob} style={{ display: "grid", gap: 14, marginTop: 0 }}>
+              <input type="hidden" name="id" value={job.id} />
 
               <div style={fieldWrap}>
-                <label style={labelStyle}>Job end date *</label>
-                <input type="date" name="end_date" defaultValue={job.end_date ?? job.job_date ?? ""} style={inputStyle} />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Status</label>
-                <select name="status" defaultValue={job.status ?? "draft"} style={inputStyle}>
-                  <option value="draft">Draft</option>
-                  <option value="provisional">Provisional</option>
-                  <option value="confirmed">Confirmed</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="late_cancelled">Late Cancelled</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
-              </div>
-            </div>
-
-            <div style={grid2}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Start time</label>
-                <select name="start_time" defaultValue={job.start_time ? String(job.start_time).slice(0, 5) : ""} style={inputStyle}>
-                  <option value="">Select time</option>
-                  {timeOptions.map((option) => (
-                    <option key={`start-${option.value}`} value={option.value}>
-                      {option.label}
+                <label style={labelStyle}>Customer *</label>
+                <select id="client_id" name="client_id" style={inputStyle} defaultValue={job.client_id ?? ""}>
+                  <option value="">— Select customer —</option>
+                  {(customers ?? []).map((client: any) => (
+                    <option key={client.id} value={client.id}>
+                      {client.company_name ?? "Customer"}
                     </option>
                   ))}
                 </select>
               </div>
 
-              <div style={fieldWrap}>
-                <label style={labelStyle}>End time</label>
-                <select name="end_time" defaultValue={job.end_time ? String(job.end_time).slice(0, 5) : ""} style={inputStyle}>
-                  <option value="">Select time</option>
-                  {timeOptions.map((option) => (
-                    <option key={`end-${option.value}`} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Site name</label>
-              <input name="site_name" defaultValue={job.site_name ?? ""} style={inputStyle} />
-            </div>
-
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Site address</label>
-              <textarea name="site_address" defaultValue={job.site_address ?? ""} rows={3} style={textareaStyle} />
-            </div>
-
-            <div style={grid2}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Site contact name</label>
-                <input name="contact_name" defaultValue={job.contact_name ?? ""} style={inputStyle} />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Site contact phone</label>
-                <input name="contact_phone" defaultValue={job.contact_phone ?? ""} style={inputStyle} />
-              </div>
-            </div>
-
-            <div style={grid2}>
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Hire type</label>
-                <input name="hire_type" defaultValue={job.hire_type ?? ""} style={inputStyle} />
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Lift type</label>
-                <input name="lift_type" defaultValue={job.lift_type ?? ""} style={inputStyle} />
-              </div>
-            </div>
-
-            <section style={pricingBox}>
-              <h3 style={pricingHeading}>Pricing</h3>
-
-              <div style={grid2}>
+              <div style={twoCol}>
                 <div style={fieldWrap}>
-                  <label style={labelStyle}>Price mode</label>
-                  <select name="price_mode" defaultValue={job.price_mode ?? "full_job"} style={inputStyle}>
-                    <option value="full_job">Full job price</option>
-                    <option value="per_day">Price per day</option>
+                  <label style={labelStyle}>Site name</label>
+                  <input name="site_name" style={inputStyle} defaultValue={job.site_name ?? ""} />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Site address</label>
+                  <input name="site_address" style={inputStyle} defaultValue={job.site_address ?? ""} />
+                </div>
+              </div>
+
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Contact name</label>
+                  <input name="contact_name" style={inputStyle} defaultValue={job.contact_name ?? ""} />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Contact phone</label>
+                  <input name="contact_phone" style={inputStyle} defaultValue={job.contact_phone ?? ""} />
+                </div>
+              </div>
+
+              <div style={threeCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Job start date *</label>
+                  <input name="start_date" type="date" style={inputStyle} defaultValue={job.start_date ?? job.job_date ?? ""} />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Job end date *</label>
+                  <input name="end_date" type="date" style={inputStyle} defaultValue={job.end_date ?? job.job_date ?? ""} />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Status</label>
+                  <select name="status" style={inputStyle} defaultValue={job.status ?? "draft"}>
+                    <option value="draft">draft</option>
+                    <option value="provisional">provisional</option>
+                    <option value="confirmed">confirmed</option>
+                    <option value="in_progress">in_progress</option>
+                    <option value="completed">completed</option>
+                    <option value="late_cancelled">late_cancelled</option>
+                    <option value="cancelled">cancelled</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={twoCol}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Start time</label>
+                  <select name="start_time" defaultValue={job.start_time ? String(job.start_time).slice(0, 5) : ""} style={inputStyle}>
+                    <option value="">— Select —</option>
+                    {timeOptions.map((option) => (
+                      <option key={`start_time-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
                 <div style={fieldWrap}>
-                  <label style={labelStyle}>Exclude weekends on multi-day jobs</label>
-                  <label style={checkboxRow}>
-                    <input type="checkbox" name="exclude_weekends" defaultChecked={Boolean(job.exclude_weekends)} />
-                    Free up weekends and continue the job after
-                  </label>
+                  <label style={labelStyle}>End time</label>
+                  <select name="end_time" defaultValue={job.end_time ? String(job.end_time).slice(0, 5) : ""} style={inputStyle}>
+                    <option value="">— Select —</option>
+                    {timeOptions.map((option) => (
+                      <option key={`end_time-${option.value}`} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              <div style={grid2}>
+              <div style={twoCol}>
                 <div style={fieldWrap}>
-                  <label style={labelStyle}>Full job price</label>
-                  <input
-                    name="full_job_price"
-                    type="number"
-                    step="0.01"
-                    defaultValue={job.price_mode === "per_day" ? "" : String(currentFullJobPrice ?? 0)}
-                    style={inputStyle}
-                  />
+                  <label style={labelStyle}>Hire type</label>
+                  <input name="hire_type" style={inputStyle} defaultValue={job.hire_type ?? ""} placeholder="CPA / Contract lift / etc." />
                 </div>
 
                 <div style={fieldWrap}>
-                  <label style={labelStyle}>Price per day</label>
-                  <input
-                    name="price_per_day"
-                    type="number"
-                    step="0.01"
-                    defaultValue={job.price_per_day != null ? String(job.price_per_day) : ""}
-                    style={inputStyle}
-                  />
+                  <label style={labelStyle}>Lift type</label>
+                  <input name="lift_type" style={inputStyle} defaultValue={job.lift_type ?? ""} placeholder="Lift type" />
                 </div>
               </div>
-            </section>
 
-            <section style={pricingBox}>
-              <h3 style={pricingHeading}>Assets and labour</h3>
+              <section style={pricingBox}>
+                <h3 style={pricingHeading}>Pricing</h3>
 
-              <DropdownCheckboxGroup
-                title="Cranes / HIABs"
-                name="selected_lifting_asset_ids"
-                options={hiabOptions}
-                selectedValues={selectedLiftingAssetSelections}
-                hint="Tick every crane or HIAB needed on the job."
-              />
+                <div style={twoCol}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Price mode</label>
+                    <select id="price_mode" name="price_mode" style={inputStyle} defaultValue={job.price_mode ?? "full_job"}>
+                      <option value="full_job">Full job price</option>
+                      <option value="per_day">Price per day</option>
+                    </select>
+                  </div>
 
-              <DropdownCheckboxGroup
-                title="Equipment"
-                name="selected_equipment_ids"
-                options={equipmentOptions}
-                selectedValues={selectedEquipmentIds}
-                hint="Tick every equipment item needed on the job."
-              />
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Exclude weekends on multi-day jobs</label>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="exclude_weekends" defaultChecked={Boolean(job.exclude_weekends)} />
+                      Free up weekends and continue the job after
+                    </label>
+                  </div>
+                </div>
 
-              <DropdownCheckboxGroup
-                title="Operators / labour"
-                name="selected_operator_ids"
-                options={operatorOptions}
-                selectedValues={selectedOperatorIds}
-                hint="Tick all operators or labour you need linked to this job."
-              />
-            </section>
+                <div style={twoCol}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Full job price</label>
+                    <input
+                      id="full_job_price"
+                      name="full_job_price"
+                      type="number"
+                      step="0.01"
+                      style={inputStyle}
+                      defaultValue={job.price_mode === "per_day" ? "" : String(currentFullJobPrice ?? 0)}
+                      placeholder="0.00"
+                    />
+                  </div>
 
-            <div style={fieldWrap}>
-              <label style={labelStyle}>Notes</label>
-              <textarea name="notes" defaultValue={job.notes ?? ""} rows={5} style={textareaStyle} />
-            </div>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Price per day</label>
+                    <input
+                      id="price_per_day"
+                      name="price_per_day"
+                      type="number"
+                      step="0.01"
+                      style={inputStyle}
+                      defaultValue={job.price_per_day != null ? String(job.price_per_day) : ""}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
+              </section>
 
-            <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>Update job</button>
-              <a href={`/jobs/${job.id}`} style={secondaryBtn}>Cancel</a>
-            </div>
-          </form>
+              <section style={pricingBox}>
+                <h3 style={pricingHeading}>Assets and labour</h3>
+
+                <DropdownCheckboxGroup
+                  title="Cranes / HIABs"
+                  name="selected_lifting_asset_ids"
+                  options={hiabOptions}
+                  hint="Tick every crane or HIAB needed on the job."
+                  selectedValues={selectedLiftingAssetIds}
+                />
+
+                <DropdownCheckboxGroup
+                  title="Equipment"
+                  name="selected_equipment_ids"
+                  options={equipmentOptions}
+                  hint="Tick every equipment item needed on the job."
+                  selectedValues={selectedEquipmentIds}
+                />
+
+                <DropdownCheckboxGroup
+                  title="Operators / labour"
+                  name="selected_operator_ids"
+                  options={operatorOptions}
+                  hint="Tick all operators or labour you need linked to this job."
+                  selectedValues={selectedOperatorIds}
+                />
+              </section>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Notes</label>
+                <textarea name="notes" rows={5} style={textareaStyle} defaultValue={job.notes ?? ""} />
+              </div>
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button type="submit" style={primaryBtn}>Update job</button>
+                <a href={`/jobs/${job.id}`} style={secondaryBtn}>Cancel</a>
+              </div>
+            </form>
+          </div>
         )}
       </div>
     </ClientShell>
@@ -700,19 +724,8 @@ const topRow: React.CSSProperties = {
   marginBottom: 16,
 };
 
-const backBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.78)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
-  textDecoration: "none",
-};
-
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
+  marginTop: 12,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
@@ -725,20 +738,6 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-  display: "grid",
-  gap: 14,
-};
-
-const grid2: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  gap: 12,
-};
-
-const grid3: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  gap: 12,
 };
 
 const fieldWrap: React.CSSProperties = {
@@ -769,6 +768,18 @@ const textareaStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
   resize: "vertical",
+};
+
+const twoCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 12,
+};
+
+const threeCol: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
 };
 
 const pricingBox: React.CSSProperties = {
