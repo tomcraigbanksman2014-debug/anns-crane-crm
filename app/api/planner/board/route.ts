@@ -115,7 +115,12 @@ function effectiveJobPrice(job: any) {
 function isPlannerVisibleStatus(status: string | null | undefined) {
   const s = String(status ?? "").trim().toLowerCase();
   if (!s) return true;
-  return s !== "cancelled" && s !== "draft";
+
+  if (s === "cancelled") return false;
+  if (s === "draft") return false;
+  if (s === "provisional") return false;
+
+  return true;
 }
 
 function bankHolidaysByYear(year: number) {
