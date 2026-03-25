@@ -220,6 +220,16 @@ function typeBarColor(kind: "crane" | "transport" | "labour") {
   return "#7d3c98";
 }
 
+function isPlannerVisibleStatus(status: string | null | undefined) {
+  const s = String(status ?? "").trim().toLowerCase();
+  if (!s) return true;
+  if (s === "cancelled") return false;
+  if (s === "draft") return false;
+  if (s === "provisional") return false;
+  return true;
+}
+
+
 type FilterKind = "all" | "crane" | "transport" | "labour";
 
 export default async function WeeklyPlannerPage({
@@ -346,12 +356,14 @@ export default async function WeeklyPlannerPage({
     );
   }
 
-  const craneRows = ((craneJobs ?? []) as CraneJob[]).filter((job) => {
-    const start = job.start_date ?? job.job_date;
-    const end = job.end_date ?? job.start_date ?? job.job_date;
-    const dates = activeWorkingDates(start, end, Boolean(job.exclude_weekends));
-    return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
-  });
+  const craneRows = ((craneJobs ?? []) as CraneJob[])
+    .filter((job) => isPlannerVisibleStatus(job.status))
+    .filter((job) => {
+      const start = job.start_date ?? job.job_date;
+      const end = job.end_date ?? job.start_date ?? job.job_date;
+      const dates = activeWorkingDates(start, end, Boolean(job.exclude_weekends));
+      return dates.some((d) => d >= weekStartIso && d <= weekEndIso);
+    });
 
   const transportRows = ((transportJobs ?? []) as TransportJob[]).filter((job) => {
     const dates = activeWorkingDates(job.transport_date, job.delivery_date ?? job.transport_date, false);
