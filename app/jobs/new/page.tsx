@@ -494,7 +494,6 @@ export default async function NewJobPage({ searchParams }: PageProps) {
         .from("equipment")
         .select("id, name, asset_number, archived, status")
         .eq("archived", false)
-        .eq("status", "active")
         .order("name", { ascending: true }),
 
       supabase
