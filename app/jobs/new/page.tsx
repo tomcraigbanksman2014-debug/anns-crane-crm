@@ -3,6 +3,14 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
 
+type CheckboxOption = {
+  value: string;
+  label: string;
+  muted?: string;
+};
+
+const AUTO_ROW_NOTE_PREFIX = "[JOB_FORM_AUTO]";
+
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
 }
@@ -79,13 +87,141 @@ function normaliseEmail(value: string | null | undefined) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function uniqueValues(values: FormDataEntryValue[]) {
+  return Array.from(
+    new Set(
+      values
+        .map((value) => clean(value))
+        .filter(Boolean)
+    )
+  );
+}
 
+function autoRowNote(kind: string) {
+  return `${AUTO_ROW_NOTE_PREFIX}:${kind}`;
+}
+
+function buildAutoRows(args: {
+  jobId: string;
+  startDate: string;
+  endDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  selectedLiftingAssetSelections: string[];
+  selectedEquipmentIds: string[];
+  selectedOperatorIds: string[];
+  calculatedSubtotal: number;
+}) {
+  const rows: Record<string, any>[] = [];
+  let sellAssigned = false;
+
+  const nextSellRate = () => {
+    if (sellAssigned) return 0;
+    sellAssigned = true;
+    return args.calculatedSubtotal;
+  };
+
+  for (const selection of args.selectedLiftingAssetSelections) {
+    const [kind, assetId] = selection.split(":");
+    if (!assetId) continue;
+
+    rows.push({
+      job_id: args.jobId,
+      asset_type: kind === "vehicle" ? "vehicle" : "crane",
+      crane_id: kind === "crane" ? assetId : null,
+      vehicle_id: kind === "vehicle" ? assetId : null,
+      start_date: args.startDate,
+      end_date: args.endDate,
+      start_time: args.startTime,
+      end_time: args.endTime,
+      agreed_sell_rate: nextSellRate(),
+      notes: autoRowNote("crane"),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  for (const equipmentId of args.selectedEquipmentIds) {
+    rows.push({
+      job_id: args.jobId,
+      asset_type: "equipment",
+      equipment_id: equipmentId,
+      start_date: args.startDate,
+      end_date: args.endDate,
+      start_time: args.startTime,
+      end_time: args.endTime,
+      agreed_sell_rate: nextSellRate(),
+      notes: autoRowNote("equipment"),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  for (const operatorId of args.selectedOperatorIds) {
+    rows.push({
+      job_id: args.jobId,
+      asset_type: "other",
+      operator_id: operatorId,
+      item_name: "Operator",
+      start_date: args.startDate,
+      end_date: args.endDate,
+      start_time: args.startTime,
+      end_time: args.endTime,
+      agreed_sell_rate: nextSellRate(),
+      notes: autoRowNote("operator"),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return rows;
+}
 
 function isHiabVehicle(vehicle: any) {
-  const haystack = [vehicle?.name, vehicle?.vehicle_type, vehicle?.trailer_type, vehicle?.notes]
+  const text = [
+    vehicle?.name,
+    vehicle?.vehicle_type,
+    vehicle?.capacity,
+    vehicle?.trailer_type,
+  ]
     .map((value) => String(value ?? "").toLowerCase())
     .join(" ");
-  return haystack.includes("hiab");
+
+  return text.includes("hiab");
+}
+
+function DropdownCheckboxGroup({
+  title,
+  name,
+  options,
+  hint,
+}: {
+  title: string;
+  name: string;
+  options: CheckboxOption[];
+  hint: string;
+}) {
+  return (
+    <details style={dropdownWrapStyle}>
+      <summary style={dropdownSummaryStyle}>{title}</summary>
+      <div style={dropdownHintStyle}>{hint}</div>
+      {options.length === 0 ? (
+        <div style={emptyListStyle}>No options available.</div>
+      ) : (
+        <div style={checkboxListStyle}>
+          {options.map((option) => (
+            <label key={`${name}-${option.value}`} style={checkboxItemStyle}>
+              <input type="checkbox" name={name} value={option.value} />
+              <span>
+                <span style={checkboxLabelStyle}>{option.label}</span>
+                {option.muted ? <span style={checkboxMutedStyle}>{option.muted}</span> : null}
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
+    </details>
+  );
 }
 
 async function resolveClientId(
@@ -200,20 +336,10 @@ async function createJob(formData: FormData) {
 
   const supabase = createSupabaseServerClient();
 
-  const selectedCraneIds = formData
-    .getAll("selected_crane_ids")
-    .map((value) => clean(value))
-    .filter(Boolean);
-  const selectedHiabIds = formData
-    .getAll("selected_hiab_ids")
-    .map((value) => clean(value))
-    .filter(Boolean);
-  const selectedEquipmentIds = formData
-    .getAll("selected_equipment_ids")
-    .map((value) => clean(value))
-    .filter(Boolean);
   const rawClientId = clean(formData.get("client_id")) || null;
-  const operatorId = clean(formData.get("operator_id")) || null;
+  const selectedLiftingAssetSelections = uniqueValues(formData.getAll("selected_lifting_asset_ids"));
+  const selectedEquipmentIds = uniqueValues(formData.getAll("selected_equipment_ids"));
+  const selectedOperatorIds = uniqueValues(formData.getAll("selected_operator_ids"));
 
   const otherCustomerCompanyName = clean(formData.get("other_customer_name")) || null;
   const otherCustomerContactName = clean(formData.get("other_customer_contact_name")) || null;
@@ -225,9 +351,6 @@ async function createJob(formData: FormData) {
   const endDate = clean(formData.get("end_date")) || null;
   const startTime = clean(formData.get("start_time")) || null;
   const endTime = clean(formData.get("end_time")) || null;
-
-  const primaryEquipmentId = selectedEquipmentIds[0] || null;
-  const selectedCraneId = selectedCraneIds[0] || null;
 
   const clientResolution = await resolveClientId(supabase, rawClientId, {
     companyName: otherCustomerCompanyName,
@@ -273,9 +396,10 @@ async function createJob(formData: FormData) {
 
   const payload: Record<string, any> = {
     client_id: clientId,
-    equipment_id: primaryEquipmentId,
-    crane_id: selectedCraneId,
-    operator_id: operatorId,
+    crane_id: (selectedLiftingAssetSelections.find((value) => value.startsWith("crane:")) || "").replace(/^crane:/, "") || null,
+    equipment_id: selectedEquipmentIds[0] || null,
+    operator_id: selectedOperatorIds[0] || null,
+    main_operator_id: selectedOperatorIds[0] || null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || otherCustomerContactName || null,
@@ -312,61 +436,22 @@ async function createJob(formData: FormData) {
     );
   }
 
-  const allocationRows: Array<Record<string, any>> = [];
+  const autoRows = buildAutoRows({
+    jobId: data.id,
+    startDate,
+    endDate,
+    startTime,
+    endTime,
+    selectedLiftingAssetSelections,
+    selectedEquipmentIds,
+    selectedOperatorIds,
+    calculatedSubtotal,
+  });
 
-  for (const craneId of selectedCraneIds) {
-    allocationRows.push({
-      job_id: data.id,
-      asset_type: "crane",
-      crane_id: craneId,
-      operator_id: operatorId,
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime,
-      end_time: endTime,
-      agreed_sell_rate: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-  }
-
-  for (const vehicleId of selectedHiabIds) {
-    allocationRows.push({
-      job_id: data.id,
-      asset_type: "vehicle",
-      vehicle_id: vehicleId,
-      operator_id: operatorId,
-      item_name: "HIAB",
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime,
-      end_time: endTime,
-      agreed_sell_rate: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-  }
-
-  for (const equipmentId of selectedEquipmentIds) {
-    allocationRows.push({
-      job_id: data.id,
-      asset_type: "equipment",
-      equipment_id: equipmentId,
-      operator_id: operatorId,
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime,
-      end_time: endTime,
-      agreed_sell_rate: 0,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    });
-  }
-
-  if (allocationRows.length > 0) {
+  if (autoRows.length > 0) {
     const { error: allocationError } = await supabase
       .from("job_equipment")
-      .insert(allocationRows);
+      .insert(autoRows);
 
     if (allocationError) {
       await supabase.from("jobs").delete().eq("id", data.id);
@@ -421,7 +506,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
       supabase
         .from("vehicles")
-        .select("id, name, reg_number, vehicle_type, trailer_type, notes, archived, status")
+        .select("id, name, reg_number, vehicle_type, trailer_type, capacity, archived")
         .eq("archived", false)
         .order("name", { ascending: true }),
 
@@ -432,6 +517,36 @@ export default async function NewJobPage({ searchParams }: PageProps) {
         .eq("status", "active")
         .order("full_name", { ascending: true }),
     ]);
+
+  const hiabOptions: CheckboxOption[] = [
+    ...(cranes ?? []).map((crane: any) => ({
+      value: `crane:${crane.id}`,
+      label: crane.name ?? "Crane",
+      muted: [crane.reg_number ? `Reg ${crane.reg_number}` : "", crane.fleet_number ? `Fleet ${crane.fleet_number}` : ""]
+        .filter(Boolean)
+        .join(" • "),
+    })),
+    ...((vehicles ?? [])
+      .filter((vehicle: any) => isHiabVehicle(vehicle))
+      .map((vehicle: any) => ({
+        value: `vehicle:${vehicle.id}`,
+        label: vehicle.name ?? "HIAB",
+        muted: [vehicle.reg_number ? `Reg ${vehicle.reg_number}` : "", vehicle.vehicle_type ? vehicle.vehicle_type : ""]
+          .filter(Boolean)
+          .join(" • "),
+      }))),
+  ];
+
+  const equipmentOptions: CheckboxOption[] = (equipment ?? []).map((asset: any) => ({
+    value: asset.id,
+    label: asset.name ?? "Equipment",
+    muted: asset.asset_number ? `Asset ${asset.asset_number}` : "",
+  }));
+
+  const operatorOptions: CheckboxOption[] = (operators ?? []).map((operator: any) => ({
+    value: operator.id,
+    label: operator.full_name ?? "Operator",
+  }));
 
   const quoteId = String(searchParams?.quote_id ?? "");
   const prefilledClientId = String(searchParams?.client_id ?? "");
@@ -447,7 +562,6 @@ export default async function NewJobPage({ searchParams }: PageProps) {
   const defaultStatus = quoteToJobStatus(searchParams?.quote_status);
   const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
   const timeOptions = buildQuarterHourOptions();
-  const hiabVehicles = (vehicles ?? []).filter((vehicle: any) => isHiabVehicle(vehicle));
 
   return (
     <ClientShell>
@@ -461,13 +575,10 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           {quoteId ? (
             <div style={infoBox}>
               <div>
-                Prefilled from quote. Customer:{" "}
-                <strong>{prefilledCompany || "Selected customer"}</strong>
+                Prefilled from quote. Customer: <strong>{prefilledCompany || "Selected customer"}</strong>
               </div>
               <div style={infoMetaStyle}>
-                Quote status: {prefilledQuoteStatus || "—"} • Quote date:{" "}
-                {formatDateLabel(prefilledQuoteDate)} • Valid until:{" "}
-                {formatDateLabel(prefilledValidUntil)}
+                Quote status: {prefilledQuoteStatus || "—"} • Quote date: {formatDateLabel(prefilledQuoteDate)} • Valid until: {formatDateLabel(prefilledValidUntil)}
               </div>
             </div>
           ) : null}
@@ -477,12 +588,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
           <form action={createJob} style={{ display: "grid", gap: 14, marginTop: 18 }}>
             <div style={fieldWrap}>
               <label style={labelStyle}>Customer *</label>
-              <select
-                id="client_id"
-                name="client_id"
-                style={inputStyle}
-                defaultValue={prefilledClientId}
-              >
+              <select id="client_id" name="client_id" style={inputStyle} defaultValue={prefilledClientId}>
                 <option value="">— Select customer —</option>
                 {(clients ?? []).map((client: any) => (
                   <option key={client.id} value={client.id}>
@@ -496,8 +602,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <section style={newCustomerBox}>
               <h3 style={newCustomerHeading}>New customer details</h3>
               <p style={newCustomerHelp}>
-                Only used if Customer is set to <strong>Other / create new customer</strong>.
-                Duplicate checks will run against company name, phone and email.
+                Only used if Customer is set to <strong>Other / create new customer</strong>. Duplicate checks will run against company name, phone and email.
               </p>
 
               <div style={fieldWrap}>
@@ -537,64 +642,34 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>New customer email</label>
-                <input
-                  id="other_customer_email"
-                  name="other_customer_email"
-                  type="email"
-                  style={inputStyle}
-                  placeholder="Email"
-                />
+                <input id="other_customer_email" name="other_customer_email" type="email" style={inputStyle} placeholder="Email" />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>New customer address</label>
-                <textarea
-                  id="other_customer_address"
-                  name="other_customer_address"
-                  rows={3}
-                  style={textareaStyle}
-                  placeholder="Customer address"
-                />
+                <textarea id="other_customer_address" name="other_customer_address" rows={3} style={textareaStyle} placeholder="Customer address" />
               </div>
             </section>
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Site name</label>
-              <input
-                name="site_name"
-                style={inputStyle}
-                defaultValue={prefilledSubject}
-                placeholder="Site or job title"
-              />
+              <input name="site_name" style={inputStyle} defaultValue={prefilledSubject} placeholder="Site or job title" />
             </div>
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Site address</label>
-              <textarea
-                name="site_address"
-                rows={3}
-                style={textareaStyle}
-                placeholder="Site address"
-              />
+              <textarea name="site_address" rows={3} style={textareaStyle} placeholder="Site address" />
             </div>
 
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact name</label>
-                <input
-                  name="contact_name"
-                  style={inputStyle}
-                  defaultValue={prefilledContactName}
-                />
+                <input name="contact_name" style={inputStyle} defaultValue={prefilledContactName} />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Contact phone</label>
-                <input
-                  name="contact_phone"
-                  style={inputStyle}
-                  defaultValue={prefilledContactPhone}
-                />
+                <input name="contact_phone" style={inputStyle} defaultValue={prefilledContactPhone} />
               </div>
             </div>
 
@@ -652,11 +727,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Hire type</label>
-                <input
-                  name="hire_type"
-                  style={inputStyle}
-                  placeholder="CPA / Contract lift / etc."
-                />
+                <input name="hire_type" style={inputStyle} placeholder="CPA / Contract lift / etc." />
               </div>
 
               <div style={fieldWrap}>
@@ -689,106 +760,44 @@ export default async function NewJobPage({ searchParams }: PageProps) {
               <div style={twoCol}>
                 <div style={fieldWrap}>
                   <label style={labelStyle}>Full job price</label>
-                  <input
-                    id="full_job_price"
-                    name="full_job_price"
-                    type="number"
-                    step="0.01"
-                    style={inputStyle}
-                    defaultValue={prefilledAmount || ""}
-                    placeholder="0.00"
-                  />
+                  <input id="full_job_price" name="full_job_price" type="number" step="0.01" style={inputStyle} defaultValue={prefilledAmount || ""} placeholder="0.00" />
                 </div>
 
                 <div style={fieldWrap}>
                   <label style={labelStyle}>Price per day</label>
-                  <input
-                    id="price_per_day"
-                    name="price_per_day"
-                    type="number"
-                    step="0.01"
-                    style={inputStyle}
-                    defaultValue=""
-                    placeholder="0.00"
-                  />
+                  <input id="price_per_day" name="price_per_day" type="number" step="0.01" style={inputStyle} defaultValue="" placeholder="0.00" />
                 </div>
               </div>
             </section>
 
             <section style={pricingBox}>
-              <h3 style={pricingHeading}>Assets required</h3>
+              <h3 style={pricingHeading}>Assets and labour</h3>
 
-              <div style={assetGroupWrap}>
-                <div>
-                  <div style={assetGroupHeading}>Cranes / HIABs</div>
-                  <div style={assetHelpText}>Tick as many lifting assets as needed for the job.</div>
-                </div>
+              <DropdownCheckboxGroup
+                title="Cranes / HIABs"
+                name="selected_lifting_asset_ids"
+                options={hiabOptions}
+                hint="Tick every crane or HIAB needed on the job."
+              />
 
-                <div style={assetListGrid}>
-                  {(cranes ?? []).map((crane: any) => (
-                    <label key={`crane-${crane.id}`} style={checkboxCard}>
-                      <input type="checkbox" name="selected_crane_ids" value={crane.id} />
-                      <span>
-                        {crane.name ?? "Crane"}
-                        {crane.reg_number ? ` (${crane.reg_number})` : ""}
-                        {crane.fleet_number ? ` • ${crane.fleet_number}` : ""}
-                      </span>
-                    </label>
-                  ))}
+              <DropdownCheckboxGroup
+                title="Equipment"
+                name="selected_equipment_ids"
+                options={equipmentOptions}
+                hint="Tick every equipment item needed on the job."
+              />
 
-                  {hiabVehicles.map((vehicle: any) => (
-                    <label key={`vehicle-${vehicle.id}`} style={checkboxCard}>
-                      <input type="checkbox" name="selected_hiab_ids" value={vehicle.id} />
-                      <span>
-                        {vehicle.name ?? "HIAB"}
-                        {vehicle.reg_number ? ` (${vehicle.reg_number})` : ""}
-                        {vehicle.vehicle_type ? ` • ${vehicle.vehicle_type}` : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div style={assetGroupWrap}>
-                <div>
-                  <div style={assetGroupHeading}>Equipment</div>
-                  <div style={assetHelpText}>Tick any additional lifting equipment needed on the job.</div>
-                </div>
-
-                <div style={assetListGrid}>
-                  {(equipment ?? []).map((asset: any) => (
-                    <label key={`equipment-${asset.id}`} style={checkboxCard}>
-                      <input type="checkbox" name="selected_equipment_ids" value={asset.id} />
-                      <span>
-                        {asset.name ?? "Equipment"}
-                        {asset.asset_number ? ` (${asset.asset_number})` : ""}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div style={fieldWrap}>
-                <label style={labelStyle}>Primary operator</label>
-                <select name="operator_id" style={inputStyle} defaultValue="">
-                  <option value="">— Unassigned —</option>
-                  {(operators ?? []).map((operator: any) => (
-                    <option key={operator.id} value={operator.id}>
-                      {operator.full_name ?? "Operator"}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <DropdownCheckboxGroup
+                title="Operators / labour"
+                name="selected_operator_ids"
+                options={operatorOptions}
+                hint="Tick all operators or labour you need linked to this job."
+              />
             </section>
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Notes</label>
-              <textarea
-                name="notes"
-                rows={4}
-                style={textareaStyle}
-                defaultValue={prefilledNotes}
-              />
+              <textarea name="notes" rows={4} style={textareaStyle} defaultValue={prefilledNotes} />
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -908,43 +917,65 @@ const newCustomerHelp: React.CSSProperties = {
   opacity: 0.8,
 };
 
-const assetGroupWrap: React.CSSProperties = {
-  display: "grid",
-  gap: 10,
-};
-
-const assetGroupHeading: React.CSSProperties = {
-  fontSize: 15,
-  fontWeight: 900,
-};
-
-const assetHelpText: React.CSSProperties = {
-  marginTop: 2,
-  fontSize: 12,
-  opacity: 0.72,
-};
-
-const assetListGrid: React.CSSProperties = {
-  display: "grid",
-  gap: 8,
-};
-
-const checkboxCard: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  alignItems: "center",
-  minHeight: 42,
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.9)",
-};
-
 const checkboxRow: React.CSSProperties = {
   display: "flex",
   gap: 10,
   alignItems: "center",
   minHeight: 42,
+};
+
+const dropdownWrapStyle: React.CSSProperties = {
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.82)",
+  overflow: "hidden",
+};
+
+const dropdownSummaryStyle: React.CSSProperties = {
+  cursor: "pointer",
+  padding: "11px 12px",
+  fontWeight: 800,
+};
+
+const dropdownHintStyle: React.CSSProperties = {
+  padding: "0 12px 8px 12px",
+  fontSize: 12,
+  opacity: 0.72,
+};
+
+const checkboxListStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+  padding: "0 12px 12px 12px",
+  maxHeight: 250,
+  overflowY: "auto",
+};
+
+const checkboxItemStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: 10,
+  padding: "8px 0",
+  borderTop: "1px solid rgba(0,0,0,0.06)",
+};
+
+const checkboxLabelStyle: React.CSSProperties = {
+  display: "block",
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const checkboxMutedStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  opacity: 0.7,
+  marginTop: 2,
+};
+
+const emptyListStyle: React.CSSProperties = {
+  padding: "0 12px 12px 12px",
+  fontSize: 12,
+  opacity: 0.72,
 };
 
 const primaryBtn: React.CSSProperties = {
