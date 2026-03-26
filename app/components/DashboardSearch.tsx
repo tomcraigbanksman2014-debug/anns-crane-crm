@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Result = {
-  type: "customer" | "job" | "transport" | "quote" | "booking" | "equipment" | "audit";
+  type: "customer" | "job" | "transport" | "quote" | "equipment" | "audit";
   id: string;
   title: string;
   subtitle: string;
@@ -27,10 +27,6 @@ function typePill(type: Result["type"]) {
     quote: {
       background: "rgba(255,170,0,0.15)",
       border: "1px solid rgba(255,170,0,0.25)",
-    },
-    booking: {
-      background: "rgba(255,140,0,0.15)",
-      border: "1px solid rgba(255,140,0,0.25)",
     },
     equipment: {
       background: "rgba(120,120,120,0.12)",
@@ -190,7 +186,7 @@ export default function DashboardSearch() {
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onInputKeyDown}
-        placeholder="Search customers, jobs, transport, bookings, quotes, equipment…"
+        placeholder="Search customers, jobs, transport, quotes, equipment…"
         style={inputStyle}
       />
 
