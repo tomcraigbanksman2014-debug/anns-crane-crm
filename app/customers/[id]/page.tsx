@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type TimelineItem = {
   id: string;
-  kind: "booking" | "job" | "transport" | "correspondence" | "quote";
+  kind: "job" | "transport" | "correspondence" | "quote";
   sortDate: string;
   title: string;
   subtitle: string;
@@ -38,41 +38,11 @@ function safeNum(value: any) {
 }
 
 function buildTimeline(
-  bookings: any[] = [],
   jobs: any[] = [],
   transportJobs: any[] = [],
   correspondence: any[] = [],
   quotes: any[] = []
 ): TimelineItem[] {
-  const bookingItems: TimelineItem[] = bookings.map((b: any) => {
-    const when = b.start_at || b.start_date || b.created_at || "";
-    const total = safeNum(b.total_invoice);
-    const paid = safeNum(b.payment_received);
-    const outstanding = Math.max(total - paid, 0);
-
-    return {
-      id: `booking-${b.id}`,
-      kind: "booking",
-      sortDate: String(when),
-      title: `Booking${b.location ? ` — ${b.location}` : ""}`,
-      subtitle: [
-        b.start_at
-          ? formatDateTime(b.start_at)
-          : b.start_date
-          ? formatDateOnly(b.start_date)
-          : "-",
-        b.status ? `Status: ${b.status}` : null,
-        `Invoice: ${formatMoney(total)}`,
-        `Outstanding: ${formatMoney(outstanding)}`,
-      ]
-        .filter(Boolean)
-        .join(" • "),
-      body: b.notes ?? null,
-      href: `/bookings/${b.id}`,
-      badge: "BOOKING",
-    };
-  });
-
   const jobItems: TimelineItem[] = jobs.map((job: any) => {
     const total = safeNum(job.total_invoice ?? job.invoice_total ?? job.invoice_amount);
     const paid = safeNum(job.amount_paid);
@@ -176,7 +146,6 @@ function buildTimeline(
   });
 
   return [
-    ...bookingItems,
     ...jobItems,
     ...transportItems,
     ...correspondenceItems,
@@ -185,21 +154,15 @@ function buildTimeline(
 }
 
 function buildCustomerStats(
-  bookings: any[] = [],
   jobs: any[] = [],
   transportJobs: any[] = [],
   quotes: any[] = [],
   correspondence: any[] = []
 ) {
-  const totalBookings = bookings.length;
   const totalJobs = jobs.length;
   const totalTransportJobs = transportJobs.length;
   const totalQuotes = quotes.length;
   const totalCorrespondence = correspondence.length;
-
-  const bookingInvoiced = bookings.reduce((sum: number, b: any) => {
-    return sum + safeNum(b.total_invoice);
-  }, 0);
 
   const jobInvoiced = jobs.reduce((sum: number, j: any) => {
     return sum + safeNum(j.total_invoice ?? j.invoice_total ?? j.invoice_amount);
@@ -207,10 +170,6 @@ function buildCustomerStats(
 
   const transportInvoiced = transportJobs.reduce((sum: number, t: any) => {
     return sum + safeNum(t.total_invoice ?? t.agreed_sell_rate ?? t.price);
-  }, 0);
-
-  const bookingOutstanding = bookings.reduce((sum: number, b: any) => {
-    return sum + Math.max(safeNum(b.total_invoice) - safeNum(b.payment_received), 0);
   }, 0);
 
   const jobOutstanding = jobs.reduce((sum: number, j: any) => {
@@ -234,7 +193,6 @@ function buildCustomerStats(
   }, 0);
 
   const allActivityDates = [
-    ...bookings.map((x: any) => x.start_at || x.start_date || x.created_at || null),
     ...jobs.map((x: any) => x.job_date || x.created_at || null),
     ...transportJobs.map((x: any) => x.transport_date || x.created_at || null),
   ]
@@ -243,13 +201,12 @@ function buildCustomerStats(
     .sort();
 
   return {
-    totalBookings,
     totalJobs,
     totalTransportJobs,
     totalQuotes,
     totalCorrespondence,
-    totalInvoiced: bookingInvoiced + jobInvoiced + transportInvoiced,
-    totalOutstanding: bookingOutstanding + jobOutstanding + transportOutstanding,
+    totalInvoiced: jobInvoiced + transportInvoiced,
+    totalOutstanding: jobOutstanding + transportOutstanding,
     firstActivityDate: allActivityDates[0] ?? null,
     lastActivityDate: allActivityDates[allActivityDates.length - 1] ?? null,
   };
@@ -264,7 +221,6 @@ export default async function CustomerPage({
 
   const [
     { data: customer, error },
-    { data: bookings, error: bookingsError },
     { data: jobs, error: jobsError },
     { data: transportJobs, error: transportJobsError },
     { data: correspondence, error: correspondenceError },
@@ -275,14 +231,6 @@ export default async function CustomerPage({
       .select("id, company_name, contact_name, phone, email, notes, created_at")
       .eq("id", params.id)
       .single(),
-
-    supabase
-      .from("bookings")
-      .select(
-        "id, start_date, end_date, start_at, end_at, status, location, total_invoice, payment_received, created_at, notes"
-      )
-      .eq("client_id", params.id)
-      .order("created_at", { ascending: false }),
 
     supabase
       .from("jobs")
@@ -313,14 +261,12 @@ export default async function CustomerPage({
       .order("created_at", { ascending: false }),
   ]);
 
-  const safeBookings = bookings ?? [];
   const safeJobs = jobs ?? [];
   const safeTransportJobs = transportJobs ?? [];
   const safeCorrespondence = correspondence ?? [];
   const safeQuotes = quotes ?? [];
 
   const timeline = buildTimeline(
-    safeBookings,
     safeJobs,
     safeTransportJobs,
     safeCorrespondence,
@@ -328,7 +274,6 @@ export default async function CustomerPage({
   );
 
   const stats = buildCustomerStats(
-    safeBookings,
     safeJobs,
     safeTransportJobs,
     safeQuotes,
@@ -380,11 +325,6 @@ export default async function CustomerPage({
               <h2 style={sectionTitle}>Customer statistics</h2>
 
               <div style={statsGridStyle}>
-                <div style={statCardStyle}>
-                  <div style={statLabelStyle}>Bookings</div>
-                  <div style={statValueStyle}>{stats.totalBookings}</div>
-                </div>
-
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>Jobs</div>
                   <div style={statValueStyle}>{stats.totalJobs}</div>
@@ -444,9 +384,7 @@ export default async function CustomerPage({
                 <section style={cardStyle}>
                   <h2 style={sectionTitle}>Customer timeline</h2>
 
-                  {bookingsError ? (
-                    <div style={errorBox}>{bookingsError.message}</div>
-                  ) : jobsError ? (
+                  {jobsError ? (
                     <div style={errorBox}>{jobsError.message}</div>
                   ) : transportJobsError ? (
                     <div style={errorBox}>{transportJobsError.message}</div>
@@ -474,9 +412,7 @@ export default async function CustomerPage({
                                 style={{
                                   ...badgeStyle,
                                   background:
-                                    item.kind === "booking"
-                                      ? "rgba(0,120,255,0.10)"
-                                      : item.kind === "job"
+                                    item.kind === "job"
                                       ? "rgba(0,180,120,0.12)"
                                       : item.kind === "transport"
                                       ? "rgba(255,170,0,0.14)"
