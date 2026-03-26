@@ -74,7 +74,6 @@ export default async function QuoteDetailPage({
           ) : (
             <>
               <div style={actionsBar}>
-                <CreateBookingFromQuoteButton quoteId={(quote as any).id} />
                 <CreateJobFromQuoteButton quoteId={(quote as any).id} />
                 <a href={`/quotes/${(quote as any).id}/edit`} style={secondaryBtn}>
                   Edit quote
@@ -85,11 +84,22 @@ export default async function QuoteDetailPage({
                 <section style={sectionCard}>
                   <h2 style={sectionTitle}>Quote summary</h2>
                   <InfoRow label="Customer" value={client?.company_name ?? "—"} />
-                  <InfoRow label="Status" valueNode={<StatusBadge value={(quote as any).status} archived={!!(quote as any).archived} />} />
+                  <InfoRow
+                    label="Status"
+                    valueNode={
+                      <StatusBadge
+                        value={(quote as any).status}
+                        archived={!!(quote as any).archived}
+                      />
+                    }
+                  />
                   <InfoRow label="Quote date" value={fmtDate((quote as any).quote_date)} />
                   <InfoRow label="Valid until" value={fmtDate((quote as any).valid_until)} />
                   <InfoRow label="Amount" value={fmtMoney((quote as any).amount)} />
-                  <InfoRow label="Archived" value={(quote as any).archived ? "Yes" : "No"} />
+                  <InfoRow
+                    label="Archived"
+                    value={(quote as any).archived ? "Yes" : "No"}
+                  />
                   <Block label="Notes" value={(quote as any).notes} />
                 </section>
 
@@ -160,9 +170,9 @@ const cardStyle: React.CSSProperties = {
 const headerRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
+  gap: 16,
   flexWrap: "wrap",
+  alignItems: "flex-start",
 };
 
 const actionsBar: React.CSSProperties = {
@@ -174,13 +184,13 @@ const actionsBar: React.CSSProperties = {
 
 const gridWrap: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
   marginTop: 16,
 };
 
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
+  background: "rgba(255,255,255,0.68)",
   border: "1px solid rgba(0,0,0,0.08)",
   borderRadius: 14,
   padding: 16,
@@ -188,31 +198,34 @@ const sectionCard: React.CSSProperties = {
 
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
-  marginBottom: 14,
-  fontSize: 22,
+  marginBottom: 12,
+  fontSize: 20,
 };
 
 const infoRow: React.CSSProperties = {
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  display: "grid",
+  gridTemplateColumns: "140px 1fr",
+  gap: 10,
+  padding: "8px 0",
+  borderBottom: "1px solid rgba(0,0,0,0.06)",
 };
 
 const infoLabel: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.7,
   fontWeight: 800,
+  opacity: 0.75,
 };
 
 const infoValue: React.CSSProperties = {
-  marginTop: 4,
-  fontWeight: 900,
+  minWidth: 0,
+  wordBreak: "break-word",
 };
 
 const blockStyle: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.82)",
   border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 10,
+  padding: 12,
+  minHeight: 70,
   whiteSpace: "pre-wrap",
 };
 
@@ -220,16 +233,15 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
+  textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
-  marginBottom: 14,
+  marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
