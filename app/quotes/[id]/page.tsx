@@ -2,7 +2,6 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import StatusBadge from "../../components/StatusBadge";
 import QuoteArchiveButton from "../QuoteArchiveButton";
-import CreateBookingFromQuoteButton from "./CreateBookingFromQuoteButton";
 import CreateJobFromQuoteButton from "./CreateJobFromQuoteButton";
 
 function fmtDate(value: string | null | undefined) {
