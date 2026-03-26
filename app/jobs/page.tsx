@@ -1,389 +1,560 @@
-export type SearchEntityType =
-  | "customer"
-  | "job"
-  | "transport"
-  | "quote"
-  | "equipment"
-  | "audit";
+import ClientShell from "../ClientShell";
+import { createSupabaseServerClient } from "../lib/supabase/server";
+import StatusBadge from "../components/StatusBadge";
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { writeAuditLog } from "../lib/audit";
 
-export type SearchScope =
-  | "all"
-  | "customers"
-  | "jobs"
-  | "transport"
-  | "quotes"
-  | "equipment"
-  | "audit";
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB");
+}
 
-export type SearchItem = {
-  type: SearchEntityType;
-  id: string;
-  title: string;
-  subtitle: string;
-  href: string;
-  sort_date?: string | null;
+function money(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
+}
+
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function clampMoney(value: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+function fromAuthEmail(email: string | null) {
+  if (!email) return "";
+  return email.split("@")[0] || "";
+}
+
+function renderDateRange(startDate: string | null | undefined, endDate: string | null | undefined) {
+  const from = fmtDate(startDate);
+  const to = fmtDate(endDate);
+
+  if (!startDate && !endDate) return "—";
+  if (from === to) return from;
+  return `${from} → ${to}`;
+}
+
+async function updateInvoiceStatus(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+
+  const jobId = String(formData.get("job_id") ?? "");
+  const invoiceStatus = String(formData.get("invoice_status") ?? "Not Invoiced");
+  const rawAmountPaid = String(formData.get("amount_paid") ?? "").trim();
+  const view = String(formData.get("return_view") ?? "active");
+  const invoice = String(formData.get("return_invoice") ?? "all");
+
+  if (!jobId) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent("Missing job id.")}`
+    );
+  }
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: existingJob, error: existingError } = await supabase
+    .from("jobs")
+    .select("id, job_number, invoice_status, total_invoice, amount_paid")
+    .eq("id", jobId)
+    .single();
+
+  if (existingError || !existingJob) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(existingError?.message || "Job not found.")}`
+    );
+  }
+
+  const totalInvoice = Number(existingJob.total_invoice ?? 0);
+  const currentStatus = String(existingJob.invoice_status ?? "Not Invoiced");
+  const currentAmountPaid = Number(existingJob.amount_paid ?? 0);
+
+  let amountPaid = currentAmountPaid;
+
+  if (invoiceStatus === "Part Paid") {
+    const parsed = Number(rawAmountPaid || 0);
+    amountPaid = clampMoney(parsed, 0, totalInvoice);
+
+    if (amountPaid <= 0) {
+      redirect(
+        `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(
+          "Enter the amount paid before saving Part Paid."
+        )}`
+      );
+    }
+  } else if (invoiceStatus === "Paid") {
+    amountPaid = totalInvoice;
+  } else {
+    amountPaid = 0;
+  }
+
+  if (
+    currentStatus === invoiceStatus &&
+    Number(currentAmountPaid.toFixed(2)) === Number(amountPaid.toFixed(2))
+  ) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(
+        "Invoice details already up to date."
+      )}`
+    );
+  }
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      invoice_status: invoiceStatus,
+      amount_paid: amountPaid,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  revalidatePath("/jobs");
+  revalidatePath("/dashboard");
+
+  if (error) {
+    redirect(
+      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(error.message)}`
+    );
+  }
+
+  await writeAuditLog({
+    actor_user_id: user?.id ?? null,
+    actor_username: fromAuthEmail(user?.email ?? null) || null,
+    action: "job_invoice_status_updated",
+    entity_type: "job",
+    entity_id: jobId,
+    meta: {
+      job_number: existingJob.job_number ?? null,
+      previous_invoice_status: currentStatus,
+      new_invoice_status: invoiceStatus,
+      previous_amount_paid: currentAmountPaid,
+      new_amount_paid: amountPaid,
+      total_invoice: totalInvoice,
+    },
+  });
+
+  const successText =
+    invoiceStatus === "Part Paid"
+      ? `Invoice updated to Part Paid (£${amountPaid.toFixed(2)} received)`
+      : invoiceStatus === "Paid"
+      ? "Invoice updated to Paid"
+      : `Invoice status updated to ${invoiceStatus}`;
+
+  redirect(
+    `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(successText)}`
+  );
+}
+
+type JobsPageProps = {
+  searchParams?: {
+    view?: string;
+    invoice?: string;
+    error?: string;
+    success?: string;
+  };
 };
 
-export type GroupedSearchResults = {
-  customers: SearchItem[];
-  jobs: SearchItem[];
-  transport: SearchItem[];
-  quotes: SearchItem[];
-  equipment: SearchItem[];
-  audit: SearchItem[];
+export default async function JobsPage({ searchParams }: JobsPageProps) {
+  const supabase = createSupabaseServerClient();
+  const view = String(searchParams?.view ?? "active").toLowerCase();
+  const invoiceFilter = String(searchParams?.invoice ?? "all").toLowerCase();
+  const errorMessage = String(searchParams?.error ?? "");
+  const successMessage = String(searchParams?.success ?? "");
+
+  let query = supabase
+    .from("jobs")
+    .select(`
+      id,
+      job_number,
+      job_date,
+      start_date,
+      end_date,
+      start_time,
+      end_time,
+      site_name,
+      site_address,
+      status,
+      archived,
+      invoice_status,
+      invoice_number,
+      invoice_date,
+      invoice_created_at,
+      total_invoice,
+      amount_paid,
+      clients:client_id (
+        id,
+        company_name
+      ),
+      operators:operator_id (
+        id,
+        full_name
+      ),
+      equipment:equipment_id (
+        id,
+        name,
+        asset_number
+      )
+    `)
+    .order("start_date", { ascending: true })
+    .order("job_date", { ascending: true })
+    .order("start_time", { ascending: true });
+
+  if (view === "archived") {
+    query = query.eq("archived", true);
+  } else if (view === "all") {
+    // no archived filter
+  } else {
+    query = query.eq("archived", false);
+  }
+
+  if (invoiceFilter === "outstanding") {
+    query = query.in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]);
+  }
+
+  const { data, error } = await query;
+  const rows = data ?? [];
+
+  return (
+    <ClientShell>
+      <div style={{ width: "min(1600px, 96vw)", margin: "0 auto" }}>
+        <div style={pageCard}>
+          <div style={headerRow}>
+            <div>
+              <h1 style={{ margin: 0, fontSize: 32 }}>Jobs</h1>
+              <p style={{ marginTop: 6, opacity: 0.8 }}>
+                Manage crane jobs, operators, invoices and site details.
+              </p>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href={`/api/export/jobs?view=${view}&invoice=${invoiceFilter}`} style={secondaryBtn}>
+                Export CSV
+              </a>
+              <a href="/jobs/new" style={primaryBtn}>
+                + New job
+              </a>
+            </div>
+          </div>
+
+          <div style={tabsRow}>
+            <a href={`/jobs?view=active&invoice=${invoiceFilter}`} style={view === "active" ? activeTabBtn : tabBtn}>
+              Active
+            </a>
+            <a href={`/jobs?view=archived&invoice=${invoiceFilter}`} style={view === "archived" ? activeTabBtn : tabBtn}>
+              Archived
+            </a>
+            <a href={`/jobs?view=all&invoice=${invoiceFilter}`} style={view === "all" ? activeTabBtn : tabBtn}>
+              All
+            </a>
+          </div>
+
+          <div style={tabsRow}>
+            <a href={`/jobs?view=${view}&invoice=all`} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
+              All invoices
+            </a>
+            <a
+              href={`/jobs?view=${view}&invoice=outstanding`}
+              style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}
+            >
+              Outstanding invoices
+            </a>
+          </div>
+
+          {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+          {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+
+          {error ? (
+            <div style={errorBox}>{error.message}</div>
+          ) : rows.length === 0 ? (
+            <div style={emptyBox}>No jobs found for this view.</div>
+          ) : (
+            <div style={{ marginTop: 16, overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th align="left" style={thStyle}>Job #</th>
+                    <th align="left" style={thStyle}>Dates</th>
+                    <th align="left" style={thStyle}>Time</th>
+                    <th align="left" style={thStyle}>Customer</th>
+                    <th align="left" style={thStyle}>Operator</th>
+                    <th align="left" style={thStyle}>Equipment</th>
+                    <th align="left" style={thStyle}>Site</th>
+                    <th align="left" style={thStyle}>Status</th>
+                    <th align="left" style={thStyle}>Invoice</th>
+                    <th align="left" style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((job: any) => {
+                    const client = first(job.clients);
+                    const operator = first(job.operators);
+                    const equipment = first(job.equipment);
+                    const totalInvoice = Number(job.total_invoice ?? 0);
+                    const amountPaid = clampMoney(Number(job.amount_paid ?? 0), 0, totalInvoice);
+                    const amountOutstanding = Math.max(totalInvoice - amountPaid, 0);
+
+                    const startDate = job.start_date ?? job.job_date ?? null;
+                    const endDate = job.end_date ?? job.job_date ?? null;
+
+                    return (
+                      <tr key={job.id}>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 900 }}>
+                            #{job.job_number ?? "—"}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 800 }}>
+                            {renderDateRange(startDate, endDate)}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          {job.start_time || job.end_time
+                            ? `${job.start_time ?? "—"} - ${job.end_time ?? "—"}`
+                            : "—"}
+                        </td>
+
+                        <td style={tdStyle}>{client?.company_name ?? "—"}</td>
+
+                        <td style={tdStyle}>{operator?.full_name ?? "—"}</td>
+
+                        <td style={tdStyle}>
+                          {equipment?.name ?? "—"}
+                          {equipment?.asset_number ? ` (${equipment.asset_number})` : ""}
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div>{job.site_name ?? "—"}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            {job.site_address ?? "—"}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <StatusBadge value={job.status} archived={!!job.archived} />
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 800 }}>
+                            {job.invoice_status ?? "Not Invoiced"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            #{job.invoice_number ?? "—"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            Total: {money(totalInvoice)}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                            Paid: {money(amountPaid)}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.88, fontWeight: 800 }}>
+                            Outstanding: {money(amountOutstanding)}
+                          </div>
+                        </td>
+
+                        <td style={tdStyle}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                            <a href={`/jobs/${job.id}`} style={actionBtn}>
+                              Open
+                            </a>
+
+                            <form action={updateInvoiceStatus} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              <input type="hidden" name="job_id" value={job.id} />
+                              <input type="hidden" name="return_view" value={view} />
+                              <input type="hidden" name="return_invoice" value={invoiceFilter} />
+
+                              <select
+                                name="invoice_status"
+                                defaultValue={job.invoice_status ?? "Not Invoiced"}
+                                style={miniSelect}
+                              >
+                                <option value="Not Invoiced">Not Invoiced</option>
+                                <option value="Invoiced">Invoiced</option>
+                                <option value="Part Paid">Part Paid</option>
+                                <option value="Paid">Paid</option>
+                              </select>
+
+                              <input
+                                name="amount_paid"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                defaultValue={amountPaid > 0 ? amountPaid.toFixed(2) : ""}
+                                placeholder="Amount paid"
+                                style={moneyInput}
+                              />
+
+                              <button type="submit" style={saveMiniBtn}>
+                                Save
+                              </button>
+                            </form>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </ClientShell>
+  );
+}
+
+const pageCard: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-function safeQ(q: string) {
-  return q.trim().slice(0, 120);
-}
+const headerRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
 
-function safeLike(q: string) {
-  return `%${q.replace(/[%]/g, "").replace(/,/g, " ")}%`;
-}
+const tabsRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+};
 
-function isUuid(s: string) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    s
-  );
-}
+const thStyle: React.CSSProperties = {
+  padding: "10px",
+  borderBottom: "1px solid rgba(0,0,0,0.10)",
+  fontSize: 12,
+  opacity: 0.78,
+  whiteSpace: "nowrap",
+};
 
-function asArray<T>(value: T | T[] | null | undefined): T[] {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
-}
+const tdStyle: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+  verticalAlign: "top",
+};
 
-function includeScope(scope: SearchScope, key: SearchScope) {
-  return scope === "all" || scope === key;
-}
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  textDecoration: "none",
+  fontWeight: 900,
+};
 
-function shortText(value: string | null | undefined, max = 120) {
-  const text = String(value ?? "").trim();
-  if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
+const secondaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
 
-export async function runGlobalSearch(
-  supabase: any,
-  rawQuery: string,
-  scope: SearchScope = "all",
-  limit = 20
-): Promise<{
-  query: string;
-  grouped: GroupedSearchResults;
-  flat: SearchItem[];
-}> {
-  const q = safeQ(rawQuery);
-  if (!q) {
-    return {
-      query: "",
-      grouped: {
-        customers: [],
-        jobs: [],
-        transport: [],
-        quotes: [],
-        equipment: [],
-        audit: [],
-      },
-      flat: [],
-    };
-  }
+const tabBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "9px 14px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.12)",
+};
 
-  const like = safeLike(q);
-  const uuid = isUuid(q) ? q : null;
-  const numericQ = /^\d+$/.test(q) ? Number(q) : null;
+const activeTabBtn: React.CSSProperties = {
+  ...tabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
 
-  const tasks: Promise<any>[] = [];
+const actionBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.75)",
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+};
 
-  tasks.push(
-    includeScope(scope, "customers")
-      ? supabase
-          .from("clients")
-          .select("id, company_name, contact_name, phone, email, notes, archived, created_at")
-          .eq("archived", false)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              `company_name.ilike.${like}`,
-              `contact_name.ilike.${like}`,
-              `phone.ilike.${like}`,
-              `email.ilike.${like}`,
-              `notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("company_name", { ascending: true })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
+const miniSelect: React.CSSProperties = {
+  minWidth: 140,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+};
 
-  tasks.push(
-    includeScope(scope, "jobs")
-      ? supabase
-          .from("jobs")
-          .select(`
-            id,
-            job_number,
-            site_name,
-            site_address,
-            job_date,
-            status,
-            notes,
-            archived,
-            clients:client_id (
-              company_name
-            )
-          `)
-          .eq("archived", false)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              numericQ !== null ? `job_number.eq.${numericQ}` : null,
-              `site_name.ilike.${like}`,
-              `site_address.ilike.${like}`,
-              `status.ilike.${like}`,
-              `notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("job_date", { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
+const moneyInput: React.CSSProperties = {
+  width: 120,
+  height: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.92)",
+  boxSizing: "border-box",
+};
 
-  tasks.push(
-    includeScope(scope, "transport")
-      ? supabase
-          .from("transport_jobs")
-          .select(`
-            id,
-            transport_number,
-            transport_date,
-            collection_address,
-            delivery_address,
-            load_description,
-            status,
-            notes,
-            archived,
-            clients:client_id (
-              company_name
-            ),
-            jobs:linked_job_id (
-              job_number,
-              site_name
-            )
-          `)
-          .eq("archived", false)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              `transport_number.ilike.${like}`,
-              `collection_address.ilike.${like}`,
-              `delivery_address.ilike.${like}`,
-              `load_description.ilike.${like}`,
-              `status.ilike.${like}`,
-              `notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("transport_date", { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
+const saveMiniBtn: React.CSSProperties = {
+  height: 36,
+  padding: "0 12px",
+  borderRadius: 8,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  cursor: "pointer",
+};
 
-  tasks.push(
-    includeScope(scope, "quotes")
-      ? supabase
-          .from("quotes")
-          .select(`
-            id,
-            subject,
-            amount,
-            status,
-            quote_date,
-            valid_until,
-            notes,
-            archived,
-            clients:client_id (
-              company_name
-            )
-          `)
-          .eq("archived", false)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              `subject.ilike.${like}`,
-              `status.ilike.${like}`,
-              `notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("created_at", { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
+const successBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.24)",
+  color: "#111",
+  fontWeight: 800,
+};
 
-  tasks.push(
-    includeScope(scope, "equipment")
-      ? supabase
-          .from("equipment")
-          .select("id, name, asset_number, type, capacity, status, notes, archived, created_at")
-          .eq("archived", false)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              `name.ilike.${like}`,
-              `asset_number.ilike.${like}`,
-              `type.ilike.${like}`,
-              `capacity.ilike.${like}`,
-              `status.ilike.${like}`,
-              `notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("name", { ascending: true })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.22)",
+};
 
-  tasks.push(
-    includeScope(scope, "audit")
-      ? supabase
-          .from("audit_log")
-          .select("id, action, entity_type, entity_id, meta, created_at")
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              uuid ? `entity_id.eq.${uuid}` : null,
-              `action.ilike.${like}`,
-              `entity_type.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("created_at", { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
-
-  const [
-    customersRes,
-    jobsRes,
-    transportRes,
-    quotesRes,
-    equipmentRes,
-    auditRes,
-  ] = await Promise.all(tasks);
-
-  const grouped: GroupedSearchResults = {
-    customers: [],
-    jobs: [],
-    transport: [],
-    quotes: [],
-    equipment: [],
-    audit: [],
-  };
-
-  for (const c of customersRes.data ?? []) {
-    grouped.customers.push({
-      type: "customer",
-      id: c.id,
-      title: c.company_name ?? "Customer",
-      subtitle: `${c.contact_name ?? "—"} • ${c.phone ?? "—"} • ${c.email ?? "—"}${
-        c.notes ? " • notes" : ""
-      }`,
-      href: `/customers/${c.id}`,
-      sort_date: c.created_at ?? null,
-    });
-  }
-
-  for (const j of jobsRes.data ?? []) {
-    const client = asArray(j.clients)[0];
-    grouped.jobs.push({
-      type: "job",
-      id: j.id,
-      title: `Job #${j.job_number ?? "—"} • ${j.site_name ?? "—"}`,
-      subtitle: `${client?.company_name ?? "—"} • ${shortText(j.site_address)} • ${j.status ?? "—"}`,
-      href: `/jobs/${j.id}`,
-      sort_date: j.job_date ?? null,
-    });
-  }
-
-  for (const t of transportRes.data ?? []) {
-    const client = asArray(t.clients)[0];
-    const linkedJob = asArray(t.jobs)[0];
-    grouped.transport.push({
-      type: "transport",
-      id: t.id,
-      title: `${t.transport_number ?? "Transport Job"} • ${t.status ?? "—"}`,
-      subtitle: `${client?.company_name ?? "—"} • Pickup: ${shortText(
-        t.collection_address,
-        50
-      )} • Delivery: ${shortText(t.delivery_address, 50)}${
-        linkedJob?.job_number ? ` • Job #${linkedJob.job_number}` : ""
-      }`,
-      href: `/transport-jobs/${t.id}`,
-      sort_date: t.transport_date ?? null,
-    });
-  }
-
-  for (const qRow of quotesRes.data ?? []) {
-    const client = asArray(qRow.clients)[0];
-    grouped.quotes.push({
-      type: "quote",
-      id: qRow.id,
-      title: qRow.subject ?? "Quote",
-      subtitle: `${client?.company_name ?? "—"} • £${Number(qRow.amount ?? 0).toFixed(
-        2
-      )} • ${qRow.status ?? "—"}`,
-      href: `/quotes/${qRow.id}`,
-      sort_date: qRow.quote_date ?? null,
-    });
-  }
-
-  for (const e of equipmentRes.data ?? []) {
-    grouped.equipment.push({
-      type: "equipment",
-      id: e.id,
-      title: e.name ?? "Equipment",
-      subtitle: `${e.asset_number ?? "—"} • ${e.type ?? "—"} • ${e.capacity ?? "—"} • ${e.status ?? "—"}${
-        e.notes ? " • notes" : ""
-      }`,
-      href: `/equipment/${e.id}`,
-      sort_date: e.created_at ?? null,
-    });
-  }
-
-  for (const a of auditRes.data ?? []) {
-    const metaText = a.meta ? JSON.stringify(a.meta) : "";
-    grouped.audit.push({
-      type: "audit",
-      id: a.id,
-      title: `${a.action ?? "action"} • ${a.entity_type ?? "entity"}`,
-      subtitle: `${a.created_at ?? ""}${a.entity_id ? ` • ${a.entity_id}` : ""}${
-        metaText ? ` • ${shortText(metaText, 80)}` : ""
-      }`,
-      href: `/admin/audit`,
-      sort_date: a.created_at ?? null,
-    });
-  }
-
-  const flat = [
-    ...grouped.customers,
-    ...grouped.jobs,
-    ...grouped.transport,
-    ...grouped.quotes,
-    ...grouped.equipment,
-    ...grouped.audit,
-  ].sort((a, b) => String(b.sort_date ?? "").localeCompare(String(a.sort_date ?? "")));
-
-  return {
-    query: q,
-    grouped,
-    flat,
-  };
-}
+const emptyBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "18px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
