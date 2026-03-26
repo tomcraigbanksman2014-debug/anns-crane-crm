@@ -244,11 +244,11 @@ export default function ClientShell({
     <div style={pageStyle}>
       {isMobile ? (
         <div style={mobileHeader}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={mobileHeaderBrand}>
             <img src="/logo.png" alt="AnnS Crane Hire" style={mobileLogo} />
-            <div>
-              <div style={{ fontSize: 18, fontWeight: 1000 }}>AnnS Crane CRM</div>
-              <div style={{ opacity: 0.72 }}>{role || "user"}</div>
+            <div style={mobileHeaderTextWrap}>
+              <div style={mobileHeaderTitle}>AnnS Crane CRM</div>
+              <div style={mobileHeaderSubtitle}>{role || "user"}</div>
             </div>
           </div>
 
@@ -264,7 +264,12 @@ export default function ClientShell({
         </div>
       ) : null}
 
-      <div style={shellStyle}>
+      <div
+        style={{
+          ...shellStyle,
+          ...(isMobile ? mobileShellStyle : {}),
+        }}
+      >
         {isMobile && menuOpen ? (
           <div onClick={() => setMenuOpen(false)} style={mobileBackdropStyle} />
         ) : null}
@@ -331,6 +336,7 @@ export default function ClientShell({
 const pageStyle: React.CSSProperties = {
   minHeight: "100vh",
   background: "#dfeaf5",
+  overflowX: "hidden",
 };
 
 const loadingPageStyle: React.CSSProperties = {
@@ -354,6 +360,14 @@ const shellStyle: React.CSSProperties = {
   gap: 18,
   padding: 18,
   position: "relative",
+  boxSizing: "border-box",
+  width: "100%",
+  maxWidth: "100%",
+};
+
+const mobileShellStyle: React.CSSProperties = {
+  display: "block",
+  padding: 0,
 };
 
 const sidebarStyle: React.CSSProperties = {
@@ -416,6 +430,10 @@ const mainStyle: React.CSSProperties = {
 
 const mobileMainStyle: React.CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
+  padding: 14,
+  boxSizing: "border-box",
+  overflowX: "hidden",
 };
 
 const operatorMainStyle: React.CSSProperties = {
@@ -474,7 +492,8 @@ const mobileHeader: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
-  padding: 14,
+  gap: 12,
+  padding: 12,
   background: "rgba(255,255,255,0.65)",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   position: "sticky",
@@ -496,4 +515,33 @@ const menuBtn: React.CSSProperties = {
   background: "#ffffff",
   fontWeight: 900,
   cursor: "pointer",
+};
+
+
+const mobileHeaderBrand: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  minWidth: 0,
+  flex: 1,
+};
+
+const mobileHeaderTextWrap: React.CSSProperties = {
+  minWidth: 0,
+};
+
+const mobileHeaderTitle: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 1000,
+  lineHeight: 1.1,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const mobileHeaderSubtitle: React.CSSProperties = {
+  opacity: 0.72,
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
