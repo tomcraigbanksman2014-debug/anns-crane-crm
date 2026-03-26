@@ -215,7 +215,6 @@ export default function DashboardPage() {
       { label: "Transport Jobs", href: "/transport-jobs", tone: "neutral" as const },
       { label: "Equipment", href: "/equipment", tone: "good" as const },
       { label: "Operators", href: "/operators", tone: "neutral" as const },
-      { label: "Calendar", href: "/calendar", tone: "neutral" as const },
       { label: "Settings", href: "/settings", tone: "neutral" as const },
     ],
     []
