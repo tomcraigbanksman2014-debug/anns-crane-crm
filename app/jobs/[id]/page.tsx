@@ -404,7 +404,7 @@ export default async function JobDetailPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "100%", maxWidth: 1380, margin: "0 auto", boxSizing: "border-box" }}>
+      <div style={{ width: "min(1380px, 100%)", maxWidth: "100%", margin: "0 auto", boxSizing: "border-box" }}>
         <div style={pageHeader}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>
@@ -852,9 +852,8 @@ const pageHeader: React.CSSProperties = {
 
 const layoutGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 18,
-  alignItems: "start",
 };
 
 const cardStyle: React.CSSProperties = {
