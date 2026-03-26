@@ -498,7 +498,7 @@ export default async function EditJobPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "100%", maxWidth: 980, margin: "0 auto", boxSizing: "border-box" }}>
         <div style={topRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit Job</h1>
@@ -772,13 +772,13 @@ const textareaStyle: React.CSSProperties = {
 
 const twoCol: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 12,
 };
 
 const threeCol: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 12,
 };
 
