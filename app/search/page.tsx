@@ -121,7 +121,7 @@ export default async function GlobalSearchPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "100%", maxWidth: 1280, margin: "0 auto", boxSizing: "border-box" }}>
+      <div style={{ width: "min(1280px, 100%)", maxWidth: "100%", margin: "0 auto", boxSizing: "border-box" }}>
         <div style={pageCard}>
           <div style={headerRow}>
             <div>
@@ -224,6 +224,9 @@ const pageCard: React.CSSProperties = {
   borderRadius: 16,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  maxWidth: "100%",
+  overflowX: "hidden",
+  boxSizing: "border-box",
 };
 
 const headerRow: React.CSSProperties = {
@@ -235,16 +238,16 @@ const headerRow: React.CSSProperties = {
 };
 
 const searchBarWrap: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 10,
   marginTop: 16,
   marginBottom: 16,
+  width: "100%",
+  maxWidth: "100%",
 };
 
 const searchInput: React.CSSProperties = {
-  flex: "999 1 320px",
-  minWidth: 0,
   height: 44,
   padding: "0 14px",
   borderRadius: 10,
@@ -255,8 +258,6 @@ const searchInput: React.CSSProperties = {
 };
 
 const selectStyle: React.CSSProperties = {
-  flex: "1 1 180px",
-  minWidth: 0,
   height: 44,
   padding: "0 12px",
   borderRadius: 10,
@@ -267,8 +268,6 @@ const selectStyle: React.CSSProperties = {
 };
 
 const primaryBtn: React.CSSProperties = {
-  flex: "1 1 140px",
-  minWidth: 120,
   height: 44,
   borderRadius: 10,
   border: "none",
