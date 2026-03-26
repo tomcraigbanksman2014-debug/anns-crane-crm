@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type PlannerItem = {
   job_id: string;
@@ -81,6 +81,16 @@ function statusTone(status: string | null | undefined): React.CSSProperties {
   };
 }
 
+
+function sortItemsByStartTime(items: PlannerItem[]) {
+  return [...items].sort((a, b) => {
+    const at = String(a.collection_time ?? "99:99");
+    const bt = String(b.collection_time ?? "99:99");
+    if (at !== bt) return at.localeCompare(bt);
+    return String(a.transport_number ?? a.job_id ?? "").localeCompare(String(b.transport_number ?? b.job_id ?? ""));
+  });
+}
+
 function addDays(base: Date, days: number) {
   const d = new Date(base);
   d.setDate(d.getDate() + days);
@@ -116,55 +126,11 @@ function getDisplayPrice(item: PlannerItem) {
   return Number(item.job_price ?? 0);
 }
 
-function ActionMenu({ jobId, onRemoved }: { jobId: string; onRemoved: () => void }) {
-  const detailsRef = useRef<HTMLDetailsElement | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function removeJob() {
-    const ok = window.confirm("Remove this transport job from the planner by marking it cancelled?");
-    if (!ok) return;
-
-    setBusy(true);
-    try {
-      const formData = new FormData();
-      const res = await fetch(`/api/transport-jobs/${jobId}/cancel`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        throw new Error("Could not remove transport job.");
-      }
-
-      if (detailsRef.current) detailsRef.current.open = false;
-      onRemoved();
-    } catch (e: any) {
-      window.alert(e?.message ?? "Could not remove transport job.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <details ref={detailsRef} style={{ position: "relative" }}>
-      <summary style={menuSummaryBtn}>⋯</summary>
-      <div style={menuPopup}>
-        <a href={`/transport-jobs/${jobId}`} style={menuLink}>Open job</a>
-        <a href={`/transport-jobs/${jobId}`} style={menuLink}>Edit job</a>
-        <button type="button" onClick={removeJob} disabled={busy} style={menuDangerBtn}>
-          {busy ? "Removing…" : "Remove job"}
-        </button>
-      </div>
-    </details>
-  );
-}
-
 export default function TransportPlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
-  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -196,7 +162,7 @@ export default function TransportPlannerBoard() {
     return () => {
       active = false;
     };
-  }, [weekStart, reloadKey]);
+  }, [weekStart]);
 
   const visibleDays = useMemo(() => {
     const base = new Date(`${weekStart}T00:00:00`);
@@ -225,10 +191,6 @@ export default function TransportPlannerBoard() {
   function moveWeek(delta: number) {
     const base = new Date(`${weekStart}T00:00:00`);
     setWeekStart(isoDateLocal(addDays(base, delta * 7)));
-  }
-
-  function refreshPlanner() {
-    setReloadKey((value) => value + 1);
   }
 
   return (
@@ -264,12 +226,13 @@ export default function TransportPlannerBoard() {
               <div style={sectionTitle}>Unassigned transport jobs</div>
 
               <div style={{ display: "grid", gap: 10 }}>
-                {(data?.unallocated_jobs ?? []).map((item) => (
-                  <div
+                {sortItemsByStartTime(data?.unallocated_jobs ?? []).map((item) => (
+                  <a
                     key={`unalloc-${item.job_id}`}
+                    href={`/transport-jobs/${item.job_id}`}
                     style={{ ...jobCardStyle, ...statusTone(item.status) }}
                   >
-                    <div style={cardTopRow}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 1000 }}>
                           {item.transport_number ?? "Transport job"}
@@ -280,23 +243,20 @@ export default function TransportPlannerBoard() {
                         </div>
                       </div>
 
-                      <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
-                        <div style={{ textAlign: "right", flexShrink: 0 }}>
-                          <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            {String(item.price_mode ?? "full_job") === "per_day"
-                              ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                              : "Full job"}
-                          </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                          {String(item.price_mode ?? "full_job") === "per_day"
+                            ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
+                            : "Full job"}
                         </div>
-                        <ActionMenu jobId={item.job_id} onRemoved={refreshPlanner} />
                       </div>
                     </div>
 
                     <div style={tagWrap}>
                       <div style={pillWarn}>No vehicle assigned</div>
                     </div>
-                  </div>
+                  </a>
                 ))}
               </div>
             </section>
@@ -353,7 +313,7 @@ export default function TransportPlannerBoard() {
                   </div>
 
                   {visibleDays.map((day) => {
-                    const dayItems = vehicle.items.filter((item) => itemMatchesDay(item, day.key));
+                    const dayItems = sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, day.key)));
 
                     return (
                       <div
@@ -373,20 +333,16 @@ export default function TransportPlannerBoard() {
                         ) : (
                           <div style={{ display: "grid", gap: 8 }}>
                             {dayItems.map((item) => (
-                              <div
+                              <a
                                 key={`${item.job_id}-${day.key}`}
+                                href={`/transport-jobs/${item.job_id}`}
                                 style={{ ...miniJobCard, ...statusTone(item.status) }}
                               >
-                                <div style={miniCardTopRow}>
-                                  <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div style={{ fontWeight: 1000 }}>
-                                      {item.transport_number ?? "Transport"}
-                                    </div>
-                                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                      {item.client_name ?? "No customer"}
-                                    </div>
-                                  </div>
-                                  <ActionMenu jobId={item.job_id} onRemoved={refreshPlanner} />
+                                <div style={{ fontWeight: 1000 }}>
+                                  {item.transport_number ?? "Transport"}
+                                </div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
+                                  {item.client_name ?? "No customer"}
                                 </div>
                                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
                                   {item.job_type ?? "—"}
@@ -405,7 +361,7 @@ export default function TransportPlannerBoard() {
                                 <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
                                   {item.operator_name ?? "Unassigned"}
                                 </div>
-                              </div>
+                              </a>
                             ))}
                           </div>
                         )}
@@ -506,72 +462,6 @@ const tagWrap: React.CSSProperties = {
   gap: 8,
   flexWrap: "wrap",
   marginTop: 10,
-};
-
-const cardTopRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  flexWrap: "wrap",
-};
-
-const miniCardTopRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 8,
-  alignItems: "flex-start",
-};
-
-const menuSummaryBtn: React.CSSProperties = {
-  listStyle: "none",
-  cursor: "pointer",
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.86)",
-  borderRadius: 10,
-  width: 34,
-  height: 34,
-  display: "grid",
-  placeItems: "center",
-  fontSize: 18,
-  fontWeight: 900,
-  userSelect: "none",
-};
-
-const menuPopup: React.CSSProperties = {
-  position: "absolute",
-  right: 0,
-  top: "calc(100% + 6px)",
-  minWidth: 160,
-  padding: 8,
-  borderRadius: 12,
-  background: "#fff",
-  border: "1px solid rgba(0,0,0,0.10)",
-  boxShadow: "0 12px 32px rgba(0,0,0,0.16)",
-  display: "grid",
-  gap: 6,
-  zIndex: 30,
-};
-
-const menuLink: React.CSSProperties = {
-  display: "block",
-  padding: "8px 10px",
-  borderRadius: 8,
-  textDecoration: "none",
-  color: "#111",
-  fontWeight: 800,
-  background: "rgba(255,255,255,0.95)",
-};
-
-const menuDangerBtn: React.CSSProperties = {
-  display: "block",
-  width: "100%",
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid rgba(255,0,0,0.15)",
-  background: "rgba(255,0,0,0.08)",
-  color: "#b00020",
-  fontWeight: 900,
-  cursor: "pointer",
 };
 
 const secondaryBtn: React.CSSProperties = {
