@@ -19,7 +19,6 @@ function sectionTitle(scope: SearchScope) {
   if (scope === "jobs") return "Jobs";
   if (scope === "transport") return "Transport Jobs";
   if (scope === "quotes") return "Quotes";
-  if (scope === "bookings") return "Bookings";
   if (scope === "equipment") return "Equipment";
   if (scope === "audit") return "Audit Log";
   return "Results";
@@ -42,10 +41,6 @@ function typeStyle(type: SearchItem["type"]): React.CSSProperties {
     quote: {
       background: "rgba(255,170,0,0.14)",
       border: "1px solid rgba(255,170,0,0.22)",
-    },
-    booking: {
-      background: "rgba(255,140,0,0.14)",
-      border: "1px solid rgba(255,140,0,0.22)",
     },
     equipment: {
       background: "rgba(120,120,120,0.10)",
@@ -110,7 +105,6 @@ export default async function GlobalSearchPage({
           jobs: [],
           transport: [],
           quotes: [],
-          bookings: [],
           equipment: [],
           audit: [],
         },
@@ -127,7 +121,7 @@ export default async function GlobalSearchPage({
             <div>
               <h1 style={{ margin: 0, fontSize: 32 }}>Global Search</h1>
               <p style={{ marginTop: 6, opacity: 0.8 }}>
-                Search customers, jobs, transport jobs, quotes, bookings, equipment and audit log from one place.
+                Search customers, jobs, transport jobs, quotes, equipment and audit log from one place.
               </p>
             </div>
           </div>
@@ -137,7 +131,7 @@ export default async function GlobalSearchPage({
               type="text"
               name="q"
               defaultValue={q}
-              placeholder="Search customer, job, transport ref, address, quote, booking, PO, equipment..."
+              placeholder="Search customer, job, transport ref, address, quote, PO, equipment..."
               style={searchInput}
             />
 
@@ -147,7 +141,6 @@ export default async function GlobalSearchPage({
               <option value="jobs">Jobs</option>
               <option value="transport">Transport</option>
               <option value="quotes">Quotes</option>
-              <option value="bookings">Bookings</option>
               <option value="equipment">Equipment</option>
               <option value="audit">Audit</option>
             </select>
@@ -184,7 +177,6 @@ export default async function GlobalSearchPage({
                   <ResultSection title="Jobs" items={grouped.jobs} />
                   <ResultSection title="Transport Jobs" items={grouped.transport} />
                   <ResultSection title="Quotes" items={grouped.quotes} />
-                  <ResultSection title="Bookings" items={grouped.bookings} />
                   <ResultSection title="Equipment" items={grouped.equipment} />
                   <ResultSection title="Audit Log" items={grouped.audit} />
                 </div>
@@ -201,9 +193,7 @@ export default async function GlobalSearchPage({
                             ? grouped.transport
                             : type === "quotes"
                               ? grouped.quotes
-                              : type === "bookings"
-                                ? grouped.bookings
-                                : type === "equipment"
+                              : type === "equipment"
                                   ? grouped.equipment
                                   : grouped.audit
                     }
