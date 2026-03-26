@@ -3,7 +3,6 @@ export type SearchEntityType =
   | "job"
   | "transport"
   | "quote"
-  | "booking"
   | "equipment"
   | "audit";
 
@@ -13,7 +12,6 @@ export type SearchScope =
   | "jobs"
   | "transport"
   | "quotes"
-  | "bookings"
   | "equipment"
   | "audit";
 
@@ -31,7 +29,6 @@ export type GroupedSearchResults = {
   jobs: SearchItem[];
   transport: SearchItem[];
   quotes: SearchItem[];
-  bookings: SearchItem[];
   equipment: SearchItem[];
   audit: SearchItem[];
 };
@@ -84,7 +81,6 @@ export async function runGlobalSearch(
         jobs: [],
         transport: [],
         quotes: [],
-        bookings: [],
         equipment: [],
         audit: [],
       },
@@ -231,59 +227,6 @@ export async function runGlobalSearch(
   );
 
   tasks.push(
-    includeScope(scope, "bookings")
-      ? supabase
-          .from("bookings")
-          .select(`
-            id,
-            start_date,
-            end_date,
-            start_at,
-            end_at,
-            location,
-            status,
-            invoice_status,
-            total_invoice,
-            hire_price,
-            po_number,
-            job_reference,
-            operator_name,
-            notes,
-            driver_notes,
-            clients:client_id (
-              id,
-              company_name,
-              contact_name
-            ),
-            equipment:equipment_id (
-              id,
-              name,
-              asset_number,
-              type,
-              capacity
-            )
-          `)
-          .or(
-            [
-              uuid ? `id.eq.${uuid}` : null,
-              `location.ilike.${like}`,
-              `status.ilike.${like}`,
-              `invoice_status.ilike.${like}`,
-              `po_number.ilike.${like}`,
-              `job_reference.ilike.${like}`,
-              `operator_name.ilike.${like}`,
-              `notes.ilike.${like}`,
-              `driver_notes.ilike.${like}`,
-            ]
-              .filter(Boolean)
-              .join(",")
-          )
-          .order("start_date", { ascending: false })
-          .limit(limit)
-      : Promise.resolve({ data: [] })
-  );
-
-  tasks.push(
     includeScope(scope, "equipment")
       ? supabase
           .from("equipment")
@@ -332,7 +275,6 @@ export async function runGlobalSearch(
     jobsRes,
     transportRes,
     quotesRes,
-    bookingsRes,
     equipmentRes,
     auditRes,
   ] = await Promise.all(tasks);
@@ -342,7 +284,6 @@ export async function runGlobalSearch(
     jobs: [],
     transport: [],
     quotes: [],
-    bookings: [],
     equipment: [],
     audit: [],
   };
@@ -404,22 +345,6 @@ export async function runGlobalSearch(
     });
   }
 
-  for (const b of bookingsRes.data ?? []) {
-    const client = asArray(b.clients)[0];
-    const eq = asArray(b.equipment)[0];
-    const noteText = b.notes ?? b.driver_notes;
-    grouped.bookings.push({
-      type: "booking",
-      id: b.id,
-      title: `${b.start_date ?? "—"} → ${b.end_date ?? "—"} • ${b.status ?? "—"}`,
-      subtitle: `${client?.company_name ?? "—"} • ${eq?.name ?? "—"} • ${b.location ?? "—"}${
-        b.po_number ? ` • PO ${b.po_number}` : ""
-      }${b.job_reference ? ` • Ref ${b.job_reference}` : ""}${noteText ? " • notes" : ""}`,
-      href: `/bookings/${b.id}`,
-      sort_date: b.start_date ?? null,
-    });
-  }
-
   for (const e of equipmentRes.data ?? []) {
     grouped.equipment.push({
       type: "equipment",
@@ -452,7 +377,6 @@ export async function runGlobalSearch(
     ...grouped.jobs,
     ...grouped.transport,
     ...grouped.quotes,
-    ...grouped.bookings,
     ...grouped.equipment,
     ...grouped.audit,
   ].sort((a, b) => String(b.sort_date ?? "").localeCompare(String(a.sort_date ?? "")));
