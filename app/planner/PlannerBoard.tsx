@@ -124,12 +124,11 @@ function getDisplayPrice(item: PlannerItem) {
   return Number(item.job_price ?? 0);
 }
 
-
 function sortItemsByStartTime(items: PlannerItem[]) {
   return [...items].sort((a, b) => {
     const at = String(a.start_time ?? "99:99");
     const bt = String(b.start_time ?? "99:99");
-    if (at != bt) return at.localeCompare(bt);
+    if (at !== bt) return at.localeCompare(bt);
     const an = Number(a.job_number ?? 0);
     const bn = Number(b.job_number ?? 0);
     if (Number.isFinite(an) && Number.isFinite(bn) && an !== bn) return an - bn;
@@ -201,6 +200,8 @@ export default function PlannerBoard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -234,6 +235,16 @@ export default function PlannerBoard() {
     };
   }, [weekStart]);
 
+  useEffect(() => {
+    function syncMobile() {
+      setIsMobile(window.innerWidth < 900);
+    }
+
+    syncMobile();
+    window.addEventListener("resize", syncMobile);
+    return () => window.removeEventListener("resize", syncMobile);
+  }, []);
+
   const visibleDays = useMemo(() => {
     if (data?.days?.length) return data.days;
 
@@ -252,6 +263,22 @@ export default function PlannerBoard() {
       };
     });
   }, [data, weekStart]);
+
+  useEffect(() => {
+    if (!visibleDays.length) {
+      setMobileDayIndex(0);
+      return;
+    }
+
+    const today = isoDateLocal(new Date());
+    const idx = visibleDays.findIndex((day) => day.date === today);
+    setMobileDayIndex((current) => {
+      if (current >= 0 && current < visibleDays.length) return current;
+      return idx >= 0 ? idx : 0;
+    });
+  }, [weekStart, visibleDays.length]);
+
+  const activeDay = visibleDays[Math.min(mobileDayIndex, Math.max(visibleDays.length - 1, 0))] ?? null;
 
   const groupedByEquipment = useMemo(() => {
     const equipmentList = data?.equipment ?? [];
@@ -283,6 +310,15 @@ export default function PlannerBoard() {
     setWeekStart(isoDateLocal(addDays(base, delta * 7)));
   }
 
+  function moveMobileDay(delta: number) {
+    setMobileDayIndex((current) => {
+      const next = current + delta;
+      if (next < 0) return 0;
+      if (next > visibleDays.length - 1) return visibleDays.length - 1;
+      return next;
+    });
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={toolbarStyle}>
@@ -305,6 +341,43 @@ export default function PlannerBoard() {
           </button>
         </div>
       </div>
+
+      {isMobile && activeDay ? (
+        <div style={mobileDayPickerWrap}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => moveMobileDay(-1)} style={secondaryBtn} disabled={mobileDayIndex === 0}>
+              ← Prev day
+            </button>
+            <div style={activeDayPill}>
+              <div style={{ fontWeight: 900 }}>{activeDay.label}</div>
+              <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
+                {activeDay.is_bank_holiday ? activeDay.bank_holiday_label ?? "Bank holiday" : activeDay.date}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => moveMobileDay(1)}
+              style={secondaryBtn}
+              disabled={mobileDayIndex === visibleDays.length - 1}
+            >
+              Next day →
+            </button>
+          </div>
+
+          <div style={mobileDayTabs}>
+            {visibleDays.map((day, index) => (
+              <button
+                key={day.date}
+                type="button"
+                onClick={() => setMobileDayIndex(index)}
+                style={index === mobileDayIndex ? mobileTabActive : mobileTabBtn}
+              >
+                {day.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {loading ? <div style={infoBox}>Loading planner…</div> : null}
       {error ? <div style={errorBox}>{error}</div> : null}
@@ -368,129 +441,40 @@ export default function PlannerBoard() {
                 </div>
               </div>
 
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(180px, 1fr))`,
-                  gap: 10,
-                  alignItems: "stretch",
-                }}
-              >
-                <div style={headCell}>Labour / Week</div>
-
-                {visibleDays.map((day) => (
-                  <div
-                    key={`labour-head-${day.date}`}
-                    style={{
-                      ...headCell,
-                      ...(day.is_bank_holiday
-                        ? {
-                            background: "rgba(255,170,0,0.16)",
-                            border: "1px solid rgba(255,170,0,0.24)",
-                          }
-                        : {}),
-                    }}
-                  >
-                    <div>{day.label}</div>
-                    <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                      {day.is_bank_holiday ? day.bank_holiday_label ?? "Bank holiday" : "Working day"}
-                    </div>
+              {isMobile && activeDay ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={mobileRowHeader}>
+                    <div style={{ fontWeight: 1000 }}>Labour only</div>
+                    <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                   </div>
-                ))}
-
-                <div style={sideCell}>
-                  <div style={{ fontWeight: 1000 }}>Labour only</div>
-                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                    No crane / HIAB assigned
-                  </div>
-                </div>
-
-                {visibleDays.map((day) => {
-                  const dayItems = sortItemsByStartTime(labourOnlyItems.filter((item) => itemMatchesDay(item, day.date)));
-
-                  return (
-                    <div
-                      key={`labour-${day.date}`}
-                      style={{
-                        ...dayCell,
-                        ...(day.is_bank_holiday
-                          ? {
-                              background: "rgba(255,170,0,0.08)",
-                              border: "1px solid rgba(255,170,0,0.18)",
-                            }
-                          : {}),
-                      }}
-                    >
-                      {dayItems.length === 0 ? (
-                        <div style={emptyState}>Free</div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {dayItems.map((item) => (
-                            <a
-                              key={`${item.id}-${day.date}`}
-                              href={`/jobs/${item.job_id}`}
-                              style={{ ...miniJobCard, ...getStatusTone(item.status) }}
-                            >
-                              <div style={{ fontWeight: 1000 }}>
-                                Job {item.job_number ? `#${item.job_number}` : ""}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                {getClientName(item)}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                {item.site_name ?? item.site_address ?? "No site"}
-                              </div>
-                              <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                                {fmtMoney(getDisplayPrice(item))}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                {String(item.price_mode ?? "full_job") === "per_day"
-                                  ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                                  : "Full job"}
-                              </div>
-                              <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                {item.start_time ?? "—"} → {item.end_time ?? "—"}
-                              </div>
-                              <div style={tagWrap}>
-                                <div style={pillLabour}>Labour only</div>
-                                {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
-                              </div>
-                            </a>
-                          ))}
+                  <MobileDayCell
+                    day={activeDay}
+                    items={sortItemsByStartTime(labourOnlyItems.filter((item) => itemMatchesDay(item, activeDay.date)))}
+                    renderItem={(item) => (
+                      <a key={`${item.id}-${activeDay.date}`} href={`/jobs/${item.job_id}`} style={{ ...miniJobCard, ...getStatusTone(item.status) }}>
+                        <div style={{ fontWeight: 1000 }}>Job {item.job_number ? `#${item.job_number}` : ""}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{getClientName(item)}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.site_name ?? item.site_address ?? "No site"}</div>
+                        <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                          {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          ) : null}
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {groupedByEquipment.map(({ equipment, items }) => (
-              <section key={equipment.id} style={sectionCard}>
-                <div style={sectionTitleRow}>
-                  <div>
-                    <div style={sectionTitle}>{equipment.name ?? "Crane"}</div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                      {equipment.asset_number ? equipment.asset_number : "No reg"}
-                    </div>
-                  </div>
+                        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.start_time ?? "—"} → {item.end_time ?? "—"}</div>
+                        <div style={tagWrap}>
+                          <div style={pillLabour}>Labour only</div>
+                          {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
+                        </div>
+                      </a>
+                    )}
+                  />
                 </div>
-
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(180px, 1fr))`,
-                    gap: 10,
-                    alignItems: "stretch",
-                  }}
-                >
-                  <div style={headCell}>Crane / Week</div>
+              ) : (
+                <div style={desktopGrid(visibleDays.length)}>
+                  <div style={headCell}>Labour / Week</div>
 
                   {visibleDays.map((day) => (
                     <div
-                      key={day.date}
+                      key={`labour-head-${day.date}`}
                       style={{
                         ...headCell,
                         ...(day.is_bank_holiday
@@ -509,18 +493,16 @@ export default function PlannerBoard() {
                   ))}
 
                   <div style={sideCell}>
-                    <div style={{ fontWeight: 1000 }}>{equipment.name ?? "Crane"}</div>
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                      {equipment.asset_number ?? ""}
-                    </div>
+                    <div style={{ fontWeight: 1000 }}>Labour only</div>
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>No crane / HIAB assigned</div>
                   </div>
 
                   {visibleDays.map((day) => {
-                    const dayItems = sortItemsByStartTime(items.filter((item) => itemMatchesDay(item, day.date)));
+                    const dayItems = sortItemsByStartTime(labourOnlyItems.filter((item) => itemMatchesDay(item, day.date)));
 
                     return (
                       <div
-                        key={`${equipment.id}-${day.date}`}
+                        key={`labour-${day.date}`}
                         style={{
                           ...dayCell,
                           ...(day.is_bank_holiday
@@ -541,34 +523,18 @@ export default function PlannerBoard() {
                                 href={`/jobs/${item.job_id}`}
                                 style={{ ...miniJobCard, ...getStatusTone(item.status) }}
                               >
-                                <div style={{ fontWeight: 1000 }}>
-                                  Job {item.job_number ? `#${item.job_number}` : ""}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {getClientName(item)}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {item.site_name ?? item.site_address ?? "No site"}
-                                </div>
-                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                                  {fmtMoney(getDisplayPrice(item))}
-                                </div>
+                                <div style={{ fontWeight: 1000 }}>Job {item.job_number ? `#${item.job_number}` : ""}</div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{getClientName(item)}</div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.site_name ?? item.site_address ?? "No site"}</div>
+                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
                                 <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {String(item.price_mode ?? "full_job") === "per_day"
-                                    ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                                    : "Full job"}
+                                  {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
                                 </div>
-                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                  {item.start_time ?? "—"} → {item.end_time ?? "—"}
+                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.start_time ?? "—"} → {item.end_time ?? "—"}</div>
+                                <div style={tagWrap}>
+                                  <div style={pillLabour}>Labour only</div>
+                                  {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
                                 </div>
-                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {getOperatorName(item)}
-                                </div>
-                                {item.exclude_weekends ? (
-                                  <div style={{ marginTop: 6 }}>
-                                    <span style={pillNeutral}>Exclude weekends</span>
-                                  </div>
-                                ) : null}
                               </a>
                             ))}
                           </div>
@@ -577,6 +543,129 @@ export default function PlannerBoard() {
                     );
                   })}
                 </div>
+              )}
+            </section>
+          ) : null}
+
+          <div style={{ display: "grid", gap: 16 }}>
+            {groupedByEquipment.map(({ equipment, items }) => (
+              <section key={equipment.id} style={sectionCard}>
+                <div style={sectionTitleRow}>
+                  <div>
+                    <div style={sectionTitle}>{equipment.name ?? "Crane"}</div>
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
+                      {equipment.asset_number ? equipment.asset_number : "No reg"}
+                    </div>
+                  </div>
+                </div>
+
+                {isMobile && activeDay ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={mobileRowHeader}>
+                      <div style={{ fontWeight: 1000 }}>{equipment.name ?? "Crane"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.72 }}>{equipment.asset_number ?? activeDay.label}</div>
+                    </div>
+                    <MobileDayCell
+                      day={activeDay}
+                      items={sortItemsByStartTime(items.filter((item) => itemMatchesDay(item, activeDay.date)))}
+                      renderItem={(item) => (
+                        <a key={`${item.id}-${activeDay.date}`} href={`/jobs/${item.job_id}`} style={{ ...miniJobCard, ...getStatusTone(item.status) }}>
+                          <div style={{ fontWeight: 1000 }}>Job {item.job_number ? `#${item.job_number}` : ""}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{getClientName(item)}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.site_name ?? item.site_address ?? "No site"}</div>
+                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                            {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.start_time ?? "—"} → {item.end_time ?? "—"}</div>
+                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{getOperatorName(item)}</div>
+                          {item.exclude_weekends ? (
+                            <div style={{ marginTop: 6 }}>
+                              <span style={pillNeutral}>Exclude weekends</span>
+                            </div>
+                          ) : null}
+                        </a>
+                      )}
+                    />
+                  </div>
+                ) : (
+                  <div style={desktopGrid(visibleDays.length)}>
+                    <div style={headCell}>Crane / Week</div>
+
+                    {visibleDays.map((day) => (
+                      <div
+                        key={day.date}
+                        style={{
+                          ...headCell,
+                          ...(day.is_bank_holiday
+                            ? {
+                                background: "rgba(255,170,0,0.16)",
+                                border: "1px solid rgba(255,170,0,0.24)",
+                              }
+                            : {}),
+                        }}
+                      >
+                        <div>{day.label}</div>
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                          {day.is_bank_holiday ? day.bank_holiday_label ?? "Bank holiday" : "Working day"}
+                        </div>
+                      </div>
+                    ))}
+
+                    <div style={sideCell}>
+                      <div style={{ fontWeight: 1000 }}>{equipment.name ?? "Crane"}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>{equipment.asset_number ?? ""}</div>
+                    </div>
+
+                    {visibleDays.map((day) => {
+                      const dayItems = sortItemsByStartTime(items.filter((item) => itemMatchesDay(item, day.date)));
+
+                      return (
+                        <div
+                          key={`${equipment.id}-${day.date}`}
+                          style={{
+                            ...dayCell,
+                            ...(day.is_bank_holiday
+                              ? {
+                                  background: "rgba(255,170,0,0.08)",
+                                  border: "1px solid rgba(255,170,0,0.18)",
+                                }
+                              : {}),
+                          }}
+                        >
+                          {dayItems.length === 0 ? (
+                            <div style={emptyState}>Free</div>
+                          ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {dayItems.map((item) => (
+                                <a
+                                  key={`${item.id}-${day.date}`}
+                                  href={`/jobs/${item.job_id}`}
+                                  style={{ ...miniJobCard, ...getStatusTone(item.status) }}
+                                >
+                                  <div style={{ fontWeight: 1000 }}>Job {item.job_number ? `#${item.job_number}` : ""}</div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{getClientName(item)}</div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.site_name ?? item.site_address ?? "No site"}</div>
+                                  <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                                    {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
+                                  </div>
+                                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.start_time ?? "—"} → {item.end_time ?? "—"}</div>
+                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{getOperatorName(item)}</div>
+                                  {item.exclude_weekends ? (
+                                    <div style={{ marginTop: 6 }}>
+                                      <span style={pillNeutral}>Exclude weekends</span>
+                                    </div>
+                                  ) : null}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             ))}
           </div>
@@ -586,12 +675,86 @@ export default function PlannerBoard() {
   );
 }
 
+function MobileDayCell({
+  day,
+  items,
+  renderItem,
+}: {
+  day: PlannerDay;
+  items: PlannerItem[];
+  renderItem: (item: PlannerItem) => React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        ...mobileDayCell,
+        ...(day.is_bank_holiday
+          ? {
+              background: "rgba(255,170,0,0.08)",
+              border: "1px solid rgba(255,170,0,0.18)",
+            }
+          : {}),
+      }}
+    >
+      {items.length === 0 ? <div style={emptyState}>Free</div> : <div style={{ display: "grid", gap: 8 }}>{items.map(renderItem)}</div>}
+    </div>
+  );
+}
+
+function desktopGrid(dayCount: number): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: `240px repeat(${dayCount}, minmax(180px, 1fr))`,
+    gap: 10,
+    alignItems: "stretch",
+  };
+}
+
 const toolbarStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const mobileDayPickerWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(255,255,255,0.38)",
+  borderRadius: 16,
+  padding: 12,
+};
+
+const mobileDayTabs: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
+const mobileTabBtn: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.82)",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const mobileTabActive: React.CSSProperties = {
+  ...mobileTabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
+
+const activeDayPill: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  minWidth: 120,
 };
 
 const sectionCard: React.CSSProperties = {
@@ -632,6 +795,26 @@ const sideCell: React.CSSProperties = {
 };
 
 const dayCell: React.CSSProperties = {
+  minHeight: 120,
+  padding: 10,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const mobileRowHeader: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const mobileDayCell: React.CSSProperties = {
   minHeight: 120,
   padding: 10,
   borderRadius: 12,
