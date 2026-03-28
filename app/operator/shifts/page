@@ -1,0 +1,36 @@
+
+create table if not exists public.operator_shift_sessions (
+  id uuid primary key default gen_random_uuid(),
+  operator_id uuid not null references public.operators(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete set null,
+  status text not null default 'started' check (status in ('started','ended')),
+  started_at timestamp with time zone not null default now(),
+  ended_at timestamp with time zone,
+  start_lat numeric,
+  start_lng numeric,
+  start_accuracy numeric,
+  start_site_text text,
+  start_job_id uuid references public.jobs(id) on delete set null,
+  start_transport_job_id uuid references public.transport_jobs(id) on delete set null,
+  start_photo_data text,
+  start_signature_data text,
+  start_safety jsonb not null default '[]'::jsonb,
+  end_lat numeric,
+  end_lng numeric,
+  end_accuracy numeric,
+  end_site_text text,
+  end_job_id uuid references public.jobs(id) on delete set null,
+  end_transport_job_id uuid references public.transport_jobs(id) on delete set null,
+  end_photo_data text,
+  end_signature_data text,
+  end_issue_type text,
+  end_issue_notes text,
+  created_at timestamp with time zone not null default now(),
+  updated_at timestamp with time zone not null default now()
+);
+
+create index if not exists operator_shift_sessions_operator_status_idx
+  on public.operator_shift_sessions(operator_id, status, started_at desc);
+
+create index if not exists operator_shift_sessions_user_idx
+  on public.operator_shift_sessions(user_id, started_at desc);
