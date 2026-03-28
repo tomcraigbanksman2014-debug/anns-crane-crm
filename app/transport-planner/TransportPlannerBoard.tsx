@@ -81,7 +81,6 @@ function statusTone(status: string | null | undefined): React.CSSProperties {
   };
 }
 
-
 function sortItemsByStartTime(items: PlannerItem[]) {
   return [...items].sort((a, b) => {
     const at = String(a.collection_time ?? "99:99");
@@ -131,6 +130,8 @@ export default function TransportPlannerBoard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -164,6 +165,16 @@ export default function TransportPlannerBoard() {
     };
   }, [weekStart]);
 
+  useEffect(() => {
+    function syncMobile() {
+      setIsMobile(window.innerWidth < 900);
+    }
+
+    syncMobile();
+    window.addEventListener("resize", syncMobile);
+    return () => window.removeEventListener("resize", syncMobile);
+  }, []);
+
   const visibleDays = useMemo(() => {
     const base = new Date(`${weekStart}T00:00:00`);
     const holidayMap: Record<string, string> = {};
@@ -188,9 +199,34 @@ export default function TransportPlannerBoard() {
     });
   }, [data, weekStart]);
 
+  useEffect(() => {
+    if (!visibleDays.length) {
+      setMobileDayIndex(0);
+      return;
+    }
+
+    const today = isoDateLocal(new Date());
+    const idx = visibleDays.findIndex((day) => day.key === today);
+    setMobileDayIndex((current) => {
+      if (current >= 0 && current < visibleDays.length) return current;
+      return idx >= 0 ? idx : 0;
+    });
+  }, [weekStart, visibleDays.length]);
+
+  const activeDay = visibleDays[Math.min(mobileDayIndex, Math.max(visibleDays.length - 1, 0))] ?? null;
+
   function moveWeek(delta: number) {
     const base = new Date(`${weekStart}T00:00:00`);
     setWeekStart(isoDateLocal(addDays(base, delta * 7)));
+  }
+
+  function moveMobileDay(delta: number) {
+    setMobileDayIndex((current) => {
+      const next = current + delta;
+      if (next < 0) return 0;
+      if (next > visibleDays.length - 1) return visibleDays.length - 1;
+      return next;
+    });
   }
 
   return (
@@ -215,6 +251,43 @@ export default function TransportPlannerBoard() {
           </button>
         </div>
       </div>
+
+      {isMobile && activeDay ? (
+        <div style={mobileDayPickerWrap}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => moveMobileDay(-1)} style={secondaryBtn} disabled={mobileDayIndex === 0}>
+              ← Prev day
+            </button>
+            <div style={activeDayPill}>
+              <div style={{ fontWeight: 900 }}>{activeDay.label}</div>
+              <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
+                {activeDay.holiday ? activeDay.holiday : activeDay.key}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => moveMobileDay(1)}
+              style={secondaryBtn}
+              disabled={mobileDayIndex === visibleDays.length - 1}
+            >
+              Next day →
+            </button>
+          </div>
+
+          <div style={mobileDayTabs}>
+            {visibleDays.map((day, index) => (
+              <button
+                key={day.key}
+                type="button"
+                onClick={() => setMobileDayIndex(index)}
+                style={index === mobileDayIndex ? mobileTabActive : mobileTabBtn}
+              >
+                {day.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {loading ? <div style={infoBox}>Loading transport planner…</div> : null}
       {error ? <div style={errorBox}>{error}</div> : null}
@@ -275,100 +348,103 @@ export default function TransportPlannerBoard() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: `240px repeat(${visibleDays.length}, minmax(180px, 1fr))`,
-                    gap: 10,
-                    alignItems: "stretch",
-                  }}
-                >
-                  <div style={headCell}>Vehicle / Week</div>
-
-                  {visibleDays.map((day) => (
-                    <div
-                      key={day.key}
-                      style={{
-                        ...headCell,
-                        ...(day.holiday
-                          ? {
-                              background: "rgba(255,170,0,0.16)",
-                              border: "1px solid rgba(255,170,0,0.24)",
-                            }
-                          : {}),
-                      }}
-                    >
-                      <div>{day.label}</div>
-                      <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                        {day.holiday ? day.holiday : "Working day"}
-                      </div>
+                {isMobile && activeDay ? (
+                  <div style={{ display: "grid", gap: 10 }}>
+                    <div style={mobileRowHeader}>
+                      <div style={{ fontWeight: 1000 }}>{vehicle.name ?? "Vehicle"}</div>
+                      <div style={{ fontSize: 12, opacity: 0.72 }}>{vehicle.reg_number ?? activeDay.label}</div>
                     </div>
-                  ))}
-
-                  <div style={sideCell}>
-                    <div style={{ fontWeight: 1000 }}>{vehicle.name ?? "Vehicle"}</div>
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                      {vehicle.reg_number ?? ""}
-                    </div>
+                    <MobileDayCell
+                      day={activeDay}
+                      items={sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, activeDay.key)))}
+                      renderItem={(item) => (
+                        <a key={`${item.job_id}-${activeDay.key}`} href={`/transport-jobs/${item.job_id}`} style={{ ...miniJobCard, ...statusTone(item.status) }}>
+                          <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport"}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.client_name ?? "No customer"}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.job_type ?? "—"}</div>
+                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                            {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
+                          </div>
+                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.collection_time ?? "—"} → {item.delivery_time ?? "—"}</div>
+                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{item.operator_name ?? "Unassigned"}</div>
+                        </a>
+                      )}
+                    />
                   </div>
+                ) : (
+                  <div style={desktopGrid(visibleDays.length)}>
+                    <div style={headCell}>Vehicle / Week</div>
 
-                  {visibleDays.map((day) => {
-                    const dayItems = sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, day.key)));
-
-                    return (
+                    {visibleDays.map((day) => (
                       <div
-                        key={`${vehicle.id}-${day.key}`}
+                        key={day.key}
                         style={{
-                          ...dayCell,
+                          ...headCell,
                           ...(day.holiday
                             ? {
-                                background: "rgba(255,170,0,0.08)",
-                                border: "1px solid rgba(255,170,0,0.18)",
+                                background: "rgba(255,170,0,0.16)",
+                                border: "1px solid rgba(255,170,0,0.24)",
                               }
                             : {}),
                         }}
                       >
-                        {dayItems.length === 0 ? (
-                          <div style={emptyState}>Free</div>
-                        ) : (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            {dayItems.map((item) => (
-                              <a
-                                key={`${item.job_id}-${day.key}`}
-                                href={`/transport-jobs/${item.job_id}`}
-                                style={{ ...miniJobCard, ...statusTone(item.status) }}
-                              >
-                                <div style={{ fontWeight: 1000 }}>
-                                  {item.transport_number ?? "Transport"}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {item.client_name ?? "No customer"}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>
-                                  {item.job_type ?? "—"}
-                                </div>
-                                <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>
-                                  {fmtMoney(getDisplayPrice(item))}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {String(item.price_mode ?? "full_job") === "per_day"
-                                    ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                                    : "Full job"}
-                                </div>
-                                <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>
-                                  {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                  {item.operator_name ?? "Unassigned"}
-                                </div>
-                              </a>
-                            ))}
-                          </div>
-                        )}
+                        <div>{day.label}</div>
+                        <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                          {day.holiday ? day.holiday : "Working day"}
+                        </div>
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+
+                    <div style={sideCell}>
+                      <div style={{ fontWeight: 1000 }}>{vehicle.name ?? "Vehicle"}</div>
+                      <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>{vehicle.reg_number ?? ""}</div>
+                    </div>
+
+                    {visibleDays.map((day) => {
+                      const dayItems = sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, day.key)));
+
+                      return (
+                        <div
+                          key={`${vehicle.id}-${day.key}`}
+                          style={{
+                            ...dayCell,
+                            ...(day.holiday
+                              ? {
+                                  background: "rgba(255,170,0,0.08)",
+                                  border: "1px solid rgba(255,170,0,0.18)",
+                                }
+                              : {}),
+                          }}
+                        >
+                          {dayItems.length === 0 ? (
+                            <div style={emptyState}>Free</div>
+                          ) : (
+                            <div style={{ display: "grid", gap: 8 }}>
+                              {dayItems.map((item) => (
+                                <a
+                                  key={`${item.job_id}-${day.key}`}
+                                  href={`/transport-jobs/${item.job_id}`}
+                                  style={{ ...miniJobCard, ...statusTone(item.status) }}
+                                >
+                                  <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport"}</div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.client_name ?? "No customer"}</div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.job_type ?? "—"}</div>
+                                  <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
+                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                                    {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
+                                  </div>
+                                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.collection_time ?? "—"} → {item.delivery_time ?? "—"}</div>
+                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{item.operator_name ?? "Unassigned"}</div>
+                                </a>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
             ))}
           </div>
@@ -378,12 +454,86 @@ export default function TransportPlannerBoard() {
   );
 }
 
+function MobileDayCell({
+  day,
+  items,
+  renderItem,
+}: {
+  day: PlannerDay;
+  items: PlannerItem[];
+  renderItem: (item: PlannerItem) => React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        ...mobileDayCell,
+        ...(day.holiday
+          ? {
+              background: "rgba(255,170,0,0.08)",
+              border: "1px solid rgba(255,170,0,0.18)",
+            }
+          : {}),
+      }}
+    >
+      {items.length === 0 ? <div style={emptyState}>Free</div> : <div style={{ display: "grid", gap: 8 }}>{items.map(renderItem)}</div>}
+    </div>
+  );
+}
+
+function desktopGrid(dayCount: number): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: `240px repeat(${dayCount}, minmax(180px, 1fr))`,
+    gap: 10,
+    alignItems: "stretch",
+  };
+}
+
 const toolbarStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const mobileDayPickerWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+  background: "rgba(255,255,255,0.22)",
+  border: "1px solid rgba(255,255,255,0.38)",
+  borderRadius: 16,
+  padding: 12,
+};
+
+const mobileDayTabs: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 8,
+};
+
+const mobileTabBtn: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.82)",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const mobileTabActive: React.CSSProperties = {
+  ...mobileTabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
+
+const activeDayPill: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  minWidth: 120,
 };
 
 const sectionCard: React.CSSProperties = {
@@ -424,6 +574,26 @@ const sideCell: React.CSSProperties = {
 };
 
 const dayCell: React.CSSProperties = {
+  minHeight: 120,
+  padding: 10,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const mobileRowHeader: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const mobileDayCell: React.CSSProperties = {
   minHeight: 120,
   padding: 10,
   borderRadius: 12,
