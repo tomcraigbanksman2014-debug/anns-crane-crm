@@ -12,6 +12,13 @@ function numberOrZero(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function numberOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
@@ -33,6 +40,18 @@ function countBillableDays(startDate: string, endDate: string, excludeWeekends: 
 
   return count;
 }
+
+function money(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+const INVOICE_STATUSES = [
+  "Not Invoiced",
+  "Invoiced",
+  "Part Paid",
+  "Paid",
+];
 
 async function updateJob(formData: FormData) {
   "use server";
@@ -66,9 +85,15 @@ async function updateJob(formData: FormData) {
       ? Number((pricePerDay * billableDays).toFixed(2))
       : Number(fullJobPrice.toFixed(2));
 
+  const invoiceSubtotalInput = numberOrZero(formData.get("invoice_subtotal"));
+  const invoiceSubtotal = invoiceSubtotalInput > 0 ? invoiceSubtotalInput : calculatedSubtotal;
+  const invoiceVat = Number((invoiceSubtotal * 0.2).toFixed(2));
+  const invoiceTotal = Number((invoiceSubtotal + invoiceVat).toFixed(2));
+
   const payload = {
     client_id: clean(formData.get("client_id")) || null,
     equipment_id: clean(formData.get("equipment_id")) || null,
+    supplier_id: clean(formData.get("supplier_id")) || null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
@@ -76,8 +101,8 @@ async function updateJob(formData: FormData) {
     start_date: startDate,
     end_date: endDate,
     job_date: startDate,
-    start_time: clean(formData.get("start_time")) || null,
-    end_time: clean(formData.get("end_time")) || null,
+    start_time: clean(formData.get("start_time")) || "08:00",
+    end_time: clean(formData.get("end_time")) || "16:00",
     status: clean(formData.get("status")) || "draft",
     hire_type: clean(formData.get("hire_type")) || null,
     lift_type: clean(formData.get("lift_type")) || null,
@@ -85,7 +110,16 @@ async function updateJob(formData: FormData) {
     price_mode: priceMode,
     price_per_day: priceMode === "per_day" ? pricePerDay : null,
     exclude_weekends: excludeWeekends,
-    invoice_subtotal: calculatedSubtotal,
+    invoice_status: clean(formData.get("invoice_status")) || "Not Invoiced",
+    invoice_number: clean(formData.get("invoice_number")) || null,
+    invoice_date: clean(formData.get("invoice_date")) || null,
+    invoice_due_date: clean(formData.get("invoice_due_date")) || null,
+    invoice_notes: clean(formData.get("invoice_notes")) || null,
+    invoice_subtotal: invoiceSubtotal,
+    invoice_vat: invoiceVat,
+    invoice_total: invoiceTotal,
+    total_invoice: invoiceTotal,
+    amount_paid: numberOrNull(formData.get("amount_paid")),
     updated_at: new Date().toISOString(),
   };
 
@@ -115,6 +149,7 @@ export default async function EditJobPage({
     { data: job, error: jobError },
     { data: customers, error: customersError },
     { data: equipment, error: equipmentError },
+    { data: suppliers, error: suppliersError },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -122,6 +157,7 @@ export default async function EditJobPage({
         id,
         client_id,
         equipment_id,
+        supplier_id,
         booking_id,
         site_name,
         site_address,
@@ -136,9 +172,17 @@ export default async function EditJobPage({
         hire_type,
         lift_type,
         notes,
+        invoice_status,
+        invoice_number,
+        invoice_date,
+        invoice_due_date,
+        invoice_notes,
         invoice_subtotal,
+        invoice_vat,
+        invoice_total,
         invoice_amount,
         total_invoice,
+        amount_paid,
         price_mode,
         price_per_day,
         exclude_weekends
@@ -157,6 +201,12 @@ export default async function EditJobPage({
       .select("id, name, archived")
       .eq("archived", false)
       .order("name", { ascending: true }),
+
+    supabase
+      .from("suppliers")
+      .select("id, company_name, archived")
+      .eq("archived", false)
+      .order("company_name", { ascending: true }),
   ]);
 
   const errorMessage =
@@ -164,14 +214,21 @@ export default async function EditJobPage({
     jobError?.message ||
     customersError?.message ||
     equipmentError?.message ||
+    suppliersError?.message ||
     "";
 
   const currentFullJobPrice =
     job?.invoice_subtotal ?? job?.invoice_amount ?? job?.total_invoice ?? 0;
 
+  const defaultStartTime = job?.start_time ? String(job.start_time).slice(0, 5) : "08:00";
+  const defaultEndTime = job?.end_time ? String(job.end_time).slice(0, 5) : "16:00";
+  const currentInvoiceSubtotal = job?.invoice_subtotal ?? currentFullJobPrice ?? 0;
+  const currentInvoiceVat = job?.invoice_vat ?? Number((Number(currentInvoiceSubtotal || 0) * 0.2).toFixed(2));
+  const currentInvoiceTotal = job?.invoice_total ?? job?.total_invoice ?? Number((Number(currentInvoiceSubtotal || 0) + Number(currentInvoiceVat || 0)).toFixed(2));
+
   return (
     <ClientShell>
-      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div style={topRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit Job</h1>
@@ -222,12 +279,22 @@ export default async function EditJobPage({
             <div style={grid3}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Job start date *</label>
-                <input type="date" name="start_date" defaultValue={job.start_date ?? job.job_date ?? ""} style={inputStyle} />
+                <input
+                  type="date"
+                  name="start_date"
+                  defaultValue={job.start_date ?? job.job_date ?? ""}
+                  style={inputStyle}
+                />
               </div>
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>Job end date *</label>
-                <input type="date" name="end_date" defaultValue={job.end_date ?? job.job_date ?? ""} style={inputStyle} />
+                <input
+                  type="date"
+                  name="end_date"
+                  defaultValue={job.end_date ?? job.job_date ?? ""}
+                  style={inputStyle}
+                />
               </div>
 
               <div style={fieldWrap}>
@@ -247,7 +314,7 @@ export default async function EditJobPage({
             <div style={grid2}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Start time</label>
-                <select name="start_time" defaultValue={job.start_time ? String(job.start_time).slice(0, 5) : ""} style={inputStyle}>
+                <select name="start_time" defaultValue={defaultStartTime} style={inputStyle}>
                   <option value="">Select time</option>
                   {timeOptions.map((option) => (
                     <option key={`start-${option.value}`} value={option.value}>
@@ -259,7 +326,7 @@ export default async function EditJobPage({
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>End time</label>
-                <select name="end_time" defaultValue={job.end_time ? String(job.end_time).slice(0, 5) : ""} style={inputStyle}>
+                <select name="end_time" defaultValue={defaultEndTime} style={inputStyle}>
                   <option value="">Select time</option>
                   {timeOptions.map((option) => (
                     <option key={`end-${option.value}`} value={option.value}>
@@ -307,7 +374,7 @@ export default async function EditJobPage({
             <section style={pricingBox}>
               <h3 style={pricingHeading}>Pricing</h3>
 
-              <div style={grid2}>
+              <div style={grid4}>
                 <div style={fieldWrap}>
                   <label style={labelStyle}>Price mode</label>
                   <select name="price_mode" defaultValue={job.price_mode ?? "full_job"} style={inputStyle}>
@@ -316,16 +383,6 @@ export default async function EditJobPage({
                   </select>
                 </div>
 
-                <div style={fieldWrap}>
-                  <label style={labelStyle}>Exclude weekends on multi-day jobs</label>
-                  <label style={checkboxRow}>
-                    <input type="checkbox" name="exclude_weekends" defaultChecked={Boolean(job.exclude_weekends)} />
-                    Free up weekends and continue the job after
-                  </label>
-                </div>
-              </div>
-
-              <div style={grid2}>
                 <div style={fieldWrap}>
                   <label style={labelStyle}>Full job price</label>
                   <input
@@ -343,10 +400,137 @@ export default async function EditJobPage({
                     name="price_per_day"
                     type="number"
                     step="0.01"
-                    defaultValue={job.price_per_day != null ? String(job.price_per_day) : ""}
+                    defaultValue={job.price_per_day != null ? String(job.price_per_day) : "0"}
                     style={inputStyle}
                   />
                 </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Invoice subtotal</label>
+                  <input
+                    name="invoice_subtotal"
+                    type="number"
+                    step="0.01"
+                    defaultValue={String(currentInvoiceSubtotal ?? 0)}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={detailsSummaryRow}>
+                <label style={checkboxRow}>
+                  <input type="checkbox" name="exclude_weekends" defaultChecked={Boolean(job.exclude_weekends)} />
+                  Free up weekends and continue the job after
+                </label>
+              </div>
+            </section>
+
+            <details style={detailsBox}>
+              <summary style={detailsSummary}>Cross-hire / supplier details</summary>
+
+              <div style={{ marginTop: 14 }}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Primary supplier</label>
+                  <select name="supplier_id" defaultValue={job.supplier_id ?? ""} style={inputStyle}>
+                    <option value="">No primary supplier</option>
+                    {(suppliers ?? []).map((supplier: any) => (
+                      <option key={supplier.id} value={supplier.id}>
+                        {supplier.company_name ?? "Unnamed supplier"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </details>
+
+            <section style={pricingBox}>
+              <h3 style={pricingHeading}>Invoice</h3>
+
+              <div style={grid4}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Invoice status</label>
+                  <select
+                    name="invoice_status"
+                    defaultValue={job.invoice_status ?? "Not Invoiced"}
+                    style={inputStyle}
+                  >
+                    {INVOICE_STATUSES.map((status) => (
+                      <option key={status} value={status}>
+                        {status}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Invoice number</label>
+                  <input
+                    name="invoice_number"
+                    defaultValue={job.invoice_number ?? ""}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Invoice date</label>
+                  <input
+                    type="date"
+                    name="invoice_date"
+                    defaultValue={job.invoice_date ?? ""}
+                    style={inputStyle}
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Due date</label>
+                  <input
+                    type="date"
+                    name="invoice_due_date"
+                    defaultValue={job.invoice_due_date ?? ""}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={grid3}>
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>VAT</label>
+                  <input
+                    value={String(currentInvoiceVat ?? 0)}
+                    readOnly
+                    style={{ ...inputStyle, background: "rgba(255,255,255,0.7)" }}
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Invoice total</label>
+                  <input
+                    value={String(currentInvoiceTotal ?? 0)}
+                    readOnly
+                    style={{ ...inputStyle, background: "rgba(255,255,255,0.7)" }}
+                  />
+                </div>
+
+                <div style={fieldWrap}>
+                  <label style={labelStyle}>Amount paid</label>
+                  <input
+                    name="amount_paid"
+                    type="number"
+                    step="0.01"
+                    defaultValue={job.amount_paid != null ? String(job.amount_paid) : ""}
+                    style={inputStyle}
+                  />
+                </div>
+              </div>
+
+              <div style={fieldWrap}>
+                <label style={labelStyle}>Invoice notes</label>
+                <textarea
+                  name="invoice_notes"
+                  defaultValue={job.invoice_notes ?? ""}
+                  rows={4}
+                  style={textareaStyle}
+                />
               </div>
             </section>
 
@@ -416,6 +600,12 @@ const grid3: React.CSSProperties = {
   gap: 12,
 };
 
+const grid4: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
 const fieldWrap: React.CSSProperties = {
   display: "grid",
   gap: 6,
@@ -432,7 +622,7 @@ const inputStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.9)",
+  background: "rgba(255,255,255,0.88)",
   boxSizing: "border-box",
 };
 
@@ -441,37 +631,58 @@ const textareaStyle: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.9)",
+  background: "rgba(255,255,255,0.88)",
   boxSizing: "border-box",
   resize: "vertical",
 };
 
 const pricingBox: React.CSSProperties = {
+  background: "rgba(255,255,255,0.28)",
+  borderRadius: 14,
+  padding: 16,
+  border: "1px solid rgba(255,255,255,0.35)",
   display: "grid",
   gap: 12,
-  padding: 14,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
-  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const pricingHeading: React.CSSProperties = {
   margin: 0,
   fontSize: 18,
+  fontWeight: 900,
+};
+
+const detailsBox: React.CSSProperties = {
+  background: "rgba(255,255,255,0.28)",
+  borderRadius: 14,
+  padding: 16,
+  border: "1px solid rgba(255,255,255,0.35)",
+};
+
+const detailsSummary: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  fontSize: 16,
+};
+
+const detailsSummaryRow: React.CSSProperties = {
+  display: "flex",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
 };
 
 const checkboxRow: React.CSSProperties = {
   display: "flex",
-  gap: 10,
+  gap: 8,
   alignItems: "center",
-  minHeight: 42,
+  fontSize: 14,
+  fontWeight: 700,
 };
 
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 800,
@@ -483,9 +694,9 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
+  textDecoration: "none",
 };
