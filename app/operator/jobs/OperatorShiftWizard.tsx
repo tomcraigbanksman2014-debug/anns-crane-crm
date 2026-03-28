@@ -1,8 +1,6 @@
-
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { createSupabaseBrowserClient } from "../../lib/supabase/browser";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type SiteOption = {
   kind: "job" | "transport";
@@ -57,49 +55,160 @@ function issueLabel(value: string) {
   return value;
 }
 
+const SIGNATURE_HEIGHT = 160;
+
 function SignaturePad({ onChange }: { onChange: (data: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawingRef = useRef(false);
+  const hasInkRef = useRef(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
+
+  const resizeCanvas = useCallback((preserveDrawing: boolean) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const currentData =
+      preserveDrawing && hasInkRef.current ? canvas.toDataURL("image/png") : "";
+
+    const rect = canvas.getBoundingClientRect();
+    const cssWidth = Math.max(Math.round(rect.width || canvas.parentElement?.clientWidth || 320), 1);
+    const cssHeight = SIGNATURE_HEIGHT;
+    const dpr = typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 1) : 1;
+
+    canvas.width = Math.round(cssWidth * dpr);
+    canvas.height = Math.round(cssHeight * dpr);
+    canvas.style.width = `${cssWidth}px`;
+    canvas.style.height = `${cssHeight}px`;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.lineWidth = 2.2 * dpr;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#111";
+
+    if (currentData) {
+      const img = new Image();
+      img.onload = () => {
+        const ctx2 = canvas.getContext("2d");
+        if (!ctx2) return;
+        ctx2.clearRect(0, 0, canvas.width, canvas.height);
+        ctx2.drawImage(img, 0, 0, canvas.width, canvas.height);
+      };
+      img.src = currentData;
+    }
+  }, []);
+
+  useEffect(() => {
+    resizeCanvas(false);
+
+    const handleResize = () => {
+      resizeCanvas(true);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [resizeCanvas]);
 
   function point(e: React.PointerEvent<HTMLCanvasElement>) {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
+
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const scaleX = rect.width > 0 ? canvas.width / rect.width : 1;
+    const scaleY = rect.height > 0 ? canvas.height / rect.height : 1;
+
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  }
+
+  function emitSignature() {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    onChange(hasInkRef.current ? canvas.toDataURL("image/png") : "");
   }
 
   function begin(e: React.PointerEvent<HTMLCanvasElement>) {
+    e.preventDefault();
+
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
+
     const p = point(e);
     drawingRef.current = true;
-    ctx.lineWidth = 2.2;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "#111";
+    lastPointRef.current = p;
+    hasInkRef.current = true;
+
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {}
+
     ctx.beginPath();
     ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
   }
 
   function move(e: React.PointerEvent<HTMLCanvasElement>) {
     if (!drawingRef.current) return;
+
+    e.preventDefault();
+
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
+
     const p = point(e);
+    const last = lastPointRef.current;
+
+    if (!last) {
+      lastPointRef.current = p;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+      return;
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
     ctx.lineTo(p.x, p.y);
     ctx.stroke();
-    onChange(canvas.toDataURL("image/png"));
+
+    lastPointRef.current = p;
   }
 
-  function end() {
+  function end(e?: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+
     drawingRef.current = false;
+    lastPointRef.current = null;
+
+    const canvas = canvasRef.current;
+    if (canvas && e) {
+      try {
+        canvas.releasePointerCapture(e.pointerId);
+      } catch {}
+    }
+
+    emitSignature();
   }
 
   function clear() {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
+
+    hasInkRef.current = false;
+    drawingRef.current = false;
+    lastPointRef.current = null;
+
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     onChange("");
   }
@@ -108,15 +217,24 @@ function SignaturePad({ onChange }: { onChange: (data: string) => void }) {
     <div style={{ display: "grid", gap: 8 }}>
       <canvas
         ref={canvasRef}
-        width={700}
-        height={220}
         onPointerDown={begin}
         onPointerMove={move}
         onPointerUp={end}
+        onPointerCancel={end}
         onPointerLeave={end}
-        style={{ width: "100%", height: 160, background: "#fff", border: "1px solid rgba(0,0,0,0.12)", borderRadius: 12, touchAction: "none" }}
+        style={{
+          width: "100%",
+          height: SIGNATURE_HEIGHT,
+          display: "block",
+          background: "#fff",
+          border: "1px solid rgba(0,0,0,0.12)",
+          borderRadius: 12,
+          touchAction: "none",
+        }}
       />
-      <button type="button" onClick={clear} style={ghostBtn}>Clear signature</button>
+      <button type="button" onClick={clear} style={ghostBtn}>
+        Clear signature
+      </button>
     </div>
   );
 }
@@ -130,7 +248,6 @@ export default function OperatorShiftWizard({
   assignedSites: SiteOption[];
   activeShift: ActiveShift;
 }) {
-  const supabase = createSupabaseBrowserClient();
   const [mode, setMode] = useState<"start" | "end" | null>(null);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -147,7 +264,11 @@ export default function OperatorShiftWizard({
   const [endIssueType, setEndIssueType] = useState("no_issues");
   const [endIssueNotes, setEndIssueNotes] = useState("");
 
-  const selectedSite = useMemo(() => assignedSites.find((x) => `${x.kind}:${x.id}` === selectedSiteKey) ?? null, [assignedSites, selectedSiteKey]);
+  const selectedSite = useMemo(
+    () => assignedSites.find((x) => `${x.kind}:${x.id}` === selectedSiteKey) ?? null,
+    [assignedSites, selectedSiteKey]
+  );
+
   const resolvedSiteText = selectedSite ? selectedSite.siteText : manualSite.trim();
 
   function resetState(nextMode: "start" | "end") {
@@ -173,6 +294,7 @@ export default function OperatorShiftWizard({
       setMsg("This device does not support location.");
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLat(pos.coords.latitude);
@@ -250,17 +372,25 @@ export default function OperatorShiftWizard({
     };
 
     try {
-      const res = await fetch(mode === "start" ? "/api/operator/shifts" : `/api/operator/shifts/${activeShift?.id}/end`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        mode === "start"
+          ? "/api/operator/shifts"
+          : `/api/operator/shifts/${activeShift?.id}/end`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
+
       const data = await res.json().catch(() => ({}));
+
       if (!res.ok) {
         setMsg(data?.error || "Could not save shift.");
         setBusy(false);
         return;
       }
+
       window.location.reload();
     } catch {
       setMsg("Could not save shift.");
@@ -273,13 +403,26 @@ export default function OperatorShiftWizard({
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={dashCard}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           <div>
             <div style={{ fontSize: 13, opacity: 0.72 }}>Operator</div>
             <div style={{ fontWeight: 900, fontSize: 22 }}>{operatorName}</div>
             {activeShift ? (
               <div style={{ marginTop: 6, fontSize: 14, opacity: 0.8 }}>
-                Day started at {new Date(activeShift.started_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                Day started at{" "}
+                {new Date(activeShift.started_at).toLocaleTimeString("en-GB", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })}
               </div>
             ) : null}
           </div>
@@ -287,30 +430,54 @@ export default function OperatorShiftWizard({
 
         <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
           {!activeShift ? (
-            <button type="button" onClick={() => resetState("start")} style={greenBtn}>Start Day Now</button>
+            <button type="button" onClick={() => resetState("start")} style={greenBtn}>
+              Start Day Now
+            </button>
           ) : (
-            <button type="button" onClick={() => resetState("end")} style={blueBtn}>Stop Work</button>
+            <button type="button" onClick={() => resetState("end")} style={blueBtn}>
+              Stop Work
+            </button>
           )}
-          <a href="/operator/shifts" style={blueLinkBtn}>Shifts</a>
-          <a href="/operator/documents" style={blueLinkBtn}>Documents</a>
+          <a href="/operator/shifts" style={blueLinkBtn}>
+            Shifts
+          </a>
+          <a href="/operator/documents" style={blueLinkBtn}>
+            Documents
+          </a>
         </div>
       </div>
 
       {mode ? (
         <div style={wizardCard}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             <div>
-              <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{mode === "start" ? "START SHIFT" : "END SHIFT"}</div>
-              <h2 style={{ margin: "6px 0 0", fontSize: 28 }}>{[
-                mode === "start" ? "Pinpoint location" : "Confirm end location",
-                "Confirm location",
-                "Site working at",
-                mode === "start" ? "Take photo" : "End photo",
-                mode === "start" ? "Safety checks" : "End of shift",
-                "Signature",
-              ][step]}</h2>
+              <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>
+                {mode === "start" ? "START SHIFT" : "END SHIFT"}
+              </div>
+              <h2 style={{ margin: "6px 0 0", fontSize: 28 }}>
+                {
+                  [
+                    mode === "start" ? "Pinpoint location" : "Confirm end location",
+                    "Confirm location",
+                    "Site working at",
+                    mode === "start" ? "Take photo" : "End photo",
+                    mode === "start" ? "Safety checks" : "End of shift",
+                    "Signature",
+                  ][step]
+                }
+              </h2>
             </div>
-            <button type="button" onClick={() => setMode(null)} style={redBtn}>Cancel</button>
+            <button type="button" onClick={() => setMode(null)} style={redBtn}>
+              Cancel
+            </button>
           </div>
 
           {msg ? <div style={errorBox}>{msg}</div> : null}
@@ -322,47 +489,101 @@ export default function OperatorShiftWizard({
                   ? "Allow your phone to pinpoint your current location before starting work."
                   : "Confirm your location before ending your shift."}
               </div>
-              <button type="button" onClick={requestLocation} style={greenBtn}>Search</button>
+              <button type="button" onClick={requestLocation} style={greenBtn}>
+                Search
+              </button>
             </div>
           ) : null}
 
           {step === 1 ? (
             <div style={{ marginTop: 18, display: "grid", gap: 14 }}>
-              <div style={{ fontSize: 16 }}>Accuracy: {accuracy != null ? `+/- ${accuracy.toFixed(1)}m` : "—"}</div>
+              <div style={{ fontSize: 16 }}>
+                Accuracy: {accuracy != null ? `+/- ${accuracy.toFixed(1)}m` : "—"}
+              </div>
               {lat != null && lng != null ? (
-                <iframe src={embedMapUrl(lat, lng)} style={{ width: "100%", height: 280, border: "1px solid rgba(0,0,0,0.1)", borderRadius: 12 }} />
+                <iframe
+                  src={embedMapUrl(lat, lng)}
+                  style={{
+                    width: "100%",
+                    height: 280,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                    borderRadius: 12,
+                  }}
+                />
               ) : null}
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="button" onClick={() => setStep(2)} style={greenBtn}>Next</button>
-                <button type="button" onClick={requestLocation} style={ghostBtn}>Search again</button>
+                <button type="button" onClick={() => setStep(2)} style={greenBtn}>
+                  Next
+                </button>
+                <button type="button" onClick={requestLocation} style={ghostBtn}>
+                  Search again
+                </button>
               </div>
             </div>
           ) : null}
 
           {step === 2 ? (
             <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
-              <div style={{ fontSize: 16, lineHeight: 1.45 }}>Select today’s job/site first, or enter a site manually.</div>
-              <select value={selectedSiteKey} onChange={(e) => setSelectedSiteKey(e.target.value)} style={inputStyle}>
+              <div style={{ fontSize: 16, lineHeight: 1.45 }}>
+                Select today’s job/site first, or enter a site manually.
+              </div>
+              <select
+                value={selectedSiteKey}
+                onChange={(e) => setSelectedSiteKey(e.target.value)}
+                style={inputStyle}
+              >
                 <option value="">Manual site entry</option>
                 {assignedSites.map((site) => (
-                  <option key={`${site.kind}:${site.id}`} value={`${site.kind}:${site.id}`}>{site.label}</option>
+                  <option key={`${site.kind}:${site.id}`} value={`${site.kind}:${site.id}`}>
+                    {site.label}
+                  </option>
                 ))}
               </select>
               {!selectedSite ? (
-                <input value={manualSite} onChange={(e) => setManualSite(e.target.value)} placeholder="Enter site working at" style={inputStyle} />
+                <input
+                  value={manualSite}
+                  onChange={(e) => setManualSite(e.target.value)}
+                  placeholder="Enter site working at"
+                  style={inputStyle}
+                />
               ) : (
                 <div style={softBox}>{selectedSite.siteText}</div>
               )}
-              <button type="button" onClick={() => setStep(3)} style={greenBtn}>Next</button>
+              <button type="button" onClick={() => setStep(3)} style={greenBtn}>
+                Next
+              </button>
             </div>
           ) : null}
 
           {step === 3 ? (
             <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
-              <div style={{ fontSize: 16 }}>{mode === "start" ? "Take a photograph of yourself." : "Take an end of shift photograph."}</div>
-              {photoData ? <img src={photoData} alt="Shift capture" style={{ width: "100%", maxHeight: 420, objectFit: "cover", borderRadius: 12, border: "1px solid rgba(0,0,0,0.1)" }} /> : null}
-              <input type="file" accept="image/*" capture="user" onChange={(e) => onPickPhoto(e.target.files?.[0] ?? null)} />
-              <button type="button" onClick={() => setStep(4)} style={greenBtn}>Next</button>
+              <div style={{ fontSize: 16 }}>
+                {mode === "start"
+                  ? "Take a photograph of yourself."
+                  : "Take an end of shift photograph."}
+              </div>
+              {photoData ? (
+                <img
+                  src={photoData}
+                  alt="Shift capture"
+                  style={{
+                    width: "100%",
+                    maxHeight: 420,
+                    objectFit: "cover",
+                    borderRadius: 12,
+                    border: "1px solid rgba(0,0,0,0.1)",
+                  }}
+                />
+              ) : null}
+              <input
+                type="file"
+                accept="image/*"
+                capture="user"
+                onChange={(e) => onPickPhoto(e.target.files?.[0] ?? null)}
+              />
+              <button type="button" onClick={() => setStep(4)} style={greenBtn}>
+                Next
+              </button>
             </div>
           ) : null}
 
@@ -375,16 +596,27 @@ export default function OperatorShiftWizard({
               ].map((text, idx) => {
                 const key = `check_${idx + 1}`;
                 const checked = safetyChecks.includes(key);
+
                 return (
                   <label key={key} style={checkRow}>
-                    <input type="checkbox" checked={checked} onChange={(e) => {
-                      setSafetyChecks((current) => e.target.checked ? [...current, key] : current.filter((x) => x !== key));
-                    }} />
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        setSafetyChecks((current) =>
+                          e.target.checked
+                            ? [...current, key]
+                            : current.filter((x) => x !== key)
+                        );
+                      }}
+                    />
                     <span>{text}</span>
                   </label>
                 );
               })}
-              <button type="button" onClick={() => setStep(5)} style={greenBtn}>Next</button>
+              <button type="button" onClick={() => setStep(5)} style={greenBtn}>
+                Next
+              </button>
             </div>
           ) : null}
 
@@ -394,25 +626,53 @@ export default function OperatorShiftWizard({
               <div style={{ display: "grid", gap: 10 }}>
                 {issues.map((issue) => (
                   <label key={issue} style={checkRow}>
-                    <input type="radio" name="end_issue_type" checked={endIssueType === issue} onChange={() => setEndIssueType(issue)} />
+                    <input
+                      type="radio"
+                      name="end_issue_type"
+                      checked={endIssueType === issue}
+                      onChange={() => setEndIssueType(issue)}
+                    />
                     <span>{issueLabel(issue)}</span>
                   </label>
                 ))}
               </div>
               {endIssueType === "other" ? (
-                <textarea value={endIssueNotes} onChange={(e) => setEndIssueNotes(e.target.value)} rows={4} placeholder="Enter details" style={textareaStyle} />
+                <textarea
+                  value={endIssueNotes}
+                  onChange={(e) => setEndIssueNotes(e.target.value)}
+                  rows={4}
+                  placeholder="Enter details"
+                  style={textareaStyle}
+                />
               ) : (
-                <textarea value={endIssueNotes} onChange={(e) => setEndIssueNotes(e.target.value)} rows={4} placeholder="Optional notes" style={textareaStyle} />
+                <textarea
+                  value={endIssueNotes}
+                  onChange={(e) => setEndIssueNotes(e.target.value)}
+                  rows={4}
+                  placeholder="Optional notes"
+                  style={textareaStyle}
+                />
               )}
-              <button type="button" onClick={() => setStep(5)} style={greenBtn}>Next</button>
+              <button type="button" onClick={() => setStep(5)} style={greenBtn}>
+                Next
+              </button>
             </div>
           ) : null}
 
           {step === 5 ? (
             <div style={{ marginTop: 18, display: "grid", gap: 12 }}>
-              <div style={{ fontSize: 16 }}>Sign to {mode === "start" ? "start" : "finish"} your shift.</div>
+              <div style={{ fontSize: 16 }}>
+                Sign to {mode === "start" ? "start" : "finish"} your shift.
+              </div>
               <SignaturePad onChange={setSignatureData} />
-              <button type="button" onClick={submit} disabled={busy} style={busy ? disabledBtn : greenBtn}>{busy ? "Saving..." : mode === "start" ? "Start shift" : "End shift"}</button>
+              <button
+                type="button"
+                onClick={submit}
+                disabled={busy}
+                style={busy ? disabledBtn : greenBtn}
+              >
+                {busy ? "Saving..." : mode === "start" ? "Start shift" : "End shift"}
+              </button>
             </div>
           ) : null}
         </div>
@@ -497,7 +757,11 @@ const ghostBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const disabledBtn: React.CSSProperties = { ...greenBtn, opacity: 0.6, cursor: "not-allowed" };
+const disabledBtn: React.CSSProperties = {
+  ...greenBtn,
+  opacity: 0.6,
+  cursor: "not-allowed",
+};
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
