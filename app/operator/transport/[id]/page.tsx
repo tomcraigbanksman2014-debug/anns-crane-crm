@@ -1,6 +1,29 @@
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import OperatorTransportDocumentUpload from "./OperatorTransportDocumentUpload";
+import { redirect } from "next/navigation";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -33,7 +56,6 @@ function prettyDocumentType(value: string | null | undefined) {
 function matchesOperatorLogin(authEmail: string, operator: any) {
   const email = String(authEmail ?? "").trim().toLowerCase();
   const username = email.includes("@") ? email.split("@")[0] : email;
-
   const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
   const operatorEmailUsername = operatorEmail.includes("@")
     ? operatorEmail.split("@")[0]
@@ -47,12 +69,18 @@ function matchesOperatorLogin(authEmail: string, operator: any) {
   );
 }
 
+function hrefFor(path: string | null | undefined) {
+  if (!path || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${path}`;
+}
+
 export default async function OperatorTransportJobPage({
   params,
 }: {
   params: { id: string };
 }) {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -60,18 +88,12 @@ export default async function OperatorTransportJobPage({
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return (
-      <ClientShell>
-        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
-          <div style={errorBox}>Not signed in.</div>
-        </div>
-      </ClientShell>
-    );
+    redirect(`/login?next=/operator/transport/${params.id}`);
   }
 
   const authEmail = String(user.email ?? "").trim().toLowerCase();
 
-  const { data: operators, error: operatorsError } = await supabase
+  const { data: operators, error: operatorsError } = await admin
     .from("operators")
     .select("id, full_name, email, status")
     .eq("status", "active");
@@ -101,7 +123,7 @@ export default async function OperatorTransportJobPage({
 
   const [{ data: job, error: jobError }, { data: documents, error: docsError }] =
     await Promise.all([
-      supabase
+      admin
         .from("transport_jobs")
         .select(`
           id,
@@ -127,9 +149,11 @@ export default async function OperatorTransportJobPage({
         .eq("id", params.id)
         .single(),
 
-      supabase
+      admin
         .from("transport_job_documents")
-        .select("id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator")
+        .select(
+          "id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator"
+        )
         .eq("transport_job_id", params.id)
         .order("created_at", { ascending: false }),
     ]);
@@ -164,8 +188,8 @@ export default async function OperatorTransportJobPage({
     );
   }
 
-  const vehicle = Array.isArray((job as any).vehicles) ? (job as any).vehicles[0] : (job as any).vehicles;
-  const client = Array.isArray((job as any).clients) ? (job as any).clients[0] : (job as any).clients;
+  const vehicle = first((job as any).vehicles);
+  const client = first((job as any).clients);
 
   const visibleDocuments = ((documents ?? []) as any[]).filter((doc: any) => {
     const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
@@ -223,7 +247,9 @@ export default async function OperatorTransportJobPage({
           </div>
 
           <div style={docSection}>
-            <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>Transport Documents</h2>
+            <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>
+              Transport Documents
+            </h2>
 
             <OperatorTransportDocumentUpload transportJobId={(job as any).id} />
 
@@ -232,22 +258,30 @@ export default async function OperatorTransportJobPage({
                 <div style={infoBox}>No shared or uploaded documents yet.</div>
               ) : (
                 visibleDocuments.map((doc: any) => {
-                  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${doc.file_path}`;
-                  const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
+                  const uploadedByCurrentUser =
+                    String(doc.uploaded_by ?? "") === String(user.id);
 
                   return (
                     <a
                       key={doc.id}
-                      href={href}
+                      href={hrefFor(doc.file_path)}
                       target="_blank"
                       rel="noreferrer"
                       style={docCard}
                     >
                       <div style={{ fontWeight: 800 }}>{doc.file_name}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                        {prettyDocumentType(doc.document_type)} • Uploaded: {fmtDateTime(doc.created_at)}
+                        {prettyDocumentType(doc.document_type)} • Uploaded:{" "}
+                        {fmtDateTime(doc.created_at)}
                       </div>
-                      <div style={{ marginTop: 6, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <div
+                        style={{
+                          marginTop: 6,
+                          display: "flex",
+                          gap: 8,
+                          flexWrap: "wrap",
+                        }}
+                      >
                         {uploadedByCurrentUser ? (
                           <span style={pillNeutral}>Your upload</span>
                         ) : null}
