@@ -71,9 +71,15 @@ function SignaturePad({ onChange }: { onChange: (data: string) => void }) {
       preserveDrawing && hasInkRef.current ? canvas.toDataURL("image/png") : "";
 
     const rect = canvas.getBoundingClientRect();
-    const cssWidth = Math.max(Math.round(rect.width || canvas.parentElement?.clientWidth || 320), 1);
+    const cssWidth = Math.max(
+      Math.round(rect.width || canvas.parentElement?.clientWidth || 320),
+      1
+    );
     const cssHeight = SIGNATURE_HEIGHT;
-    const dpr = typeof window !== "undefined" ? Math.max(window.devicePixelRatio || 1, 1) : 1;
+    const dpr =
+      typeof window !== "undefined"
+        ? Math.max(window.devicePixelRatio || 1, 1)
+        : 1;
 
     canvas.width = Math.round(cssWidth * dpr);
     canvas.height = Math.round(cssHeight * dpr);
@@ -248,6 +254,8 @@ export default function OperatorShiftWizard({
   assignedSites: SiteOption[];
   activeShift: ActiveShift;
 }) {
+  const [currentActiveShift, setCurrentActiveShift] =
+    useState<ActiveShift>(activeShift);
   const [mode, setMode] = useState<"start" | "end" | null>(null);
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -264,6 +272,10 @@ export default function OperatorShiftWizard({
   const [endIssueType, setEndIssueType] = useState("no_issues");
   const [endIssueNotes, setEndIssueNotes] = useState("");
 
+  useEffect(() => {
+    setCurrentActiveShift(activeShift);
+  }, [activeShift]);
+
   const selectedSite = useMemo(
     () => assignedSites.find((x) => `${x.kind}:${x.id}` === selectedSiteKey) ?? null,
     [assignedSites, selectedSiteKey]
@@ -271,8 +283,8 @@ export default function OperatorShiftWizard({
 
   const resolvedSiteText = selectedSite ? selectedSite.siteText : manualSite.trim();
 
-  function resetState(nextMode: "start" | "end") {
-    setMode(nextMode);
+  function closeWizard() {
+    setMode(null);
     setStep(0);
     setBusy(false);
     setMsg("");
@@ -286,6 +298,11 @@ export default function OperatorShiftWizard({
     setSafetyChecks([]);
     setEndIssueType("no_issues");
     setEndIssueNotes("");
+  }
+
+  function resetState(nextMode: "start" | "end") {
+    closeWizard();
+    setMode(nextMode);
   }
 
   function requestLocation() {
@@ -375,7 +392,7 @@ export default function OperatorShiftWizard({
       const res = await fetch(
         mode === "start"
           ? "/api/operator/shifts"
-          : `/api/operator/shifts/${activeShift?.id}/end`,
+          : `/api/operator/shifts/${currentActiveShift?.id}/end`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -391,7 +408,25 @@ export default function OperatorShiftWizard({
         return;
       }
 
-      window.location.reload();
+      if (mode === "start") {
+        setCurrentActiveShift(
+          data?.shift
+            ? {
+                id: data.shift.id,
+                started_at: data.shift.started_at,
+                start_site_text: data.shift.start_site_text ?? resolvedSiteText,
+              }
+            : {
+                id: "started",
+                started_at: new Date().toISOString(),
+                start_site_text: resolvedSiteText,
+              }
+        );
+      } else {
+        setCurrentActiveShift(null);
+      }
+
+      closeWizard();
     } catch {
       setMsg("Could not save shift.");
       setBusy(false);
@@ -415,10 +450,10 @@ export default function OperatorShiftWizard({
           <div>
             <div style={{ fontSize: 13, opacity: 0.72 }}>Operator</div>
             <div style={{ fontWeight: 900, fontSize: 22 }}>{operatorName}</div>
-            {activeShift ? (
+            {currentActiveShift ? (
               <div style={{ marginTop: 6, fontSize: 14, opacity: 0.8 }}>
                 Day started at{" "}
-                {new Date(activeShift.started_at).toLocaleTimeString("en-GB", {
+                {new Date(currentActiveShift.started_at).toLocaleTimeString("en-GB", {
                   hour: "2-digit",
                   minute: "2-digit",
                   second: "2-digit",
@@ -429,13 +464,13 @@ export default function OperatorShiftWizard({
         </div>
 
         <div style={{ display: "grid", gap: 14, marginTop: 18 }}>
-          {!activeShift ? (
+          {!currentActiveShift ? (
             <button type="button" onClick={() => resetState("start")} style={greenBtn}>
-              Start Day Now
+              Start Shift
             </button>
           ) : (
             <button type="button" onClick={() => resetState("end")} style={blueBtn}>
-              Stop Work
+              End Shift
             </button>
           )}
           <a href="/operator/shifts" style={blueLinkBtn}>
@@ -475,7 +510,7 @@ export default function OperatorShiftWizard({
                 }
               </h2>
             </div>
-            <button type="button" onClick={() => setMode(null)} style={redBtn}>
+            <button type="button" onClick={closeWizard} style={redBtn}>
               Cancel
             </button>
           </div>
@@ -671,7 +706,7 @@ export default function OperatorShiftWizard({
                 disabled={busy}
                 style={busy ? disabledBtn : greenBtn}
               >
-                {busy ? "Saving..." : mode === "start" ? "Start shift" : "End shift"}
+                {busy ? "Saving..." : mode === "start" ? "Start Shift" : "End Shift"}
               </button>
             </div>
           ) : null}
