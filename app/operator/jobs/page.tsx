@@ -1,9 +1,26 @@
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import OperatorTransportTracker from "../transport/OperatorTransportTracker";
 import OperatorSignOutButton from "./OperatorSignOutButton";
 import OperatorShiftWizard from "./OperatorShiftWizard";
 import { redirect } from "next/navigation";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -148,6 +165,7 @@ function displayAsset(job: any) {
 
 export default async function OperatorJobsPage() {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -161,7 +179,7 @@ export default async function OperatorJobsPage() {
   const authEmail = String(user.email ?? "").trim().toLowerCase();
   const username = fromAuthEmail(user.email ?? null).toLowerCase();
 
-  const { data: operators, error: operatorsError } = await supabase
+  const { data: operators, error: operatorsError } = await admin
     .from("operators")
     .select("id, full_name, email, status")
     .eq("status", "active")
@@ -212,7 +230,7 @@ export default async function OperatorJobsPage() {
   const [
     { data: jobs, error: jobsError },
     { data: transportJobs, error: transportJobsError },
-    { data: activeShift },
+    { data: activeShift, error: activeShiftError },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -297,7 +315,7 @@ export default async function OperatorJobsPage() {
       .order("transport_date", { ascending: true })
       .order("collection_time", { ascending: true }),
 
-    supabase
+    admin
       .from("operator_shift_sessions")
       .select("id, started_at, start_site_text")
       .eq("operator_id", operator.id)
@@ -344,6 +362,8 @@ export default async function OperatorJobsPage() {
             </div>
             <OperatorSignOutButton />
           </div>
+
+          {activeShiftError ? <div style={errorBox}>{activeShiftError.message}</div> : null}
 
           <div style={{ marginTop: 18 }}>
             <OperatorShiftWizard
@@ -623,41 +643,44 @@ const errorBox: React.CSSProperties = {
 };
 
 const jobCard: React.CSSProperties = {
-  padding: 14,
+  padding: 16,
   borderRadius: 14,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.58)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const transportCard: React.CSSProperties = {
-  padding: 14,
+  padding: 16,
   borderRadius: 14,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.58)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const sectionBlock: React.CSSProperties = {
-  marginTop: 10,
+  marginTop: 12,
 };
 
 const rowLabel: React.CSSProperties = {
   fontSize: 12,
+  fontWeight: 900,
+  letterSpacing: 0.3,
+  textTransform: "uppercase",
   opacity: 0.72,
-  fontWeight: 800,
 };
 
 const rowValue: React.CSSProperties = {
   marginTop: 4,
-  fontSize: 15,
+  fontSize: 16,
   fontWeight: 700,
+  lineHeight: 1.4,
 };
 
 const openBtn: React.CSSProperties = {
   display: "inline-block",
-  padding: "10px 12px",
-  borderRadius: 10,
-  textDecoration: "none",
-  background: "#111",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "#2f4fbc",
   color: "#fff",
-  fontWeight: 800,
+  fontWeight: 900,
+  textDecoration: "none",
 };
