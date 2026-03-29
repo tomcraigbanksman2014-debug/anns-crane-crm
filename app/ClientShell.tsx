@@ -14,6 +14,30 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
+function normaliseRole(value: unknown): "admin" | "staff" | "operator" | "" {
+  const role = String(value ?? "").trim().toLowerCase();
+  if (role === "admin" || role === "staff" || role === "operator") {
+    return role;
+  }
+  return "";
+}
+
 function isOperatorArea(pathname: string) {
   return pathname.startsWith("/operator");
 }
@@ -48,7 +72,7 @@ export default function ClientShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const supabase = createSupabaseBrowserClient();
+  const supabase = useMemo(() => createSupabaseBrowserClient(), []);
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
@@ -68,6 +92,41 @@ export default function ClientShell({
 
   useEffect(() => {
     let mounted = true;
+
+    async function resolveRoleForUser(user: any) {
+      const email = String(user.email ?? "").trim().toLowerCase();
+      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
+
+      const masterAdminEmail = String(
+        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
+      let resolvedRole: "admin" | "staff" | "operator" | "" = isMaster
+        ? "admin"
+        : normaliseRole(user.user_metadata?.role);
+
+      if (!isMaster && resolvedRole !== "admin") {
+        const { data: operators } = await supabase
+          .from("operators")
+          .select("id, full_name, email, status")
+          .eq("status", "active");
+
+        const matchedOperator =
+          (operators ?? []).find((op: any) => matchesOperatorLogin(email, op)) ?? null;
+
+        if (matchedOperator) {
+          resolvedRole = "operator";
+        }
+      }
+
+      return {
+        resolvedRole,
+        usernameFromEmail,
+      };
+    }
 
     async function load() {
       const { data, error } = await supabase.auth.getUser();
@@ -90,48 +149,16 @@ export default function ClientShell({
         return;
       }
 
+      const { resolvedRole, usernameFromEmail } = await resolveRoleForUser(user);
+
+      if (!mounted) return;
+
       if (!mustChangePassword && pathname === "/change-password") {
-        window.location.href = "/";
+        window.location.href = resolvedRole === "operator" ? "/operator/jobs" : "/";
         return;
       }
 
-      const email = String(user.email ?? "").trim().toLowerCase();
-      const usernameFromEmail = fromAuthEmail(user.email ?? null).toLowerCase();
-
-      const masterAdminEmail = String(
-        process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ?? ""
-      )
-        .trim()
-        .toLowerCase();
-
-      const isMaster = !!email && !!masterAdminEmail && email === masterAdminEmail;
-
-      let resolvedRole: "admin" | "staff" | "operator" | "" = isMaster
-        ? "admin"
-        : ((user.user_metadata?.role as "admin" | "staff" | "operator" | "") ?? "");
-
-      if (!isMaster) {
-        const { data: operators } = await supabase
-          .from("operators")
-          .select("id, full_name, email, status")
-          .eq("status", "active");
-
-        const matchedOperator = (operators ?? []).find((op: any) => {
-          const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-          const operatorName = String(op.full_name ?? "").trim().toLowerCase();
-
-          return (
-            (!!operatorEmail && operatorEmail === email) ||
-            (!!operatorName && operatorName === usernameFromEmail)
-          );
-        });
-
-        if (matchedOperator) {
-          resolvedRole = "operator";
-        }
-      }
-
-      setUsername(fromAuthEmail(user.email ?? null));
+      setUsername(usernameFromEmail);
       setRole(resolvedRole);
       setLoading(false);
 
@@ -161,6 +188,13 @@ export default function ClientShell({
 
       if (mustChangePassword && pathname !== "/change-password") {
         window.location.href = "/change-password";
+        return;
+      }
+
+      if (!mustChangePassword && pathname === "/change-password") {
+        const { resolvedRole } = await resolveRoleForUser(session.user);
+        if (!mounted) return;
+        window.location.href = resolvedRole === "operator" ? "/operator/jobs" : "/";
       }
     });
 
