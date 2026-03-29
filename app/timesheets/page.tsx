@@ -241,7 +241,9 @@ export default async function TimesheetsPage() {
     return acc;
   }, {});
 
-  const operatorIds = Object.keys(grouped);
+  const operatorIds = Object.keys(grouped).sort((a, b) =>
+    String(grouped[a].operatorName).localeCompare(String(grouped[b].operatorName))
+  );
 
   return (
     <ClientShell>
@@ -265,6 +267,9 @@ export default async function TimesheetsPage() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <a href="/api/export/timesheets" style={exportBtn}>
               Export CSV
+            </a>
+            <a href="/timesheets/print" style={exportBtn}>
+              Print View
             </a>
             <div style={rangeBox}>
               Week: {fmtDate(weekStartIso)} – {fmtDate(weekEndIso)}
