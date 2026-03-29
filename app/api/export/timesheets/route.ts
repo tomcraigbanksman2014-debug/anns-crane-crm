@@ -133,7 +133,6 @@ export async function GET() {
     .select(`
       id,
       operator_id,
-      status,
       started_at,
       ended_at,
       start_site_text,
@@ -165,7 +164,9 @@ export async function GET() {
       return {
         operator: operator?.full_name ?? "",
         shift_id: row.id ?? "",
-        shift_date: row.started_at ? new Date(row.started_at).toLocaleDateString("en-GB") : "",
+        shift_date: row.started_at
+          ? new Date(row.started_at).toLocaleDateString("en-GB")
+          : "",
         started_at: row.started_at ?? "",
         ended_at: row.ended_at ?? "",
         record_state: shiftState(row.started_at, row.ended_at),
