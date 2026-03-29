@@ -1,3 +1,4 @@
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "./supabase/server";
 import { isMasterAdminEmail } from "./admin";
 
@@ -13,13 +14,46 @@ export type AccessContext = {
   };
 };
 
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
 }
 
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
 export async function getAccessContext(): Promise<AccessContext> {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -38,38 +72,33 @@ export async function getAccessContext(): Promise<AccessContext> {
         .trim()
         .toLowerCase() as ResolvedRole;
 
-      if (metadataRole === "admin" || metadataRole === "staff" || metadataRole === "operator") {
+      if (
+        metadataRole === "admin" ||
+        metadataRole === "staff" ||
+        metadataRole === "operator"
+      ) {
         role = metadataRole;
       }
 
       if (role !== "admin") {
-        const { data: operators } = await supabase
+        const { data: operators } = await admin
           .from("operators")
           .select("id, full_name, email, status")
           .eq("status", "active");
 
         const matchedOperator =
-          (operators ?? []).find((op: any) => {
-            const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-            const operatorName = String(op.full_name ?? "").trim().toLowerCase();
+          (operators ?? []).find((op: any) => matchesOperatorLogin(email, op)) ?? null;
 
-            return (
-              (!!operatorEmail && operatorEmail === email) ||
-              (!!operatorName && operatorName === usernameFromEmail) ||
-              (!!usernameFromEmail &&
-                !!operatorEmail &&
-                operatorEmail.startsWith(`${usernameFromEmail}@`))
-            );
-          }) ?? null;
-
-        if (matchedOperator) {
+        if (matchedOperator || !!usernameFromEmail === false ? false : false) {
+          role = "operator";
+        } else if (matchedOperator) {
           role = "operator";
         }
       }
     }
   }
 
-  const { data: settingsRow } = await supabase
+  const { data: settingsRow } = await admin
     .from("app_settings")
     .select(
       "allow_staff_create_bookings, allow_staff_create_customers, allow_staff_view_invoices"
@@ -85,8 +114,7 @@ export async function getAccessContext(): Promise<AccessContext> {
         settingsRow?.allow_staff_create_bookings ?? true,
       allow_staff_create_customers:
         settingsRow?.allow_staff_create_customers ?? true,
-      allow_staff_view_invoices:
-        settingsRow?.allow_staff_view_invoices ?? true,
+      allow_staff_view_invoices: settingsRow?.allow_staff_view_invoices ?? true,
     },
   };
 }
