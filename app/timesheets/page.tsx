@@ -1,5 +1,22 @@
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -31,35 +48,22 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
-function calcWorkedHours(
-  startedAt: string | null | undefined,
-  completedAt: string | null | undefined
-) {
-  if (!startedAt || !completedAt) return 0;
-  const start = new Date(startedAt);
-  const end = new Date(completedAt);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const diffMs = end.getTime() - start.getTime();
-  if (diffMs <= 0) return 0;
-  return diffMs / (1000 * 60 * 60);
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function num(value: any) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function recordState(
+function shiftState(
   startedAt: string | null | undefined,
-  completedAt: string | null | undefined
+  endedAt: string | null | undefined
 ) {
-  if (startedAt && completedAt) return "Complete";
-  if (startedAt && !completedAt) return "Started only";
-  if (!startedAt && completedAt) return "Completed only";
+  if (startedAt && endedAt) return "Complete";
+  if (startedAt && !endedAt) return "Open shift";
+  if (!startedAt && endedAt) return "Invalid";
   return "No clock times";
 }
 
-function recordPill(state: string): React.CSSProperties {
+function shiftPill(state: string): React.CSSProperties {
   if (state === "Complete") {
     return {
       display: "inline-block",
@@ -73,7 +77,7 @@ function recordPill(state: string): React.CSSProperties {
     };
   }
 
-  if (state === "Started only" || state === "Completed only") {
+  if (state === "Open shift") {
     return {
       display: "inline-block",
       padding: "6px 10px",
@@ -98,89 +102,140 @@ function recordPill(state: string): React.CSSProperties {
   };
 }
 
+function overlapsWeek(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  weekStart: Date,
+  weekEnd: Date
+) {
+  if (!startedAt) return false;
+
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+
+  return start <= weekEnd && end >= weekStart;
+}
+
+function calcShiftHoursWithinWindow(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  windowStart: Date,
+  windowEnd: Date
+) {
+  if (!startedAt) return 0;
+
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+
+  const clippedStart = start > windowStart ? start : windowStart;
+  const clippedEnd = end < windowEnd ? end : windowEnd;
+
+  const diffMs = clippedEnd.getTime() - clippedStart.getTime();
+  if (diffMs <= 0) return 0;
+
+  return diffMs / (1000 * 60 * 60);
+}
+
 export default async function TimesheetsPage() {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(1380px, 95vw)", margin: "0 auto" }}>
+          <div style={errorBox}>Not signed in.</div>
+        </div>
+      </ClientShell>
+    );
+  }
 
   const today = new Date();
   const weekStart = startOfWeek(today);
   const weekEnd = endOfWeek(today);
 
-  const weekStartStr = weekStart.toISOString();
-  const weekEndStr = weekEnd.toISOString();
+  const weekStartIso = weekStart.toISOString();
+  const weekEndIso = weekEnd.toISOString();
 
-  const { data: jobs, error } = await supabase
-    .from("jobs")
+  const { data, error } = await admin
+    .from("operator_shift_sessions")
     .select(`
       id,
-      job_number,
-      job_date,
+      operator_id,
+      status,
       started_at,
-      completed_at,
-      travel_hours,
-      break_hours,
-      overtime_hours,
-      submitted_to_office_at,
+      ended_at,
+      start_site_text,
+      end_site_text,
+      end_issue_type,
+      end_issue_notes,
       operators:operator_id (
         id,
         full_name
       )
     `)
-    .not("operator_id", "is", null)
-    .gte("job_date", weekStartStr.slice(0, 10))
-    .lte("job_date", weekEndStr.slice(0, 10))
-    .order("job_date", { ascending: true });
+    .lte("started_at", weekEndIso)
+    .order("started_at", { ascending: true });
 
-  const jobsList = jobs ?? [];
+  const shiftRows = ((data ?? []) as any[]).filter((row) =>
+    overlapsWeek(row.started_at, row.ended_at, weekStart, weekEnd)
+  );
 
-  const grouped = jobsList.reduce((acc: Record<string, any>, job: any) => {
-    const operator = Array.isArray(job.operators) ? job.operators[0] : job.operators;
-    const operatorId = operator?.id ?? "unassigned";
+  const grouped = shiftRows.reduce((acc: Record<string, any>, row: any) => {
+    const operator = first(row.operators);
+    const operatorId = operator?.id ?? row.operator_id ?? "unassigned";
     const operatorName = operator?.full_name ?? "Unknown operator";
 
     if (!acc[operatorId]) {
       acc[operatorId] = {
         operatorName,
         rows: [],
-        totalWorked: 0,
-        totalTravel: 0,
-        totalBreak: 0,
-        totalOvertime: 0,
-        totalPayable: 0,
-        totalJobs: 0,
-        missingClockTimes: 0,
+        totalHours: 0,
+        totalShifts: 0,
+        openShifts: 0,
+        incompleteShifts: 0,
       };
     }
 
-    const workedHours = calcWorkedHours(job.started_at, job.completed_at);
-    const travelHours = num(job.travel_hours);
-    const breakHours = num(job.break_hours);
-    const overtimeHours = num(job.overtime_hours);
-    const payableHours = workedHours + travelHours + overtimeHours - breakHours;
-    const state = recordState(job.started_at, job.completed_at);
+    const workedHours = calcShiftHoursWithinWindow(
+      row.started_at,
+      row.ended_at,
+      weekStart,
+      weekEnd
+    );
+
+    const state = shiftState(row.started_at, row.ended_at);
 
     acc[operatorId].rows.push({
-      jobNumber: job.job_number,
-      jobDate: job.job_date,
-      startedAt: job.started_at,
-      completedAt: job.completed_at,
-      travelHours,
-      breakHours,
-      overtimeHours,
+      shiftId: row.id,
+      shiftDate: row.started_at,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      startSiteText: row.start_site_text,
+      endSiteText: row.end_site_text,
+      endIssueType: row.end_issue_type,
+      endIssueNotes: row.end_issue_notes,
       workedHours,
-      payableHours,
-      submittedToOfficeAt: job.submitted_to_office_at,
       state,
     });
 
-    acc[operatorId].totalWorked += workedHours;
-    acc[operatorId].totalTravel += travelHours;
-    acc[operatorId].totalBreak += breakHours;
-    acc[operatorId].totalOvertime += overtimeHours;
-    acc[operatorId].totalPayable += payableHours;
-    acc[operatorId].totalJobs += 1;
+    acc[operatorId].totalHours += workedHours;
+    acc[operatorId].totalShifts += 1;
 
-    if (state !== "Complete") {
-      acc[operatorId].missingClockTimes += 1;
+    if (state === "Open shift") {
+      acc[operatorId].openShifts += 1;
+      acc[operatorId].incompleteShifts += 1;
+    } else if (state !== "Complete") {
+      acc[operatorId].incompleteShifts += 1;
     }
 
     return acc;
@@ -203,7 +258,7 @@ export default async function TimesheetsPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Timesheets</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Weekly staff, driver and operator timesheets generated from recorded job activity.
+              Weekly operator timesheets calculated from shift start and shift end.
             </p>
           </div>
 
@@ -212,7 +267,7 @@ export default async function TimesheetsPage() {
               Export CSV
             </a>
             <div style={rangeBox}>
-              Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+              Week: {fmtDate(weekStartIso)} – {fmtDate(weekEndIso)}
             </div>
           </div>
         </div>
@@ -221,7 +276,7 @@ export default async function TimesheetsPage() {
           <div style={errorBox}>{error.message}</div>
         ) : operatorIds.length === 0 ? (
           <div style={{ ...cardStyle, marginTop: 16 }}>
-            No operator activity recorded for this week yet.
+            No shift activity recorded for this week yet.
           </div>
         ) : (
           <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
@@ -241,7 +296,7 @@ export default async function TimesheetsPage() {
                   >
                     <h2 style={{ margin: 0, fontSize: 24 }}>{group.operatorName}</h2>
                     <div style={hoursPill}>
-                      Payable: {group.totalPayable.toFixed(2)} hrs
+                      Total: {group.totalHours.toFixed(2)} hrs
                     </div>
                   </div>
 
@@ -253,50 +308,50 @@ export default async function TimesheetsPage() {
                       marginTop: 14,
                     }}
                   >
-                    <MiniSummary label="Jobs" value={String(group.totalJobs)} />
-                    <MiniSummary label="Worked" value={group.totalWorked.toFixed(2)} />
-                    <MiniSummary label="Travel" value={group.totalTravel.toFixed(2)} />
-                    <MiniSummary label="Break" value={group.totalBreak.toFixed(2)} />
-                    <MiniSummary label="Overtime" value={group.totalOvertime.toFixed(2)} />
-                    <MiniSummary label="Payable" value={group.totalPayable.toFixed(2)} />
-                    <MiniSummary label="Missing clock times" value={String(group.missingClockTimes)} />
+                    <MiniSummary label="Shifts" value={String(group.totalShifts)} />
+                    <MiniSummary label="Worked" value={group.totalHours.toFixed(2)} />
+                    <MiniSummary label="Open shifts" value={String(group.openShifts)} />
+                    <MiniSummary
+                      label="Incomplete shifts"
+                      value={String(group.incompleteShifts)}
+                    />
                   </div>
 
                   <div style={{ overflowX: "auto", marginTop: 14 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1080 }}>
                       <thead>
                         <tr>
-                          <th align="left" style={thStyle}>Job #</th>
-                          <th align="left" style={thStyle}>Date</th>
+                          <th align="left" style={thStyle}>Shift Date</th>
                           <th align="left" style={thStyle}>Record</th>
                           <th align="left" style={thStyle}>Started</th>
-                          <th align="left" style={thStyle}>Completed</th>
+                          <th align="left" style={thStyle}>Ended</th>
                           <th align="left" style={thStyle}>Worked</th>
-                          <th align="left" style={thStyle}>Travel</th>
-                          <th align="left" style={thStyle}>Break</th>
-                          <th align="left" style={thStyle}>OT</th>
-                          <th align="left" style={thStyle}>Payable</th>
-                          <th align="left" style={thStyle}>Submitted</th>
+                          <th align="left" style={thStyle}>Start Site</th>
+                          <th align="left" style={thStyle}>End Site</th>
+                          <th align="left" style={thStyle}>Issue</th>
+                          <th align="left" style={thStyle}>Notes</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {group.rows.map((row: any, idx: number) => (
-                          <tr key={idx}>
-                            <td style={tdStyleStrong}>{row.jobNumber ?? "—"}</td>
-                            <td style={tdStyle}>{fmtDate(row.jobDate)}</td>
+                        {group.rows.map((row: any) => (
+                          <tr key={row.shiftId}>
+                            <td style={tdStyle}>{fmtDate(row.shiftDate)}</td>
                             <td style={tdStyle}>
-                              <span style={recordPill(row.state)}>{row.state}</span>
+                              <span style={shiftPill(row.state)}>{row.state}</span>
                             </td>
                             <td style={tdStyle}>{fmtDateTime(row.startedAt)}</td>
-                            <td style={tdStyle}>{fmtDateTime(row.completedAt)}</td>
-                            <td style={tdStyle}>{row.workedHours.toFixed(2)}</td>
-                            <td style={tdStyle}>{row.travelHours.toFixed(2)}</td>
-                            <td style={tdStyle}>{row.breakHours.toFixed(2)}</td>
-                            <td style={tdStyle}>{row.overtimeHours.toFixed(2)}</td>
-                            <td style={tdStylePayable}>{row.payableHours.toFixed(2)}</td>
+                            <td style={tdStyle}>{fmtDateTime(row.endedAt)}</td>
+                            <td style={tdStylePayable}>{row.workedHours.toFixed(2)}</td>
+                            <td style={tdStyleWrap}>{row.startSiteText ?? "—"}</td>
+                            <td style={tdStyleWrap}>{row.endSiteText ?? "—"}</td>
                             <td style={tdStyle}>
-                              {row.submittedToOfficeAt ? fmtDateTime(row.submittedToOfficeAt) : "—"}
+                              {row.endIssueType
+                                ? String(row.endIssueType)
+                                    .replaceAll("_", " ")
+                                    .replace(/\b\w/g, (c: string) => c.toUpperCase())
+                                : "—"}
                             </td>
+                            <td style={tdStyleWrap}>{row.endIssueNotes ?? "—"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -372,11 +427,13 @@ const tdStyle: React.CSSProperties = {
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
   whiteSpace: "nowrap",
+  verticalAlign: "top",
 };
 
-const tdStyleStrong: React.CSSProperties = {
+const tdStyleWrap: React.CSSProperties = {
   ...tdStyle,
-  fontWeight: 900,
+  whiteSpace: "normal",
+  minWidth: 180,
 };
 
 const tdStylePayable: React.CSSProperties = {
@@ -391,7 +448,6 @@ const errorBox: React.CSSProperties = {
   background: "rgba(255,0,0,0.10)",
   border: "1px solid rgba(255,0,0,0.25)",
 };
-
 
 const exportBtn: React.CSSProperties = {
   display: "inline-block",
