@@ -30,11 +30,6 @@ function getAdminClient() {
   });
 }
 
-function fromAuthEmail(email: string | null) {
-  if (!email) return "";
-  return email.split("@")[0] || "";
-}
-
 function matchesOperatorLogin(authEmail: string, operator: any) {
   const email = String(authEmail ?? "").trim().toLowerCase();
   const username = email.includes("@") ? email.split("@")[0] : email;
@@ -60,7 +55,6 @@ export async function getAccessContext(): Promise<AccessContext> {
   } = await supabase.auth.getUser();
 
   const email = String(user?.email ?? "").trim().toLowerCase();
-  const usernameFromEmail = fromAuthEmail(user?.email ?? null).toLowerCase();
 
   let role: ResolvedRole = "";
 
@@ -89,9 +83,7 @@ export async function getAccessContext(): Promise<AccessContext> {
         const matchedOperator =
           (operators ?? []).find((op: any) => matchesOperatorLogin(email, op)) ?? null;
 
-        if (matchedOperator || !!usernameFromEmail === false ? false : false) {
-          role = "operator";
-        } else if (matchedOperator) {
+        if (matchedOperator) {
           role = "operator";
         }
       }
@@ -114,7 +106,8 @@ export async function getAccessContext(): Promise<AccessContext> {
         settingsRow?.allow_staff_create_bookings ?? true,
       allow_staff_create_customers:
         settingsRow?.allow_staff_create_customers ?? true,
-      allow_staff_view_invoices: settingsRow?.allow_staff_view_invoices ?? true,
+      allow_staff_view_invoices:
+        settingsRow?.allow_staff_view_invoices ?? true,
     },
   };
 }
