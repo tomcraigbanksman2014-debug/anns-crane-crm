@@ -1,5 +1,22 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -17,37 +34,57 @@ function endOfWeek(date: Date) {
   return d;
 }
 
-function calcWorkedHours(
-  startedAt: string | null | undefined,
-  completedAt: string | null | undefined
-) {
-  if (!startedAt || !completedAt) return 0;
-  const start = new Date(startedAt);
-  const end = new Date(completedAt);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const diffMs = end.getTime() - start.getTime();
-  if (diffMs <= 0) return 0;
-  return diffMs / (1000 * 60 * 60);
-}
-
-function num(value: any) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
-function recordState(
-  startedAt: string | null | undefined,
-  completedAt: string | null | undefined
-) {
-  if (startedAt && completedAt) return "Complete";
-  if (startedAt && !completedAt) return "Started only";
-  if (!startedAt && completedAt) return "Completed only";
-  return "No clock times";
-}
-
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function shiftState(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined
+) {
+  if (startedAt && endedAt) return "Complete";
+  if (startedAt && !endedAt) return "Open shift";
+  if (!startedAt && endedAt) return "Invalid";
+  return "No clock times";
+}
+
+function overlapsWeek(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  weekStart: Date,
+  weekEnd: Date
+) {
+  if (!startedAt) return false;
+
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+
+  return start <= weekEnd && end >= weekStart;
+}
+
+function calcShiftHoursWithinWindow(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  windowStart: Date,
+  windowEnd: Date
+) {
+  if (!startedAt) return 0;
+
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
+
+  const clippedStart = start > windowStart ? start : windowStart;
+  const clippedEnd = end < windowEnd ? end : windowEnd;
+
+  const diffMs = clippedEnd.getTime() - clippedStart.getTime();
+  if (diffMs <= 0) return 0;
+
+  return diffMs / (1000 * 60 * 60);
 }
 
 function csvEscape(value: unknown) {
@@ -72,8 +109,9 @@ function makeCsv(rows: Array<Record<string, unknown>>) {
   return lines.join("\n");
 }
 
-export async function GET(_request: NextRequest) {
+export async function GET() {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -87,60 +125,60 @@ export async function GET(_request: NextRequest) {
   const weekStart = startOfWeek(today);
   const weekEnd = endOfWeek(today);
 
-  const weekStartStr = weekStart.toISOString();
-  const weekEndStr = weekEnd.toISOString();
+  const weekStartIso = weekStart.toISOString();
+  const weekEndIso = weekEnd.toISOString();
 
-  const { data, error } = await supabase
-    .from("jobs")
+  const { data, error } = await admin
+    .from("operator_shift_sessions")
     .select(`
       id,
-      job_number,
-      job_date,
+      operator_id,
+      status,
       started_at,
-      completed_at,
-      travel_hours,
-      break_hours,
-      overtime_hours,
-      submitted_to_office_at,
+      ended_at,
+      start_site_text,
+      end_site_text,
+      end_issue_type,
+      end_issue_notes,
       operators:operator_id (
         full_name
       )
     `)
-    .not("operator_id", "is", null)
-    .gte("job_date", weekStartStr.slice(0, 10))
-    .lte("job_date", weekEndStr.slice(0, 10))
-    .order("job_date", { ascending: true });
+    .lte("started_at", weekEndIso)
+    .order("started_at", { ascending: true });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const rows = (data ?? []).map((job: any) => {
-    const operator = first(job.operators);
-    const workedHours = calcWorkedHours(job.started_at, job.completed_at);
-    const travelHours = num(job.travel_hours);
-    const breakHours = num(job.break_hours);
-    const overtimeHours = num(job.overtime_hours);
-    const payableHours = workedHours + travelHours + overtimeHours - breakHours;
+  const rows = ((data ?? []) as any[])
+    .filter((row) => overlapsWeek(row.started_at, row.ended_at, weekStart, weekEnd))
+    .map((row: any) => {
+      const operator = first(row.operators);
+      const workedHours = calcShiftHoursWithinWindow(
+        row.started_at,
+        row.ended_at,
+        weekStart,
+        weekEnd
+      );
 
-    return {
-      operator: operator?.full_name ?? "",
-      job_number: job.job_number ?? "",
-      job_date: job.job_date ?? "",
-      started_at: job.started_at ?? "",
-      completed_at: job.completed_at ?? "",
-      record_state: recordState(job.started_at, job.completed_at),
-      worked_hours: workedHours.toFixed(2),
-      travel_hours: travelHours.toFixed(2),
-      break_hours: breakHours.toFixed(2),
-      overtime_hours: overtimeHours.toFixed(2),
-      payable_hours: payableHours.toFixed(2),
-      submitted_to_office_at: job.submitted_to_office_at ?? "",
-    };
-  });
+      return {
+        operator: operator?.full_name ?? "",
+        shift_id: row.id ?? "",
+        shift_date: row.started_at ? new Date(row.started_at).toLocaleDateString("en-GB") : "",
+        started_at: row.started_at ?? "",
+        ended_at: row.ended_at ?? "",
+        record_state: shiftState(row.started_at, row.ended_at),
+        worked_hours: workedHours.toFixed(2),
+        start_site: row.start_site_text ?? "",
+        end_site: row.end_site_text ?? "",
+        end_issue_type: row.end_issue_type ?? "",
+        end_issue_notes: row.end_issue_notes ?? "",
+      };
+    });
 
   const csv = makeCsv(rows);
-  const filename = `timesheets-${weekStartStr.slice(0, 10)}-to-${weekEndStr.slice(0, 10)}.csv`;
+  const filename = `timesheets-${weekStartIso.slice(0, 10)}-to-${weekEndIso.slice(0, 10)}.csv`;
 
   return new NextResponse(csv, {
     status: 200,
