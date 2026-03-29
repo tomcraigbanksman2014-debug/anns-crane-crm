@@ -1,6 +1,24 @@
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import OperatorTransportTracker from "./OperatorTransportTracker";
+import { redirect } from "next/navigation";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -19,8 +37,35 @@ function fmtDate(value: string | null | undefined) {
   });
 }
 
+function matchesOperatorLogin(authEmail: string, operator: any) {
+  const email = String(authEmail ?? "").trim().toLowerCase();
+  const username = email.includes("@") ? email.split("@")[0] : email;
+  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
+  const operatorEmailUsername = operatorEmail.includes("@")
+    ? operatorEmail.split("@")[0]
+    : operatorEmail;
+  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+
+  return (
+    (!!operatorEmail && operatorEmail === email) ||
+    (!!operatorEmailUsername && operatorEmailUsername === username) ||
+    (!!operatorName && operatorName === username)
+  );
+}
+
+function prettyStatus(value: string | null | undefined) {
+  const v = String(value ?? "").toLowerCase();
+  if (v === "in_progress") return "In Progress";
+  if (v === "completed") return "Completed";
+  if (v === "confirmed") return "Confirmed";
+  if (v === "cancelled") return "Cancelled";
+  if (v === "planned") return "Planned";
+  return value ?? "—";
+}
+
 export default async function OperatorTransportPage() {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -28,21 +73,12 @@ export default async function OperatorTransportPage() {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return (
-      <ClientShell>
-        <div style={{ width: "min(1000px, 95vw)", margin: "0 auto" }}>
-          <div style={errorBox}>Not signed in.</div>
-        </div>
-      </ClientShell>
-    );
+    redirect("/login?next=/operator/transport");
   }
 
   const authEmail = String(user.email ?? "").trim().toLowerCase();
-  const authUsername = authEmail.includes("@")
-    ? authEmail.split("@")[0]
-    : authEmail;
 
-  const { data: operators, error: operatorsError } = await supabase
+  const { data: operators, error: operatorsError } = await admin
     .from("operators")
     .select("id, full_name, email, status")
     .eq("status", "active")
@@ -59,16 +95,7 @@ export default async function OperatorTransportPage() {
   }
 
   const operator =
-    (operators ?? []).find((op: any) => {
-      const operatorEmail = String(op.email ?? "").trim().toLowerCase();
-      const operatorName = String(op.full_name ?? "").trim().toLowerCase();
-
-      return (
-        operatorEmail === authEmail ||
-        operatorName === authUsername ||
-        (!!authUsername && operatorEmail.startsWith(`${authUsername}@`))
-      );
-    }) ?? null;
+    (operators ?? []).find((op: any) => matchesOperatorLogin(authEmail, op)) ?? null;
 
   if (!operator) {
     return (
@@ -90,7 +117,7 @@ export default async function OperatorTransportPage() {
   startWindow.setDate(startWindow.getDate() - 1);
   const startStr = startWindow.toISOString().slice(0, 10);
 
-  const { data: transportJobs, error: jobsError } = await supabase
+  const { data: transportJobs, error: jobsError } = await admin
     .from("transport_jobs")
     .select(`
       id,
@@ -101,6 +128,7 @@ export default async function OperatorTransportPage() {
       collection_address,
       delivery_address,
       load_description,
+      notes,
       status,
       job_type,
       vehicle_id,
@@ -121,6 +149,7 @@ export default async function OperatorTransportPage() {
       )
     `)
     .eq("operator_id", operator.id)
+    .neq("status", "cancelled")
     .gte("transport_date", startStr)
     .order("transport_date", { ascending: true })
     .order("collection_time", { ascending: true });
@@ -166,9 +195,7 @@ export default async function OperatorTransportPage() {
                           </div>
                         </div>
 
-                        <span style={statusBadge}>
-                          {job.status ?? "—"}
-                        </span>
+                        <span style={statusBadge}>{prettyStatus(job.status)}</span>
                       </div>
 
                       <div style={detailBlock}>
@@ -188,13 +215,21 @@ export default async function OperatorTransportPage() {
                         <strong>Delivery:</strong> {job.delivery_address ?? "—"}
                       </div>
                       <div style={detailBlock}>
-                        <strong>Times:</strong> {job.collection_time ?? "—"} → {job.delivery_time ?? "—"}
+                        <strong>Times:</strong> {job.collection_time ?? "—"} →{" "}
+                        {job.delivery_time ?? "—"}
                       </div>
                       <div style={detailBlock}>
                         <strong>Load:</strong> {job.load_description ?? "—"}
                       </div>
                       <div style={detailBlock}>
-                        <strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+                        <strong>Linked Crane Job:</strong>{" "}
+                        {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+                      </div>
+
+                      <div style={{ marginTop: 12 }}>
+                        <a href={`/operator/transport/${job.id}`} style={openBtn}>
+                          Open transport job
+                        </a>
                       </div>
                     </div>
                   );
@@ -216,7 +251,9 @@ export default async function OperatorTransportPage() {
                       delivery_address: job.delivery_address ?? "",
                       status: job.status ?? "",
                       vehicle_id: job.vehicle_id ?? "",
-                      vehicle_label: `${vehicle?.name ?? "Vehicle"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`,
+                      vehicle_label: `${vehicle?.name ?? "Vehicle"}${
+                        vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
+                      }`,
                     };
                   })}
                 />
@@ -260,6 +297,16 @@ const statusBadge: React.CSSProperties = {
   border: "1px solid rgba(0,120,255,0.20)",
 };
 
+const openBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "#2f4fbc",
+  color: "#fff",
+  textDecoration: "none",
+  fontWeight: 800,
+};
+
 const infoBox: React.CSSProperties = {
   marginTop: 14,
   padding: "12px 14px",
@@ -270,9 +317,10 @@ const infoBox: React.CSSProperties = {
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.18)",
+  fontWeight: 800,
 };
