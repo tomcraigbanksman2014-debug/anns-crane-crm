@@ -1,5 +1,23 @@
+import { createClient } from "@supabase/supabase-js";
+import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import PrintTimesheetsButton from "./PrintTimesheetsButton";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -31,53 +49,104 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
-function calcHours(startedAt: string | null | undefined, completedAt: string | null | undefined) {
-  if (!startedAt || !completedAt) return 0;
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function shiftState(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined
+) {
+  if (startedAt && endedAt) return "Complete";
+  if (startedAt && !endedAt) return "Open shift";
+  if (!startedAt && endedAt) return "Invalid";
+  return "No clock times";
+}
+
+function overlapsWeek(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  weekStart: Date,
+  weekEnd: Date
+) {
+  if (!startedAt) return false;
+
   const start = new Date(startedAt);
-  const end = new Date(completedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+
+  return start <= weekEnd && end >= weekStart;
+}
+
+function calcShiftHoursWithinWindow(
+  startedAt: string | null | undefined,
+  endedAt: string | null | undefined,
+  windowStart: Date,
+  windowEnd: Date
+) {
+  if (!startedAt) return 0;
+
+  const start = new Date(startedAt);
+  const end = endedAt ? new Date(endedAt) : new Date();
+
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 0;
-  const diffMs = end.getTime() - start.getTime();
+
+  const clippedStart = start > windowStart ? start : windowStart;
+  const clippedEnd = end < windowEnd ? end : windowEnd;
+
+  const diffMs = clippedEnd.getTime() - clippedStart.getTime();
   if (diffMs <= 0) return 0;
+
   return diffMs / (1000 * 60 * 60);
 }
 
 export default async function TimesheetsPrintPage() {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirect("/login?next=/timesheets/print");
+  }
 
   const today = new Date();
   const weekStart = startOfWeek(today);
   const weekEnd = endOfWeek(today);
 
-  const weekStartStr = weekStart.toISOString();
-  const weekEndStr = weekEnd.toISOString();
+  const weekStartIso = weekStart.toISOString();
+  const weekEndIso = weekEnd.toISOString();
 
-  const { data: jobs, error } = await supabase
-    .from("jobs")
+  const { data, error } = await admin
+    .from("operator_shift_sessions")
     .select(`
       id,
-      job_number,
-      job_date,
+      operator_id,
       started_at,
-      completed_at,
+      ended_at,
+      start_site_text,
+      end_site_text,
+      end_issue_type,
       operators:operator_id (
         id,
         full_name
-      ),
-      clients:client_id (
-        company_name
       )
     `)
-    .not("operator_id", "is", null)
-    .gte("started_at", weekStartStr)
-    .lte("started_at", weekEndStr)
+    .lte("started_at", weekEndIso)
     .order("started_at", { ascending: true });
 
-  const jobsList = jobs ?? [];
+  const rows = ((data ?? []) as any[]).filter((row) =>
+    overlapsWeek(row.started_at, row.ended_at, weekStart, weekEnd)
+  );
 
-  const grouped = jobsList.reduce((acc: Record<string, any>, job: any) => {
-    const operator = Array.isArray(job.operators) ? job.operators[0] : job.operators;
-    const client = Array.isArray(job.clients) ? job.clients[0] : job.clients;
-    const operatorId = operator?.id ?? "unassigned";
+  const grouped = rows.reduce((acc: Record<string, any>, row: any) => {
+    const operator = first(row.operators);
+    const operatorId = operator?.id ?? row.operator_id ?? "unassigned";
     const operatorName = operator?.full_name ?? "Unknown operator";
 
     if (!acc[operatorId]) {
@@ -88,14 +157,22 @@ export default async function TimesheetsPrintPage() {
       };
     }
 
-    const hours = calcHours(job.started_at, job.completed_at);
+    const hours = calcShiftHoursWithinWindow(
+      row.started_at,
+      row.ended_at,
+      weekStart,
+      weekEnd
+    );
 
     acc[operatorId].rows.push({
-      jobNumber: job.job_number,
-      jobDate: job.job_date,
-      clientName: client?.company_name ?? "—",
-      startedAt: job.started_at,
-      completedAt: job.completed_at,
+      shiftId: row.id,
+      shiftDate: row.started_at,
+      startedAt: row.started_at,
+      endedAt: row.ended_at,
+      startSite: row.start_site_text,
+      endSite: row.end_site_text,
+      endIssueType: row.end_issue_type,
+      state: shiftState(row.started_at, row.ended_at),
       hours,
     });
 
@@ -104,7 +181,9 @@ export default async function TimesheetsPrintPage() {
     return acc;
   }, {});
 
-  const operatorIds = Object.keys(grouped);
+  const operatorIds = Object.keys(grouped).sort((a, b) =>
+    String(grouped[a].operatorName).localeCompare(String(grouped[b].operatorName))
+  );
 
   return (
     <div
@@ -117,7 +196,7 @@ export default async function TimesheetsPrintPage() {
         minHeight: "100vh",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 1100, margin: "0 auto", padding: 24 }}>
+      <div style={{ width: "100%", maxWidth: 1200, margin: "0 auto", padding: 24 }}>
         <div
           style={{
             display: "flex",
@@ -130,7 +209,7 @@ export default async function TimesheetsPrintPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>AnnS Crane Hire Timesheets</h1>
             <p style={{ marginTop: 8, opacity: 0.8 }}>
-              Week: {fmtDate(weekStart.toISOString())} – {fmtDate(weekEnd.toISOString())}
+              Week: {fmtDate(weekStartIso)} – {fmtDate(weekEndIso)}
             </p>
           </div>
 
@@ -161,7 +240,7 @@ export default async function TimesheetsPrintPage() {
               background: "#fafafa",
             }}
           >
-            No operator activity recorded for this week yet.
+            No shift activity recorded for this week yet.
           </div>
         ) : (
           <div style={{ display: "grid", gap: 20, marginTop: 20 }}>
@@ -205,23 +284,33 @@ export default async function TimesheetsPrintPage() {
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>
-                        <th align="left" style={thStyle}>Job #</th>
-                        <th align="left" style={thStyle}>Date</th>
-                        <th align="left" style={thStyle}>Customer</th>
+                        <th align="left" style={thStyle}>Shift Date</th>
+                        <th align="left" style={thStyle}>Record</th>
                         <th align="left" style={thStyle}>Started</th>
-                        <th align="left" style={thStyle}>Completed</th>
+                        <th align="left" style={thStyle}>Ended</th>
                         <th align="left" style={thStyle}>Hours</th>
+                        <th align="left" style={thStyle}>Start Site</th>
+                        <th align="left" style={thStyle}>End Site</th>
+                        <th align="left" style={thStyle}>Issue</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {group.rows.map((row: any, idx: number) => (
-                        <tr key={idx}>
-                          <td style={tdStyle}>{row.jobNumber ?? "—"}</td>
-                          <td style={tdStyle}>{fmtDate(row.jobDate)}</td>
-                          <td style={tdStyle}>{row.clientName}</td>
+                      {group.rows.map((row: any) => (
+                        <tr key={row.shiftId}>
+                          <td style={tdStyle}>{fmtDate(row.shiftDate)}</td>
+                          <td style={tdStyle}>{row.state}</td>
                           <td style={tdStyle}>{fmtDateTime(row.startedAt)}</td>
-                          <td style={tdStyle}>{fmtDateTime(row.completedAt)}</td>
+                          <td style={tdStyle}>{fmtDateTime(row.endedAt)}</td>
                           <td style={tdStyle}>{row.hours.toFixed(2)}</td>
+                          <td style={tdStyleWrap}>{row.startSite ?? "—"}</td>
+                          <td style={tdStyleWrap}>{row.endSite ?? "—"}</td>
+                          <td style={tdStyle}>
+                            {row.endIssueType
+                              ? String(row.endIssueType)
+                                  .replaceAll("_", " ")
+                                  .replace(/\b\w/g, (c: string) => c.toUpperCase())
+                              : "—"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -259,4 +348,10 @@ const tdStyle: React.CSSProperties = {
   padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
+  verticalAlign: "top",
+};
+
+const tdStyleWrap: React.CSSProperties = {
+  ...tdStyle,
+  minWidth: 180,
 };
