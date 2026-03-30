@@ -50,6 +50,17 @@ function addDays(base: Date, days: number) {
   return d;
 }
 
+function daysUntil(value: string | null | undefined) {
+  const dateText = String(value ?? "").slice(0, 10);
+  if (!dateText) return null;
+  const target = new Date(dateText);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
 function probabilityForLead(lead: any) {
   const manual = Number(lead?.probability_percent);
   if (Number.isFinite(manual)) {
@@ -101,6 +112,16 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
     border: "1px solid rgba(0,120,255,0.16)",
   };
 }
+
+type SuggestedTask = {
+  key: string;
+  label: string;
+  title: string;
+  taskType: string;
+  priority: string;
+  dueOn: string;
+  notes: string;
+};
 
 type OpportunityDetailPageProps = {
   params: { id: string };
@@ -279,6 +300,7 @@ export default async function OpportunityDetailPage({
         do_not_contact,
         archived,
         next_follow_up_on,
+        last_contacted_at,
         services,
         assigned_to_username,
         notes,
@@ -315,12 +337,88 @@ export default async function OpportunityDetailPage({
   const openTasks = relatedTasks.filter((item: any) => String(item.status ?? "") === "open").length;
   const completedTasks = relatedTasks.filter((item: any) => String(item.status ?? "") === "completed").length;
 
-  const quoteChaseDate = addDays(new Date(), 2).toISOString().slice(0, 10);
-  const callbackDate = addDays(new Date(), 1).toISOString().slice(0, 10);
-  const closeCheckDate =
-    String(lead.expected_close_date ?? "").trim() || addDays(new Date(), 3).toISOString().slice(0, 10);
-  const followUpDate =
-    String(lead.next_follow_up_on ?? "").trim() || addDays(new Date(), 3).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const status = String(lead.status ?? "New");
+  const closeInDays = daysUntil(lead.expected_close_date);
+  const followUpInDays = daysUntil(lead.next_follow_up_on);
+
+  const suggestedTasks: SuggestedTask[] = [];
+
+  if (status === "Quoted") {
+    suggestedTasks.push({
+      key: "quoted-chase",
+      label: "Quoted opportunity",
+      title: `Quote chase ${lead.company_name}`,
+      taskType: "quote_chase",
+      priority: "high",
+      dueOn: addDays(new Date(), 2).toISOString().slice(0, 10),
+      notes: "Opportunity is in Quoted status. Chase quote and move toward close.",
+    });
+  }
+
+  if (closeInDays !== null && closeInDays >= 0 && closeInDays <= 7 && probability >= 60) {
+    suggestedTasks.push({
+      key: "close-check",
+      label: "High probability close window",
+      title: `Close check ${lead.company_name}`,
+      taskType: "follow_up",
+      priority: "urgent",
+      dueOn: String(lead.expected_close_date ?? today),
+      notes: "High probability opportunity with close date in the next 7 days. Confirm decision and blockers.",
+    });
+  }
+
+  if (followUpInDays !== null && followUpInDays <= 0) {
+    suggestedTasks.push({
+      key: "followup-due",
+      label: "Follow-up due now",
+      title: `Follow up ${lead.company_name}`,
+      taskType: "follow_up",
+      priority: "high",
+      dueOn: today,
+      notes: "Next follow-up date is due or overdue.",
+    });
+  }
+
+  if (!String(lead.assigned_to_username ?? "").trim()) {
+    suggestedTasks.push({
+      key: "assign-owner",
+      label: "No owner assigned",
+      title: `Assign and review ${lead.company_name}`,
+      taskType: "follow_up",
+      priority: "high",
+      dueOn: today,
+      notes: "Opportunity has no assigned owner. Review and allocate responsibility.",
+    });
+  }
+
+  if (status === "Dormant") {
+    suggestedTasks.push({
+      key: "recovery",
+      label: "Dormant opportunity",
+      title: `Recovery contact ${lead.company_name}`,
+      taskType: "customer_recovery",
+      priority: "high",
+      dueOn: today,
+      notes: "Opportunity is Dormant. Re-engage and test whether the requirement is still live.",
+    });
+  }
+
+  if (probability >= 75 && Number(lead.opportunity_value ?? 0) > 0 && (!lead.expected_close_date || closeInDays === null)) {
+    suggestedTasks.push({
+      key: "set-close-date",
+      label: "Strong opportunity with no close date",
+      title: `Call to confirm close date ${lead.company_name}`,
+      taskType: "call",
+      priority: "high",
+      dueOn: addDays(new Date(), 1).toISOString().slice(0, 10),
+      notes: "Opportunity is strong but has no clear expected close date. Confirm likely decision timing.",
+    });
+  }
+
+  const uniqueSuggestedTasks = suggestedTasks.filter(
+    (item, index, arr) => arr.findIndex((x) => x.key === item.key) === index
+  );
 
   return (
     <ClientShell>
@@ -458,13 +556,51 @@ export default async function OpportunityDetailPage({
           </section>
 
           <section style={panelStyle}>
-            <h2 style={sectionTitle}>Quick task buttons</h2>
+            <h2 style={sectionTitle}>Suggested next actions</h2>
+
+            {uniqueSuggestedTasks.length === 0 ? (
+              <p style={{ margin: 0, opacity: 0.78 }}>
+                No strong opportunity task suggestions right now.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {uniqueSuggestedTasks.map((task) => (
+                  <div key={task.key} style={taskCard}>
+                    <div style={{ fontWeight: 900 }}>{task.label}</div>
+                    <div style={{ marginTop: 6, fontSize: 14, opacity: 0.78 }}>
+                      {task.notes}
+                    </div>
+                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
+                      {taskTypeLabel(task.taskType)} • {task.priority} • due {fmtDate(task.dueOn)}
+                    </div>
+
+                    <form action={createOpportunityTask} style={{ marginTop: 10 }}>
+                      <input type="hidden" name="title" value={task.title} />
+                      <input type="hidden" name="task_type" value={task.taskType} />
+                      <input type="hidden" name="priority" value={task.priority} />
+                      <input type="hidden" name="due_on" value={task.dueOn} />
+                      <input type="hidden" name="notes" value={task.notes} />
+                      <input
+                        type="hidden"
+                        name="assigned_to_username"
+                        value={String(lead.assigned_to_username ?? "")}
+                      />
+                      <button type="submit" style={primaryBtn}>
+                        Create suggested task
+                      </button>
+                    </form>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <h2 style={{ ...sectionTitle, marginTop: 18 }}>Quick task buttons</h2>
             <div style={{ display: "grid", gap: 10 }}>
               <form action={createOpportunityTask} style={quickTaskForm}>
                 <input type="hidden" name="title" value={`Quote chase ${lead.company_name}`} />
                 <input type="hidden" name="task_type" value="quote_chase" />
                 <input type="hidden" name="priority" value="high" />
-                <input type="hidden" name="due_on" value={quoteChaseDate} />
+                <input type="hidden" name="due_on" value={addDays(new Date(), 2).toISOString().slice(0, 10)} />
                 <button type="submit" style={primaryBtn}>Create quote chase task</button>
               </form>
 
@@ -472,7 +608,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="title" value={`Call back ${lead.company_name}`} />
                 <input type="hidden" name="task_type" value="call" />
                 <input type="hidden" name="priority" value="high" />
-                <input type="hidden" name="due_on" value={callbackDate} />
+                <input type="hidden" name="due_on" value={addDays(new Date(), 1).toISOString().slice(0, 10)} />
                 <button type="submit" style={secondaryBtn}>Create call back task</button>
               </form>
 
@@ -480,7 +616,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="title" value={`Follow up ${lead.company_name}`} />
                 <input type="hidden" name="task_type" value="follow_up" />
                 <input type="hidden" name="priority" value="medium" />
-                <input type="hidden" name="due_on" value={followUpDate} />
+                <input type="hidden" name="due_on" value={String(lead.next_follow_up_on ?? addDays(new Date(), 3).toISOString().slice(0, 10))} />
                 <button type="submit" style={secondaryBtn}>Create follow-up task</button>
               </form>
 
@@ -488,7 +624,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="title" value={`Close check ${lead.company_name}`} />
                 <input type="hidden" name="task_type" value="follow_up" />
                 <input type="hidden" name="priority" value="high" />
-                <input type="hidden" name="due_on" value={closeCheckDate} />
+                <input type="hidden" name="due_on" value={String(lead.expected_close_date ?? addDays(new Date(), 3).toISOString().slice(0, 10))} />
                 <button type="submit" style={secondaryBtn}>Create close check task</button>
               </form>
             </div>
@@ -530,7 +666,7 @@ export default async function OpportunityDetailPage({
                 <input
                   type="date"
                   name="due_on"
-                  defaultValue={followUpDate}
+                  defaultValue={String(lead.next_follow_up_on ?? addDays(new Date(), 3).toISOString().slice(0, 10))}
                   style={inputStyle}
                 />
 
