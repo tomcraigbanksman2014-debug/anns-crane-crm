@@ -154,12 +154,15 @@ export default async function SalesHubPage() {
                 <div style={toolCardSub}>Live now</div>
               </a>
 
+              <a href="/sales-hub/social-media-content" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Social Media Content Studio</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
               <a href="/sales-hub/leads" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Opportunity Tracking</div>
                 <div style={toolCardSub}>Use lead statuses first, then deepen later</div>
               </a>
-
-              <FeaturePill text="Social Media Content Studio" />
             </div>
           </section>
 
@@ -211,24 +214,6 @@ function StatCard({ label, value }: { label: string; value: string }) {
     <div style={statCardStyle}>
       <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>{label}</div>
       <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
-    </div>
-  );
-}
-
-function FeaturePill({ text }: { text: string }) {
-  return (
-    <div
-      style={{
-        padding: "10px 12px",
-        borderRadius: 999,
-        background: "rgba(255,255,255,0.72)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        color: "#111",
-        fontWeight: 800,
-        fontSize: 14,
-      }}
-    >
-      {text}
     </div>
   );
 }
