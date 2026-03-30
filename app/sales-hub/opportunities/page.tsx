@@ -8,29 +8,17 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function moneyGBP(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return n.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 2,
+  });
+}
+
 function dateOnly(value: string | null | undefined) {
   return String(value ?? "").slice(0, 10);
-}
-
-function titleCase(value: string) {
-  return value
-    .split(" ")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-    .join(" ");
-}
-
-function stageWeight(status: string | null | undefined) {
-  const s = String(status ?? "").toLowerCase();
-
-  if (s === "new") return 0.1;
-  if (s === "to contact") return 0.15;
-  if (s === "contacted") return 0.25;
-  if (s === "follow up") return 0.4;
-  if (s === "quoted") return 0.65;
-  if (s === "won") return 1;
-  if (s === "dormant") return 0.08;
-  return 0;
 }
 
 function stageLabel(status: string | null | undefined) {
@@ -43,21 +31,54 @@ function isOpenStatus(status: string | null | undefined) {
   return s !== "won" && s !== "lost";
 }
 
+function matchesView(view: string, status: string) {
+  const s = status.toLowerCase();
+
+  if (view === "all") return true;
+  if (view === "open") return s !== "won" && s !== "lost";
+  if (view === "quoted") return s === "quoted";
+  if (view === "won") return s === "won";
+  if (view === "dormant") return s === "dormant";
+  if (view === "lost") return s === "lost";
+  return true;
+}
+
+function probabilityForLead(lead: any) {
+  const manual = Number(lead?.probability_percent);
+  if (Number.isFinite(manual)) {
+    return Math.max(0, Math.min(100, manual));
+  }
+
+  const status = String(lead?.status ?? "").toLowerCase();
+
+  if (status === "new") return 10;
+  if (status === "to contact") return 15;
+  if (status === "contacted") return 25;
+  if (status === "follow up") return 40;
+  if (status === "quoted") return 65;
+  if (status === "won") return 100;
+  if (status === "dormant") return 8;
+  return 0;
+}
+
+function weightedValue(lead: any) {
+  const value = Number(lead?.opportunity_value ?? 0);
+  const probability = probabilityForLead(lead);
+  return value * (probability / 100);
+}
+
 function priorityScore(lead: any, today: string) {
   let score = Number(lead?.lead_score ?? 0);
-  const status = String(lead?.status ?? "").toLowerCase();
-  const next = dateOnly(lead?.next_follow_up_on);
+  score += Math.round(probabilityForLead(lead) * 0.7);
 
-  if (status === "quoted") score += 30;
-  else if (status === "follow up") score += 24;
-  else if (status === "contacted") score += 18;
-  else if (status === "to contact") score += 14;
-  else if (status === "new") score += 10;
-  else if (status === "dormant") score += 8;
+  if (Number(lead?.opportunity_value ?? 0) >= 10000) score += 18;
+  else if (Number(lead?.opportunity_value ?? 0) >= 5000) score += 12;
+  else if (Number(lead?.opportunity_value ?? 0) > 0) score += 8;
 
   if (lead?.phone) score += 8;
   if (lead?.email) score += 6;
 
+  const next = dateOnly(lead?.next_follow_up_on);
   if (next) {
     const diff = Math.floor(
       (new Date(today).getTime() - new Date(next).getTime()) / (1000 * 60 * 60 * 24)
@@ -69,17 +90,6 @@ function priorityScore(lead: any, today: string) {
   }
 
   return Math.min(score, 100);
-}
-
-function matchesView(view: string, status: string) {
-  const s = status.toLowerCase();
-
-  if (view === "all") return true;
-  if (view === "open") return s !== "won" && s !== "lost";
-  if (view === "quoted") return s === "quoted";
-  if (view === "won") return s === "won";
-  if (view === "dormant") return s === "dormant";
-  return true;
 }
 
 function badgeStyleForStatus(status: string | null | undefined): React.CSSProperties {
@@ -158,7 +168,11 @@ export default async function OpportunityTrackingPage({
       notes,
       lead_source,
       created_at,
-      updated_at
+      updated_at,
+      opportunity_value,
+      probability_percent,
+      expected_close_date,
+      lost_reason
     `)
     .eq("archived", false)
     .order("updated_at", { ascending: false });
@@ -199,7 +213,8 @@ export default async function OpportunityTrackingPage({
       .filter((lead: any) => stageLabel(lead.status) === stage)
       .map((lead: any) => ({
         ...lead,
-        weighted_score: Math.round(Number(lead.lead_score ?? 0) * stageWeight(lead.status)),
+        probability: probabilityForLead(lead),
+        weighted_value: weightedValue(lead),
         priority_score: priorityScore(lead, today),
       }))
       .sort((a: any, b: any) => b.priority_score - a.priority_score);
@@ -211,21 +226,37 @@ export default async function OpportunityTrackingPage({
   });
 
   const openRows = filteredRows.filter((lead: any) => isOpenStatus(lead.status));
-  const hotRows = openRows.filter((lead: any) => Number(lead.lead_score ?? 0) >= 75);
   const quotedRows = filteredRows.filter((lead: any) => String(lead.status ?? "") === "Quoted");
   const wonRows = filteredRows.filter((lead: any) => String(lead.status ?? "") === "Won");
 
-  const weightedForecast = openRows.reduce((sum: number, lead: any) => {
-    return sum + Number(lead.lead_score ?? 0) * stageWeight(lead.status);
-  }, 0);
+  const pipelineValue = openRows.reduce(
+    (sum: number, lead: any) => sum + Number(lead?.opportunity_value ?? 0),
+    0
+  );
+
+  const weightedForecast = openRows.reduce(
+    (sum: number, lead: any) => sum + weightedValue(lead),
+    0
+  );
 
   const hotList = [...openRows]
     .map((lead: any) => ({
       ...lead,
+      probability: probabilityForLead(lead),
+      weighted_value: weightedValue(lead),
       priority_score: priorityScore(lead, today),
-      weighted_score: Math.round(Number(lead.lead_score ?? 0) * stageWeight(lead.status)),
     }))
-    .sort((a: any, b: any) => b.priority_score - a.priority_score)
+    .filter((lead: any) => {
+      return (
+        Number(lead.opportunity_value ?? 0) > 0 ||
+        Number(lead.probability ?? 0) >= 50 ||
+        String(lead.status ?? "") === "Quoted"
+      );
+    })
+    .sort((a: any, b: any) => {
+      if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
+      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
+    })
     .slice(0, 12);
 
   return (
@@ -235,7 +266,7 @@ export default async function OpportunityTrackingPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Opportunity Tracking</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Pipeline board and weighted forecast using your live lead stages.
+              Pipeline board and weighted forecast using real opportunity fields.
             </p>
           </div>
 
@@ -253,10 +284,11 @@ export default async function OpportunityTrackingPage({
 
         <div style={statsGrid}>
           <StatCard label="Open opportunities" value={String(openRows.length)} />
-          <StatCard label="Hot opportunities" value={String(hotRows.length)} />
+          <StatCard label="Hot opportunities" value={String(hotList.length)} />
           <StatCard label="Quoted" value={String(quotedRows.length)} />
           <StatCard label="Won" value={String(wonRows.length)} />
-          <StatCard label="Weighted forecast" value={String(Math.round(weightedForecast))} />
+          <StatCard label="Pipeline value" value={moneyGBP(pipelineValue)} />
+          <StatCard label="Weighted forecast" value={moneyGBP(weightedForecast)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
@@ -269,6 +301,7 @@ export default async function OpportunityTrackingPage({
                 <option value="quoted">Quoted only</option>
                 <option value="won">Won only</option>
                 <option value="dormant">Dormant only</option>
+                <option value="lost">Lost only</option>
               </select>
             </div>
 
@@ -314,18 +347,21 @@ export default async function OpportunityTrackingPage({
                           {lead.status ? ` • ${lead.status}` : ""}
                         </div>
                         <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          Follow-up {fmtDate(lead.next_follow_up_on)}
+                          Close target {fmtDate(lead.expected_close_date)} • Follow-up {fmtDate(lead.next_follow_up_on)}
                         </div>
                       </div>
 
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Lead ${lead.lead_score ?? 0}`} />
-                        <MiniBadge label={`Weighted ${lead.weighted_score}`} />
-                        <MiniBadge label={`Priority ${lead.priority_score}`} />
+                        <MiniBadge label={`Value ${moneyGBP(lead.opportunity_value)}`} />
+                        <MiniBadge label={`Prob ${lead.probability}%`} />
+                        <MiniBadge label={`Weighted ${moneyGBP(lead.weighted_value)}`} />
                       </div>
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                      <a href={`/sales-hub/opportunities/${lead.id}`} style={secondaryBtn}>
+                        Open opportunity
+                      </a>
                       <a href={`/sales-hub/leads/${lead.id}`} style={secondaryBtn}>
                         Open lead
                       </a>
@@ -340,12 +376,12 @@ export default async function OpportunityTrackingPage({
           </section>
 
           <section style={panelStyle}>
-            <h2 style={sectionTitle}>How forecast works</h2>
+            <h2 style={sectionTitle}>What changed</h2>
             <div style={{ display: "grid", gap: 8 }}>
-              <div style={tipRow}>This first version uses your existing lead score and current stage.</div>
-              <div style={tipRow}>Weighted forecast = lead score × stage weighting.</div>
-              <div style={tipRow}>Quoted and Follow Up leads naturally rise higher than New or Dormant leads.</div>
-              <div style={tipRow}>This keeps it safe for live use without needing any database change.</div>
+              <div style={tipRow}>Weighted forecast now uses opportunity value × probability percent.</div>
+              <div style={tipRow}>Each opportunity can now hold a close target and lost reason.</div>
+              <div style={tipRow}>Where probability is blank, the page falls back to stage defaults.</div>
+              <div style={tipRow}>This keeps old leads usable while you update the important ones first.</div>
             </div>
           </section>
         </div>
@@ -389,12 +425,21 @@ export default async function OpportunityTrackingPage({
                         </div>
 
                         <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                          Close target {fmtDate(lead.expected_close_date)}
+                        </div>
+
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
                           Follow-up {fmtDate(lead.next_follow_up_on)}
                         </div>
 
                         <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <MiniBadge label={`Value ${moneyGBP(lead.opportunity_value)}`} />
+                          <MiniBadge label={`Prob ${lead.probability}%`} />
+                        </div>
+
+                        <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <MiniBadge label={`Weighted ${moneyGBP(lead.weighted_value)}`} />
                           <MiniBadge label={`Lead ${lead.lead_score ?? 0}`} />
-                          <MiniBadge label={`Weighted ${lead.weighted_score}`} />
                         </div>
 
                         {Array.isArray(lead.services) && lead.services.length ? (
@@ -403,11 +448,20 @@ export default async function OpportunityTrackingPage({
                           </div>
                         ) : null}
 
+                        {lead.lost_reason ? (
+                          <div style={{ marginTop: 8, fontSize: 13, opacity: 0.76 }}>
+                            Lost reason: {lead.lost_reason}
+                          </div>
+                        ) : null}
+
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                          <a href={`/sales-hub/leads/${lead.id}`} style={miniBtn}>
-                            Open
+                          <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnDark}>
+                            Opportunity
                           </a>
-                          <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniBtnDark}>
+                          <a href={`/sales-hub/leads/${lead.id}`} style={miniBtn}>
+                            Lead
+                          </a>
+                          <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniBtn}>
                             Outreach
                           </a>
                         </div>
