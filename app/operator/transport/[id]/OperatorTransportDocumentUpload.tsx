@@ -9,8 +9,8 @@ export default function OperatorTransportDocumentUpload({
   transportJobId: string;
 }) {
   const router = useRouter();
-  const [file, setFile] = useState<File | null>(null);
-  const [documentType, setDocumentType] = useState("photo");
+  const [files, setFiles] = useState<File[]>([]);
+  const [documentType, setDocumentType] = useState("load_photo");
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -18,8 +18,8 @@ export default function OperatorTransportDocumentUpload({
     e.preventDefault();
     setMsg(null);
 
-    if (!file) {
-      setMsg("Choose a document first.");
+    if (files.length === 0) {
+      setMsg("Choose at least one document first.");
       return;
     }
 
@@ -27,7 +27,9 @@ export default function OperatorTransportDocumentUpload({
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      for (const file of files) {
+        formData.append("files", file);
+      }
       formData.append("document_type", documentType);
 
       const res = await fetch(`/api/operator/transport/${transportJobId}/documents/upload`, {
@@ -38,19 +40,19 @@ export default function OperatorTransportDocumentUpload({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMsg(data?.error || "Could not upload document.");
+        setMsg(data?.error || "Could not upload documents.");
         return;
       }
 
-      setFile(null);
-      setDocumentType("photo");
+      setFiles([]);
+      setDocumentType("load_photo");
 
       const input = document.getElementById("operator-transport-doc-upload") as HTMLInputElement | null;
       if (input) input.value = "";
 
       router.refresh();
     } catch {
-      setMsg("Could not upload document.");
+      setMsg("Could not upload documents.");
     } finally {
       setSaving(false);
     }
@@ -64,24 +66,33 @@ export default function OperatorTransportDocumentUpload({
           onChange={(e) => setDocumentType(e.target.value)}
           style={selectStyle}
         >
-          <option value="photo">Photo</option>
+          <option value="load_photo">Load Photo</option>
+          <option value="pickup_photo">Pickup Photo</option>
+          <option value="delivery_photo">Delivery Photo</option>
+          <option value="pod">POD</option>
           <option value="delivery_note">Delivery Note</option>
           <option value="collection_note">Collection Note</option>
-          <option value="pod">POD</option>
           <option value="site_drawing">Site Drawing</option>
-          <option value="rams">RAMS</option>
           <option value="other">Other</option>
         </select>
 
         <input
           id="operator-transport-doc-upload"
           type="file"
-          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+          onChange={(e) => setFiles(Array.from(e.target.files ?? []))}
           style={inputStyle}
         />
 
+        {files.length > 0 ? (
+          <div style={fileCountText}>
+            {files.length} file{files.length === 1 ? "" : "s"} selected
+          </div>
+        ) : null}
+
         <button type="submit" disabled={saving} style={primaryBtn}>
-          {saving ? "Uploading..." : "Upload Transport Document"}
+          {saving ? "Uploading..." : "Upload Transport Documents"}
         </button>
 
         {msg ? <div style={errorText}>{msg}</div> : null}
@@ -118,6 +129,12 @@ const primaryBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const fileCountText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
+  fontWeight: 700,
 };
 
 const errorText: React.CSSProperties = {
