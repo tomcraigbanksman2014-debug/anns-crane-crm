@@ -149,6 +149,11 @@ export default async function SalesHubPage() {
                 <div style={toolCardSub}>Live now</div>
               </a>
 
+              <a href="/sales-hub/availability-driven-selling" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Availability-Driven Selling</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
               <a href="/sales-hub/leads" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Opportunity Tracking</div>
                 <div style={toolCardSub}>Use lead statuses first, then deepen later</div>
@@ -156,7 +161,6 @@ export default async function SalesHubPage() {
 
               <FeaturePill text="Social Media Content Studio" />
               <FeaturePill text="Cross-sell prompts" />
-              <FeaturePill text="Availability-driven selling" />
             </div>
           </section>
 
