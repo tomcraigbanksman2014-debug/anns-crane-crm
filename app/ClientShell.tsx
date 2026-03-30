@@ -208,40 +208,41 @@ export default function ClientShell({
     setMenuOpen(false);
   }, [pathname]);
 
-  const officeNav = useMemo<NavItem[]>(
-    () => [
-      { label: "Dashboard", href: "/" },
-      { label: "Search", href: "/search" },
+ const officeNav = useMemo<NavItem[]>(
+  () => [
+    { label: "Dashboard", href: "/" },
+    { label: "Search", href: "/search" },
 
-      { label: "Quotes", href: "/quotes" },
-      { label: "Customers", href: "/customers" },
+    { label: "Quotes", href: "/quotes" },
+    { label: "Customers", href: "/customers" },
+    { label: "Sales Hub", href: "/sales-hub" },
 
-      { label: "Jobs", href: "/jobs" },
-      { label: "Transport Jobs", href: "/transport-jobs" },
+    { label: "Jobs", href: "/jobs" },
+    { label: "Transport Jobs", href: "/transport-jobs" },
 
-      { label: "Crane Planner", href: "/planner" },
-      { label: "Weekly Planner", href: "/weekly-planner" },
-      { label: "Transport Planner", href: "/transport-planner" },
-      { label: "Transport Map", href: "/transport-map" },
+    { label: "Crane Planner", href: "/planner" },
+    { label: "Weekly Planner", href: "/weekly-planner" },
+    { label: "Transport Planner", href: "/transport-planner" },
+    { label: "Transport Map", href: "/transport-map" },
 
-      { label: "Purchase Orders", href: "/purchase-orders" },
-      { label: "Suppliers", href: "/suppliers" },
+    { label: "Purchase Orders", href: "/purchase-orders" },
+    { label: "Suppliers", href: "/suppliers" },
 
-      { label: "Cranes", href: "/cranes" },
-      { label: "Vehicles", href: "/vehicles" },
-      { label: "Equipment", href: "/equipment" },
-      { label: "Operators", href: "/operators" },
-      { label: "Timesheets", href: "/timesheets" },
+    { label: "Cranes", href: "/cranes" },
+    { label: "Vehicles", href: "/vehicles" },
+    { label: "Equipment", href: "/equipment" },
+    { label: "Operators", href: "/operators" },
+    { label: "Timesheets", href: "/timesheets" },
 
-      { label: "My Jobs", href: "/operator/jobs" },
+    { label: "My Jobs", href: "/operator/jobs" },
 
-      { label: "Settings", href: "/settings" },
-      { label: "Qualification Rules", href: "/admin/qualification-rules" },
-      { label: "Staff Accounts", href: "/admin/users" },
-      { label: "Audit Log", href: "/admin/audit" },
-    ],
-    []
-  );
+    { label: "Settings", href: "/settings" },
+    { label: "Qualification Rules", href: "/admin/qualification-rules" },
+    { label: "Staff Accounts", href: "/admin/users" },
+    { label: "Audit Log", href: "/admin/audit" },
+  ],
+  []
+);
 
   const operatorNav = useMemo<NavItem[]>(
     () => [{ label: "My Jobs", href: "/operator/jobs" }],
