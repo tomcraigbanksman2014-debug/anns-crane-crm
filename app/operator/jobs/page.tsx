@@ -41,6 +41,7 @@ function prettyStatus(value: string | null | undefined) {
   if (v === "confirmed") return "Confirmed";
   if (v === "cancelled") return "Cancelled";
   if (v === "draft") return "Draft";
+  if (v === "planned") return "Planned";
   return value ?? "—";
 }
 
@@ -79,6 +80,13 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
       background: "rgba(255,0,0,0.10)",
       color: "#b00020",
       border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+  if (s === "planned") {
+    return {
+      background: "rgba(0,120,255,0.12)",
+      color: "#0b57d0",
+      border: "1px solid rgba(0,120,255,0.20)",
     };
   }
   return {
@@ -161,6 +169,33 @@ function displayAsset(job: any) {
   }
 
   return { name: "—", extra: "" };
+}
+
+function effectiveDeliveryDate(job: any) {
+  return job.delivery_date || job.transport_date || "";
+}
+
+function applicableRouteOrderForDate(job: any, dateValue: string) {
+  const orders: number[] = [];
+
+  if (
+    job.transport_date === dateValue &&
+    typeof job.collection_route_order === "number" &&
+    Number.isFinite(job.collection_route_order)
+  ) {
+    orders.push(job.collection_route_order);
+  }
+
+  if (
+    effectiveDeliveryDate(job) === dateValue &&
+    typeof job.delivery_route_order === "number" &&
+    Number.isFinite(job.delivery_route_order)
+  ) {
+    orders.push(job.delivery_route_order);
+  }
+
+  if (orders.length === 0) return null;
+  return Math.min(...orders);
 }
 
 export default async function OperatorJobsPage() {
@@ -295,7 +330,10 @@ export default async function OperatorJobsPage() {
         transport_number,
         transport_date,
         collection_time,
+        delivery_date,
         delivery_time,
+        collection_route_order,
+        delivery_route_order,
         collection_address,
         delivery_address,
         load_description,
@@ -303,6 +341,9 @@ export default async function OperatorJobsPage() {
         status,
         vehicle_id,
         operator_id,
+        clients:client_id (
+          company_name
+        ),
         vehicles:vehicle_id (
           id,
           name,
@@ -328,25 +369,49 @@ export default async function OperatorJobsPage() {
   const jobsList = ((jobs ?? []) as any[]).filter((job) =>
     jobIsAssignedToOperator(job, operator.id)
   );
-  const transportList = (transportJobs ?? []) as any[];
+
+  const transportList = [...((transportJobs ?? []) as any[])].sort((a, b) => {
+    const dateA = String(a.transport_date ?? "");
+    const dateB = String(b.transport_date ?? "");
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+    const routeA = applicableRouteOrderForDate(a, dateA);
+    const routeB = applicableRouteOrderForDate(b, dateB);
+
+    if (routeA !== null && routeB !== null && routeA !== routeB) {
+      return routeA - routeB;
+    }
+    if (routeA !== null && routeB === null) return -1;
+    if (routeA === null && routeB !== null) return 1;
+
+    return String(a.collection_time || "99:99").localeCompare(
+      String(b.collection_time || "99:99")
+    );
+  });
 
   const assignedSites = [
-    ...jobsList.map((job: any) => ({
-      kind: "job" as const,
-      id: job.id,
-      label: `Crane Job #${job.job_number ?? "—"} • ${job.site_name ?? "No site"}`,
-      siteText:
-        [job.site_name, job.site_address].filter(Boolean).join(" • ") ||
-        `Job #${job.job_number ?? "—"}`,
-    })),
-    ...transportList.map((job: any) => ({
-      kind: "transport" as const,
-      id: job.id,
-      label: `${job.transport_number ?? "Transport Job"} • ${job.collection_address ?? "No pickup"}`,
-      siteText:
-        [job.collection_address, job.delivery_address].filter(Boolean).join(" → ") ||
-        (job.transport_number ?? "Transport Job"),
-    })),
+    ...jobsList.map((job: any) => {
+      const client = first(job.clients);
+      return {
+        kind: "job" as const,
+        id: job.id,
+        label: `${client?.company_name ?? `Crane Job #${job.job_number ?? "—"}`} • ${job.site_name ?? "No site"}`,
+        siteText:
+          [job.site_name, job.site_address].filter(Boolean).join(" • ") ||
+          `Job #${job.job_number ?? "—"}`,
+      };
+    }),
+    ...transportList.map((job: any) => {
+      const client = first(job.clients);
+      return {
+        kind: "transport" as const,
+        id: job.id,
+        label: `${client?.company_name ?? job.transport_number ?? "Transport Job"} • ${job.collection_address ?? "No pickup"}`,
+        siteText:
+          [job.collection_address, job.delivery_address].filter(Boolean).join(" → ") ||
+          (job.transport_number ?? "Transport Job"),
+      };
+    }),
   ];
 
   return (
@@ -394,6 +459,7 @@ export default async function OperatorJobsPage() {
                     transport_number: job.transport_number ?? "Transport Job",
                     transport_date: job.transport_date ?? "",
                     collection_time: job.collection_time ?? "",
+                    delivery_date: job.delivery_date ?? job.transport_date ?? "",
                     delivery_time: job.delivery_time ?? "",
                     collection_address: job.collection_address ?? "",
                     delivery_address: job.delivery_address ?? "",
@@ -402,6 +468,8 @@ export default async function OperatorJobsPage() {
                     vehicle_label: `${vehicle?.name ?? "Vehicle"}${
                       vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
                     }`,
+                    collection_route_order: job.collection_route_order ?? null,
+                    delivery_route_order: job.delivery_route_order ?? null,
                   };
                 })}
               />
@@ -431,10 +499,10 @@ export default async function OperatorJobsPage() {
                     >
                       <div>
                         <div style={{ fontWeight: 1000, fontSize: 18 }}>
-                          Job #{job.job_number ?? "—"}
+                          {client?.company_name ?? `Job #${job.job_number ?? "—"}`}
                         </div>
                         <div style={{ marginTop: 4, opacity: 0.78 }}>
-                          {fmtDate(job.start_date ?? job.job_date)}
+                          Job #{job.job_number ?? "—"} • {fmtDate(job.start_date ?? job.job_date)}
                         </div>
                       </div>
 
@@ -450,11 +518,6 @@ export default async function OperatorJobsPage() {
                       >
                         {prettyStatus(job.status)}
                       </span>
-                    </div>
-
-                    <div style={sectionBlock}>
-                      <div style={rowLabel}>Customer</div>
-                      <div style={rowValue}>{client?.company_name ?? "—"}</div>
                     </div>
 
                     <div style={sectionBlock}>
@@ -521,6 +584,7 @@ export default async function OperatorJobsPage() {
               <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
                 {transportList.map((job: any) => {
                   const vehicle = first(job.vehicles);
+                  const client = first(job.clients);
 
                   return (
                     <div key={job.id} style={transportCard}>
@@ -535,10 +599,10 @@ export default async function OperatorJobsPage() {
                       >
                         <div>
                           <div style={{ fontWeight: 1000, fontSize: 18 }}>
-                            {job.transport_number ?? "Transport Job"}
+                            {client?.company_name ?? job.transport_number ?? "Transport Job"}
                           </div>
                           <div style={{ marginTop: 4, opacity: 0.78 }}>
-                            {fmtDate(job.transport_date)}
+                            {job.transport_number ?? "—"} • {fmtDate(job.transport_date)}
                           </div>
                         </div>
 
@@ -554,6 +618,19 @@ export default async function OperatorJobsPage() {
                         >
                           {prettyStatus(job.status)}
                         </span>
+                      </div>
+
+                      <div style={sectionBlock}>
+                        <div style={rowLabel}>Route order</div>
+                        <div style={rowValue}>
+                          {typeof job.collection_route_order === "number"
+                            ? `Pickup #${job.collection_route_order}`
+                            : "Pickup —"}
+                          {" • "}
+                          {typeof job.delivery_route_order === "number"
+                            ? `Delivery #${job.delivery_route_order}`
+                            : "Delivery —"}
+                        </div>
                       </div>
 
                       <div style={sectionBlock}>
