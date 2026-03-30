@@ -1,0 +1,41 @@
+"use client";
+
+import { useState } from "react";
+
+export default function CopyTextButton({
+  text,
+  label = "Copy",
+}: {
+  text: string;
+  label?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <button type="button" onClick={handleCopy} style={buttonStyle}>
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
+const buttonStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "none",
+  cursor: "pointer",
+};
