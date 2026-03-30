@@ -3,6 +3,17 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../../lib/audit";
 
+const ALLOWED_DOCUMENT_TYPES = new Set([
+  "load_photo",
+  "pickup_photo",
+  "delivery_photo",
+  "pod",
+  "delivery_note",
+  "collection_note",
+  "site_drawing",
+  "other",
+]);
+
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -92,8 +103,10 @@ export async function POST(
     }
 
     const formData = await req.formData();
-    const rawDocumentType = String(formData.get("document_type") ?? "load_photo").trim();
-    const documentType = rawDocumentType || "load_photo";
+    const rawDocumentType = String(formData.get("document_type") ?? "load_photo").trim().toLowerCase();
+    const documentType = ALLOWED_DOCUMENT_TYPES.has(rawDocumentType)
+      ? rawDocumentType
+      : "load_photo";
 
     const files = formData
       .getAll("files")
@@ -109,6 +122,7 @@ export async function POST(
     }
 
     const createdDocuments: Array<Record<string, any>> = [];
+    const uploadedPaths: string[] = [];
 
     for (const file of files) {
       const arrayBuffer = await file.arrayBuffer();
@@ -125,13 +139,18 @@ export async function POST(
         });
 
       if (uploadError) {
+        if (uploadedPaths.length > 0) {
+          await admin.storage.from("job-documents").remove(uploadedPaths);
+        }
         return NextResponse.json(
           { error: `Storage upload failed: ${uploadError.message}` },
           { status: 400 }
         );
       }
 
-      const row = {
+      uploadedPaths.push(filePath);
+
+      createdDocuments.push({
         transport_job_id: params.id,
         file_name: file.name,
         file_path: filePath,
@@ -139,20 +158,21 @@ export async function POST(
         document_type: documentType,
         uploaded_by: user.id,
         share_with_operator: false,
-      };
+      });
+    }
 
-      const { error: insertError } = await admin
-        .from("transport_job_documents")
-        .insert([row]);
+    const { error: insertError } = await admin
+      .from("transport_job_documents")
+      .insert(createdDocuments);
 
-      if (insertError) {
-        return NextResponse.json(
-          { error: `Database save failed: ${insertError.message}` },
-          { status: 400 }
-        );
+    if (insertError) {
+      if (uploadedPaths.length > 0) {
+        await admin.storage.from("job-documents").remove(uploadedPaths);
       }
-
-      createdDocuments.push(row);
+      return NextResponse.json(
+        { error: `Database save failed: ${insertError.message}` },
+        { status: 400 }
+      );
     }
 
     try {
