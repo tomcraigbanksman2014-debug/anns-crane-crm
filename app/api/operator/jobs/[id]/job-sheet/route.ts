@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../lib/audit";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 type Payload = {
   travel_hours?: number | string | null;
@@ -56,6 +73,7 @@ export async function POST(
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
 
     const {
       data: { user },
@@ -68,7 +86,7 @@ export async function POST(
 
     const authEmail = String(user.email ?? "").trim().toLowerCase();
 
-    const { data: operators, error: operatorsError } = await supabase
+    const { data: operators, error: operatorsError } = await admin
       .from("operators")
       .select("id, full_name, email, status")
       .eq("status", "active");
@@ -87,7 +105,7 @@ export async function POST(
       );
     }
 
-    const { data: job, error: jobError } = await supabase
+    const { data: job, error: jobError } = await admin
       .from("jobs")
       .select(`
         id,
@@ -128,7 +146,7 @@ export async function POST(
       updateData.submitted_to_office_at = new Date().toISOString();
     }
 
-    const { error: updateError } = await supabase
+    const { error: updateError } = await admin
       .from("jobs")
       .update(updateData)
       .eq("id", params.id);
