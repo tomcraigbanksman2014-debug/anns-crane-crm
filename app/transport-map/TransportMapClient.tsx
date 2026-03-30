@@ -4,13 +4,13 @@ import "leaflet/dist/leaflet.css";
 import "leaflet-defaulticon-compatibility/dist/leaflet-defaulticon-compatibility.css";
 import "leaflet-defaulticon-compatibility";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   MapContainer,
   Marker,
   Popup,
-  TileLayer,
   Polyline,
+  TileLayer,
   useMap,
 } from "react-leaflet";
 import L, { type LatLngExpression } from "leaflet";
@@ -35,6 +35,8 @@ type TransportItem = {
   collection_lng: number | null;
   delivery_lat: number | null;
   delivery_lng: number | null;
+  collection_route_order: number | null;
+  delivery_route_order: number | null;
   status: string | null;
   job_type: string | null;
   load_description: string | null;
@@ -82,15 +84,23 @@ type DriverLocation = {
   recorded_at: string | null;
 };
 
-type EtaInfo = {
-  toPickup: string;
-  toDelivery: string;
-};
-
-type RouteInfo = {
-  path: LatLngExpression[];
-  distanceMeters: number | null;
-  durationSeconds: number | null;
+type RouteStop = {
+  key: string;
+  transportJobId: string;
+  stopType: "pickup" | "delivery";
+  stopOrder: number;
+  routeDate: string;
+  plannedTime: string | null;
+  customerName: string;
+  transportNumber: string;
+  address: string | null;
+  lat: number | null;
+  lng: number | null;
+  status: string | null;
+  vehicleId: string | null;
+  vehicleLabel: string;
+  driverName: string;
+  linkedJobLabel: string;
 };
 
 function first<T>(value: T | T[] | null | undefined): T | null {
@@ -131,6 +141,10 @@ function prettyJobType(value: string | null | undefined) {
   return value || "—";
 }
 
+function prettyStopType(value: "pickup" | "delivery") {
+  return value === "pickup" ? "Pickup" : "Delivery";
+}
+
 function hasCoords(lat: number | null, lng: number | null) {
   return typeof lat === "number" && typeof lng === "number";
 }
@@ -166,17 +180,40 @@ function createColoredIcon(color: string, label: string) {
   });
 }
 
+function createRouteStopIcon(order: number, stopType: "pickup" | "delivery") {
+  const bg = stopType === "pickup" ? "#2563eb" : "#16a34a";
+
+  return new L.DivIcon({
+    className: "",
+    html: `
+      <div style="
+        width:28px;
+        height:28px;
+        border-radius:999px;
+        background:${bg};
+        border:3px solid #fff;
+        box-shadow:0 3px 10px rgba(0,0,0,0.28);
+        color:#fff;
+        font-size:12px;
+        font-weight:900;
+        line-height:22px;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+      ">${order}</div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
+  });
+}
+
 const pickupIcon = createColoredIcon("#2563eb", "P");
 const deliveryIcon = createColoredIcon("#16a34a", "D");
 const liveIcon = createColoredIcon("#f97316", "L");
 const defaultCenter: LatLngExpression = [53.5, -2.5];
-const MAX_ROUTE_JOBS = 20;
 
-function FitMapToMarkers({
-  points,
-}: {
-  points: LatLngExpression[];
-}) {
+function FitMapToMarkers({ points }: { points: LatLngExpression[] }) {
   const map = useMap();
 
   useEffect(() => {
@@ -243,14 +280,6 @@ function statusPillStyle(status: string | null | undefined): React.CSSProperties
   };
 }
 
-function minsToText(minutes: number | null) {
-  if (minutes === null || !Number.isFinite(minutes)) return "—";
-  if (minutes < 60) return `${Math.round(minutes)} mins`;
-  const hrs = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return `${hrs}h ${mins}m`;
-}
-
 function ageText(value: string | null | undefined) {
   if (!value) return "—";
   const now = Date.now();
@@ -261,11 +290,6 @@ function ageText(value: string | null | undefined) {
   if (mins < 60) return `${mins} min ago`;
   const hrs = Math.floor(mins / 60);
   return `${hrs}h ago`;
-}
-
-function milesFromMeters(meters: number | null) {
-  if (meters === null || !Number.isFinite(meters)) return "—";
-  return `${(meters / 1609.344).toFixed(1)} mi`;
 }
 
 function mapsUrl(lat: number | null, lng: number | null, address?: string | null) {
@@ -289,6 +313,10 @@ function jobTouchesDate(item: TransportItem, selectedDate: string) {
   return start <= selectedDate && end >= selectedDate;
 }
 
+function effectiveDeliveryDate(item: TransportItem) {
+  return item.delivery_date || item.transport_date || null;
+}
+
 function scheduleText(item: TransportItem) {
   const startDate = fmtDate(item.transport_date);
   const endDate =
@@ -302,152 +330,119 @@ function scheduleText(item: TransportItem) {
   return `${startDate}${endDate ? ` → ${endDate}` : ""} • ${startTime} → ${endTime}`;
 }
 
-async function fetchRoadRoute(
-  fromLat: number,
-  fromLng: number,
-  toLat: number,
-  toLng: number
-): Promise<RouteInfo | null> {
-  try {
-    const res = await fetch("/api/transport-route", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        fromLat,
-        fromLng,
-        toLat,
-        toLng,
-      }),
-    });
-
-    const json = await res.json().catch(() => null);
-
-    if (!res.ok) return null;
-
-    return {
-      path: Array.isArray(json?.path) ? json.path : [],
-      distanceMeters:
-        typeof json?.distance_meters === "number" ? json.distance_meters : null,
-      durationSeconds:
-        typeof json?.duration_seconds === "number" ? json.duration_seconds : null,
-    };
-  } catch {
-    return null;
-  }
+function routeOrderSummary(stops: RouteStop[]) {
+  if (stops.length === 0) return "—";
+  return stops
+    .map((stop) => `#${stop.stopOrder} ${prettyStopType(stop.stopType)}`)
+    .join(" • ");
 }
 
 export default function TransportMapClient() {
   const [items, setItems] = useState<TransportItem[]>([]);
   const [locations, setLocations] = useState<DriverLocation[]>([]);
-  const [etas, setEtas] = useState<Record<string, EtaInfo>>({});
-  const [routeMap, setRouteMap] = useState<Record<string, RouteInfo>>({});
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [routeMessage, setRouteMessage] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState("");
   const [vehicleFilter, setVehicleFilter] = useState("all");
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
+  const [routePlannerStops, setRoutePlannerStops] = useState<RouteStop[]>([]);
+  const [routeDirty, setRouteDirty] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
     const supabase = createSupabaseBrowserClient();
 
-    async function load() {
-      setLoading(true);
-      setError("");
-
-      const [jobsRes, locationsRes] = await Promise.all([
-        supabase
-          .from("transport_jobs")
-          .select(`
+    const [jobsRes, locationsRes] = await Promise.all([
+      supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          transport_number,
+          transport_date,
+          collection_time,
+          delivery_date,
+          delivery_time,
+          collection_address,
+          delivery_address,
+          collection_lat,
+          collection_lng,
+          delivery_lat,
+          delivery_lng,
+          collection_route_order,
+          delivery_route_order,
+          status,
+          job_type,
+          load_description,
+          price,
+          agreed_sell_rate,
+          vehicle_id,
+          operator_id,
+          linked_job_id,
+          archived,
+          vehicles:vehicle_id (
+            name,
+            reg_number,
+            status
+          ),
+          operators:operator_id (
+            full_name
+          ),
+          jobs:linked_job_id (
             id,
-            transport_number,
-            transport_date,
-            collection_time,
-            delivery_date,
-            delivery_time,
-            collection_address,
-            delivery_address,
-            collection_lat,
-            collection_lng,
-            delivery_lat,
-            delivery_lng,
-            status,
-            job_type,
-            load_description,
-            price,
-            agreed_sell_rate,
-            vehicle_id,
-            operator_id,
-            linked_job_id,
-            archived,
-            vehicles:vehicle_id (
-              name,
-              reg_number,
-              status
-            ),
-            operators:operator_id (
-              full_name
-            ),
-            jobs:linked_job_id (
-              id,
-              job_number,
-              site_name,
-              job_date
-            ),
-            clients:client_id (
-              company_name
-            )
-          `)
-          .eq("archived", false)
-          .order("transport_date", { ascending: true })
-          .order("collection_time", { ascending: true }),
+            job_number,
+            site_name,
+            job_date
+          ),
+          clients:client_id (
+            company_name
+          )
+        `)
+        .eq("archived", false)
+        .order("transport_date", { ascending: true })
+        .order("collection_time", { ascending: true }),
 
-        supabase
-          .from("driver_locations")
-          .select(`
-            id,
-            transport_job_id,
-            operator_id,
-            vehicle_id,
-            lat,
-            lng,
-            recorded_at
-          `)
-          .order("recorded_at", { ascending: false })
-          .limit(500),
-      ]);
+      supabase
+        .from("driver_locations")
+        .select(`
+          id,
+          transport_job_id,
+          operator_id,
+          vehicle_id,
+          lat,
+          lng,
+          recorded_at
+        `)
+        .order("recorded_at", { ascending: false })
+        .limit(500),
+    ]);
 
-      if (!active) return;
-
-      if (jobsRes.error) {
-        setError(jobsRes.error.message);
-        setItems([]);
-        setLocations([]);
-        setLoading(false);
-        return;
-      }
-
-      if (locationsRes.error) {
-        setError(`Live tracking error: ${locationsRes.error.message}`);
-      }
-
-      setItems((jobsRes.data ?? []) as TransportItem[]);
-      setLocations((locationsRes.data ?? []) as DriverLocation[]);
+    if (jobsRes.error) {
+      setError(jobsRes.error.message);
+      setItems([]);
+      setLocations([]);
       setLoading(false);
+      return;
     }
 
-    load();
+    if (locationsRes.error) {
+      setError(`Live tracking error: ${locationsRes.error.message}`);
+    }
 
-    const intervalId = window.setInterval(load, 30000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
+    setItems((jobsRes.data ?? []) as TransportItem[]);
+    setLocations((locationsRes.data ?? []) as DriverLocation[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    load();
+    const intervalId = window.setInterval(load, 30000);
+    return () => window.clearInterval(intervalId);
+  }, [load]);
 
   const latestLocationByJob = useMemo(() => {
     const map = new Map<string, DriverLocation>();
@@ -510,6 +505,106 @@ export default function TransportMapClient() {
     latestLocationByJob,
   ]);
 
+  const derivedRouteStops = useMemo(() => {
+    if (!dateFilter || vehicleFilter === "all") return [] as RouteStop[];
+
+    const baseStops: RouteStop[] = [];
+
+    for (const item of items) {
+      if (String(item.vehicle_id ?? "") !== vehicleFilter) continue;
+
+      const client = first(item.clients);
+      const vehicle = first(item.vehicles);
+      const driver = first(item.operators);
+      const linkedJob = first(item.jobs);
+
+      if (item.transport_date === dateFilter) {
+        baseStops.push({
+          key: `${item.id}:pickup`,
+          transportJobId: item.id,
+          stopType: "pickup",
+          stopOrder: item.collection_route_order ?? 0,
+          routeDate: dateFilter,
+          plannedTime: item.collection_time ?? null,
+          customerName: client?.company_name ?? "Customer",
+          transportNumber: item.transport_number ?? "Transport Job",
+          address: item.collection_address ?? null,
+          lat: item.collection_lat ?? null,
+          lng: item.collection_lng ?? null,
+          status: item.status ?? null,
+          vehicleId: item.vehicle_id ?? null,
+          vehicleLabel: `${vehicle?.name ?? "Vehicle"}${
+            vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
+          }`,
+          driverName: driver?.full_name ?? "—",
+          linkedJobLabel: linkedJob?.job_number ? `#${linkedJob.job_number}` : "—",
+        });
+      }
+
+      if (effectiveDeliveryDate(item) === dateFilter) {
+        baseStops.push({
+          key: `${item.id}:delivery`,
+          transportJobId: item.id,
+          stopType: "delivery",
+          stopOrder: item.delivery_route_order ?? 0,
+          routeDate: dateFilter,
+          plannedTime: item.delivery_time ?? null,
+          customerName: client?.company_name ?? "Customer",
+          transportNumber: item.transport_number ?? "Transport Job",
+          address: item.delivery_address ?? null,
+          lat: item.delivery_lat ?? null,
+          lng: item.delivery_lng ?? null,
+          status: item.status ?? null,
+          vehicleId: item.vehicle_id ?? null,
+          vehicleLabel: `${vehicle?.name ?? "Vehicle"}${
+            vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
+          }`,
+          driverName: driver?.full_name ?? "—",
+          linkedJobLabel: linkedJob?.job_number ? `#${linkedJob.job_number}` : "—",
+        });
+      }
+    }
+
+    const sorted = [...baseStops].sort((a, b) => {
+      if (a.stopOrder && b.stopOrder && a.stopOrder !== b.stopOrder) {
+        return a.stopOrder - b.stopOrder;
+      }
+
+      if (a.stopOrder && !b.stopOrder) return -1;
+      if (!a.stopOrder && b.stopOrder) return 1;
+
+      const timeA = a.plannedTime || "99:99";
+      const timeB = b.plannedTime || "99:99";
+      if (timeA !== timeB) return timeA.localeCompare(timeB);
+
+      if (a.stopType !== b.stopType) {
+        return a.stopType === "pickup" ? -1 : 1;
+      }
+
+      return `${a.customerName} ${a.transportNumber}`.localeCompare(
+        `${b.customerName} ${b.transportNumber}`
+      );
+    });
+
+    return sorted.map((stop, index) => ({
+      ...stop,
+      stopOrder: index + 1,
+    }));
+  }, [items, vehicleFilter, dateFilter]);
+
+  useEffect(() => {
+    if (!routeDirty) {
+      setRoutePlannerStops(derivedRouteStops);
+    }
+  }, [derivedRouteStops, routeDirty]);
+
+  const orderedRoutePoints = useMemo(() => {
+    return routePlannerStops
+      .filter((stop) => hasCoords(stop.lat, stop.lng))
+      .sort((a, b) => a.stopOrder - b.stopOrder)
+      .map((stop) => asLatLng(Number(stop.lat), Number(stop.lng)));
+  }, [routePlannerStops]);
+
   const mapPoints = useMemo<LatLngExpression[]>(() => {
     const points: LatLngExpression[] = [];
 
@@ -528,102 +623,12 @@ export default function TransportMapClient() {
       }
     }
 
-    return points;
-  }, [filtered, latestLocationByJob]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function calculateRoadData() {
-      const nextEtas: Record<string, EtaInfo> = {};
-      const nextRoutes: Record<string, RouteInfo> = {};
-
-      const limited = filtered.slice(0, MAX_ROUTE_JOBS);
-
-      await Promise.all(
-        limited.map(async (item) => {
-          const pickupOk = hasCoords(item.collection_lat, item.collection_lng);
-          const deliveryOk = hasCoords(item.delivery_lat, item.delivery_lng);
-          const live = latestLocationByJob.get(item.id);
-
-          const tasks: Promise<void>[] = [];
-
-          if (pickupOk && deliveryOk) {
-            tasks.push(
-              (async () => {
-                const pickupToDelivery = await fetchRoadRoute(
-                  Number(item.collection_lat),
-                  Number(item.collection_lng),
-                  Number(item.delivery_lat),
-                  Number(item.delivery_lng)
-                );
-
-                if (pickupToDelivery && pickupToDelivery.path.length > 0) {
-                  nextRoutes[item.id] = pickupToDelivery;
-                }
-              })()
-            );
-          }
-
-          if (live && hasCoords(Number(live.lat), Number(live.lng))) {
-            const liveLat = Number(live.lat);
-            const liveLng = Number(live.lng);
-
-            tasks.push(
-              (async () => {
-                let toPickupText = "—";
-                let toDeliveryText = "—";
-
-                if (pickupOk) {
-                  const liveToPickup = await fetchRoadRoute(
-                    liveLat,
-                    liveLng,
-                    Number(item.collection_lat),
-                    Number(item.collection_lng)
-                  );
-
-                  if (liveToPickup && typeof liveToPickup.durationSeconds === "number") {
-                    toPickupText = minsToText(liveToPickup.durationSeconds / 60);
-                  }
-                }
-
-                if (deliveryOk) {
-                  const liveToDelivery = await fetchRoadRoute(
-                    liveLat,
-                    liveLng,
-                    Number(item.delivery_lat),
-                    Number(item.delivery_lng)
-                  );
-
-                  if (liveToDelivery && typeof liveToDelivery.durationSeconds === "number") {
-                    toDeliveryText = minsToText(liveToDelivery.durationSeconds / 60);
-                  }
-                }
-
-                nextEtas[item.id] = {
-                  toPickup: toPickupText,
-                  toDelivery: toDeliveryText,
-                };
-              })()
-            );
-          }
-
-          await Promise.all(tasks);
-        })
-      );
-
-      if (!cancelled) {
-        setEtas(nextEtas);
-        setRouteMap(nextRoutes);
-      }
+    for (const point of orderedRoutePoints) {
+      points.push(point);
     }
 
-    calculateRoadData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [filtered, latestLocationByJob]);
+    return points;
+  }, [filtered, latestLocationByJob, orderedRoutePoints]);
 
   const plannedCount = filtered.filter(
     (x) => String(x.status ?? "").toLowerCase() === "planned"
@@ -637,6 +642,110 @@ export default function TransportMapClient() {
   const completedCount = filtered.filter(
     (x) => String(x.status ?? "").toLowerCase() === "completed"
   ).length;
+
+  function renumberStops(stops: RouteStop[]) {
+    return stops.map((stop, index) => ({
+      ...stop,
+      stopOrder: index + 1,
+    }));
+  }
+
+  function moveStop(index: number, direction: -1 | 1) {
+    setRoutePlannerStops((current) => {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= current.length) return current;
+
+      const next = [...current];
+      const temp = next[index];
+      next[index] = next[nextIndex];
+      next[nextIndex] = temp;
+
+      return renumberStops(next);
+    });
+
+    setRouteDirty(true);
+    setRouteMessage("");
+  }
+
+  async function saveRoute() {
+    if (!dateFilter || vehicleFilter === "all" || routePlannerStops.length === 0) return;
+
+    setSaving(true);
+    setRouteMessage("");
+    setError("");
+
+    try {
+      const res = await fetch("/api/transport-route-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          vehicle_id: vehicleFilter,
+          route_date: dateFilter,
+          stops: routePlannerStops.map((stop, index) => ({
+            transport_job_id: stop.transportJobId,
+            stop_type: stop.stopType,
+            stop_order: index + 1,
+          })),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(data?.error || "Could not save route order.");
+        setSaving(false);
+        return;
+      }
+
+      await load();
+      setRouteDirty(false);
+      setRouteMessage("Route order saved for office and operator view.");
+    } catch {
+      setError("Could not save route order.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function resetRoute() {
+    if (!dateFilter || vehicleFilter === "all") return;
+
+    setSaving(true);
+    setRouteMessage("");
+    setError("");
+
+    try {
+      const res = await fetch("/api/transport-route-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          vehicle_id: vehicleFilter,
+          route_date: dateFilter,
+          stops: [],
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setError(data?.error || "Could not reset route order.");
+        setSaving(false);
+        return;
+      }
+
+      await load();
+      setRouteDirty(false);
+      setRouteMessage("Saved route order cleared.");
+    } catch {
+      setError("Could not reset route order.");
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div style={{ display: "grid", gap: 14 }}>
@@ -663,7 +772,11 @@ export default function TransportMapClient() {
             <input
               type="date"
               value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
+              onChange={(e) => {
+                setDateFilter(e.target.value);
+                setRouteDirty(false);
+                setRouteMessage("");
+              }}
               style={inputStyle}
             />
           </div>
@@ -672,7 +785,11 @@ export default function TransportMapClient() {
             <label style={labelStyle}>Vehicle</label>
             <select
               value={vehicleFilter}
-              onChange={(e) => setVehicleFilter(e.target.value)}
+              onChange={(e) => {
+                setVehicleFilter(e.target.value);
+                setRouteDirty(false);
+                setRouteMessage("");
+              }}
               style={inputStyle}
             >
               <option value="all">all</option>
@@ -707,6 +824,8 @@ export default function TransportMapClient() {
               setDateFilter("");
               setVehicleFilter("all");
               setJobTypeFilter("all");
+              setRouteDirty(false);
+              setRouteMessage("");
             }}
             style={clearBtn}
           >
@@ -722,11 +841,11 @@ export default function TransportMapClient() {
           <Stat label="Completed" value={String(completedCount)} />
         </div>
 
-        {filtered.length > MAX_ROUTE_JOBS ? (
-          <div style={infoSubBox}>
-            Showing route and ETA calculations for the first {MAX_ROUTE_JOBS} jobs in the filtered list to keep the control screen responsive.
-          </div>
-        ) : null}
+        <div style={infoSubBox}>
+          Select a <strong>date</strong> and <strong>vehicle</strong> to build a route order that drivers can see.
+        </div>
+
+        {routeMessage ? <div style={infoSubBox}>{routeMessage}</div> : null}
       </div>
 
       {loading ? (
@@ -757,7 +876,6 @@ export default function TransportMapClient() {
                 const driver = first(item.operators);
                 const linkedJob = first(item.jobs);
                 const live = latestLocationByJob.get(item.id);
-                const route = routeMap[item.id];
 
                 const pickupPoint: LatLngExpression | null = hasCoords(
                   item.collection_lat,
@@ -791,18 +909,7 @@ export default function TransportMapClient() {
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
-                            <div><strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
-                            <div style={{ marginTop: 10 }}>
-                              <a
-                                href={mapsUrl(Number(item.collection_lat), Number(item.collection_lng), item.collection_address)}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={linkBtn}
-                              >
-                                Navigate to pickup
-                              </a>
-                            </div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
@@ -819,18 +926,7 @@ export default function TransportMapClient() {
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Status:</strong> {prettyStatus(item.status)}</div>
-                            <div><strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}</div>
                             <div><strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}</div>
-                            <div style={{ marginTop: 10 }}>
-                              <a
-                                href={mapsUrl(Number(item.delivery_lat), Number(item.delivery_lng), item.delivery_address)}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={linkBtn}
-                              >
-                                Navigate to delivery
-                              </a>
-                            </div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
@@ -842,157 +938,281 @@ export default function TransportMapClient() {
                           <div style={{ minWidth: 280 }}>
                             <div style={{ fontWeight: 900, marginBottom: 6 }}>Live Driver Location</div>
                             <div><strong>Ref:</strong> {item.transport_number ?? "—"}</div>
-                            <div><strong>Schedule:</strong> {scheduleText(item)}</div>
                             <div><strong>Driver:</strong> {driver?.full_name ?? "—"}</div>
                             <div><strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}</div>
                             <div><strong>Last update:</strong> {ageText(live.recorded_at)}</div>
-                            <div><strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}</div>
-                            <div><strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}</div>
                           </div>
                         </SafePopup>
                       </SafeMarker>
                     ) : null}
-
-                    {route && route.path.length > 1 ? (
-                      <SafePolyline
-                        positions={route.path}
-                        pathOptions={{ color: "#111", weight: 4, opacity: 0.75 }}
-                      />
-                    ) : pickupPoint && deliveryPoint ? (
-                      <SafePolyline
-                        positions={[pickupPoint, deliveryPoint]}
-                        pathOptions={{
-                          color: "#666",
-                          weight: 2,
-                          opacity: 0.35,
-                          dashArray: "6 6",
-                        }}
-                      />
-                    ) : null}
                   </div>
+                );
+              })}
+
+              {orderedRoutePoints.length > 1 ? (
+                <SafePolyline
+                  positions={orderedRoutePoints}
+                  pathOptions={{ color: "#ef4444", weight: 4, opacity: 0.85 }}
+                />
+              ) : null}
+
+              {routePlannerStops.map((stop) => {
+                if (!hasCoords(stop.lat, stop.lng)) return null;
+
+                return (
+                  <SafeMarker
+                    key={`route-stop-${stop.key}`}
+                    position={asLatLng(Number(stop.lat), Number(stop.lng))}
+                    icon={createRouteStopIcon(stop.stopOrder, stop.stopType)}
+                  >
+                    <SafePopup>
+                      <div style={{ minWidth: 260 }}>
+                        <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                          Stop #{stop.stopOrder} • {prettyStopType(stop.stopType)}
+                        </div>
+                        <div><strong>Customer:</strong> {stop.customerName}</div>
+                        <div><strong>Ref:</strong> {stop.transportNumber}</div>
+                        <div><strong>Time:</strong> {stop.plannedTime ?? "—"}</div>
+                        <div><strong>Address:</strong> {stop.address ?? "—"}</div>
+                        <div><strong>Vehicle:</strong> {stop.vehicleLabel}</div>
+                        <div><strong>Driver:</strong> {stop.driverName}</div>
+                      </div>
+                    </SafePopup>
+                  </SafeMarker>
                 );
               })}
             </SafeMapContainer>
           </div>
 
-          <div style={listWrap}>
-            <h2 style={{ marginTop: 0, fontSize: 22 }}>Dispatch List</h2>
+          <div style={rightColumnWrap}>
+            <div style={plannerWrap}>
+              <h2 style={{ marginTop: 0, fontSize: 22 }}>Route Planner</h2>
 
-            <div style={{ display: "grid", gap: 10 }}>
-              {filtered.map((item) => {
-                const client = first(item.clients);
-                const vehicle = first(item.vehicles);
-                const driver = first(item.operators);
-                const linkedJob = first(item.jobs);
-                const live = latestLocationByJob.get(item.id);
-                const route = routeMap[item.id];
-
-                return (
-                  <div key={item.id} style={jobCard}>
-                    <div style={jobTopRow}>
-                      <div style={{ fontWeight: 1000 }}>
-                        {item.transport_number ?? "Transport Job"}
-                      </div>
-                      <span
-                        style={{
-                          display: "inline-block",
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 900,
-                          ...statusPillStyle(item.status),
-                        }}
-                      >
-                        {prettyStatus(item.status)}
-                      </span>
-                    </div>
-
-                    <div style={{ marginTop: 6, opacity: 0.78 }}>
-                      {client?.company_name ?? "—"} • {prettyJobType(item.job_type)}
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 13 }}>
-                      <strong>Schedule:</strong> {scheduleText(item)}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Driver:</strong> {driver?.full_name ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Pickup:</strong> {item.collection_address ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Delivery:</strong> {item.delivery_address ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>ETA to pickup:</strong> {etas[item.id]?.toPickup ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>ETA to delivery:</strong> {etas[item.id]?.toDelivery ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Road distance:</strong> {milesFromMeters(route?.distanceMeters ?? null)}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Road travel time:</strong> {minsToText(
-                        typeof route?.durationSeconds === "number"
-                          ? route.durationSeconds / 60
-                          : null
-                      )}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Live update:</strong> {live ? ageText(live.recorded_at) : "No live tracking"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Load:</strong> {item.load_description ?? "—"}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Value:</strong> {fmtMoney(item.agreed_sell_rate ?? item.price)}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      <strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
-                    </div>
-
-                    <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      <a href={`/transport-jobs/${item.id}`} style={linkBtn}>
-                        Open transport job
-                      </a>
-
-                      {item.vehicle_id ? (
-                        <a href={`/vehicles/${item.vehicle_id}`} style={linkBtn}>
-                          Open vehicle
-                        </a>
-                      ) : null}
-
-                      {linkedJob?.id ? (
-                        <a href={`/jobs/${linkedJob.id}`} style={linkBtn}>
-                          Open crane job
-                        </a>
-                      ) : null}
-
-                      <a
-                        href={mapsUrl(item.collection_lat, item.collection_lng, item.collection_address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={linkBtn}
-                      >
-                        Pickup nav
-                      </a>
-
-                      <a
-                        href={mapsUrl(item.delivery_lat, item.delivery_lng, item.delivery_address)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={linkBtn}
-                      >
-                        Delivery nav
-                      </a>
-                    </div>
+              {!dateFilter || vehicleFilter === "all" ? (
+                <div style={infoBox}>
+                  Select both a <strong>date</strong> and a <strong>vehicle</strong> to order the stops.
+                </div>
+              ) : routePlannerStops.length === 0 ? (
+                <div style={infoBox}>No pickup or delivery stops found for this vehicle on that date.</div>
+              ) : (
+                <>
+                  <div style={{ marginTop: 8, marginBottom: 12, fontSize: 13, opacity: 0.78 }}>
+                    Order the route below. This order is saved and shown to the driver.
                   </div>
-                );
-              })}
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    <button
+                      type="button"
+                      onClick={saveRoute}
+                      disabled={saving}
+                      style={saveBtn}
+                    >
+                      {saving ? "Saving..." : "Save route order"}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={resetRoute}
+                      disabled={saving}
+                      style={resetBtn}
+                    >
+                      Reset route order
+                    </button>
+                  </div>
+
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {routePlannerStops.map((stop, index) => (
+                      <div key={stop.key} style={routeCard}>
+                        <div style={routeTopRow}>
+                          <div style={routeNumber}>{stop.stopOrder}</div>
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 900, fontSize: 15 }}>
+                              {stop.customerName}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                              {stop.transportNumber} • {prettyStopType(stop.stopType)} • {stop.plannedTime ?? "—"}
+                            </div>
+                          </div>
+
+                          <span
+                            style={{
+                              display: "inline-block",
+                              padding: "4px 8px",
+                              borderRadius: 999,
+                              fontSize: 11,
+                              fontWeight: 900,
+                              ...(stop.stopType === "pickup"
+                                ? {
+                                    background: "rgba(37,99,235,0.10)",
+                                    border: "1px solid rgba(37,99,235,0.22)",
+                                    color: "#1d4ed8",
+                                  }
+                                : {
+                                    background: "rgba(22,163,74,0.10)",
+                                    border: "1px solid rgba(22,163,74,0.22)",
+                                    color: "#15803d",
+                                  }),
+                            }}
+                          >
+                            {prettyStopType(stop.stopType)}
+                          </span>
+                        </div>
+
+                        <div style={{ marginTop: 8, fontSize: 13 }}>
+                          <strong>Address:</strong> {stop.address ?? "—"}
+                        </div>
+                        <div style={{ marginTop: 4, fontSize: 13 }}>
+                          <strong>Driver:</strong> {stop.driverName}
+                        </div>
+
+                        <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => moveStop(index, -1)}
+                            disabled={index === 0}
+                            style={index === 0 ? disabledMiniBtn : miniBtn}
+                          >
+                            Move up
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => moveStop(index, 1)}
+                            disabled={index === routePlannerStops.length - 1}
+                            style={
+                              index === routePlannerStops.length - 1
+                                ? disabledMiniBtn
+                                : miniBtn
+                            }
+                          >
+                            Move down
+                          </button>
+
+                          <a
+                            href={mapsUrl(stop.lat, stop.lng, stop.address)}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={miniLinkBtn}
+                          >
+                            Navigate
+                          </a>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div style={listWrap}>
+              <h2 style={{ marginTop: 0, fontSize: 22 }}>Dispatch List</h2>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                {filtered.map((item) => {
+                  const client = first(item.clients);
+                  const vehicle = first(item.vehicles);
+                  const driver = first(item.operators);
+                  const linkedJob = first(item.jobs);
+                  const live = latestLocationByJob.get(item.id);
+                  const itemRouteStops = routePlannerStops.filter(
+                    (stop) => stop.transportJobId === item.id
+                  );
+
+                  return (
+                    <div key={item.id} style={jobCard}>
+                      <div style={jobTopRow}>
+                        <div style={{ fontWeight: 1000 }}>
+                          {client?.company_name ?? item.transport_number ?? "Transport Job"}
+                        </div>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            fontSize: 12,
+                            fontWeight: 900,
+                            ...statusPillStyle(item.status),
+                          }}
+                        >
+                          {prettyStatus(item.status)}
+                        </span>
+                      </div>
+
+                      <div style={{ marginTop: 6, opacity: 0.78 }}>
+                        {item.transport_number ?? "—"} • {prettyJobType(item.job_type)}
+                      </div>
+
+                      <div style={{ marginTop: 6, fontSize: 13 }}>
+                        <strong>Schedule:</strong> {scheduleText(item)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Vehicle:</strong> {vehicle?.name ?? "—"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Driver:</strong> {driver?.full_name ?? "—"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Pickup:</strong> {item.collection_address ?? "—"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Delivery:</strong> {item.delivery_address ?? "—"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Live update:</strong> {live ? ageText(live.recorded_at) : "No live tracking"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Load:</strong> {item.load_description ?? "—"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Value:</strong> {fmtMoney(item.agreed_sell_rate ?? item.price)}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Linked Crane Job:</strong> {linkedJob?.job_number ? `#${linkedJob.job_number}` : "—"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13 }}>
+                        <strong>Route order:</strong> {routeOrderSummary(itemRouteStops)}
+                      </div>
+
+                      <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <a href={`/transport-jobs/${item.id}`} style={linkBtn}>
+                          Open transport job
+                        </a>
+
+                        {item.vehicle_id ? (
+                          <a href={`/vehicles/${item.vehicle_id}`} style={linkBtn}>
+                            Open vehicle
+                          </a>
+                        ) : null}
+
+                        {linkedJob?.id ? (
+                          <a href={`/jobs/${linkedJob.id}`} style={linkBtn}>
+                            Open crane job
+                          </a>
+                        ) : null}
+
+                        <a
+                          href={mapsUrl(item.collection_lat, item.collection_lng, item.collection_address)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={linkBtn}
+                        >
+                          Pickup nav
+                        </a>
+
+                        <a
+                          href={mapsUrl(item.delivery_lat, item.delivery_lng, item.delivery_address)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={linkBtn}
+                        >
+                          Delivery nav
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -1086,7 +1306,7 @@ const clearBtn: React.CSSProperties = {
 
 const contentGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.4fr 0.7fr",
+  gridTemplateColumns: "1.25fr 0.9fr",
   gap: 14,
   alignItems: "start",
 };
@@ -1100,13 +1320,99 @@ const mapWrap: React.CSSProperties = {
   boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
 };
 
-const listWrap: React.CSSProperties = {
+const rightColumnWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 14,
   maxHeight: "76vh",
   minHeight: 560,
-  overflowY: "auto",
+};
+
+const plannerWrap: React.CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  overflowY: "auto",
+};
+
+const listWrap: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  overflowY: "auto",
+};
+
+const routeCard: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.58)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const routeTopRow: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  alignItems: "flex-start",
+};
+
+const routeNumber: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  borderRadius: 999,
+  background: "#111",
+  color: "#fff",
+  display: "grid",
+  placeItems: "center",
+  fontWeight: 900,
+  fontSize: 13,
+  flexShrink: 0,
+};
+
+const saveBtn: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const resetBtn: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.75)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const miniBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const disabledMiniBtn: React.CSSProperties = {
+  ...miniBtn,
+  opacity: 0.5,
+  cursor: "not-allowed",
+};
+
+const miniLinkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 9,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
