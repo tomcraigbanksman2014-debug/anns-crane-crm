@@ -204,8 +204,8 @@ async function createJob(formData: FormData) {
 
   const startDate = clean(formData.get("start_date")) || null;
   const endDate = clean(formData.get("end_date")) || null;
-  const startTime = clean(formData.get("start_time")) || null;
-  const endTime = clean(formData.get("end_time")) || null;
+  const startTime = clean(formData.get("start_time")) || "08:00";
+  const endTime = clean(formData.get("end_time")) || "16:00";
 
   let primaryEquipmentId: string | null = null;
   let selectedCraneId: string | null = null;
@@ -592,7 +592,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Start time</label>
-                <select name="start_time" defaultValue="" style={inputStyle}>
+                <select name="start_time" defaultValue="08:00" style={inputStyle}>
                   <option value="">— Select —</option>
                   {timeOptions.map((option) => (
                     <option key={`start_time-${option.value}`} value={option.value}>
@@ -604,7 +604,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
               <div style={fieldWrap}>
                 <label style={labelStyle}>End time</label>
-                <select name="end_time" defaultValue="" style={inputStyle}>
+                <select name="end_time" defaultValue="16:00" style={inputStyle}>
                   <option value="">— Select —</option>
                   {timeOptions.map((option) => (
                     <option key={`end_time-${option.value}`} value={option.value}>
