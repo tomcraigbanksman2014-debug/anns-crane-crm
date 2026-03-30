@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
@@ -791,7 +792,7 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-const topBar = {
+const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -800,13 +801,13 @@ const topBar = {
   marginBottom: 16,
 };
 
-const statsGrid = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const panelStyle = {
+const panelStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -814,7 +815,7 @@ const panelStyle = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCard = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -822,19 +823,19 @@ const statCard = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   fontSize: 22,
 };
 
-const labelStyle = {
+const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -846,7 +847,7 @@ const inputStyle = {
   boxSizing: "border-box" as const,
 };
 
-const primaryBtn = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -858,7 +859,7 @@ const primaryBtn = {
   cursor: "pointer",
 };
 
-const secondaryBtn = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -869,7 +870,7 @@ const secondaryBtn = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniBtnLink = {
+const miniBtnLink: CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -880,7 +881,7 @@ const miniBtnLink = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const successCard = {
+const successCard: CSSProperties = {
   background: "rgba(0,160,80,0.14)",
   padding: 12,
   borderRadius: 12,
@@ -888,7 +889,7 @@ const successCard = {
   marginBottom: 12,
 };
 
-const errorCard = {
+const errorCard: CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -896,13 +897,13 @@ const errorCard = {
   marginBottom: 12,
 };
 
-const twoColGrid = {
+const twoColGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
   gap: 16,
 };
 
-const quickActionBox = {
+const quickActionBox: CSSProperties = {
   marginTop: 18,
   padding: "12px 14px",
   borderRadius: 12,
@@ -910,14 +911,14 @@ const quickActionBox = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const logCard = {
+const logCard: CSSProperties = {
   padding: "12px 14px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const executionToolbar = {
+const executionToolbar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -929,14 +930,14 @@ const executionToolbar = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const toolbarGrid = {
+const toolbarGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(180px, 220px) minmax(240px, 1fr)",
   gap: 12,
   flex: 1,
 };
 
-const leadRow = {
+const leadRow: CSSProperties = {
   display: "block",
   padding: "12px 14px",
   borderRadius: 12,
@@ -945,7 +946,7 @@ const leadRow = {
   cursor: "pointer",
 };
 
-const latestLogBox = {
+const latestLogBox: CSSProperties = {
   marginTop: 10,
   padding: "8px 10px",
   borderRadius: 10,
@@ -955,7 +956,7 @@ const latestLogBox = {
   fontWeight: 700,
 };
 
-const latestLogBoxMuted = {
+const latestLogBoxMuted: CSSProperties = {
   marginTop: 10,
   padding: "8px 10px",
   borderRadius: 10,
@@ -966,13 +967,13 @@ const latestLogBoxMuted = {
   fontWeight: 700,
 };
 
-const miniLabel = {
+const miniLabel: CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
   opacity: 0.68,
 };
 
-const messageBox = {
+const messageBox: CSSProperties = {
   marginTop: 4,
   padding: "10px 12px",
   borderRadius: 10,
