@@ -83,10 +83,7 @@ export async function middleware(request: NextRequest) {
   );
 
   if (mustChangePassword) {
-    const isAllowedPath =
-      pathname === "/change-password" ||
-      pathname === "/api/change-password" ||
-      pathname === "/api/logout";
+    const isAllowedPath = pathname === "/change-password";
 
     if (!isAllowedPath && !isApiPath(pathname)) {
       const changePasswordUrl = request.nextUrl.clone();
