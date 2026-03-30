@@ -104,6 +104,18 @@ type AutomationCentrePageProps = {
   };
 };
 
+type SelectedSuggestedTaskPayload = {
+  lead_id: string | null;
+  client_id?: string | null;
+  company_name: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string | null;
+  notes: string | null;
+  assigned_to_username: string | null;
+};
+
 export default async function AutomationCentrePage({
   searchParams,
 }: AutomationCentrePageProps) {
@@ -218,6 +230,129 @@ export default async function AutomationCentrePage({
     redirect("/sales-hub/automation?success=Workflow%20task%20created.");
   }
 
+  async function createSelectedSuggestedTasks(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const selectedItems = formData.getAll("selected_items");
+
+    if (!selectedItems.length) {
+      redirect("/sales-hub/automation?error=No%20suggested%20items%20selected.");
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const rawItem of selectedItems) {
+      try {
+        const parsed = JSON.parse(String(rawItem)) as SelectedSuggestedTaskPayload;
+
+        const leadId = String(parsed.lead_id ?? "").trim() || null;
+        const clientId = String(parsed.client_id ?? "").trim() || null;
+        const companyName = String(parsed.company_name ?? "").trim() || null;
+        const title = String(parsed.title ?? "").trim();
+        const taskType = String(parsed.task_type ?? "follow_up").trim() || "follow_up";
+        const priority = String(parsed.priority ?? "medium").trim() || "medium";
+        const dueOn = String(parsed.due_on ?? "").trim() || null;
+        const notes = String(parsed.notes ?? "").trim() || null;
+        const assignedToUsername =
+          String(parsed.assigned_to_username ?? "").trim() ||
+          fromAuthEmail(user?.email ?? null) ||
+          null;
+
+        if (!title || (!leadId && !clientId)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        let duplicateQuery = supabase
+          .from("sales_workflow_tasks")
+          .select("id")
+          .eq("status", "open")
+          .eq("title", title)
+          .eq("task_type", taskType)
+          .limit(1);
+
+        if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+        if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+        const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+        if (duplicateTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const { data: createdTask, error } = await supabase
+          .from("sales_workflow_tasks")
+          .insert({
+            title,
+            task_type: taskType,
+            status: "open",
+            priority,
+            due_on: dueOn,
+            notes,
+            assigned_to_username: assignedToUsername,
+            lead_id: leadId,
+            client_id: clientId,
+            created_by_user_id: user?.id ?? null,
+            created_by_username: fromAuthEmail(user?.email ?? null) || null,
+          })
+          .select("id")
+          .single();
+
+        if (error || !createdTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        createdCount += 1;
+
+        await writeAuditLog({
+          actor_user_id: user?.id ?? null,
+          actor_username: fromAuthEmail(user?.email ?? null) || null,
+          action: "sales_workflow_task_created_from_automation_bulk_queue",
+          entity_type: "sales_workflow_task",
+          entity_id: createdTask.id,
+          meta: {
+            lead_id: leadId,
+            client_id: clientId,
+            company_name: companyName,
+            title,
+            task_type: taskType,
+            priority,
+            due_on: dueOn,
+          },
+        });
+      } catch {
+        skippedCount += 1;
+      }
+    }
+
+    if (createdCount === 0 && skippedCount > 0) {
+      redirect("/sales-hub/automation?success=No%20new%20tasks%20were%20created.%20Selected%20items%20were%20already%20covered%20or%20invalid.");
+    }
+
+    redirect(
+      `/sales-hub/automation?success=${encodeURIComponent(
+        `Created ${createdCount} workflow task${createdCount === 1 ? "" : "s"}${
+          skippedCount ? `, skipped ${skippedCount}.` : "."
+        }`
+      )}`
+    );
+  }
+
   const [
     { data: leads, error: leadsError },
     { data: tasks, error: tasksError },
@@ -313,7 +448,9 @@ export default async function AutomationCentrePage({
     const hasPhone = Boolean(lead.phone);
     const hasEmail = Boolean(lead.email);
 
-    const pushSuggestion = (item: Omit<SuggestedTask, "probability" | "opportunity_value" | "weighted_value" | "existing_open_task_count">) => {
+    const pushSuggestion = (
+      item: Omit<SuggestedTask, "probability" | "opportunity_value" | "weighted_value" | "existing_open_task_count">
+    ) => {
       if (leadHasOpenTaskTitle(leadId, item.title)) return;
 
       suggestedTasks.push({
@@ -555,83 +692,133 @@ export default async function AutomationCentrePage({
         </section>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <h2 style={sectionTitle}>Suggested task queue</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Suggested task queue</h2>
+            <div style={helperText}>
+              Tick the rows you want, then use the bulk create button.
+            </div>
+          </div>
 
           {!filteredSuggestions.length ? (
-            <p style={{ margin: 0, opacity: 0.78 }}>
+            <p style={{ marginTop: 14, marginBottom: 0, opacity: 0.78 }}>
               No suggested tasks matched the current filters.
             </p>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {filteredSuggestions.map((item) => (
-                <div key={item.key} style={itemCard}>
-                  <div style={itemTopRow}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                        <MiniBadge label={item.label} />
-                        <MiniBadge label={String(item.status ?? "New")} />
-                        <MiniBadge label={`${item.priority.toUpperCase()} priority`} />
-                      </div>
-
-                      <div style={{ marginTop: 10, fontWeight: 900, fontSize: 18 }}>
-                        {item.company_name}
-                      </div>
-
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                        {item.contact_name || "No contact name"}
-                        {item.assigned_to_username ? ` • ${item.assigned_to_username}` : " • Unassigned"}
-                      </div>
-
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                        Due {fmtDate(item.due_on)} • Probability {item.probability}% • Weighted {moneyGBP(item.weighted_value)}
-                      </div>
-
-                      <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
-                        {item.notes}
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                      <MiniBadge label={`Open tasks ${item.existing_open_task_count}`} />
-                    </div>
-                  </div>
-
-                  <div style={actionsWrap}>
-                    {canManage ? (
-                      <form action={createSuggestedTask} style={inlineForm}>
-                        <input type="hidden" name="lead_id" value={item.lead_id} />
-                        <input type="hidden" name="company_name" value={item.company_name} />
-                        <input type="hidden" name="title" value={item.title} />
-                        <input type="hidden" name="task_type" value={item.task_type} />
-                        <input type="hidden" name="priority" value={item.priority} />
-                        <input type="hidden" name="due_on" value={item.due_on} />
-                        <input type="hidden" name="notes" value={item.notes} />
-                        <input
-                          type="hidden"
-                          name="assigned_to_username"
-                          value={String(item.assigned_to_username ?? "")}
-                        />
-                        <button type="submit" style={miniDarkBtn}>
-                          Create workflow task
-                        </button>
-                      </form>
-                    ) : (
-                      <div style={mutedNote}>No permission to create tasks.</div>
-                    )}
-
-                    <a href={`/sales-hub/leads/${item.lead_id}`} style={miniBtnLink}>
-                      Open lead
-                    </a>
-                    <a href={`/sales-hub/opportunities/${item.lead_id}`} style={miniBtnLink}>
-                      Open opportunity
-                    </a>
-                    <a href={`/sales-hub/leads/${item.lead_id}/outreach`} style={miniDarkBtnLink}>
-                      Outreach
-                    </a>
+            <form action={createSelectedSuggestedTasks}>
+              {canManage ? (
+                <div style={bulkBar}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                  <div style={helperText}>
+                    Duplicate open tasks are skipped automatically.
                   </div>
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div style={mutedNote}>You do not have permission to create workflow tasks.</div>
+              )}
+
+              <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                {filteredSuggestions.map((item) => {
+                  const payload: SelectedSuggestedTaskPayload = {
+                    lead_id: item.lead_id,
+                    company_name: item.company_name,
+                    title: item.title,
+                    task_type: item.task_type,
+                    priority: item.priority,
+                    due_on: item.due_on,
+                    notes: item.notes,
+                    assigned_to_username: item.assigned_to_username,
+                  };
+
+                  return (
+                    <div key={item.key} style={itemCard}>
+                      <div style={itemTopRow}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+                          <div style={{ paddingTop: 4 }}>
+                            <input
+                              type="checkbox"
+                              name="selected_items"
+                              value={JSON.stringify(payload)}
+                              style={{ width: 18, height: 18 }}
+                            />
+                          </div>
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              <MiniBadge label={item.label} />
+                              <MiniBadge label={String(item.status ?? "New")} />
+                              <MiniBadge label={`${item.priority.toUpperCase()} priority`} />
+                            </div>
+
+                            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 18 }}>
+                              {item.company_name}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              {item.contact_name || "No contact name"}
+                              {item.assigned_to_username ? ` • ${item.assigned_to_username}` : " • Unassigned"}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              Due {fmtDate(item.due_on)} • Probability {item.probability}% • Weighted {moneyGBP(item.weighted_value)}
+                            </div>
+
+                            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
+                              {item.notes}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <MiniBadge label={`Open tasks ${item.existing_open_task_count}`} />
+                        </div>
+                      </div>
+
+                      <div style={actionsWrap}>
+                        {canManage ? (
+                          <form action={createSuggestedTask} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={item.lead_id} />
+                            <input type="hidden" name="company_name" value={item.company_name} />
+                            <input type="hidden" name="title" value={item.title} />
+                            <input type="hidden" name="task_type" value={item.task_type} />
+                            <input type="hidden" name="priority" value={item.priority} />
+                            <input type="hidden" name="due_on" value={item.due_on} />
+                            <input type="hidden" name="notes" value={item.notes} />
+                            <input
+                              type="hidden"
+                              name="assigned_to_username"
+                              value={String(item.assigned_to_username ?? "")}
+                            />
+                            <button type="submit" style={miniDarkBtn}>
+                              Create single task
+                            </button>
+                          </form>
+                        ) : null}
+
+                        <a href={`/sales-hub/leads/${item.lead_id}`} style={miniBtnLink}>
+                          Open lead
+                        </a>
+                        <a href={`/sales-hub/opportunities/${item.lead_id}`} style={miniBtnLink}>
+                          Open opportunity
+                        </a>
+                        <a href={`/sales-hub/leads/${item.lead_id}/outreach`} style={miniDarkBtnLink}>
+                          Outreach
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {canManage ? (
+                <div style={bulkBarBottom}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                </div>
+              ) : null}
+            </form>
           )}
         </section>
       </div>
@@ -832,4 +1019,31 @@ const mutedNote: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   opacity: 0.76,
   fontWeight: 700,
+};
+
+const helperText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
+};
+
+const bulkBar: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 14,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const bulkBarBottom: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 14,
 };
