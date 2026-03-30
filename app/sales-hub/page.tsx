@@ -20,10 +20,24 @@ export default async function SalesHubPage() {
   const supabase = createSupabaseServerClient();
   const today = new Date().toISOString().slice(0, 10);
 
-  const { data: leads, error } = await supabase
-    .from("sales_leads")
-    .select("id, company_name, status, archived, do_not_contact, next_follow_up_on, created_at, updated_at")
-    .order("created_at", { ascending: false });
+  const [
+    { data: leads, error },
+    { data: templates },
+    { data: campaigns },
+  ] = await Promise.all([
+    supabase
+      .from("sales_leads")
+      .select("id, company_name, status, archived, do_not_contact, next_follow_up_on, created_at, updated_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("sales_templates")
+      .select("id, is_active")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("sales_campaigns")
+      .select("id, name, status, scheduled_for, created_at")
+      .order("created_at", { ascending: false }),
+  ]);
 
   const rows = (leads ?? []).filter((row: any) => !row.archived);
 
@@ -45,6 +59,16 @@ export default async function SalesHubPage() {
       String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""))
     )
     .slice(0, 5);
+
+  const activeTemplates = countWhere(templates ?? [], (row) => row.is_active === true);
+  const activeCampaigns = countWhere(campaigns ?? [], (row) => String(row.status ?? "") === "Active");
+
+  const nextCampaigns = [...(campaigns ?? [])]
+    .filter((row: any) => row.scheduled_for)
+    .sort((a: any, b: any) =>
+      String(a.scheduled_for ?? "").localeCompare(String(b.scheduled_for ?? ""))
+    )
+    .slice(0, 4);
 
   return (
     <ClientShell>
@@ -87,22 +111,43 @@ export default async function SalesHubPage() {
           <StatCard label="Dormant" value={String(dormant)} />
           <StatCard label="Follow-ups due" value={String(dueToday)} />
           <StatCard label="Do not contact" value={String(doNotContact)} />
+          <StatCard label="Active templates" value={String(activeTemplates)} />
+          <StatCard label="Active campaigns" value={String(activeCampaigns)} />
         </div>
 
         <div style={twoColGrid}>
           <section style={cardStyle}>
-            <h2 style={sectionTitle}>What we are building</h2>
+            <h2 style={sectionTitle}>Sales tools</h2>
             <div style={{ display: "grid", gap: 10 }}>
-              <FeaturePill text="Leads / Potential Customers" active />
-              <FeaturePill text="Opportunity Tracking" />
-              <FeaturePill text="Outreach Generator" />
-              <FeaturePill text="Campaigns" />
+              <a href="/sales-hub/leads" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Leads / Potential Customers</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
+              <a href="/sales-hub/leads?status=Follow%20Up" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Call planning / follow-ups</div>
+                <div style={toolCardSub}>Use current lead statuses and dates</div>
+              </a>
+
+              <a href="/sales-hub/templates" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Template Library</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
+              <a href="/sales-hub/campaigns" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Campaigns</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
+              <a href="/sales-hub/leads" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Opportunity Tracking</div>
+                <div style={toolCardSub}>Use lead statuses first, then we will deepen this next</div>
+              </a>
+
               <FeaturePill text="Social Media Content Studio" />
               <FeaturePill text="Dormant Customer Recovery" />
               <FeaturePill text="Cross-sell prompts" />
               <FeaturePill text="Availability-driven selling" />
-              <FeaturePill text="Call planning dashboard" />
-              <FeaturePill text="Template library" />
             </div>
           </section>
 
@@ -125,6 +170,25 @@ export default async function SalesHubPage() {
             )}
           </section>
         </div>
+
+        <section style={{ ...cardStyle, marginTop: 16 }}>
+          <h2 style={sectionTitle}>Upcoming campaigns</h2>
+
+          {nextCampaigns.length === 0 ? (
+            <p style={{ margin: 0, opacity: 0.75 }}>No campaign dates set yet.</p>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {nextCampaigns.map((campaign: any) => (
+                <a key={campaign.id} href={`/sales-hub/campaigns/${campaign.id}`} style={followUpCard}>
+                  <div style={{ fontWeight: 900 }}>{campaign.name ?? "Campaign"}</div>
+                  <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                    {campaign.status ?? "Draft"} • Scheduled {fmtDate(campaign.scheduled_for)}
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </ClientShell>
   );
@@ -139,22 +203,20 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function FeaturePill({ text, active = false }: { text: string; active?: boolean }) {
+function FeaturePill({ text }: { text: string }) {
   return (
     <div
       style={{
         padding: "10px 12px",
         borderRadius: 999,
-        background: active ? "rgba(0,160,80,0.14)" : "rgba(255,255,255,0.72)",
-        border: active
-          ? "1px solid rgba(0,160,80,0.20)"
-          : "1px solid rgba(0,0,0,0.08)",
-        color: active ? "#0b6b34" : "#111",
+        background: "rgba(255,255,255,0.72)",
+        border: "1px solid rgba(0,0,0,0.08)",
+        color: "#111",
         fontWeight: 800,
         fontSize: 14,
       }}
     >
-      {active ? `Live now • ${text}` : text}
+      {text}
     </div>
   );
 }
@@ -231,4 +293,20 @@ const followUpCard: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const toolCardLink: React.CSSProperties = {
+  display: "block",
+  textDecoration: "none",
+  color: "#111",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const toolCardSub: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  opacity: 0.75,
 };
