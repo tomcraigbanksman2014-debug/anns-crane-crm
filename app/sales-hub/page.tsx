@@ -159,9 +159,9 @@ export default async function SalesHubPage() {
                 <div style={toolCardSub}>Live now</div>
               </a>
 
-              <a href="/sales-hub/leads" style={toolCardLink}>
+              <a href="/sales-hub/opportunities" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Opportunity Tracking</div>
-                <div style={toolCardSub}>Use lead statuses first, then deepen later</div>
+                <div style={toolCardSub}>Live now</div>
               </a>
             </div>
           </section>
