@@ -119,6 +119,11 @@ export default async function SalesHubPage() {
           <section style={cardStyle}>
             <h2 style={sectionTitle}>Sales tools</h2>
             <div style={{ display: "grid", gap: 10 }}>
+              <a href="/sales-hub/automation" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Automation Centre</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
               <a href="/sales-hub/call-planning" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Call Planning Dashboard</div>
                 <div style={toolCardSub}>Live now</div>
