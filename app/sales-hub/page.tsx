@@ -1,0 +1,234 @@
+import ClientShell from "../ClientShell";
+import { createSupabaseServerClient } from "../lib/supabase/server";
+
+function countWhere(rows: any[], predicate: (row: any) => boolean) {
+  return rows.filter(predicate).length;
+}
+
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB");
+}
+
+function normaliseDateOnly(value: string | null | undefined) {
+  return String(value ?? "").slice(0, 10);
+}
+
+export default async function SalesHubPage() {
+  const supabase = createSupabaseServerClient();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { data: leads, error } = await supabase
+    .from("sales_leads")
+    .select("id, company_name, status, archived, do_not_contact, next_follow_up_on, created_at, updated_at")
+    .order("created_at", { ascending: false });
+
+  const rows = (leads ?? []).filter((row: any) => !row.archived);
+
+  const newLeads = countWhere(rows, (row) => String(row.status ?? "") === "New");
+  const toContact = countWhere(rows, (row) => String(row.status ?? "") === "To Contact");
+  const followUp = countWhere(rows, (row) => String(row.status ?? "") === "Follow Up");
+  const quoted = countWhere(rows, (row) => String(row.status ?? "") === "Quoted");
+  const won = countWhere(rows, (row) => String(row.status ?? "") === "Won");
+  const dormant = countWhere(rows, (row) => String(row.status ?? "") === "Dormant");
+  const doNotContact = countWhere(rows, (row) => row.do_not_contact === true);
+  const dueToday = countWhere(
+    rows,
+    (row) => row.next_follow_up_on && normaliseDateOnly(row.next_follow_up_on) <= today
+  );
+
+  const nextFive = [...rows]
+    .filter((row: any) => row.next_follow_up_on)
+    .sort((a: any, b: any) =>
+      String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""))
+    )
+    .slice(0, 5);
+
+  return (
+    <ClientShell>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Sales Hub</h1>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              Manage leads, track follow-ups and build more work into the diary.
+            </p>
+          </div>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub/leads" style={secondaryBtnStyle}>
+              View leads
+            </a>
+            <a href="/sales-hub/leads/new" style={primaryBtnStyle}>
+              + Add lead
+            </a>
+          </div>
+        </div>
+
+        {error ? <div style={errorBox}>{error.message}</div> : null}
+
+        <div style={statsGrid}>
+          <StatCard label="Live leads" value={String(rows.length)} />
+          <StatCard label="New" value={String(newLeads)} />
+          <StatCard label="To contact" value={String(toContact)} />
+          <StatCard label="Follow up" value={String(followUp)} />
+          <StatCard label="Quoted" value={String(quoted)} />
+          <StatCard label="Won" value={String(won)} />
+          <StatCard label="Dormant" value={String(dormant)} />
+          <StatCard label="Follow-ups due" value={String(dueToday)} />
+          <StatCard label="Do not contact" value={String(doNotContact)} />
+        </div>
+
+        <div style={twoColGrid}>
+          <section style={cardStyle}>
+            <h2 style={sectionTitle}>What we are building</h2>
+            <div style={{ display: "grid", gap: 10 }}>
+              <FeaturePill text="Leads / Potential Customers" active />
+              <FeaturePill text="Opportunity Tracking" />
+              <FeaturePill text="Outreach Generator" />
+              <FeaturePill text="Campaigns" />
+              <FeaturePill text="Social Media Content Studio" />
+              <FeaturePill text="Dormant Customer Recovery" />
+              <FeaturePill text="Cross-sell prompts" />
+              <FeaturePill text="Availability-driven selling" />
+              <FeaturePill text="Call planning dashboard" />
+              <FeaturePill text="Template library" />
+            </div>
+          </section>
+
+          <section style={cardStyle}>
+            <h2 style={sectionTitle}>Next follow-ups</h2>
+
+            {nextFive.length === 0 ? (
+              <p style={{ margin: 0, opacity: 0.75 }}>No follow-up dates set yet.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {nextFive.map((lead: any) => (
+                  <a key={lead.id} href={`/sales-hub/leads/${lead.id}`} style={followUpCard}>
+                    <div style={{ fontWeight: 900 }}>{lead.company_name ?? "Lead"}</div>
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                      {lead.status ?? "New"} • Next follow-up {fmtDate(lead.next_follow_up_on)}
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </ClientShell>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={statCardStyle}>
+      <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>{label}</div>
+      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000 }}>{value}</div>
+    </div>
+  );
+}
+
+function FeaturePill({ text, active = false }: { text: string; active?: boolean }) {
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        borderRadius: 999,
+        background: active ? "rgba(0,160,80,0.14)" : "rgba(255,255,255,0.72)",
+        border: active
+          ? "1px solid rgba(0,160,80,0.20)"
+          : "1px solid rgba(0,0,0,0.08)",
+        color: active ? "#0b6b34" : "#111",
+        fontWeight: 800,
+        fontSize: 14,
+      }}
+    >
+      {active ? `Live now • ${text}` : text}
+    </div>
+  );
+}
+
+const statsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 12,
+  marginTop: 16,
+};
+
+const twoColGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gap: 16,
+  marginTop: 16,
+};
+
+const cardStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const statCardStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 16,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const sectionTitle: React.CSSProperties = {
+  marginTop: 0,
+  fontSize: 22,
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const secondaryBtnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const errorBox: React.CSSProperties = {
+  marginTop: 16,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(180,0,0,0.12)",
+  border: "1px solid rgba(180,0,0,0.16)",
+};
+
+const followUpCard: React.CSSProperties = {
+  display: "block",
+  textDecoration: "none",
+  color: "#111",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
