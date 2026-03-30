@@ -184,7 +184,7 @@ async function createRecoveryLead(formData: FormData) {
     hasEmail: Boolean(client.email),
   });
 
-  const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
+  const assignedUsername = fromAuthEmail(authRes.user?.email ?? null) || null;
 
   const noteLines = [
     "Created from Dormant Customer Recovery.",
@@ -222,7 +222,7 @@ async function createRecoveryLead(formData: FormData) {
   }
 
   await writeAuditLog({
-    actor_user_id: authRes.data.user?.id ?? null,
+    actor_user_id: authRes.user?.id ?? null,
     actor_username: assignedUsername,
     action: "sales_recovery_lead_created",
     entity_type: "sales_recovery_lead",
