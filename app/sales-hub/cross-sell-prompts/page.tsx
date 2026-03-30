@@ -206,7 +206,7 @@ async function createCrossSellLead(formData: FormData) {
     type,
   });
 
-  const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
+  const assignedUsername = fromAuthEmail(authRes.user?.email ?? null) || null;
 
   const noteLines = [
     "Created from Cross-Sell Prompts.",
@@ -244,7 +244,7 @@ async function createCrossSellLead(formData: FormData) {
   }
 
   await writeAuditLog({
-    actor_user_id: authRes.data.user?.id ?? null,
+    actor_user_id: authRes.user?.id ?? null,
     actor_username: assignedUsername,
     action: "sales_cross_sell_lead_created",
     entity_type: "sales_cross_sell_lead",
@@ -347,7 +347,6 @@ export default async function CrossSellPromptsPage({
         latestDate(clientJobs.map(craneJobDate)),
         latestDate(clientTransport.map(transportJobDate)),
       ]);
-
       const dormantDays = daysSince(lastActivity) ?? 0;
 
       const score = promptScore({
