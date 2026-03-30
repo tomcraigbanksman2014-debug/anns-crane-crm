@@ -37,6 +37,16 @@ type TemplateRow = {
   is_active: boolean;
 };
 
+type ActivityRow = {
+  id: string;
+  lead_id: string;
+  entry_type: string | null;
+  subject: string | null;
+  message: string;
+  created_by_username: string | null;
+  created_at: string;
+};
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -87,10 +97,7 @@ function weightedValueForLead(lead: LeadRow) {
   return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
 }
 
-function fillTokens(
-  text: string,
-  values: Record<string, string>
-) {
+function fillTokens(text: string, values: Record<string, string>) {
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => values[key] ?? "");
 }
 
@@ -213,8 +220,7 @@ function buildPreview({
       ? "Checking in from AnnS Crane Hire"
       : "Introduction from AnnS Crane Hire");
 
-  const bodyTemplate =
-    template?.body_hint?.trim() || buildDefaultBody(channel, goal);
+  const bodyTemplate = template?.body_hint?.trim() || buildDefaultBody(channel, goal);
 
   return {
     subject: fillTokens(subjectTemplate, tokenValues).trim(),
@@ -242,7 +248,11 @@ export default async function CampaignDetailPage({
     const access = await getAccessContext();
 
     if (!access.user || !canCreateCustomers(access)) {
-      redirect(`/sales-hub/campaigns/${params.id}?error=${encodeURIComponent("You do not have permission to update campaigns.")}`);
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          "You do not have permission to update campaigns."
+        )}`
+      );
     }
 
     const supabase = createSupabaseServerClient();
@@ -276,6 +286,186 @@ export default async function CampaignDetailPage({
     redirect(`/sales-hub/campaigns/${params.id}?success=${encodeURIComponent("Campaign updated.")}`);
   }
 
+  async function logCampaignExecution(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          "You do not have permission to log campaign activity."
+        )}`
+      );
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const selectedLeadIds = formData
+      .getAll("lead_ids")
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+
+    const outcome = String(formData.get("outcome") ?? "sent").trim() || "sent";
+    const note = String(formData.get("note") ?? "").trim();
+
+    if (!selectedLeadIds.length) {
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          "Select at least one lead to log outreach for."
+        )}`
+      );
+    }
+
+    const { data: campaign, error: campaignError } = await supabase
+      .from("sales_campaigns")
+      .select("*")
+      .eq("id", params.id)
+      .single();
+
+    if (campaignError || !campaign) {
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          campaignError?.message || "Campaign not found."
+        )}`
+      );
+    }
+
+    const { data: linkedRows } = await supabase
+      .from("sales_campaign_leads")
+      .select("lead_id")
+      .eq("campaign_id", params.id)
+      .in("lead_id", selectedLeadIds);
+
+    const validLeadIds = (linkedRows ?? [])
+      .map((row: any) => String(row.lead_id ?? "").trim())
+      .filter(Boolean);
+
+    if (!validLeadIds.length) {
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          "No valid linked leads were selected."
+        )}`
+      );
+    }
+
+    const { data: template } = campaign.template_id
+      ? await supabase
+          .from("sales_templates")
+          .select("*")
+          .eq("id", campaign.template_id)
+          .single()
+      : { data: null as TemplateRow | null };
+
+    const { data: selectedLeads, error: leadsError } = await supabase
+      .from("sales_leads")
+      .select(`
+        id,
+        company_name,
+        contact_name,
+        email,
+        phone,
+        area,
+        industry,
+        lead_source,
+        status,
+        services,
+        assigned_to_username,
+        opportunity_value,
+        probability_percent,
+        expected_close_date,
+        next_follow_up_on
+      `)
+      .in("id", validLeadIds);
+
+    if (leadsError) {
+      redirect(`/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(leadsError.message)}`);
+    }
+
+    const activityRows = (selectedLeads ?? []).map((lead: any) => {
+      const preview = buildPreview({
+        lead,
+        template: (template as TemplateRow | null) || null,
+        channel: String(campaign.channel ?? "email"),
+        goal: String(campaign.goal ?? "introduction"),
+        tone: String(campaign.tone ?? "professional"),
+        serviceFocus:
+          String(campaign.service_focus ?? "").trim() || "crane hire and transport support",
+        availabilityNote: String(campaign.availability_note ?? "").trim(),
+      });
+
+      const message = [
+        `[Campaign ID: ${campaign.id}]`,
+        `Campaign: ${campaign.name}`,
+        `Channel: ${String(campaign.channel ?? "email")}`,
+        `Goal: ${String(campaign.goal ?? "introduction")}`,
+        `Outcome: ${outcome}`,
+        note ? `Note: ${note}` : "",
+        `Subject: ${preview.subject || "—"}`,
+        "",
+        "Body:",
+        preview.body || "—",
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      return {
+        lead_id: String(lead.id),
+        entry_type: String(campaign.channel ?? "email"),
+        subject: `Campaign touch: ${campaign.name} (${outcome})`,
+        message,
+        created_by_user_id: user?.id ?? null,
+        created_by_username: fromAuthEmail(user?.email ?? null) || null,
+      };
+    });
+
+    if (!activityRows.length) {
+      redirect(
+        `/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(
+          "No activity rows were generated."
+        )}`
+      );
+    }
+
+    const { error: insertError } = await supabase.from("sales_lead_activity").insert(activityRows);
+
+    if (insertError) {
+      redirect(`/sales-hub/campaigns/${params.id}?error=${encodeURIComponent(insertError.message)}`);
+    }
+
+    if (String(campaign.status ?? "Draft") === "Draft" && outcome === "sent") {
+      await supabase
+        .from("sales_campaigns")
+        .update({
+          status: "Active",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", params.id);
+    }
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_campaign_execution_logged",
+      entity_type: "sales_campaign",
+      entity_id: params.id,
+      meta: {
+        outcome,
+        lead_count: activityRows.length,
+        note,
+      },
+    });
+
+    redirect(
+      `/sales-hub/campaigns/${params.id}?success=${encodeURIComponent(
+        `Logged outreach for ${activityRows.length} lead${activityRows.length === 1 ? "" : "s"}.`
+      )}`
+    );
+  }
+
   const { data: campaign, error: campaignError } = await supabase
     .from("sales_campaigns")
     .select("*")
@@ -292,54 +482,63 @@ export default async function CampaignDetailPage({
     );
   }
 
-  const [
-    { data: template },
-    { data: campaignLeadLinks, error: linkError },
-  ] = await Promise.all([
+  const [{ data: template }, { data: campaignLeadLinks, error: linkError }] = await Promise.all([
     campaign.template_id
-      ? supabase
-          .from("sales_templates")
-          .select("*")
-          .eq("id", campaign.template_id)
-          .single()
+      ? supabase.from("sales_templates").select("*").eq("id", campaign.template_id).single()
       : Promise.resolve({ data: null as TemplateRow | null }),
-    supabase
-      .from("sales_campaign_leads")
-      .select("lead_id")
-      .eq("campaign_id", params.id),
+    supabase.from("sales_campaign_leads").select("lead_id").eq("campaign_id", params.id),
   ]);
 
   const leadIds = (campaignLeadLinks ?? [])
     .map((row: any) => String(row.lead_id ?? "").trim())
     .filter(Boolean);
 
-  const { data: linkedLeads, error: leadsError } =
-    leadIds.length > 0
-      ? await supabase
-          .from("sales_leads")
-          .select(`
-            id,
-            company_name,
-            contact_name,
-            email,
-            phone,
-            area,
-            industry,
-            lead_source,
-            status,
-            services,
-            assigned_to_username,
-            opportunity_value,
-            probability_percent,
-            expected_close_date,
-            next_follow_up_on
-          `)
-          .in("id", leadIds)
-      : { data: [] as LeadRow[], error: null as any };
+  const [{ data: linkedLeads, error: leadsError }, { data: executionLog, error: logError }] =
+    await Promise.all([
+      leadIds.length > 0
+        ? supabase
+            .from("sales_leads")
+            .select(`
+              id,
+              company_name,
+              contact_name,
+              email,
+              phone,
+              area,
+              industry,
+              lead_source,
+              status,
+              services,
+              assigned_to_username,
+              opportunity_value,
+              probability_percent,
+              expected_close_date,
+              next_follow_up_on
+            `)
+            .in("id", leadIds)
+        : Promise.resolve({ data: [] as LeadRow[], error: null as any }),
+      supabase
+        .from("sales_lead_activity")
+        .select("*")
+        .ilike("message", `%[Campaign ID: ${params.id}]%`)
+        .order("created_at", { ascending: false })
+        .limit(100),
+    ]);
 
   const orderedLeads = leadIds
     .map((id) => (linkedLeads ?? []).find((lead: any) => String(lead.id) === id))
     .filter(Boolean) as LeadRow[];
+
+  const campaignLog = (executionLog ?? []) as ActivityRow[];
+
+  const latestLogByLead = new Map<string, ActivityRow>();
+  for (const row of campaignLog) {
+    if (!latestLogByLead.has(String(row.lead_id))) {
+      latestLogByLead.set(String(row.lead_id), row);
+    }
+  }
+
+  const touchedLeadCount = new Set(campaignLog.map((row) => String(row.lead_id))).size;
 
   return (
     <ClientShell>
@@ -348,7 +547,7 @@ export default async function CampaignDetailPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>{campaign.name}</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Review target leads, preview messages and manage campaign status.
+              Review target leads, log outreach touches and manage campaign status.
             </p>
           </div>
 
@@ -372,12 +571,15 @@ export default async function CampaignDetailPage({
 
         {linkError ? <div style={errorCard}>{linkError.message}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
+        {logError ? <div style={errorCard}>{logError.message}</div> : null}
 
         <div style={statsGrid}>
           <StatCard label="Status" value={String(campaign.status ?? "Draft")} />
           <StatCard label="Channel" value={String(campaign.channel ?? "email")} />
-          <StatCard label="Goal" value={String(campaign.goal ?? "introduction")} />
           <StatCard label="Linked leads" value={String(orderedLeads.length)} />
+          <StatCard label="Logged touches" value={String(campaignLog.length)} />
+          <StatCard label="Touched leads" value={String(touchedLeadCount)} />
+          <StatCard label="Last touch" value={fmtDateTime(campaignLog[0]?.created_at)} />
         </div>
 
         <div style={twoColGrid}>
@@ -414,30 +616,38 @@ export default async function CampaignDetailPage({
                 </button>
               </div>
             </form>
+
+            {orderedLeads.length > 0 ? (
+              <form action={logCampaignExecution} style={quickActionBox}>
+                {orderedLeads.map((lead) => (
+                  <input key={lead.id} type="hidden" name="lead_ids" value={lead.id} />
+                ))}
+                <input type="hidden" name="outcome" value="sent" />
+                <input type="hidden" name="note" value="" />
+                <button type="submit" style={primaryBtn}>
+                  Log all linked leads as sent now
+                </button>
+              </form>
+            ) : null}
           </section>
 
           <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Target list</h2>
+            <h2 style={sectionTitle}>Recent execution log</h2>
 
-            {!orderedLeads.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No linked leads in this campaign.</p>
+            {!campaignLog.length ? (
+              <p style={{ margin: 0, opacity: 0.78 }}>No campaign touches logged yet.</p>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {orderedLeads.map((lead) => (
-                  <a
-                    key={lead.id}
-                    href={`/sales-hub/leads/${lead.id}`}
-                    style={leadCard}
-                  >
-                    <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
+                {campaignLog.slice(0, 12).map((row) => (
+                  <div key={row.id} style={logCard}>
+                    <div style={{ fontWeight: 900 }}>{row.subject || "Campaign touch"}</div>
                     <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                      {lead.contact_name || "No contact"} • {lead.status || "New"} •{" "}
-                      {lead.assigned_to_username || "Unassigned"}
+                      {fmtDateTime(row.created_at)} • {row.created_by_username || "Unknown"}
                     </div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                      Weighted {moneyGBP(weightedValueForLead(lead))}
+                    <div style={{ marginTop: 8, whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.5 }}>
+                      {row.message}
                     </div>
-                  </a>
+                  </div>
                 ))}
               </div>
             )}
@@ -445,46 +655,117 @@ export default async function CampaignDetailPage({
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <h2 style={sectionTitle}>Generated message previews</h2>
+          <h2 style={sectionTitle}>Target list and execution controls</h2>
 
           {!orderedLeads.length ? (
-            <p style={{ margin: 0, opacity: 0.78 }}>No message previews available because no leads are linked.</p>
+            <p style={{ margin: 0, opacity: 0.78 }}>No linked leads in this campaign.</p>
           ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {orderedLeads.map((lead) => {
-                const preview = buildPreview({
-                  lead,
-                  template: (template as TemplateRow | null) || null,
-                  channel: String(campaign.channel ?? "email"),
-                  goal: String(campaign.goal ?? "introduction"),
-                  tone: String(campaign.tone ?? "professional"),
-                  serviceFocus: String(campaign.service_focus ?? "") || "crane hire and transport support",
-                  availabilityNote: String(campaign.availability_note ?? ""),
-                });
-
-                return (
-                  <div key={lead.id} style={previewCard}>
-                    <div style={{ fontWeight: 900 }}>
-                      {lead.company_name} {lead.contact_name ? `• ${lead.contact_name}` : ""}
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.72 }}>
-                      {String(campaign.channel ?? "email").toUpperCase()} • {String(campaign.goal ?? "introduction")}
-                    </div>
-
-                    <div style={{ marginTop: 10 }}>
-                      <div style={miniLabel}>Subject / opener</div>
-                      <div style={messageBox}>{preview.subject || "—"}</div>
-                    </div>
-
-                    <div style={{ marginTop: 10 }}>
-                      <div style={miniLabel}>Body</div>
-                      <div style={messageBox}>{preview.body || "—"}</div>
-                    </div>
+            <form action={logCampaignExecution}>
+              <div style={executionToolbar}>
+                <div style={toolbarGrid}>
+                  <div>
+                    <label style={labelStyle}>Outcome</label>
+                    <select name="outcome" defaultValue="sent" style={inputStyle}>
+                      <option value="sent">Sent</option>
+                      <option value="attempted">Attempted</option>
+                      <option value="replied">Replied</option>
+                      <option value="no_answer">No answer</option>
+                    </select>
                   </div>
-                );
-              })}
-            </div>
+
+                  <div>
+                    <label style={labelStyle}>Note</label>
+                    <input
+                      name="note"
+                      placeholder="Optional note"
+                      style={inputStyle}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <button type="submit" style={primaryBtn}>
+                    Log selected leads
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                {orderedLeads.map((lead) => {
+                  const preview = buildPreview({
+                    lead,
+                    template: (template as TemplateRow | null) || null,
+                    channel: String(campaign.channel ?? "email"),
+                    goal: String(campaign.goal ?? "introduction"),
+                    tone: String(campaign.tone ?? "professional"),
+                    serviceFocus:
+                      String(campaign.service_focus ?? "").trim() || "crane hire and transport support",
+                    availabilityNote: String(campaign.availability_note ?? "").trim(),
+                  });
+
+                  const latestLog = latestLogByLead.get(String(lead.id));
+
+                  return (
+                    <label key={lead.id} style={leadRow}>
+                      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                        <input
+                          type="checkbox"
+                          name="lead_ids"
+                          value={lead.id}
+                          style={{ width: 18, height: 18, marginTop: 4 }}
+                        />
+
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                            <div>
+                              <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                                {lead.contact_name || "No contact"} • {lead.status || "New"} •{" "}
+                                {lead.assigned_to_username || "Unassigned"}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                                Weighted {moneyGBP(weightedValueForLead(lead))}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: "right" }}>
+                              <a href={`/sales-hub/leads/${lead.id}`} style={miniBtnLink}>
+                                Open lead
+                              </a>
+                            </div>
+                          </div>
+
+                          {latestLog ? (
+                            <div style={latestLogBox}>
+                              Last logged: {fmtDateTime(latestLog.created_at)} •{" "}
+                              {latestLog.subject || "Campaign touch"}
+                            </div>
+                          ) : (
+                            <div style={latestLogBoxMuted}>No campaign touch logged yet.</div>
+                          )}
+
+                          <div style={{ marginTop: 10 }}>
+                            <div style={miniLabel}>Subject / opener</div>
+                            <div style={messageBox}>{preview.subject || "—"}</div>
+                          </div>
+
+                          <div style={{ marginTop: 10 }}>
+                            <div style={miniLabel}>Body</div>
+                            <div style={messageBox}>{preview.body || "—"}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div style={{ marginTop: 16 }}>
+                <button type="submit" style={primaryBtn}>
+                  Log selected leads
+                </button>
+              </div>
+            </form>
           )}
         </section>
       </div>
@@ -588,6 +869,17 @@ const secondaryBtn = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
+const miniBtnLink = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
 const successCard = {
   background: "rgba(0,160,80,0.14)",
   padding: 12,
@@ -610,21 +902,68 @@ const twoColGrid = {
   gap: 16,
 };
 
-const leadCard = {
-  display: "block",
-  textDecoration: "none",
-  color: "#111",
+const quickActionBox = {
+  marginTop: 18,
   padding: "12px 14px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const previewCard = {
+const logCard = {
   padding: "12px 14px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const executionToolbar = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap" as const,
+  alignItems: "end",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const toolbarGrid = {
+  display: "grid",
+  gridTemplateColumns: "minmax(180px, 220px) minmax(240px, 1fr)",
+  gap: 12,
+  flex: 1,
+};
+
+const leadRow = {
+  display: "block",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  cursor: "pointer",
+};
+
+const latestLogBox = {
+  marginTop: 10,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(0,160,80,0.08)",
+  border: "1px solid rgba(0,160,80,0.16)",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const latestLogBoxMuted = {
+  marginTop: 10,
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(0,0,0,0.04)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 13,
+  opacity: 0.72,
+  fontWeight: 700,
 };
 
 const miniLabel = {
