@@ -6,6 +6,7 @@ import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
 import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
+import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -704,6 +705,7 @@ export default async function TransportJobDetailPage({
               </div>
 
               <form action={updateTransportJob} style={{ display: "grid", gap: 18, marginTop: 18 }}>
+                <TransportJobDetailFormEnhancer />
                 <input type="hidden" name="id" value={params.id} />
 
                 <section style={sectionCard}>
@@ -763,6 +765,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
+                      id="job_type"
                       label="Job type"
                       name="job_type"
                       defaultValue={(item as any)?.job_type ?? ""}
@@ -777,6 +780,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="transport_date"
                       label="Collection date"
                       name="transport_date"
                       type="date"
@@ -784,6 +788,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
+                      id="collection_time"
                       label="Collection time"
                       name="collection_time"
                       defaultValue={(item as any)?.collection_time ?? ""}
@@ -791,6 +796,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="delivery_date"
                       label="Delivery date"
                       name="delivery_date"
                       type="date"
@@ -798,6 +804,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <SelectField
+                      id="delivery_time"
                       label="Delivery time"
                       name="delivery_time"
                       defaultValue={(item as any)?.delivery_time ?? ""}
@@ -819,8 +826,11 @@ export default async function TransportJobDetailPage({
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Pickup / site address</label>
+                    <label id="collection_address_label" htmlFor="collection_address" style={labelStyle}>
+                      Pickup / site address
+                    </label>
                     <textarea
+                      id="collection_address"
                       name="collection_address"
                       rows={3}
                       style={textareaStyle}
@@ -829,8 +839,11 @@ export default async function TransportJobDetailPage({
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Delivery / work area address</label>
+                    <label id="delivery_address_label" htmlFor="delivery_address" style={labelStyle}>
+                      Delivery / work area address
+                    </label>
                     <textarea
+                      id="delivery_address"
                       name="delivery_address"
                       rows={3}
                       style={textareaStyle}
@@ -838,9 +851,24 @@ export default async function TransportJobDetailPage({
                     />
                   </div>
 
+                  <div
+                    id="on_site_hiab_notice"
+                    style={{
+                      ...softPanel,
+                      marginTop: 12,
+                      display: (item as any)?.job_type === "on_site_hiab" ? "block" : "none",
+                    }}
+                  >
+                    For on-site HIAB work, keep the main site in the pickup address and use the delivery
+                    address for the working area or secondary location if needed.
+                  </div>
+
                   <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Load / task description</label>
+                    <label id="load_description_label" htmlFor="load_description" style={labelStyle}>
+                      Load / task description
+                    </label>
                     <textarea
+                      id="load_description"
                       name="load_description"
                       rows={3}
                       style={textareaStyle}
@@ -864,6 +892,7 @@ export default async function TransportJobDetailPage({
 
                   <div style={gridStyle}>
                     <SelectField
+                      id="price_mode"
                       label="Price mode"
                       name="price_mode"
                       defaultValue={(item as any)?.price_mode ?? "full_job"}
@@ -874,6 +903,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="agreed_sell_rate"
                       label="Full job price"
                       name="agreed_sell_rate"
                       type="number"
@@ -886,6 +916,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="price_per_day"
                       label="Price per day"
                       name="price_per_day"
                       type="number"
@@ -894,6 +925,7 @@ export default async function TransportJobDetailPage({
                     />
 
                     <Field
+                      id="invoice_subtotal"
                       label="Invoice subtotal"
                       name="invoice_subtotal"
                       type="number"
@@ -904,6 +936,26 @@ export default async function TransportJobDetailPage({
                           (item as any)?.price ??
                           0
                       )}
+                    />
+
+                    <ReadOnlyField
+                      id="invoice_vat"
+                      label="VAT"
+                      value={fmtMoney(
+                        (item as any)?.invoice_vat ??
+                          money(
+                            ((item as any)?.invoice_subtotal ??
+                              (item as any)?.agreed_sell_rate ??
+                              (item as any)?.price ??
+                              0) * 0.2
+                          )
+                      )}
+                    />
+
+                    <ReadOnlyField
+                      id="total_invoice"
+                      label="Invoice total"
+                      value={fmtMoney((item as any)?.total_invoice ?? 0)}
                     />
                   </div>
                 </section>
@@ -1289,6 +1341,37 @@ function SelectField({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+function ReadOnlyField({
+  id,
+  label,
+  value,
+}: {
+  id?: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+      <label htmlFor={id} style={labelStyle}>
+        {label}
+      </label>
+      <input
+        id={id}
+        value={value}
+        readOnly
+        aria-readonly="true"
+        tabIndex={-1}
+        style={{
+          ...inputStyle,
+          background: "rgba(255,255,255,0.72)",
+          color: "#111",
+          fontWeight: 800,
+        }}
+      />
     </div>
   );
 }
