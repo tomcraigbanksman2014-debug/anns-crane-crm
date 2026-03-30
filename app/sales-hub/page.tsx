@@ -139,13 +139,22 @@ export default async function SalesHubPage() {
                 <div style={toolCardSub}>Live now</div>
               </a>
 
+              <a href="/sales-hub/campaigns" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Campaign Runner</div>
+                <div style={toolCardSub}>Generate drafts across linked leads</div>
+              </a>
+
+              <a href="/sales-hub/dormant-customers" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Dormant Customer Recovery</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
               <a href="/sales-hub/leads" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Opportunity Tracking</div>
-                <div style={toolCardSub}>Use lead statuses first, then we will deepen this next</div>
+                <div style={toolCardSub}>Use lead statuses first, then deepen later</div>
               </a>
 
               <FeaturePill text="Social Media Content Studio" />
-              <FeaturePill text="Dormant Customer Recovery" />
               <FeaturePill text="Cross-sell prompts" />
               <FeaturePill text="Availability-driven selling" />
             </div>
