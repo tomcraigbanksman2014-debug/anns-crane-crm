@@ -152,148 +152,10 @@ function dormantRecoveryScore(args: {
   return Math.min(score, 100);
 }
 
-async function createRecoveryLead(formData: FormData) {
-  "use server";
-
-  const access = await getAccessContext();
-
-  if (!access.user || !canCreateCustomers(access)) {
-    redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20recovery%20leads.");
-  }
-
-  const supabase = createSupabaseServerClient();
-  const clientId = String(formData.get("client_id") ?? "").trim();
-
-  if (!clientId) {
-    redirect("/sales-hub/automation?error=Missing%20client%20id.");
-  }
-
-  const [
-    { data: client, error: clientError },
-    { data: existingLead },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportError },
-    { data: authRes },
-  ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, address, notes")
-      .eq("id", clientId)
-      .single(),
-    supabase
-      .from("sales_leads")
-      .select("id, status, archived")
-      .eq("converted_client_id", clientId)
-      .eq("archived", false),
-    supabase
-      .from("jobs")
-      .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase
-      .from("transport_jobs")
-      .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase.auth.getUser(),
-  ]);
-
-  if (clientError || !client) {
-    redirect("/sales-hub/automation?error=Client%20not%20found.");
-  }
-
-  if (jobsError || transportError) {
-    redirect("/sales-hub/automation?error=Could%20not%20read%20client%20history.");
-  }
-
-  const existingOpenLead =
-    (existingLead ?? []).find((lead: any) => !lead.archived && isOpenStatus(lead.status)) ?? null;
-
-  if (existingOpenLead?.id) {
-    redirect(`/sales-hub/leads/${existingOpenLead.id}?success=${encodeURIComponent("Recovery lead already existed, opened existing lead.")}`);
-  }
-
-  const validJobs = (jobs ?? []).filter(validCraneJob);
-  const validTransport = (transportJobs ?? []).filter(validTransportJob);
-
-  const craneCount = validJobs.length;
-  const transportCount = validTransport.length;
-
-  const lastActivity = latestDate([
-    latestDate(validJobs.map(craneJobDate)),
-    latestDate(validTransport.map(transportJobDate)),
-  ]);
-
-  const dormantDays = daysSince(lastActivity) ?? 0;
-
-  const leadScore = dormantRecoveryScore({
-    craneCount,
-    transportCount,
-    dormantDays,
-    hasPhone: Boolean(client.phone),
-    hasEmail: Boolean(client.email),
-  });
-
-  const services: string[] = [];
-  if (craneCount > 0) services.push("Crane Hire");
-  if (transportCount > 0) services.push("Transport");
-
-  const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
-
-  const noteLines = [
-    "Created from Automation Centre.",
-    `Crane jobs: ${craneCount}.`,
-    `Transport jobs: ${transportCount}.`,
-    lastActivity ? `Last service date: ${fmtDate(lastActivity)}.` : "Last service date: unknown.",
-    `Dormant for approximately ${dormantDays} days.`,
-    client.notes ? `Existing client notes: ${client.notes}` : "",
-  ].filter(Boolean);
-
-  const { data: createdLead, error: createError } = await supabase
-    .from("sales_leads")
-    .insert({
-      company_name: client.company_name,
-      contact_name: client.contact_name || null,
-      email: client.email || null,
-      phone: client.phone || null,
-      address: client.address || null,
-      lead_source: "Automation Centre",
-      status: "Dormant",
-      services,
-      notes: noteLines.join(" "),
-      lead_score: leadScore,
-      do_not_contact: false,
-      next_follow_up_on: new Date().toISOString().slice(0, 10),
-      assigned_to_username: assignedUsername,
-      converted_client_id: client.id,
-    })
-    .select("id")
-    .single();
-
-  if (createError || !createdLead?.id) {
-    redirect(`/sales-hub/automation?error=${encodeURIComponent(createError?.message || "Could not create recovery lead.")}`);
-  }
-
-  await writeAuditLog({
-    actor_user_id: authRes.data.user?.id ?? null,
-    actor_username: assignedUsername,
-    action: "sales_recovery_lead_created_from_automation_centre",
-    entity_type: "sales_recovery_lead",
-    entity_id: createdLead.id,
-    meta: {
-      client_id: client.id,
-      company_name: client.company_name,
-      crane_count: craneCount,
-      transport_count: transportCount,
-      dormant_days: dormantDays,
-      lead_score: leadScore,
-    },
-  });
-
-  redirect(`/sales-hub/leads/${createdLead.id}?success=${encodeURIComponent("Recovery lead created.")}`);
-}
-
 type AutomationCentrePageProps = {
   searchParams?: {
     owner?: string;
+    success?: string;
     error?: string;
   };
 };
@@ -303,12 +165,461 @@ export default async function AutomationCentrePage({
 }: AutomationCentrePageProps) {
   const supabase = createSupabaseServerClient();
   const access = await getAccessContext();
-  const canCreate = !!access.user && canCreateCustomers(access);
+  const canManage = !!access.user && canCreateCustomers(access);
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const currentUsername = fromAuthEmail(user?.email ?? null);
   const today = new Date().toISOString().slice(0, 10);
   const closeWindowEnd = addDays(new Date(), 7).toISOString().slice(0, 10);
   const selectedOwner = String(searchParams?.owner ?? "all").trim();
+  const successMessage = String(searchParams?.success ?? "");
   const errorMessage = String(searchParams?.error ?? "");
+
+  async function addLeadActivity(leadId: string, subject: string, message: string) {
+    "use server";
+
+    try {
+      const supabase = createSupabaseServerClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      await supabase.from("sales_lead_activity").insert({
+        lead_id: leadId,
+        entry_type: "note",
+        subject,
+        message,
+        created_by_user_id: user?.id ?? null,
+        created_by_username: fromAuthEmail(user?.email ?? null) || null,
+      });
+    } catch {
+      // do not block action if activity insert fails
+    }
+  }
+
+  async function assignLeadOwner(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20assign%20owners.");
+    }
+
+    const leadId = String(formData.get("lead_id") ?? "").trim();
+    const assignedToUsername = String(formData.get("assigned_to_username") ?? "").trim() || null;
+
+    if (!leadId) {
+      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: lead, error: leadError } = await supabase
+      .from("sales_leads")
+      .select("id, company_name, assigned_to_username")
+      .eq("id", leadId)
+      .single();
+
+    if (leadError || !lead) {
+      redirect("/sales-hub/automation?error=Lead%20not%20found.");
+    }
+
+    const { error } = await supabase
+      .from("sales_leads")
+      .update({
+        assigned_to_username: assignedToUsername,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", leadId);
+
+    if (error) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
+    }
+
+    await addLeadActivity(
+      leadId,
+      "Owner updated",
+      assignedToUsername
+        ? `Lead assigned to ${assignedToUsername} from Automation Centre.`
+        : "Lead owner cleared from Automation Centre."
+    );
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_lead_owner_updated_from_automation",
+      entity_type: "sales_lead",
+      entity_id: leadId,
+      meta: {
+        company_name: lead.company_name,
+        previous_owner: lead.assigned_to_username ?? null,
+        new_owner: assignedToUsername,
+      },
+    });
+
+    redirect(`/sales-hub/automation?success=${encodeURIComponent("Lead owner updated.")}`);
+  }
+
+  async function snoozeFollowUp7Days(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20follow-ups.");
+    }
+
+    const leadId = String(formData.get("lead_id") ?? "").trim();
+
+    if (!leadId) {
+      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: lead, error: leadError } = await supabase
+      .from("sales_leads")
+      .select("id, company_name, next_follow_up_on")
+      .eq("id", leadId)
+      .single();
+
+    if (leadError || !lead) {
+      redirect("/sales-hub/automation?error=Lead%20not%20found.");
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const existingDate = dateOnly(lead.next_follow_up_on);
+    const base =
+      existingDate && existingDate > todayStr ? new Date(existingDate) : new Date(todayStr);
+
+    const newDate = addDays(base, 7).toISOString().slice(0, 10);
+
+    const { error } = await supabase
+      .from("sales_leads")
+      .update({
+        next_follow_up_on: newDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", leadId);
+
+    if (error) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
+    }
+
+    await addLeadActivity(
+      leadId,
+      "Follow-up snoozed",
+      `Follow-up moved to ${fmtDate(newDate)} from Automation Centre.`
+    );
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_follow_up_snoozed_from_automation",
+      entity_type: "sales_lead",
+      entity_id: leadId,
+      meta: {
+        company_name: lead.company_name,
+        previous_follow_up_on: lead.next_follow_up_on ?? null,
+        new_follow_up_on: newDate,
+      },
+    });
+
+    redirect(`/sales-hub/automation?success=${encodeURIComponent("Follow-up pushed forward 7 days.")}`);
+  }
+
+  async function markQuoteChasedToday(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20quotes.");
+    }
+
+    const leadId = String(formData.get("lead_id") ?? "").trim();
+
+    if (!leadId) {
+      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: lead, error: leadError } = await supabase
+      .from("sales_leads")
+      .select("id, company_name, status, last_contacted_at, next_follow_up_on")
+      .eq("id", leadId)
+      .single();
+
+    if (leadError || !lead) {
+      redirect("/sales-hub/automation?error=Lead%20not%20found.");
+    }
+
+    const nowIso = new Date().toISOString();
+    const nextDate = addDays(new Date(), 7).toISOString().slice(0, 10);
+
+    const { error } = await supabase
+      .from("sales_leads")
+      .update({
+        last_contacted_at: nowIso,
+        next_follow_up_on: nextDate,
+        updated_at: nowIso,
+      })
+      .eq("id", leadId);
+
+    if (error) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
+    }
+
+    await addLeadActivity(
+      leadId,
+      "Quote chased",
+      `Quote marked as chased on ${fmtDate(nowIso)} from Automation Centre. Next follow-up set for ${fmtDate(nextDate)}.`
+    );
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_quote_marked_chased_from_automation",
+      entity_type: "sales_lead",
+      entity_id: leadId,
+      meta: {
+        company_name: lead.company_name,
+        status: lead.status,
+        previous_last_contacted_at: lead.last_contacted_at ?? null,
+        previous_next_follow_up_on: lead.next_follow_up_on ?? null,
+        new_next_follow_up_on: nextDate,
+      },
+    });
+
+    redirect(`/sales-hub/automation?success=${encodeURIComponent("Quote marked as chased today.")}`);
+  }
+
+  async function moveQuoteToFollowUp(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20quotes.");
+    }
+
+    const leadId = String(formData.get("lead_id") ?? "").trim();
+
+    if (!leadId) {
+      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
+    }
+
+    const supabase = createSupabaseServerClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: lead, error: leadError } = await supabase
+      .from("sales_leads")
+      .select("id, company_name, status")
+      .eq("id", leadId)
+      .single();
+
+    if (leadError || !lead) {
+      redirect("/sales-hub/automation?error=Lead%20not%20found.");
+    }
+
+    const nextDate = addDays(new Date(), 3).toISOString().slice(0, 10);
+
+    const { error } = await supabase
+      .from("sales_leads")
+      .update({
+        status: "Follow Up",
+        next_follow_up_on: nextDate,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", leadId);
+
+    if (error) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
+    }
+
+    await addLeadActivity(
+      leadId,
+      "Quote moved to follow up",
+      `Lead moved to Follow Up from Automation Centre. Next follow-up set for ${fmtDate(nextDate)}.`
+    );
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_quote_moved_to_follow_up_from_automation",
+      entity_type: "sales_lead",
+      entity_id: leadId,
+      meta: {
+        company_name: lead.company_name,
+        previous_status: lead.status,
+        new_status: "Follow Up",
+        new_next_follow_up_on: nextDate,
+      },
+    });
+
+    redirect(`/sales-hub/automation?success=${encodeURIComponent("Lead moved back to Follow Up.")}`);
+  }
+
+  async function createRecoveryLead(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20recovery%20leads.");
+    }
+
+    const supabase = createSupabaseServerClient();
+    const clientId = String(formData.get("client_id") ?? "").trim();
+
+    if (!clientId) {
+      redirect("/sales-hub/automation?error=Missing%20client%20id.");
+    }
+
+    const [
+      { data: client, error: clientError },
+      { data: existingLead },
+      { data: jobs, error: jobsError },
+      { data: transportJobs, error: transportError },
+      { data: authRes },
+    ] = await Promise.all([
+      supabase
+        .from("clients")
+        .select("id, company_name, contact_name, phone, email, address, notes")
+        .eq("id", clientId)
+        .single(),
+      supabase
+        .from("sales_leads")
+        .select("id, status, archived")
+        .eq("converted_client_id", clientId)
+        .eq("archived", false),
+      supabase
+        .from("jobs")
+        .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
+        .eq("client_id", clientId),
+      supabase
+        .from("transport_jobs")
+        .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
+        .eq("client_id", clientId),
+      supabase.auth.getUser(),
+    ]);
+
+    if (clientError || !client) {
+      redirect("/sales-hub/automation?error=Client%20not%20found.");
+    }
+
+    if (jobsError || transportError) {
+      redirect("/sales-hub/automation?error=Could%20not%20read%20client%20history.");
+    }
+
+    const existingOpenLead =
+      (existingLead ?? []).find((lead: any) => !lead.archived && isOpenStatus(lead.status)) ?? null;
+
+    if (existingOpenLead?.id) {
+      redirect(`/sales-hub/leads/${existingOpenLead.id}?success=${encodeURIComponent("Recovery lead already existed, opened existing lead.")}`);
+    }
+
+    const validJobs = (jobs ?? []).filter(validCraneJob);
+    const validTransport = (transportJobs ?? []).filter(validTransportJob);
+
+    const craneCount = validJobs.length;
+    const transportCount = validTransport.length;
+
+    const lastActivity = latestDate([
+      latestDate(validJobs.map(craneJobDate)),
+      latestDate(validTransport.map(transportJobDate)),
+    ]);
+
+    const dormantDays = daysSince(lastActivity) ?? 0;
+
+    const leadScore = dormantRecoveryScore({
+      craneCount,
+      transportCount,
+      dormantDays,
+      hasPhone: Boolean(client.phone),
+      hasEmail: Boolean(client.email),
+    });
+
+    const services: string[] = [];
+    if (craneCount > 0) services.push("Crane Hire");
+    if (transportCount > 0) services.push("Transport");
+
+    const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
+
+    const noteLines = [
+      "Created from Automation Centre.",
+      `Crane jobs: ${craneCount}.`,
+      `Transport jobs: ${transportCount}.`,
+      lastActivity ? `Last service date: ${fmtDate(lastActivity)}.` : "Last service date: unknown.",
+      `Dormant for approximately ${dormantDays} days.`,
+      client.notes ? `Existing client notes: ${client.notes}` : "",
+    ].filter(Boolean);
+
+    const { data: createdLead, error: createError } = await supabase
+      .from("sales_leads")
+      .insert({
+        company_name: client.company_name,
+        contact_name: client.contact_name || null,
+        email: client.email || null,
+        phone: client.phone || null,
+        address: client.address || null,
+        lead_source: "Automation Centre",
+        status: "Dormant",
+        services,
+        notes: noteLines.join(" "),
+        lead_score: leadScore,
+        do_not_contact: false,
+        next_follow_up_on: new Date().toISOString().slice(0, 10),
+        assigned_to_username: assignedUsername,
+        converted_client_id: client.id,
+      })
+      .select("id")
+      .single();
+
+    if (createError || !createdLead?.id) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(createError?.message || "Could not create recovery lead.")}`);
+    }
+
+    await addLeadActivity(
+      createdLead.id,
+      "Recovery lead created",
+      "Lead created from Automation Centre dormant recovery."
+    );
+
+    await writeAuditLog({
+      actor_user_id: authRes.data.user?.id ?? null,
+      actor_username: assignedUsername,
+      action: "sales_recovery_lead_created_from_automation_centre",
+      entity_type: "sales_recovery_lead",
+      entity_id: createdLead.id,
+      meta: {
+        client_id: client.id,
+        company_name: client.company_name,
+        crane_count: craneCount,
+        transport_count: transportCount,
+        dormant_days: dormantDays,
+        lead_score: leadScore,
+      },
+    });
+
+    redirect(`/sales-hub/leads/${createdLead.id}?success=${encodeURIComponent("Recovery lead created.")}`);
+  }
 
   const [
     { data: leads, error: leadsError },
@@ -363,6 +674,7 @@ export default async function AutomationCentrePage({
       (leads ?? [])
         .map((lead: any) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
+        .concat(currentUsername ? [currentUsername] : [])
     )
   ).sort((a, b) => a.localeCompare(b));
 
@@ -552,6 +864,7 @@ export default async function AutomationCentrePage({
           </div>
         </div>
 
+        {successMessage ? <div style={successCard}>{decodeURIComponent(successMessage)}</div> : null}
         {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
         {clientsError ? <div style={errorCard}>{clientsError.message}</div> : null}
@@ -621,11 +934,46 @@ export default async function AutomationCentrePage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      <a href={`/sales-hub/leads/${lead.id}`} style={secondaryBtn}>
+                    <div style={actionsWrap}>
+                      {canManage ? (
+                        <>
+                          <form action={snoozeFollowUp7Days} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={lead.id} />
+                            <button type="submit" style={miniDarkBtn}>
+                              Push +7 days
+                            </button>
+                          </form>
+
+                          {owners.length ? (
+                            <form action={assignLeadOwner} style={inlineForm}>
+                              <input type="hidden" name="lead_id" value={lead.id} />
+                              <select
+                                name="assigned_to_username"
+                                defaultValue={String(
+                                  lead.assigned_to_username || currentUsername || owners[0] || ""
+                                )}
+                                style={miniSelect}
+                              >
+                                {owners.map((owner) => (
+                                  <option key={owner} value={owner}>
+                                    {owner}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="submit" style={miniBtn}>
+                                Assign
+                              </button>
+                            </form>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div style={mutedNote}>No permission to manage lead actions.</div>
+                      )}
+
+                      <a href={`/sales-hub/leads/${lead.id}`} style={miniBtnLink}>
                         Open lead
                       </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={primaryBtn}>
+                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
                         Outreach
                       </a>
                     </div>
@@ -662,11 +1010,53 @@ export default async function AutomationCentrePage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={secondaryBtn}>
+                    <div style={actionsWrap}>
+                      {canManage ? (
+                        <>
+                          <form action={markQuoteChasedToday} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={lead.id} />
+                            <button type="submit" style={miniDarkBtn}>
+                              Mark chased today
+                            </button>
+                          </form>
+
+                          <form action={moveQuoteToFollowUp} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={lead.id} />
+                            <button type="submit" style={miniBtn}>
+                              Move to Follow Up
+                            </button>
+                          </form>
+
+                          {owners.length ? (
+                            <form action={assignLeadOwner} style={inlineForm}>
+                              <input type="hidden" name="lead_id" value={lead.id} />
+                              <select
+                                name="assigned_to_username"
+                                defaultValue={String(
+                                  lead.assigned_to_username || currentUsername || owners[0] || ""
+                                )}
+                                style={miniSelect}
+                              >
+                                {owners.map((owner) => (
+                                  <option key={owner} value={owner}>
+                                    {owner}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="submit" style={miniBtn}>
+                                Assign
+                              </button>
+                            </form>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div style={mutedNote}>No permission to manage quote actions.</div>
+                      )}
+
+                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
                         Opportunity
                       </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={primaryBtn}>
+                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
                         Outreach
                       </a>
                     </div>
@@ -704,11 +1094,46 @@ export default async function AutomationCentrePage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={secondaryBtn}>
+                    <div style={actionsWrap}>
+                      {canManage ? (
+                        <>
+                          <form action={snoozeFollowUp7Days} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={lead.id} />
+                            <button type="submit" style={miniBtn}>
+                              Push follow-up +7
+                            </button>
+                          </form>
+
+                          {owners.length ? (
+                            <form action={assignLeadOwner} style={inlineForm}>
+                              <input type="hidden" name="lead_id" value={lead.id} />
+                              <select
+                                name="assigned_to_username"
+                                defaultValue={String(
+                                  lead.assigned_to_username || currentUsername || owners[0] || ""
+                                )}
+                                style={miniSelect}
+                              >
+                                {owners.map((owner) => (
+                                  <option key={owner} value={owner}>
+                                    {owner}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="submit" style={miniBtn}>
+                                Assign
+                              </button>
+                            </form>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div style={mutedNote}>No permission to manage opportunity actions.</div>
+                      )}
+
+                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
                         Opportunity
                       </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={primaryBtn}>
+                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
                         Outreach
                       </a>
                     </div>
@@ -744,11 +1169,37 @@ export default async function AutomationCentrePage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={secondaryBtn}>
+                    <div style={actionsWrap}>
+                      {canManage ? (
+                        owners.length ? (
+                          <form action={assignLeadOwner} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={lead.id} />
+                            <select
+                              name="assigned_to_username"
+                              defaultValue={String(currentUsername || owners[0] || "")}
+                              style={miniSelect}
+                            >
+                              {owners.map((owner) => (
+                                <option key={owner} value={owner}>
+                                  {owner}
+                                </option>
+                              ))}
+                            </select>
+                            <button type="submit" style={miniDarkBtn}>
+                              Assign owner
+                            </button>
+                          </form>
+                        ) : (
+                          <div style={mutedNote}>No owner options found yet.</div>
+                        )
+                      ) : (
+                        <div style={mutedNote}>No permission to assign opportunities.</div>
+                      )}
+
+                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
                         Opportunity
                       </a>
-                      <a href={`/sales-hub/leads/${lead.id}`} style={secondaryBtn}>
+                      <a href={`/sales-hub/leads/${lead.id}`} style={miniBtnLink}>
                         Lead
                       </a>
                     </div>
@@ -786,11 +1237,11 @@ export default async function AutomationCentrePage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      {canCreate ? (
-                        <form action={createRecoveryLead}>
+                    <div style={actionsWrap}>
+                      {canManage ? (
+                        <form action={createRecoveryLead} style={inlineForm}>
                           <input type="hidden" name="client_id" value={row.client.id} />
-                          <button type="submit" style={primaryBtn}>
+                          <button type="submit" style={miniDarkBtn}>
                             Create recovery lead
                           </button>
                         </form>
@@ -798,7 +1249,7 @@ export default async function AutomationCentrePage({
                         <div style={mutedNote}>No permission to create recovery lead.</div>
                       )}
 
-                      <a href={`/customers/${row.client.id}`} style={secondaryBtn}>
+                      <a href={`/customers/${row.client.id}`} style={miniBtnLink}>
                         Open customer
                       </a>
                     </div>
@@ -890,6 +1341,17 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
+const miniSelect: React.CSSProperties = {
+  minHeight: 36,
+  padding: "0 10px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 14,
+  background: "rgba(255,255,255,0.9)",
+  boxSizing: "border-box",
+};
+
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
   fontSize: 22,
@@ -908,6 +1370,21 @@ const itemTopRow: React.CSSProperties = {
   gap: 10,
   alignItems: "flex-start",
   flexWrap: "wrap",
+};
+
+const actionsWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 12,
+  alignItems: "center",
+};
+
+const inlineForm: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
 };
 
 const miniBadge: React.CSSProperties = {
@@ -940,6 +1417,59 @@ const secondaryBtn: React.CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const miniBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
+};
+
+const miniDarkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "none",
+  cursor: "pointer",
+};
+
+const miniBtnLink: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const miniDarkBtnLink: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const successCard: React.CSSProperties = {
+  background: "rgba(0,160,80,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,160,80,0.18)",
+  marginBottom: 12,
 };
 
 const errorCard: React.CSSProperties = {
