@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
@@ -637,7 +638,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const topBar = {
+const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -646,13 +647,13 @@ const topBar = {
   marginBottom: 16,
 };
 
-const statsGrid = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const panelStyle = {
+const panelStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -660,7 +661,7 @@ const panelStyle = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCard = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -668,26 +669,26 @@ const statCard = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   fontSize: 22,
 };
 
-const builderGrid = {
+const builderGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: 12,
   alignItems: "end",
 };
 
-const labelStyle = {
+const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -699,7 +700,7 @@ const inputStyle = {
   boxSizing: "border-box" as const,
 };
 
-const primaryBtn = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -711,7 +712,7 @@ const primaryBtn = {
   cursor: "pointer",
 };
 
-const secondaryBtn = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -722,7 +723,7 @@ const secondaryBtn = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const successCard = {
+const successCard: CSSProperties = {
   background: "rgba(0,160,80,0.14)",
   padding: 12,
   borderRadius: 12,
@@ -730,7 +731,7 @@ const successCard = {
   marginBottom: 12,
 };
 
-const errorCard = {
+const errorCard: CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -738,14 +739,14 @@ const errorCard = {
   marginBottom: 12,
 };
 
-const postCard = {
+const postCard: CSSProperties = {
   padding: "14px 16px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const postBody = {
+const postBody: CSSProperties = {
   marginTop: 14,
   padding: "12px 14px",
   borderRadius: 10,
@@ -756,7 +757,7 @@ const postBody = {
   fontSize: 14,
 };
 
-const actionRow = {
+const actionRow: CSSProperties = {
   display: "flex",
   gap: 10,
   flexWrap: "wrap" as const,
@@ -764,14 +765,14 @@ const actionRow = {
   alignItems: "center",
 };
 
-const inlineForm = {
+const inlineForm: CSSProperties = {
   display: "flex",
   gap: 10,
   flexWrap: "wrap" as const,
   alignItems: "center",
 };
 
-const miniBadge = {
+const miniBadge: CSSProperties = {
   padding: "6px 8px",
   borderRadius: 999,
   background: "rgba(0,0,0,0.06)",
@@ -780,7 +781,7 @@ const miniBadge = {
   fontSize: 12,
 };
 
-const mutedBox = {
+const mutedBox: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,255,255,0.72)",
