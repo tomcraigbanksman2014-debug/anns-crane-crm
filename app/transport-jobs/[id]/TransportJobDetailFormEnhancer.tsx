@@ -7,7 +7,7 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function parseValue(input: HTMLInputElement | null) {
+function parseValue(input: HTMLInputElement | HTMLSelectElement | null) {
   if (!input) return 0;
   const n = Number(String(input.value || "").trim());
   return Number.isFinite(n) ? n : 0;
@@ -17,9 +17,27 @@ function formatMoney(value: number) {
   return roundMoney(value).toFixed(2);
 }
 
+function countInclusiveDays(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return 1;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 1;
+
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return Math.max(count, 1);
+}
+
 export default function TransportJobDetailFormEnhancer() {
   useEffect(() => {
+    const priceModeInput = document.getElementById("price_mode") as HTMLSelectElement | null;
     const sellRateInput = document.getElementById("agreed_sell_rate") as HTMLInputElement | null;
+    const pricePerDayInput = document.getElementById("price_per_day") as HTMLInputElement | null;
     const subtotalInput = document.getElementById("invoice_subtotal") as HTMLInputElement | null;
     const vatInput = document.getElementById("invoice_vat") as HTMLInputElement | null;
     const totalInput = document.getElementById("total_invoice") as HTMLInputElement | null;
@@ -38,9 +56,9 @@ export default function TransportJobDetailFormEnhancer() {
     const loadDescriptionInput = document.getElementById("load_description") as HTMLTextAreaElement | null;
     const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
 
-    if (!subtotalInput || !vatInput || !totalInput) return;
+    if (!sellRateInput || !subtotalInput || !vatInput || !totalInput) return;
 
-    let lastSyncedSubtotal = parseValue(subtotalInput);
+    let lastSyncedSubtotal = roundMoney(parseValue(subtotalInput));
     let userManuallyChangedDeliveryDate = false;
     let userManuallyChangedDeliveryTime = false;
 
@@ -55,8 +73,6 @@ export default function TransportJobDetailFormEnhancer() {
     }
 
     function syncSubtotalFromSellRate() {
-      if (!sellRateInput) return;
-
       const sellRate = roundMoney(parseValue(sellRateInput));
       const currentSubtotal = roundMoney(parseValue(subtotalInput));
 
@@ -67,18 +83,44 @@ export default function TransportJobDetailFormEnhancer() {
       recalcFromSubtotal();
     }
 
+    function syncSellRateFromPricingMode() {
+      if (!priceModeInput) {
+        syncSubtotalFromSellRate();
+        return;
+      }
+
+      const mode = priceModeInput.value;
+      const days = countInclusiveDays(
+        collectionDateInput?.value || "",
+        deliveryDateInput?.value || collectionDateInput?.value || ""
+      );
+
+      if (mode === "per_day") {
+        const perDay = roundMoney(parseValue(pricePerDayInput));
+        sellRateInput.value = formatMoney(perDay * days);
+        sellRateInput.readOnly = true;
+        sellRateInput.style.background = "rgba(255,255,255,0.72)";
+        sellRateInput.style.fontWeight = "800";
+      } else {
+        sellRateInput.readOnly = false;
+        sellRateInput.style.background = "rgba(255,255,255,0.9)";
+        sellRateInput.style.fontWeight = "400";
+      }
+
+      syncSubtotalFromSellRate();
+    }
+
     function autoSyncDeliveryDate() {
       if (!collectionDateInput || !deliveryDateInput) return;
       if (userManuallyChangedDeliveryDate && deliveryDateInput.value) return;
-
       deliveryDateInput.value = collectionDateInput.value || "";
+      syncSellRateFromPricingMode();
     }
 
     function autoSyncDeliveryTime() {
       if (!collectionTimeInput || !deliveryTimeInput) return;
       if (userManuallyChangedDeliveryTime && deliveryTimeInput.value) return;
       if (deliveryTimeInput.value) return;
-
       deliveryTimeInput.value = collectionTimeInput.value || "";
     }
 
@@ -87,36 +129,36 @@ export default function TransportJobDetailFormEnhancer() {
       const isOnSite = jobTypeSelect.value === "on_site_hiab";
 
       if (collectionAddressLabel) {
-        collectionAddressLabel.textContent = isOnSite ? "Site address" : "Pickup address";
+        collectionAddressLabel.textContent = isOnSite ? "Site address" : "Pickup / site address";
       }
 
       if (deliveryAddressLabel) {
         deliveryAddressLabel.textContent = isOnSite
           ? "Work area / secondary location"
-          : "Delivery address";
+          : "Delivery / work area address";
       }
 
       if (loadDescriptionLabel) {
         loadDescriptionLabel.textContent = isOnSite
           ? "On-site task description"
-          : "Load description";
+          : "Load / task description";
       }
 
       if (collectionAddressInput) {
         collectionAddressInput.placeholder = isOnSite
-          ? "Enter main site address"
+          ? "Enter the main site address"
           : "Enter pickup address";
       }
 
       if (deliveryAddressInput) {
         deliveryAddressInput.placeholder = isOnSite
-          ? "Optional second location on the same site"
+          ? "Optional second area on the same site"
           : "Enter delivery address";
       }
 
       if (loadDescriptionInput) {
         loadDescriptionInput.placeholder = isOnSite
-          ? "Describe the on-site HIAB work, contract lift support or site movement"
+          ? "Describe the on-site HIAB work, lift support or movement required"
           : "Describe the load, crane parts, ballast, equipment or haulage item";
       }
 
@@ -131,14 +173,18 @@ export default function TransportJobDetailFormEnhancer() {
       }
     }
 
-    sellRateInput?.addEventListener("input", syncSubtotalFromSellRate);
-    sellRateInput?.addEventListener("change", syncSubtotalFromSellRate);
-
+    priceModeInput?.addEventListener("change", syncSellRateFromPricingMode);
+    pricePerDayInput?.addEventListener("input", syncSellRateFromPricingMode);
+    pricePerDayInput?.addEventListener("change", syncSellRateFromPricingMode);
+    sellRateInput.addEventListener("input", syncSubtotalFromSellRate);
+    sellRateInput.addEventListener("change", syncSubtotalFromSellRate);
     subtotalInput.addEventListener("input", recalcFromSubtotal);
     subtotalInput.addEventListener("change", recalcFromSubtotal);
 
     collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
     collectionDateInput?.addEventListener("change", autoSyncDeliveryDate);
+    collectionDateInput?.addEventListener("change", syncSellRateFromPricingMode);
+    deliveryDateInput?.addEventListener("change", syncSellRateFromPricingMode);
 
     collectionTimeInput?.addEventListener("change", autoSyncDeliveryTime);
 
@@ -147,6 +193,7 @@ export default function TransportJobDetailFormEnhancer() {
     });
     deliveryDateInput?.addEventListener("change", () => {
       userManuallyChangedDeliveryDate = true;
+      syncSellRateFromPricingMode();
     });
 
     deliveryTimeInput?.addEventListener("change", () => {
@@ -160,19 +207,21 @@ export default function TransportJobDetailFormEnhancer() {
     autoSyncDeliveryDate();
     autoSyncDeliveryTime();
     applyOnSiteLabels();
+    syncSellRateFromPricingMode();
 
     return () => {
-      sellRateInput?.removeEventListener("input", syncSubtotalFromSellRate);
-      sellRateInput?.removeEventListener("change", syncSubtotalFromSellRate);
-
+      priceModeInput?.removeEventListener("change", syncSellRateFromPricingMode);
+      pricePerDayInput?.removeEventListener("input", syncSellRateFromPricingMode);
+      pricePerDayInput?.removeEventListener("change", syncSellRateFromPricingMode);
+      sellRateInput.removeEventListener("input", syncSubtotalFromSellRate);
+      sellRateInput.removeEventListener("change", syncSubtotalFromSellRate);
       subtotalInput.removeEventListener("input", recalcFromSubtotal);
       subtotalInput.removeEventListener("change", recalcFromSubtotal);
-
       collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
       collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
-
+      collectionDateInput?.removeEventListener("change", syncSellRateFromPricingMode);
+      deliveryDateInput?.removeEventListener("change", syncSellRateFromPricingMode);
       collectionTimeInput?.removeEventListener("change", autoSyncDeliveryTime);
-
       jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
       collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
     };
