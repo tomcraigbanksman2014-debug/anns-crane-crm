@@ -195,9 +195,14 @@ export default async function CampaignDetailPage({
             </p>
           </div>
 
-          <a href="/sales-hub/campaigns" style={secondaryBtn}>
-            ← Campaigns
-          </a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub/campaigns" style={secondaryBtn}>
+              ← Campaigns
+            </a>
+            <a href={`/sales-hub/campaigns/${params.id}/runner`} style={primaryBtn}>
+              Campaign Runner
+            </a>
+          </div>
         </div>
 
         {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
