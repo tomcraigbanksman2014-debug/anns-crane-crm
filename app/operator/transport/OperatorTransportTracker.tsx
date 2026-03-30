@@ -7,12 +7,15 @@ type TrackJob = {
   transport_number: string;
   transport_date: string;
   collection_time: string;
+  delivery_date: string;
   delivery_time: string;
   collection_address: string;
   delivery_address: string;
   status: string;
   vehicle_id: string;
   vehicle_label: string;
+  collection_route_order?: number | null;
+  delivery_route_order?: number | null;
 };
 
 type WakeLockSentinelLike = {
@@ -22,6 +25,30 @@ type WakeLockSentinelLike = {
 function todayIso() {
   const d = new Date();
   return d.toISOString().slice(0, 10);
+}
+
+function applicableRouteOrder(job: TrackJob, selectedDate: string) {
+  const orders: number[] = [];
+
+  if (
+    job.transport_date === selectedDate &&
+    typeof job.collection_route_order === "number" &&
+    Number.isFinite(job.collection_route_order)
+  ) {
+    orders.push(job.collection_route_order);
+  }
+
+  const deliveryDate = job.delivery_date || job.transport_date;
+  if (
+    deliveryDate === selectedDate &&
+    typeof job.delivery_route_order === "number" &&
+    Number.isFinite(job.delivery_route_order)
+  ) {
+    orders.push(job.delivery_route_order);
+  }
+
+  if (orders.length === 0) return null;
+  return Math.min(...orders);
 }
 
 function sortJobsForAutoPick(jobs: TrackJob[]) {
@@ -37,6 +64,16 @@ function sortJobsForAutoPick(jobs: TrackJob[]) {
     const bActive =
       b.status === "in_progress" ? 0 : b.status === "confirmed" ? 1 : 2;
     if (aActive !== bActive) return aActive - bActive;
+
+    const aRouteOrder = applicableRouteOrder(a, today);
+    const bRouteOrder = applicableRouteOrder(b, today);
+
+    if (aRouteOrder !== null && bRouteOrder !== null && aRouteOrder !== bRouteOrder) {
+      return aRouteOrder - bRouteOrder;
+    }
+
+    if (aRouteOrder !== null && bRouteOrder === null) return -1;
+    if (aRouteOrder === null && bRouteOrder !== null) return 1;
 
     const aTime = String(a.collection_time || "99:99");
     const bTime = String(b.collection_time || "99:99");
@@ -260,86 +297,62 @@ export default function OperatorTransportTracker({
     }, 15000);
   }
 
-  function stopTracking() {
-    clearTrackingInternals();
-    releaseWakeLock();
-    setIsTracking(false);
-    setStatusText("Tracking stopped.");
-  }
-
-  function startTrackingAutomatically() {
-    if (!activeJob) {
-      setErrorText("No transport job available to track.");
-      return;
-    }
-
+  async function startTracking() {
     if (!navigator.geolocation) {
-      setErrorText("This phone/browser does not support live GPS.");
-      setPermissionText("Location services unavailable.");
+      setErrorText("Geolocation is not supported on this device/browser.");
+      return;
+    }
+
+    if (!activeJob) {
+      setErrorText("No active transport job selected.");
       return;
     }
 
     clearTrackingInternals();
-    lastSentMsRef.current = 0;
-    lastGpsMsRef.current = 0;
+    await acquireWakeLock();
+
     setErrorText("");
-    setStatusText(`Starting automatic tracking for ${activeJob.transport_number}...`);
     setPermissionText("Requesting location permission...");
+    setStatusText(`Starting tracking for ${activeJob.transport_number}...`);
 
-    acquireWakeLock();
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
+    const watchId = navigator.geolocation.watchPosition(
       async (position) => {
-        lastGpsMsRef.current = Date.now();
-        setLastGpsAt(new Date().toISOString());
-
-        const now = Date.now();
-        if (now - lastSentMsRef.current < 20000) {
-          return;
-        }
-
+        setPermissionText("Location permission granted.");
         await sendLocation(position);
       },
       (error) => {
         setErrorText(error.message || "Could not get GPS location.");
         setPermissionText("Location permission denied or unavailable.");
-        setIsTracking(false);
-        setStatusText("Automatic tracking could not start.");
       },
       {
         enableHighAccuracy: true,
-        maximumAge: 10000,
+        maximumAge: 5000,
         timeout: 20000,
       }
     );
 
+    watchIdRef.current = watchId;
     setIsTracking(true);
+
+    await requestSinglePositionAndSend("initial fix");
     startFallbackPolling();
     startStaleChecker();
-    requestSinglePositionAndSend("initial fix");
+  }
+
+  async function stopTracking() {
+    clearTrackingInternals();
+    await releaseWakeLock();
+    setIsTracking(false);
+    setStatusText("Tracking paused.");
   }
 
   useEffect(() => {
-    const storedJobId =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("active_transport_job_id") || ""
-        : "";
+    const suggested = orderedJobs[0]?.id ?? "";
 
-    if (storedJobId && jobs.some((job) => job.id === storedJobId)) {
-      setActiveJobId(storedJobId);
-      return;
+    if (!activeJobId && suggested) {
+      setActiveJobId(suggested);
     }
-
-    if (orderedJobs[0]?.id) {
-      setActiveJobId(orderedJobs[0].id);
-    }
-  }, [jobs, orderedJobs]);
-
-  useEffect(() => {
-    if (activeJobId && typeof window !== "undefined") {
-      window.localStorage.setItem("active_transport_job_id", activeJobId);
-    }
-  }, [activeJobId]);
+  }, [orderedJobs, activeJobId]);
 
   useEffect(() => {
     async function onVisibilityChange() {
@@ -348,7 +361,7 @@ export default function OperatorTransportTracker({
 
       if (visible && isTracking) {
         await acquireWakeLock();
-        await requestSinglePositionAndSend("page visible again");
+        await requestSinglePositionAndSend("page visible refresh");
       }
     }
 
@@ -359,16 +372,17 @@ export default function OperatorTransportTracker({
   }, [isTracking, activeJob]);
 
   useEffect(() => {
-    if (!activeJob) return;
+    if (autoStartedRef.current) return;
+    if (!orderedJobs.length) return;
 
-    if (!autoStartedRef.current) {
-      autoStartedRef.current = true;
-      startTrackingAutomatically();
-      return;
-    }
+    autoStartedRef.current = true;
+    startTracking();
 
-    startTrackingAutomatically();
-  }, [activeJobId]);
+    return () => {
+      stopTracking();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderedJobs.length]);
 
   useEffect(() => {
     return () => {
@@ -379,208 +393,168 @@ export default function OperatorTransportTracker({
 
   return (
     <div style={cardStyle}>
-      <div
-        style={{
-          ...topBannerStyle,
-          ...(trackingLooksStale ? staleBannerStyle : healthyBannerStyle),
-        }}
-      >
-        <div style={{ fontWeight: 900 }}>
-          {trackingLooksStale
-            ? "Tracking warning"
-            : isTracking
-            ? "Tracking active"
-            : "Tracking inactive"}
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 22 }}>Automatic Driver Tracking</h3>
+          <p style={{ marginTop: 6, opacity: 0.8 }}>
+            Keeps sending your live location while you stay on this page.
+          </p>
         </div>
-        <div style={{ marginTop: 4, fontSize: 13 }}>
-          {trackingLooksStale
-            ? "Keep this page open on the phone during the shift. Background browser tracking can pause if the page is hidden."
-            : "Best browser-mode tracking is active. Keep this page open during the shift for the most reliable updates."}
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" onClick={startTracking} style={primaryBtn}>
+            Start Tracking
+          </button>
+          <button type="button" onClick={stopTracking} style={ghostBtn}>
+            Stop Tracking
+          </button>
         </div>
       </div>
 
-      <h2 style={{ marginTop: 16, fontSize: 22 }}>Live Driver Tracking</h2>
-      <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Tracking starts automatically when this page is opened on the driver’s phone.
-      </p>
-
-      <div style={gridStyle}>
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={labelStyle}>Tracking this transport job</label>
-          <select
-            value={activeJobId}
-            onChange={(e) => setActiveJobId(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">— Select —</option>
-            {orderedJobs.map((job) => (
+      <div style={fieldWrap}>
+        <label style={labelStyle}>Active transport job</label>
+        <select
+          value={activeJobId}
+          onChange={(e) => setActiveJobId(e.target.value)}
+          style={inputStyle}
+        >
+          <option value="">— Select —</option>
+          {orderedJobs.map((job) => {
+            const todayOrder = applicableRouteOrder(job, todayIso());
+            return (
               <option key={job.id} value={job.id}>
-                {job.transport_number} • {job.transport_date} • {job.vehicle_label || "No vehicle"}
+                {todayOrder ? `#${todayOrder} • ` : ""}{job.transport_number} • {job.transport_date} • {job.collection_time || "—"}
               </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ display: "grid", gap: 6 }}>
-          <label style={labelStyle}>Selected vehicle</label>
-          <div style={readBox}>{activeJob?.vehicle_label || "—"}</div>
-        </div>
+            );
+          })}
+        </select>
       </div>
 
-      {activeJob ? (
-        <div style={jobInfoBox}>
-          <div>
-            <strong>Pickup:</strong> {activeJob.collection_address || "—"}
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <strong>Delivery:</strong> {activeJob.delivery_address || "—"}
-          </div>
-          <div style={{ marginTop: 6 }}>
-            <strong>Times:</strong> {activeJob.collection_time || "—"} → {activeJob.delivery_time || "—"}
-          </div>
-        </div>
+      <div style={statusGrid}>
+        <InfoBox label="Tracking" value={isTracking ? "Live" : "Stopped"} />
+        <InfoBox label="Selected job" value={activeJob?.transport_number ?? "—"} />
+        <InfoBox label="Last sent" value={ageTextFromIso(lastSentAt)} />
+        <InfoBox label="Last GPS fix" value={ageTextFromIso(lastGpsAt)} />
+        <InfoBox label="Coords" value={coordsText || "—"} />
+        <InfoBox label="Permission" value={permissionText} />
+        <InfoBox label="Wake lock" value={wakeLockText} />
+        <InfoBox label="Visibility" value={visibilityText} />
+      </div>
+
+      {trackingLooksStale ? (
+        <div style={warnBox}>Tracking warning: no fresh location has been sent recently.</div>
       ) : null}
 
-      <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="button" onClick={stopTracking} style={secondaryBtn}>
-          Stop tracking
-        </button>
-
-        <button
-          type="button"
-          onClick={startTrackingAutomatically}
-          style={primaryBtn}
-        >
-          Restart tracking
-        </button>
-      </div>
-
-      <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-        <div style={infoRow}>
-          <strong>Status:</strong> {statusText}
-        </div>
-        <div style={infoRow}>
-          <strong>Permission:</strong> {permissionText}
-        </div>
-        <div style={infoRow}>
-          <strong>Wake lock:</strong> {wakeLockText}
-        </div>
-        <div style={infoRow}>
-          <strong>Page state:</strong> {visibilityText}
-        </div>
-        <div style={infoRow}>
-          <strong>Current coordinates:</strong> {coordsText || "—"}
-        </div>
-        <div style={infoRow}>
-          <strong>Last GPS fix:</strong> {ageTextFromIso(lastGpsAt)}
-        </div>
-        <div style={infoRow}>
-          <strong>Last sent to office:</strong> {ageTextFromIso(lastSentAt)}
-        </div>
-        <div style={infoRow}>
-          <strong>Tracking:</strong> {isTracking ? "On" : "Off"}
-        </div>
-      </div>
-
+      {statusText ? <div style={infoBox}>{statusText}</div> : null}
       {errorText ? <div style={errorBox}>{errorText}</div> : null}
     </div>
   );
 }
 
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
-  padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-};
+function InfoBox({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={miniCard}>
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 14, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
 
-const topBannerStyle: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
+const cardStyle: React.CSSProperties = {
+  padding: 16,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.58)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const healthyBannerStyle: React.CSSProperties = {
-  background: "rgba(0,180,120,0.10)",
-  border: "1px solid rgba(0,180,120,0.18)",
-  color: "#0b7a4b",
-};
-
-const staleBannerStyle: React.CSSProperties = {
-  background: "rgba(255,170,0,0.14)",
-  border: "1px solid rgba(255,170,0,0.24)",
-  color: "#8a5200",
-};
-
-const gridStyle: React.CSSProperties = {
+const fieldWrap: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-  gap: 12,
+  gap: 6,
+  marginTop: 14,
 };
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.75,
+  fontSize: 13,
   fontWeight: 800,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
-  boxSizing: "border-box",
-};
-
-const readBox: React.CSSProperties = {
   minHeight: 42,
   padding: "10px 12px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.65)",
+  background: "rgba(255,255,255,0.9)",
   boxSizing: "border-box",
-  fontWeight: 700,
 };
 
-const jobInfoBox: React.CSSProperties = {
+const statusGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 10,
   marginTop: 14,
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+};
+
+const miniCard: React.CSSProperties = {
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.50)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const primaryBtn: React.CSSProperties = {
-  padding: "10px 16px",
-  background: "#111",
-  color: "#fff",
+const infoBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
   borderRadius: 10,
-  border: "none",
-  cursor: "pointer",
-  fontWeight: 800,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 700,
 };
 
-const secondaryBtn: React.CSSProperties = {
-  padding: "10px 16px",
-  background: "rgba(255,255,255,0.72)",
-  color: "#111",
+const warnBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  cursor: "pointer",
+  background: "rgba(255,170,0,0.14)",
+  border: "1px solid rgba(255,170,0,0.24)",
   fontWeight: 800,
-};
-
-const infoRow: React.CSSProperties = {
-  fontSize: 14,
 };
 
 const errorBox: React.CSSProperties = {
-  marginTop: 14,
+  marginTop: 12,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid rgba(255,0,0,0.24)",
+  fontWeight: 800,
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  border: "none",
+  cursor: "pointer",
+};
+
+const ghostBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.78)",
+  color: "#111",
+  fontWeight: 800,
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
 };
