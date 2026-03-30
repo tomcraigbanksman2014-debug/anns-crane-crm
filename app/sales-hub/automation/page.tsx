@@ -35,47 +35,7 @@ function addDays(base: Date, days: number) {
   return d;
 }
 
-function daysSince(value: string | null | undefined) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
-}
-
-function latestDate(values: Array<string | null | undefined>) {
-  const valid = values
-    .map((value) => {
-      const d = new Date(String(value ?? ""));
-      return Number.isNaN(d.getTime()) ? null : d;
-    })
-    .filter(Boolean) as Date[];
-
-  if (valid.length === 0) return null;
-  valid.sort((a, b) => b.getTime() - a.getTime());
-  return valid[0].toISOString();
-}
-
-function validCraneJob(row: any) {
-  const status = String(row?.status ?? "").toLowerCase();
-  return status !== "draft" && status !== "cancelled" && status !== "late_cancelled";
-}
-
-function validTransportJob(row: any) {
-  const status = String(row?.status ?? "").toLowerCase();
-  return status !== "cancelled";
-}
-
-function craneJobDate(row: any) {
-  return row?.end_date || row?.start_date || row?.job_date || row?.updated_at || row?.created_at || null;
-}
-
-function transportJobDate(row: any) {
-  return row?.delivery_date || row?.transport_date || row?.updated_at || row?.created_at || null;
-}
-
-function isOpenStatus(status: string | null | undefined) {
+function isOpenLeadStatus(status: string | null | undefined) {
   const s = String(status ?? "").toLowerCase();
   return s !== "won" && s !== "lost";
 }
@@ -104,57 +64,41 @@ function weightedValue(lead: any) {
   return value * (probability / 100);
 }
 
-function priorityScore(lead: any, today: string) {
-  let score = Number(lead?.lead_score ?? 0);
-  score += Math.round(probabilityForLead(lead) * 0.7);
-
-  if (Number(lead?.opportunity_value ?? 0) >= 10000) score += 18;
-  else if (Number(lead?.opportunity_value ?? 0) >= 5000) score += 12;
-  else if (Number(lead?.opportunity_value ?? 0) > 0) score += 8;
-
-  if (lead?.phone) score += 8;
-  if (lead?.email) score += 6;
-
-  const next = dateOnly(lead?.next_follow_up_on);
-  if (next) {
-    const diff = Math.floor(
-      (new Date(today).getTime() - new Date(next).getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diff > 3) score += 24;
-    else if (diff >= 1) score += 18;
-    else if (diff === 0) score += 14;
-  }
-
-  return Math.min(score, 100);
+function daysUntil(value: string | null | undefined) {
+  const dateText = dateOnly(value);
+  if (!dateText) return null;
+  const target = new Date(dateText);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
-function dormantRecoveryScore(args: {
-  craneCount: number;
-  transportCount: number;
-  dormantDays: number;
-  hasPhone: boolean;
-  hasEmail: boolean;
-}) {
-  let score = 0;
-
-  const totalHistory = args.craneCount + args.transportCount;
-  score += Math.min(totalHistory * 8, 45);
-
-  if (args.craneCount > 0 && args.transportCount > 0) score += 15;
-  if (args.hasPhone) score += 15;
-  if (args.hasEmail) score += 10;
-
-  if (args.dormantDays >= 90 && args.dormantDays <= 180) score += 18;
-  else if (args.dormantDays <= 365) score += 12;
-  else score += 6;
-
-  return Math.min(score, 100);
-}
+type SuggestedTask = {
+  key: string;
+  label: string;
+  category: "follow_up" | "quote_chase" | "close_check" | "owner" | "recovery" | "first_contact";
+  lead_id: string;
+  company_name: string;
+  contact_name: string | null;
+  assigned_to_username: string | null;
+  status: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string;
+  notes: string;
+  probability: number;
+  opportunity_value: number;
+  weighted_value: number;
+  existing_open_task_count: number;
+};
 
 type AutomationCentrePageProps = {
   searchParams?: {
     owner?: string;
+    category?: string;
     success?: string;
     error?: string;
   };
@@ -165,467 +109,118 @@ export default async function AutomationCentrePage({
 }: AutomationCentrePageProps) {
   const supabase = createSupabaseServerClient();
   const access = await getAccessContext();
-  const canManage = !!access.user && canCreateCustomers(access);
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   const currentUsername = fromAuthEmail(user?.email ?? null);
-  const today = new Date().toISOString().slice(0, 10);
-  const closeWindowEnd = addDays(new Date(), 7).toISOString().slice(0, 10);
+  const canManage = !!access.user && canCreateCustomers(access);
+
   const selectedOwner = String(searchParams?.owner ?? "all").trim();
+  const selectedCategory = String(searchParams?.category ?? "all").trim();
   const successMessage = String(searchParams?.success ?? "");
   const errorMessage = String(searchParams?.error ?? "");
+  const today = new Date().toISOString().slice(0, 10);
 
-  async function addLeadActivity(leadId: string, subject: string, message: string) {
+  async function createSuggestedTask(formData: FormData) {
     "use server";
 
-    try {
-      const supabase = createSupabaseServerClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const access = await getAccessContext();
 
-      await supabase.from("sales_lead_activity").insert({
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const leadId = String(formData.get("lead_id") ?? "").trim() || null;
+    const clientId = String(formData.get("client_id") ?? "").trim() || null;
+    const companyName = String(formData.get("company_name") ?? "").trim() || null;
+    const title = String(formData.get("title") ?? "").trim();
+    const taskType = String(formData.get("task_type") ?? "follow_up").trim() || "follow_up";
+    const priority = String(formData.get("priority") ?? "medium").trim() || "medium";
+    const dueOn = String(formData.get("due_on") ?? "").trim() || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const assignedToUsername =
+      String(formData.get("assigned_to_username") ?? "").trim() ||
+      fromAuthEmail(user?.email ?? null) ||
+      null;
+
+    if (!title) {
+      redirect("/sales-hub/automation?error=Task%20title%20is%20required.");
+    }
+
+    if (!leadId && !clientId) {
+      redirect("/sales-hub/automation?error=Task%20must%20link%20to%20a%20lead%20or%20customer.");
+    }
+
+    let duplicateQuery = supabase
+      .from("sales_workflow_tasks")
+      .select("id")
+      .eq("status", "open")
+      .eq("title", title)
+      .eq("task_type", taskType)
+      .limit(1);
+
+    if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+    if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+    const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+    if (duplicateTask?.id) {
+      redirect("/sales-hub/automation?success=Matching%20open%20task%20already%20exists.");
+    }
+
+    const { data: createdTask, error } = await supabase
+      .from("sales_workflow_tasks")
+      .insert({
+        title,
+        task_type: taskType,
+        status: "open",
+        priority,
+        due_on: dueOn,
+        notes,
+        assigned_to_username: assignedToUsername,
         lead_id: leadId,
-        entry_type: "note",
-        subject,
-        message,
+        client_id: clientId,
         created_by_user_id: user?.id ?? null,
         created_by_username: fromAuthEmail(user?.email ?? null) || null,
-      });
-    } catch {
-      // do not block action if activity insert fails
-    }
-  }
-
-  async function assignLeadOwner(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20assign%20owners.");
-    }
-
-    const leadId = String(formData.get("lead_id") ?? "").trim();
-    const assignedToUsername = String(formData.get("assigned_to_username") ?? "").trim() || null;
-
-    if (!leadId) {
-      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
-    }
-
-    const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: lead, error: leadError } = await supabase
-      .from("sales_leads")
-      .select("id, company_name, assigned_to_username")
-      .eq("id", leadId)
-      .single();
-
-    if (leadError || !lead) {
-      redirect("/sales-hub/automation?error=Lead%20not%20found.");
-    }
-
-    const { error } = await supabase
-      .from("sales_leads")
-      .update({
-        assigned_to_username: assignedToUsername,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", leadId);
-
-    if (error) {
-      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
-    }
-
-    await addLeadActivity(
-      leadId,
-      "Owner updated",
-      assignedToUsername
-        ? `Lead assigned to ${assignedToUsername} from Automation Centre.`
-        : "Lead owner cleared from Automation Centre."
-    );
-
-    await writeAuditLog({
-      actor_user_id: user?.id ?? null,
-      actor_username: fromAuthEmail(user?.email ?? null) || null,
-      action: "sales_lead_owner_updated_from_automation",
-      entity_type: "sales_lead",
-      entity_id: leadId,
-      meta: {
-        company_name: lead.company_name,
-        previous_owner: lead.assigned_to_username ?? null,
-        new_owner: assignedToUsername,
-      },
-    });
-
-    redirect(`/sales-hub/automation?success=${encodeURIComponent("Lead owner updated.")}`);
-  }
-
-  async function snoozeFollowUp7Days(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20follow-ups.");
-    }
-
-    const leadId = String(formData.get("lead_id") ?? "").trim();
-
-    if (!leadId) {
-      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
-    }
-
-    const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: lead, error: leadError } = await supabase
-      .from("sales_leads")
-      .select("id, company_name, next_follow_up_on")
-      .eq("id", leadId)
-      .single();
-
-    if (leadError || !lead) {
-      redirect("/sales-hub/automation?error=Lead%20not%20found.");
-    }
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const existingDate = dateOnly(lead.next_follow_up_on);
-    const base =
-      existingDate && existingDate > todayStr ? new Date(existingDate) : new Date(todayStr);
-
-    const newDate = addDays(base, 7).toISOString().slice(0, 10);
-
-    const { error } = await supabase
-      .from("sales_leads")
-      .update({
-        next_follow_up_on: newDate,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", leadId);
-
-    if (error) {
-      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
-    }
-
-    await addLeadActivity(
-      leadId,
-      "Follow-up snoozed",
-      `Follow-up moved to ${fmtDate(newDate)} from Automation Centre.`
-    );
-
-    await writeAuditLog({
-      actor_user_id: user?.id ?? null,
-      actor_username: fromAuthEmail(user?.email ?? null) || null,
-      action: "sales_follow_up_snoozed_from_automation",
-      entity_type: "sales_lead",
-      entity_id: leadId,
-      meta: {
-        company_name: lead.company_name,
-        previous_follow_up_on: lead.next_follow_up_on ?? null,
-        new_follow_up_on: newDate,
-      },
-    });
-
-    redirect(`/sales-hub/automation?success=${encodeURIComponent("Follow-up pushed forward 7 days.")}`);
-  }
-
-  async function markQuoteChasedToday(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20quotes.");
-    }
-
-    const leadId = String(formData.get("lead_id") ?? "").trim();
-
-    if (!leadId) {
-      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
-    }
-
-    const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: lead, error: leadError } = await supabase
-      .from("sales_leads")
-      .select("id, company_name, status, last_contacted_at, next_follow_up_on")
-      .eq("id", leadId)
-      .single();
-
-    if (leadError || !lead) {
-      redirect("/sales-hub/automation?error=Lead%20not%20found.");
-    }
-
-    const nowIso = new Date().toISOString();
-    const nextDate = addDays(new Date(), 7).toISOString().slice(0, 10);
-
-    const { error } = await supabase
-      .from("sales_leads")
-      .update({
-        last_contacted_at: nowIso,
-        next_follow_up_on: nextDate,
-        updated_at: nowIso,
-      })
-      .eq("id", leadId);
-
-    if (error) {
-      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
-    }
-
-    await addLeadActivity(
-      leadId,
-      "Quote chased",
-      `Quote marked as chased on ${fmtDate(nowIso)} from Automation Centre. Next follow-up set for ${fmtDate(nextDate)}.`
-    );
-
-    await writeAuditLog({
-      actor_user_id: user?.id ?? null,
-      actor_username: fromAuthEmail(user?.email ?? null) || null,
-      action: "sales_quote_marked_chased_from_automation",
-      entity_type: "sales_lead",
-      entity_id: leadId,
-      meta: {
-        company_name: lead.company_name,
-        status: lead.status,
-        previous_last_contacted_at: lead.last_contacted_at ?? null,
-        previous_next_follow_up_on: lead.next_follow_up_on ?? null,
-        new_next_follow_up_on: nextDate,
-      },
-    });
-
-    redirect(`/sales-hub/automation?success=${encodeURIComponent("Quote marked as chased today.")}`);
-  }
-
-  async function moveQuoteToFollowUp(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20update%20quotes.");
-    }
-
-    const leadId = String(formData.get("lead_id") ?? "").trim();
-
-    if (!leadId) {
-      redirect("/sales-hub/automation?error=Missing%20lead%20id.");
-    }
-
-    const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { data: lead, error: leadError } = await supabase
-      .from("sales_leads")
-      .select("id, company_name, status")
-      .eq("id", leadId)
-      .single();
-
-    if (leadError || !lead) {
-      redirect("/sales-hub/automation?error=Lead%20not%20found.");
-    }
-
-    const nextDate = addDays(new Date(), 3).toISOString().slice(0, 10);
-
-    const { error } = await supabase
-      .from("sales_leads")
-      .update({
-        status: "Follow Up",
-        next_follow_up_on: nextDate,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", leadId);
-
-    if (error) {
-      redirect(`/sales-hub/automation?error=${encodeURIComponent(error.message)}`);
-    }
-
-    await addLeadActivity(
-      leadId,
-      "Quote moved to follow up",
-      `Lead moved to Follow Up from Automation Centre. Next follow-up set for ${fmtDate(nextDate)}.`
-    );
-
-    await writeAuditLog({
-      actor_user_id: user?.id ?? null,
-      actor_username: fromAuthEmail(user?.email ?? null) || null,
-      action: "sales_quote_moved_to_follow_up_from_automation",
-      entity_type: "sales_lead",
-      entity_id: leadId,
-      meta: {
-        company_name: lead.company_name,
-        previous_status: lead.status,
-        new_status: "Follow Up",
-        new_next_follow_up_on: nextDate,
-      },
-    });
-
-    redirect(`/sales-hub/automation?success=${encodeURIComponent("Lead moved back to Follow Up.")}`);
-  }
-
-  async function createRecoveryLead(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20recovery%20leads.");
-    }
-
-    const supabase = createSupabaseServerClient();
-    const clientId = String(formData.get("client_id") ?? "").trim();
-
-    if (!clientId) {
-      redirect("/sales-hub/automation?error=Missing%20client%20id.");
-    }
-
-    const [
-      { data: client, error: clientError },
-      { data: existingLead },
-      { data: jobs, error: jobsError },
-      { data: transportJobs, error: transportError },
-      { data: authRes },
-    ] = await Promise.all([
-      supabase
-        .from("clients")
-        .select("id, company_name, contact_name, phone, email, address, notes")
-        .eq("id", clientId)
-        .single(),
-      supabase
-        .from("sales_leads")
-        .select("id, status, archived")
-        .eq("converted_client_id", clientId)
-        .eq("archived", false),
-      supabase
-        .from("jobs")
-        .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
-        .eq("client_id", clientId),
-      supabase
-        .from("transport_jobs")
-        .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
-        .eq("client_id", clientId),
-      supabase.auth.getUser(),
-    ]);
-
-    if (clientError || !client) {
-      redirect("/sales-hub/automation?error=Client%20not%20found.");
-    }
-
-    if (jobsError || transportError) {
-      redirect("/sales-hub/automation?error=Could%20not%20read%20client%20history.");
-    }
-
-    const existingOpenLead =
-      (existingLead ?? []).find((lead: any) => !lead.archived && isOpenStatus(lead.status)) ?? null;
-
-    if (existingOpenLead?.id) {
-      redirect(`/sales-hub/leads/${existingOpenLead.id}?success=${encodeURIComponent("Recovery lead already existed, opened existing lead.")}`);
-    }
-
-    const validJobs = (jobs ?? []).filter(validCraneJob);
-    const validTransport = (transportJobs ?? []).filter(validTransportJob);
-
-    const craneCount = validJobs.length;
-    const transportCount = validTransport.length;
-
-    const lastActivity = latestDate([
-      latestDate(validJobs.map(craneJobDate)),
-      latestDate(validTransport.map(transportJobDate)),
-    ]);
-
-    const dormantDays = daysSince(lastActivity) ?? 0;
-
-    const leadScore = dormantRecoveryScore({
-      craneCount,
-      transportCount,
-      dormantDays,
-      hasPhone: Boolean(client.phone),
-      hasEmail: Boolean(client.email),
-    });
-
-    const services: string[] = [];
-    if (craneCount > 0) services.push("Crane Hire");
-    if (transportCount > 0) services.push("Transport");
-
-    const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
-
-    const noteLines = [
-      "Created from Automation Centre.",
-      `Crane jobs: ${craneCount}.`,
-      `Transport jobs: ${transportCount}.`,
-      lastActivity ? `Last service date: ${fmtDate(lastActivity)}.` : "Last service date: unknown.",
-      `Dormant for approximately ${dormantDays} days.`,
-      client.notes ? `Existing client notes: ${client.notes}` : "",
-    ].filter(Boolean);
-
-    const { data: createdLead, error: createError } = await supabase
-      .from("sales_leads")
-      .insert({
-        company_name: client.company_name,
-        contact_name: client.contact_name || null,
-        email: client.email || null,
-        phone: client.phone || null,
-        address: client.address || null,
-        lead_source: "Automation Centre",
-        status: "Dormant",
-        services,
-        notes: noteLines.join(" "),
-        lead_score: leadScore,
-        do_not_contact: false,
-        next_follow_up_on: new Date().toISOString().slice(0, 10),
-        assigned_to_username: assignedUsername,
-        converted_client_id: client.id,
       })
       .select("id")
       .single();
 
-    if (createError || !createdLead?.id) {
-      redirect(`/sales-hub/automation?error=${encodeURIComponent(createError?.message || "Could not create recovery lead.")}`);
+    if (error || !createdTask?.id) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error?.message || "Could not create workflow task.")}`);
     }
 
-    await addLeadActivity(
-      createdLead.id,
-      "Recovery lead created",
-      "Lead created from Automation Centre dormant recovery."
-    );
-
     await writeAuditLog({
-      actor_user_id: authRes.data.user?.id ?? null,
-      actor_username: assignedUsername,
-      action: "sales_recovery_lead_created_from_automation_centre",
-      entity_type: "sales_recovery_lead",
-      entity_id: createdLead.id,
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_workflow_task_created_from_automation_queue",
+      entity_type: "sales_workflow_task",
+      entity_id: createdTask.id,
       meta: {
-        client_id: client.id,
-        company_name: client.company_name,
-        crane_count: craneCount,
-        transport_count: transportCount,
-        dormant_days: dormantDays,
-        lead_score: leadScore,
+        lead_id: leadId,
+        client_id: clientId,
+        company_name: companyName,
+        title,
+        task_type: taskType,
+        priority,
+        due_on: dueOn,
       },
     });
 
-    redirect(`/sales-hub/leads/${createdLead.id}?success=${encodeURIComponent("Recovery lead created.")}`);
+    redirect("/sales-hub/automation?success=Workflow%20task%20created.");
   }
 
   const [
     { data: leads, error: leadsError },
-    { data: clients, error: clientsError },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportError },
+    { data: tasks, error: tasksError },
   ] = await Promise.all([
     supabase
       .from("sales_leads")
@@ -641,9 +236,7 @@ export default async function AutomationCentrePage({
         archived,
         next_follow_up_on,
         last_contacted_at,
-        services,
         assigned_to_username,
-        converted_client_id,
         updated_at,
         opportunity_value,
         probability_percent,
@@ -651,22 +244,21 @@ export default async function AutomationCentrePage({
       `)
       .eq("archived", false)
       .order("updated_at", { ascending: false }),
-
     supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, address, archived")
-      .eq("archived", false)
-      .order("company_name", { ascending: true }),
-
-    supabase
-      .from("jobs")
-      .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
-      .not("client_id", "is", null),
-
-    supabase
-      .from("transport_jobs")
-      .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
-      .not("client_id", "is", null),
+      .from("sales_workflow_tasks")
+      .select(`
+        id,
+        lead_id,
+        client_id,
+        title,
+        task_type,
+        status,
+        due_on,
+        assigned_to_username,
+        created_at,
+        completed_at
+      `)
+      .order("created_at", { ascending: false }),
   ]);
 
   const owners = Array.from(
@@ -678,170 +270,215 @@ export default async function AutomationCentrePage({
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const leadRows = (leads ?? []).filter((lead: any) => {
-    if (lead.archived || lead.do_not_contact) return false;
-    if (selectedOwner === "all") return true;
-    return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
-  });
+  const openTasksByLead = new Map<string, any[]>();
 
-  const overdueFollowUps = leadRows
-    .filter((lead: any) => {
-      return (
-        isOpenStatus(lead.status) &&
-        !!lead.next_follow_up_on &&
-        dateOnly(lead.next_follow_up_on) <= today
-      );
-    })
-    .map((lead: any) => ({
-      ...lead,
-      probability: probabilityForLead(lead),
-      weighted_value: weightedValue(lead),
-      priority_score: priorityScore(lead, today),
-    }))
-    .sort((a: any, b: any) => {
-      if (a.next_follow_up_on !== b.next_follow_up_on) {
-        return String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""));
-      }
-      return b.priority_score - a.priority_score;
-    });
-
-  const staleQuotes = leadRows
-    .filter((lead: any) => String(lead.status ?? "") === "Quoted")
-    .map((lead: any) => {
-      const referenceDate = lead.last_contacted_at || lead.updated_at || null;
-      const staleDays = daysSince(referenceDate) ?? 0;
-
-      return {
-        ...lead,
-        probability: probabilityForLead(lead),
-        weighted_value: weightedValue(lead),
-        stale_days: staleDays,
-      };
-    })
-    .filter((lead: any) => lead.stale_days >= 7)
-    .sort((a: any, b: any) => {
-      if (b.stale_days !== a.stale_days) return b.stale_days - a.stale_days;
-      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
-    });
-
-  const nearCloseOpportunities = leadRows
-    .filter((lead: any) => {
-      return (
-        isOpenStatus(lead.status) &&
-        !!lead.expected_close_date &&
-        dateOnly(lead.expected_close_date) >= today &&
-        dateOnly(lead.expected_close_date) <= closeWindowEnd
-      );
-    })
-    .map((lead: any) => ({
-      ...lead,
-      probability: probabilityForLead(lead),
-      weighted_value: weightedValue(lead),
-      priority_score: priorityScore(lead, today),
-    }))
-    .sort((a: any, b: any) => {
-      if (a.expected_close_date !== b.expected_close_date) {
-        return String(a.expected_close_date ?? "").localeCompare(String(b.expected_close_date ?? ""));
-      }
-      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
-    });
-
-  const unassignedHotOpportunities = leadRows
-    .filter((lead: any) => isOpenStatus(lead.status))
-    .filter((lead: any) => !String(lead.assigned_to_username ?? "").trim())
-    .map((lead: any) => ({
-      ...lead,
-      probability: probabilityForLead(lead),
-      weighted_value: weightedValue(lead),
-      priority_score: priorityScore(lead, today),
-    }))
-    .filter((lead: any) => {
-      return (
-        Number(lead.lead_score ?? 0) >= 70 ||
-        Number(lead.opportunity_value ?? 0) > 0 ||
-        Number(lead.probability ?? 0) >= 50 ||
-        String(lead.status ?? "") === "Quoted"
-      );
-    })
-    .sort((a: any, b: any) => {
-      if (b.priority_score !== a.priority_score) return b.priority_score - a.priority_score;
-      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
-    });
-
-  const jobsByClient = new Map<string, any[]>();
-  for (const row of (jobs ?? []).filter(validCraneJob)) {
-    const key = String((row as any).client_id ?? "");
-    if (!key) continue;
-    if (!jobsByClient.has(key)) jobsByClient.set(key, []);
-    jobsByClient.get(key)!.push(row);
+  for (const task of tasks ?? []) {
+    if (String((task as any).status ?? "") !== "open") continue;
+    const leadId = String((task as any).lead_id ?? "").trim();
+    if (!leadId) continue;
+    if (!openTasksByLead.has(leadId)) openTasksByLead.set(leadId, []);
+    openTasksByLead.get(leadId)!.push(task);
   }
 
-  const transportByClient = new Map<string, any[]>();
-  for (const row of (transportJobs ?? []).filter(validTransportJob)) {
-    const key = String((row as any).client_id ?? "");
-    if (!key) continue;
-    if (!transportByClient.has(key)) transportByClient.set(key, []);
-    transportByClient.get(key)!.push(row);
+  function leadHasOpenTaskTitle(leadId: string, title: string) {
+    const leadTasks = openTasksByLead.get(leadId) ?? [];
+    return leadTasks.some(
+      (task) => String((task as any).title ?? "").trim().toLowerCase() === title.trim().toLowerCase()
+    );
   }
 
-  const openLeadByClientId = new Map<string, any>();
-  for (const lead of leads ?? []) {
-    const key = String((lead as any).converted_client_id ?? "");
-    if (!key) continue;
-    if (!(lead as any).archived && isOpenStatus((lead as any).status) && !(lead as any).do_not_contact) {
-      openLeadByClientId.set(key, lead);
+  function leadOpenTaskCount(leadId: string) {
+    return (openTasksByLead.get(leadId) ?? []).length;
+  }
+
+  const baseLeadRows = (leads ?? [])
+    .filter((lead: any) => !lead.archived && !lead.do_not_contact)
+    .filter((lead: any) => {
+      if (selectedOwner === "all") return true;
+      return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
+    });
+
+  const suggestedTasks: SuggestedTask[] = [];
+
+  for (const lead of baseLeadRows) {
+    const leadId = String(lead.id);
+    const companyName = String(lead.company_name ?? "Lead");
+    const assignedToUsername = String(lead.assigned_to_username ?? "").trim() || null;
+    const status = String(lead.status ?? "New");
+    const probability = probabilityForLead(lead);
+    const opportunityValue = Number(lead.opportunity_value ?? 0);
+    const weighted = weightedValue(lead);
+    const followUpDays = daysUntil(lead.next_follow_up_on);
+    const closeDays = daysUntil(lead.expected_close_date);
+    const hasPhone = Boolean(lead.phone);
+    const hasEmail = Boolean(lead.email);
+
+    const pushSuggestion = (item: Omit<SuggestedTask, "probability" | "opportunity_value" | "weighted_value" | "existing_open_task_count">) => {
+      if (leadHasOpenTaskTitle(leadId, item.title)) return;
+
+      suggestedTasks.push({
+        ...item,
+        probability,
+        opportunity_value: opportunityValue,
+        weighted_value: weighted,
+        existing_open_task_count: leadOpenTaskCount(leadId),
+      });
+    };
+
+    if (!assignedToUsername && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-assign-owner`,
+        label: "No owner assigned",
+        category: "owner",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Assign and review ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Lead has no assigned owner. Allocate responsibility and review next action.",
+      });
+    }
+
+    if (followUpDays !== null && followUpDays <= 0 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-follow-up-due`,
+        label: "Follow-up due now",
+        category: "follow_up",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Follow up ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Next follow-up date is due or overdue.",
+      });
+    }
+
+    if (status === "Quoted") {
+      pushSuggestion({
+        key: `${leadId}-quote-chase`,
+        label: "Quoted lead",
+        category: "quote_chase",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Quote chase ${companyName}`,
+        task_type: "quote_chase",
+        priority: "high",
+        due_on: addDays(new Date(), 2).toISOString().slice(0, 10),
+        notes: "Lead is in Quoted status. Chase the quote and move it toward decision.",
+      });
+    }
+
+    if (closeDays !== null && closeDays >= 0 && closeDays <= 7 && probability >= 60 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-close-check`,
+        label: "Close check needed",
+        category: "close_check",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Close check ${companyName}`,
+        task_type: "follow_up",
+        priority: "urgent",
+        due_on: String(lead.expected_close_date ?? today),
+        notes: "High probability opportunity with close date in the next 7 days. Confirm decision timing and blockers.",
+      });
+    }
+
+    if (status === "Dormant") {
+      pushSuggestion({
+        key: `${leadId}-recovery`,
+        label: "Dormant recovery",
+        category: "recovery",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Recovery contact ${companyName}`,
+        task_type: "customer_recovery",
+        priority: "high",
+        due_on: today,
+        notes: "Lead is marked Dormant. Re-engage and test whether the requirement is still live.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && hasPhone) {
+      pushSuggestion({
+        key: `${leadId}-first-call`,
+        label: "First contact call",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial call ${companyName}`,
+        task_type: "call",
+        priority: "high",
+        due_on: today,
+        notes: "Early-stage lead with a phone number available. Make first contact.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && !hasPhone && hasEmail) {
+      pushSuggestion({
+        key: `${leadId}-first-email`,
+        label: "First contact email",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial email ${companyName}`,
+        task_type: "email",
+        priority: "medium",
+        due_on: today,
+        notes: "Early-stage lead has no phone number but does have an email address. Send an introduction email.",
+      });
     }
   }
 
-  const dormantRecoveryCandidates = (clients ?? [])
-    .map((client: any) => {
-      const clientJobs = jobsByClient.get(String(client.id)) ?? [];
-      const clientTransport = transportByClient.get(String(client.id)) ?? [];
-
-      const craneCount = clientJobs.length;
-      const transportCount = clientTransport.length;
-      const totalCount = craneCount + transportCount;
-
-      if (totalCount === 0) return null;
-      if (openLeadByClientId.has(String(client.id))) return null;
-
-      const lastActivity = latestDate([
-        latestDate(clientJobs.map(craneJobDate)),
-        latestDate(clientTransport.map(transportJobDate)),
-      ]);
-
-      const dormantDays = daysSince(lastActivity);
-      if (dormantDays == null || dormantDays < 90) return null;
-
-      const score = dormantRecoveryScore({
-        craneCount,
-        transportCount,
-        dormantDays,
-        hasPhone: Boolean(client.phone),
-        hasEmail: Boolean(client.email),
-      });
-
-      return {
-        client,
-        craneCount,
-        transportCount,
-        lastActivity,
-        dormantDays,
-        score,
+  const filteredSuggestions = suggestedTasks
+    .filter((item) => selectedCategory === "all" || item.category === selectedCategory)
+    .sort((a, b) => {
+      const priorityRank = (value: string) => {
+        if (value === "urgent") return 4;
+        if (value === "high") return 3;
+        if (value === "medium") return 2;
+        return 1;
       };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return (b.dormantDays ?? 0) - (a.dormantDays ?? 0);
+
+      const aRank = priorityRank(a.priority);
+      const bRank = priorityRank(b.priority);
+
+      if (bRank !== aRank) return bRank - aRank;
+      if (a.due_on !== b.due_on) return String(a.due_on).localeCompare(String(b.due_on));
+      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
     });
 
-  const totalActions =
-    overdueFollowUps.length +
-    staleQuotes.length +
-    nearCloseOpportunities.length +
-    unassignedHotOpportunities.length +
-    dormantRecoveryCandidates.length;
+  const stats = {
+    total: filteredSuggestions.length,
+    follow_up: filteredSuggestions.filter((item) => item.category === "follow_up").length,
+    quote_chase: filteredSuggestions.filter((item) => item.category === "quote_chase").length,
+    close_check: filteredSuggestions.filter((item) => item.category === "close_check").length,
+    owner: filteredSuggestions.filter((item) => item.category === "owner").length,
+    recovery: filteredSuggestions.filter((item) => item.category === "recovery").length,
+    first_contact: filteredSuggestions.filter((item) => item.category === "first_contact").length,
+  };
 
   return (
     <ClientShell>
@@ -850,7 +487,7 @@ export default async function AutomationCentrePage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Automation Centre</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Smart action flags for follow-ups, quotes, opportunities and dormant recovery.
+              Central queue of suggested sales tasks generated from lead and opportunity signals.
             </p>
           </div>
 
@@ -858,8 +495,8 @@ export default async function AutomationCentrePage({
             <a href="/sales-hub" style={secondaryBtn}>
               ← Sales Hub
             </a>
-            <a href="/sales-hub/leads/new" style={primaryBtn}>
-              + Add lead
+            <a href="/sales-hub/workflows" style={secondaryBtn}>
+              Workflow tasks
             </a>
           </div>
         </div>
@@ -867,17 +504,16 @@ export default async function AutomationCentrePage({
         {successMessage ? <div style={successCard}>{decodeURIComponent(successMessage)}</div> : null}
         {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
-        {clientsError ? <div style={errorCard}>{clientsError.message}</div> : null}
-        {jobsError ? <div style={errorCard}>{jobsError.message}</div> : null}
-        {transportError ? <div style={errorCard}>{transportError.message}</div> : null}
+        {tasksError ? <div style={errorCard}>{tasksError.message}</div> : null}
 
         <div style={statsGrid}>
-          <StatCard label="Total actions" value={String(totalActions)} />
-          <StatCard label="Overdue follow-ups" value={String(overdueFollowUps.length)} />
-          <StatCard label="Stale quotes" value={String(staleQuotes.length)} />
-          <StatCard label="Near close (7 days)" value={String(nearCloseOpportunities.length)} />
-          <StatCard label="Unassigned hot" value={String(unassignedHotOpportunities.length)} />
-          <StatCard label="Dormant recovery" value={String(dormantRecoveryCandidates.length)} />
+          <StatCard label="Suggested tasks" value={String(stats.total)} />
+          <StatCard label="Follow-ups due" value={String(stats.follow_up)} />
+          <StatCard label="Quote chases" value={String(stats.quote_chase)} />
+          <StatCard label="Close checks" value={String(stats.close_check)} />
+          <StatCard label="No owner" value={String(stats.owner)} />
+          <StatCard label="Dormant recovery" value={String(stats.recovery)} />
+          <StatCard label="First contact" value={String(stats.first_contact)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
@@ -894,6 +530,19 @@ export default async function AutomationCentrePage({
               </select>
             </div>
 
+            <div>
+              <label style={labelStyle}>Category</label>
+              <select name="category" defaultValue={selectedCategory} style={inputStyle}>
+                <option value="all">All categories</option>
+                <option value="follow_up">Follow-ups due</option>
+                <option value="quote_chase">Quote chases</option>
+                <option value="close_check">Close checks</option>
+                <option value="owner">No owner</option>
+                <option value="recovery">Dormant recovery</option>
+                <option value="first_contact">First contact</option>
+              </select>
+            </div>
+
             <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
                 Apply
@@ -905,360 +554,86 @@ export default async function AutomationCentrePage({
           </form>
         </section>
 
-        <div style={sectionGrid}>
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Overdue follow-ups</h2>
+        <section style={{ ...panelStyle, marginTop: 16 }}>
+          <h2 style={sectionTitle}>Suggested task queue</h2>
 
-            {!overdueFollowUps.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No overdue follow-ups in the current filter.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {overdueFollowUps.map((lead: any) => (
-                  <div key={lead.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {lead.contact_name || "No contact name"}
-                          {lead.assigned_to_username ? ` • ${lead.assigned_to_username}` : ""}
-                          {lead.status ? ` • ${lead.status}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          Due {fmtDate(lead.next_follow_up_on)}
-                        </div>
+          {!filteredSuggestions.length ? (
+            <p style={{ margin: 0, opacity: 0.78 }}>
+              No suggested tasks matched the current filters.
+            </p>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {filteredSuggestions.map((item) => (
+                <div key={item.key} style={itemCard}>
+                  <div style={itemTopRow}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                        <MiniBadge label={item.label} />
+                        <MiniBadge label={String(item.status ?? "New")} />
+                        <MiniBadge label={`${item.priority.toUpperCase()} priority`} />
                       </div>
 
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Priority ${lead.priority_score}`} />
-                        <MiniBadge label={`Weighted ${moneyGBP(lead.weighted_value)}`} />
+                      <div style={{ marginTop: 10, fontWeight: 900, fontSize: 18 }}>
+                        {item.company_name}
+                      </div>
+
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                        {item.contact_name || "No contact name"}
+                        {item.assigned_to_username ? ` • ${item.assigned_to_username}` : " • Unassigned"}
+                      </div>
+
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                        Due {fmtDate(item.due_on)} • Probability {item.probability}% • Weighted {moneyGBP(item.weighted_value)}
+                      </div>
+
+                      <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
+                        {item.notes}
                       </div>
                     </div>
 
-                    <div style={actionsWrap}>
-                      {canManage ? (
-                        <>
-                          <form action={snoozeFollowUp7Days} style={inlineForm}>
-                            <input type="hidden" name="lead_id" value={lead.id} />
-                            <button type="submit" style={miniDarkBtn}>
-                              Push +7 days
-                            </button>
-                          </form>
-
-                          {owners.length ? (
-                            <form action={assignLeadOwner} style={inlineForm}>
-                              <input type="hidden" name="lead_id" value={lead.id} />
-                              <select
-                                name="assigned_to_username"
-                                defaultValue={String(
-                                  lead.assigned_to_username || currentUsername || owners[0] || ""
-                                )}
-                                style={miniSelect}
-                              >
-                                {owners.map((owner) => (
-                                  <option key={owner} value={owner}>
-                                    {owner}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="submit" style={miniBtn}>
-                                Assign
-                              </button>
-                            </form>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div style={mutedNote}>No permission to manage lead actions.</div>
-                      )}
-
-                      <a href={`/sales-hub/leads/${lead.id}`} style={miniBtnLink}>
-                        Open lead
-                      </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
-                        Outreach
-                      </a>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <MiniBadge label={`Open tasks ${item.existing_open_task_count}`} />
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
 
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Stale quotes</h2>
+                  <div style={actionsWrap}>
+                    {canManage ? (
+                      <form action={createSuggestedTask} style={inlineForm}>
+                        <input type="hidden" name="lead_id" value={item.lead_id} />
+                        <input type="hidden" name="company_name" value={item.company_name} />
+                        <input type="hidden" name="title" value={item.title} />
+                        <input type="hidden" name="task_type" value={item.task_type} />
+                        <input type="hidden" name="priority" value={item.priority} />
+                        <input type="hidden" name="due_on" value={item.due_on} />
+                        <input type="hidden" name="notes" value={item.notes} />
+                        <input
+                          type="hidden"
+                          name="assigned_to_username"
+                          value={String(item.assigned_to_username ?? "")}
+                        />
+                        <button type="submit" style={miniDarkBtn}>
+                          Create workflow task
+                        </button>
+                      </form>
+                    ) : (
+                      <div style={mutedNote}>No permission to create tasks.</div>
+                    )}
 
-            {!staleQuotes.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No stale quoted opportunities right now.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {staleQuotes.map((lead: any) => (
-                  <div key={lead.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {lead.contact_name || "No contact name"}
-                          {lead.assigned_to_username ? ` • ${lead.assigned_to_username}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          Stale for {lead.stale_days} days
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Value ${moneyGBP(lead.opportunity_value)}`} />
-                        <MiniBadge label={`Weighted ${moneyGBP(lead.weighted_value)}`} />
-                      </div>
-                    </div>
-
-                    <div style={actionsWrap}>
-                      {canManage ? (
-                        <>
-                          <form action={markQuoteChasedToday} style={inlineForm}>
-                            <input type="hidden" name="lead_id" value={lead.id} />
-                            <button type="submit" style={miniDarkBtn}>
-                              Mark chased today
-                            </button>
-                          </form>
-
-                          <form action={moveQuoteToFollowUp} style={inlineForm}>
-                            <input type="hidden" name="lead_id" value={lead.id} />
-                            <button type="submit" style={miniBtn}>
-                              Move to Follow Up
-                            </button>
-                          </form>
-
-                          {owners.length ? (
-                            <form action={assignLeadOwner} style={inlineForm}>
-                              <input type="hidden" name="lead_id" value={lead.id} />
-                              <select
-                                name="assigned_to_username"
-                                defaultValue={String(
-                                  lead.assigned_to_username || currentUsername || owners[0] || ""
-                                )}
-                                style={miniSelect}
-                              >
-                                {owners.map((owner) => (
-                                  <option key={owner} value={owner}>
-                                    {owner}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="submit" style={miniBtn}>
-                                Assign
-                              </button>
-                            </form>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div style={mutedNote}>No permission to manage quote actions.</div>
-                      )}
-
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
-                        Opportunity
-                      </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
-                        Outreach
-                      </a>
-                    </div>
+                    <a href={`/sales-hub/leads/${item.lead_id}`} style={miniBtnLink}>
+                      Open lead
+                    </a>
+                    <a href={`/sales-hub/opportunities/${item.lead_id}`} style={miniBtnLink}>
+                      Open opportunity
+                    </a>
+                    <a href={`/sales-hub/leads/${item.lead_id}/outreach`} style={miniDarkBtnLink}>
+                      Outreach
+                    </a>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Near-close opportunities</h2>
-
-            {!nearCloseOpportunities.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No close-date opportunities due in the next 7 days.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {nearCloseOpportunities.map((lead: any) => (
-                  <div key={lead.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {lead.contact_name || "No contact name"}
-                          {lead.assigned_to_username ? ` • ${lead.assigned_to_username}` : ""}
-                          {lead.status ? ` • ${lead.status}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          Close target {fmtDate(lead.expected_close_date)}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Prob ${lead.probability}%`} />
-                        <MiniBadge label={`Weighted ${moneyGBP(lead.weighted_value)}`} />
-                      </div>
-                    </div>
-
-                    <div style={actionsWrap}>
-                      {canManage ? (
-                        <>
-                          <form action={snoozeFollowUp7Days} style={inlineForm}>
-                            <input type="hidden" name="lead_id" value={lead.id} />
-                            <button type="submit" style={miniBtn}>
-                              Push follow-up +7
-                            </button>
-                          </form>
-
-                          {owners.length ? (
-                            <form action={assignLeadOwner} style={inlineForm}>
-                              <input type="hidden" name="lead_id" value={lead.id} />
-                              <select
-                                name="assigned_to_username"
-                                defaultValue={String(
-                                  lead.assigned_to_username || currentUsername || owners[0] || ""
-                                )}
-                                style={miniSelect}
-                              >
-                                {owners.map((owner) => (
-                                  <option key={owner} value={owner}>
-                                    {owner}
-                                  </option>
-                                ))}
-                              </select>
-                              <button type="submit" style={miniBtn}>
-                                Assign
-                              </button>
-                            </form>
-                          ) : null}
-                        </>
-                      ) : (
-                        <div style={mutedNote}>No permission to manage opportunity actions.</div>
-                      )}
-
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
-                        Opportunity
-                      </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkBtnLink}>
-                        Outreach
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Unassigned hot opportunities</h2>
-
-            {!unassignedHotOpportunities.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No unassigned hot opportunities right now.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {unassignedHotOpportunities.map((lead: any) => (
-                  <div key={lead.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {lead.contact_name || "No contact name"} • Unassigned
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {lead.status || "New"}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Priority ${lead.priority_score}`} />
-                        <MiniBadge label={`Value ${moneyGBP(lead.opportunity_value)}`} />
-                      </div>
-                    </div>
-
-                    <div style={actionsWrap}>
-                      {canManage ? (
-                        owners.length ? (
-                          <form action={assignLeadOwner} style={inlineForm}>
-                            <input type="hidden" name="lead_id" value={lead.id} />
-                            <select
-                              name="assigned_to_username"
-                              defaultValue={String(currentUsername || owners[0] || "")}
-                              style={miniSelect}
-                            >
-                              {owners.map((owner) => (
-                                <option key={owner} value={owner}>
-                                  {owner}
-                                </option>
-                              ))}
-                            </select>
-                            <button type="submit" style={miniDarkBtn}>
-                              Assign owner
-                            </button>
-                          </form>
-                        ) : (
-                          <div style={mutedNote}>No owner options found yet.</div>
-                        )
-                      ) : (
-                        <div style={mutedNote}>No permission to assign opportunities.</div>
-                      )}
-
-                      <a href={`/sales-hub/opportunities/${lead.id}`} style={miniBtnLink}>
-                        Opportunity
-                      </a>
-                      <a href={`/sales-hub/leads/${lead.id}`} style={miniBtnLink}>
-                        Lead
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Dormant recovery candidates</h2>
-
-            {!dormantRecoveryCandidates.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No dormant recovery candidates right now.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {dormantRecoveryCandidates.map((row: any) => (
-                  <div key={row.client.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{row.client.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          {row.client.contact_name || "No contact name"}
-                          {row.client.phone ? ` • ${row.client.phone}` : ""}
-                          {row.client.email ? ` • ${row.client.email}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
-                          Last service {fmtDate(row.lastActivity)} • Crane {row.craneCount} • Transport {row.transportCount}
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                        <MiniBadge label={`Dormant ${row.dormantDays}d`} />
-                        <MiniBadge label={`Score ${row.score}`} />
-                      </div>
-                    </div>
-
-                    <div style={actionsWrap}>
-                      {canManage ? (
-                        <form action={createRecoveryLead} style={inlineForm}>
-                          <input type="hidden" name="client_id" value={row.client.id} />
-                          <button type="submit" style={miniDarkBtn}>
-                            Create recovery lead
-                          </button>
-                        </form>
-                      ) : (
-                        <div style={mutedNote}>No permission to create recovery lead.</div>
-                      )}
-
-                      <a href={`/customers/${row.client.id}`} style={miniBtnLink}>
-                        Open customer
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </ClientShell>
   );
@@ -1292,13 +667,6 @@ const statsGrid: React.CSSProperties = {
   gap: 12,
 };
 
-const sectionGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: 16,
-  marginTop: 16,
-};
-
 const panelStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
@@ -1317,7 +685,7 @@ const statCard: React.CSSProperties = {
 
 const filterGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 280px) auto",
+  gridTemplateColumns: "minmax(220px, 260px) minmax(220px, 260px) auto",
   gap: 12,
   alignItems: "end",
 };
@@ -1341,24 +709,13 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const miniSelect: React.CSSProperties = {
-  minHeight: 36,
-  padding: "0 10px",
-  borderRadius: 8,
-  border: "1px solid rgba(0,0,0,0.15)",
-  outline: "none",
-  fontSize: 14,
-  background: "rgba(255,255,255,0.9)",
-  boxSizing: "border-box",
-};
-
 const sectionTitle: React.CSSProperties = {
   marginTop: 0,
   fontSize: 22,
 };
 
 const itemCard: React.CSSProperties = {
-  padding: "12px 14px",
+  padding: "14px 16px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
@@ -1367,7 +724,7 @@ const itemCard: React.CSSProperties = {
 const itemTopRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 10,
+  gap: 12,
   alignItems: "flex-start",
   flexWrap: "wrap",
 };
@@ -1419,7 +776,7 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniBtn: React.CSSProperties = {
+const miniBtnLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -1428,7 +785,6 @@ const miniBtn: React.CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   border: "1px solid rgba(0,0,0,0.10)",
-  cursor: "pointer",
 };
 
 const miniDarkBtn: React.CSSProperties = {
@@ -1441,17 +797,6 @@ const miniDarkBtn: React.CSSProperties = {
   textDecoration: "none",
   border: "none",
   cursor: "pointer",
-};
-
-const miniBtnLink: React.CSSProperties = {
-  display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 8,
-  background: "rgba(255,255,255,0.82)",
-  color: "#111",
-  fontWeight: 800,
-  textDecoration: "none",
-  border: "1px solid rgba(0,0,0,0.10)",
 };
 
 const miniDarkBtnLink: React.CSSProperties = {
