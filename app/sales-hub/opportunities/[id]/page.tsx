@@ -16,6 +16,13 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-GB");
+}
+
 function moneyGBP(value: number | null | undefined) {
   const n = Number(value ?? 0);
   return n.toLocaleString("en-GB", {
@@ -37,6 +44,12 @@ function parseOptionalNumber(value: FormDataEntryValue | null) {
   return num;
 }
 
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
 function probabilityForLead(lead: any) {
   const manual = Number(lead?.probability_percent);
   if (Number.isFinite(manual)) {
@@ -53,6 +66,40 @@ function probabilityForLead(lead: any) {
   if (status === "won") return 100;
   if (status === "dormant") return 8;
   return 0;
+}
+
+function taskTypeLabel(value: string | null | undefined) {
+  const v = String(value ?? "other");
+  if (v === "quote_chase") return "Quote chase";
+  if (v === "social_post") return "Social post";
+  if (v === "customer_recovery") return "Customer recovery";
+  if (v === "follow_up") return "Follow up";
+  if (v === "call") return "Call";
+  if (v === "email") return "Email";
+  return "Other";
+}
+
+function statusStyle(status: string | null | undefined): React.CSSProperties {
+  const v = String(status ?? "open");
+  if (v === "completed") {
+    return {
+      background: "rgba(0,160,80,0.14)",
+      color: "#0b6b34",
+      border: "1px solid rgba(0,160,80,0.16)",
+    };
+  }
+  if (v === "cancelled") {
+    return {
+      background: "rgba(180,0,0,0.12)",
+      color: "#8a1f1f",
+      border: "1px solid rgba(180,0,0,0.16)",
+    };
+  }
+  return {
+    background: "rgba(0,120,255,0.12)",
+    color: "#0d5ea8",
+    border: "1px solid rgba(0,120,255,0.16)",
+  };
 }
 
 type OpportunityDetailPageProps = {
@@ -135,32 +182,122 @@ export default async function OpportunityDetailPage({
     redirect(`/sales-hub/opportunities/${params.id}?success=${encodeURIComponent("Opportunity updated.")}`);
   }
 
-  const { data: lead, error } = await supabase
-    .from("sales_leads")
-    .select(`
-      id,
-      company_name,
-      contact_name,
-      email,
-      phone,
-      status,
-      lead_score,
-      do_not_contact,
-      archived,
-      next_follow_up_on,
-      services,
-      assigned_to_username,
-      notes,
-      lead_source,
-      created_at,
-      updated_at,
-      opportunity_value,
-      probability_percent,
-      expected_close_date,
-      lost_reason
-    `)
-    .eq("id", params.id)
-    .single();
+  async function createOpportunityTask(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect(`/sales-hub/opportunities/${params.id}?error=${encodeURIComponent("You do not have permission to create workflow tasks.")}`);
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: lead, error: leadError } = await supabase
+      .from("sales_leads")
+      .select("id, company_name, assigned_to_username")
+      .eq("id", params.id)
+      .single();
+
+    if (leadError || !lead) {
+      redirect(`/sales-hub/opportunities/${params.id}?error=${encodeURIComponent("Opportunity not found.")}`);
+    }
+
+    const title = String(formData.get("title") ?? "").trim();
+    const taskType = String(formData.get("task_type") ?? "follow_up").trim() || "follow_up";
+    const priority = String(formData.get("priority") ?? "medium").trim() || "medium";
+    const dueOn = String(formData.get("due_on") ?? "").trim() || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const assignedToUsername =
+      String(formData.get("assigned_to_username") ?? "").trim() ||
+      String(lead.assigned_to_username ?? "").trim() ||
+      fromAuthEmail(user?.email ?? null) ||
+      null;
+
+    if (!title) {
+      redirect(`/sales-hub/opportunities/${params.id}?error=${encodeURIComponent("Task title is required.")}`);
+    }
+
+    const { data: createdTask, error } = await supabase
+      .from("sales_workflow_tasks")
+      .insert({
+        title,
+        task_type: taskType,
+        status: "open",
+        priority,
+        due_on: dueOn,
+        notes,
+        assigned_to_username: assignedToUsername,
+        lead_id: params.id,
+        created_by_user_id: user?.id ?? null,
+        created_by_username: fromAuthEmail(user?.email ?? null) || null,
+      })
+      .select("id")
+      .single();
+
+    if (error || !createdTask?.id) {
+      redirect(`/sales-hub/opportunities/${params.id}?error=${encodeURIComponent(error?.message || "Could not create task.")}`);
+    }
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_workflow_task_created_from_opportunity",
+      entity_type: "sales_workflow_task",
+      entity_id: createdTask.id,
+      meta: {
+        lead_id: params.id,
+        company_name: lead.company_name,
+        title,
+        task_type: taskType,
+        priority,
+        due_on: dueOn,
+      },
+    });
+
+    redirect(`/sales-hub/opportunities/${params.id}?success=${encodeURIComponent("Workflow task created.")}`);
+  }
+
+  const [
+    { data: lead, error },
+    { data: tasks, error: tasksError },
+  ] = await Promise.all([
+    supabase
+      .from("sales_leads")
+      .select(`
+        id,
+        company_name,
+        contact_name,
+        email,
+        phone,
+        status,
+        lead_score,
+        do_not_contact,
+        archived,
+        next_follow_up_on,
+        services,
+        assigned_to_username,
+        notes,
+        lead_source,
+        created_at,
+        updated_at,
+        opportunity_value,
+        probability_percent,
+        expected_close_date,
+        lost_reason
+      `)
+      .eq("id", params.id)
+      .single(),
+    supabase
+      .from("sales_workflow_tasks")
+      .select("*")
+      .eq("lead_id", params.id)
+      .order("created_at", { ascending: false }),
+  ]);
 
   if (error || !lead) {
     return (
@@ -174,6 +311,16 @@ export default async function OpportunityDetailPage({
 
   const probability = probabilityForLead(lead);
   const weightedValue = Number(lead.opportunity_value ?? 0) * (probability / 100);
+  const relatedTasks = tasks ?? [];
+  const openTasks = relatedTasks.filter((item: any) => String(item.status ?? "") === "open").length;
+  const completedTasks = relatedTasks.filter((item: any) => String(item.status ?? "") === "completed").length;
+
+  const quoteChaseDate = addDays(new Date(), 2).toISOString().slice(0, 10);
+  const callbackDate = addDays(new Date(), 1).toISOString().slice(0, 10);
+  const closeCheckDate =
+    String(lead.expected_close_date ?? "").trim() || addDays(new Date(), 3).toISOString().slice(0, 10);
+  const followUpDate =
+    String(lead.next_follow_up_on ?? "").trim() || addDays(new Date(), 3).toISOString().slice(0, 10);
 
   return (
     <ClientShell>
@@ -182,13 +329,16 @@ export default async function OpportunityDetailPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>{lead.company_name}</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Opportunity detail and forecast settings.
+              Opportunity detail, forecast settings and direct task creation.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/sales-hub/opportunities" style={secondaryBtn}>
               ← Opportunities
+            </a>
+            <a href="/sales-hub/workflows" style={secondaryBtn}>
+              Workflow tasks
             </a>
             <a href={`/sales-hub/leads/${lead.id}`} style={secondaryBtn}>
               Open lead
@@ -207,11 +357,15 @@ export default async function OpportunityDetailPage({
           <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div>
         ) : null}
 
+        {tasksError ? <div style={errorCard}>{tasksError.message}</div> : null}
+
         <div style={statsGrid}>
           <StatCard label="Lead score" value={String(lead.lead_score ?? 0)} />
           <StatCard label="Probability" value={`${probability}%`} />
           <StatCard label="Opportunity value" value={moneyGBP(lead.opportunity_value)} />
           <StatCard label="Weighted value" value={moneyGBP(weightedValue)} />
+          <StatCard label="Open tasks" value={String(openTasks)} />
+          <StatCard label="Completed tasks" value={String(completedTasks)} />
         </div>
 
         <div style={layoutGrid}>
@@ -304,6 +458,96 @@ export default async function OpportunityDetailPage({
           </section>
 
           <section style={panelStyle}>
+            <h2 style={sectionTitle}>Quick task buttons</h2>
+            <div style={{ display: "grid", gap: 10 }}>
+              <form action={createOpportunityTask} style={quickTaskForm}>
+                <input type="hidden" name="title" value={`Quote chase ${lead.company_name}`} />
+                <input type="hidden" name="task_type" value="quote_chase" />
+                <input type="hidden" name="priority" value="high" />
+                <input type="hidden" name="due_on" value={quoteChaseDate} />
+                <button type="submit" style={primaryBtn}>Create quote chase task</button>
+              </form>
+
+              <form action={createOpportunityTask} style={quickTaskForm}>
+                <input type="hidden" name="title" value={`Call back ${lead.company_name}`} />
+                <input type="hidden" name="task_type" value="call" />
+                <input type="hidden" name="priority" value="high" />
+                <input type="hidden" name="due_on" value={callbackDate} />
+                <button type="submit" style={secondaryBtn}>Create call back task</button>
+              </form>
+
+              <form action={createOpportunityTask} style={quickTaskForm}>
+                <input type="hidden" name="title" value={`Follow up ${lead.company_name}`} />
+                <input type="hidden" name="task_type" value="follow_up" />
+                <input type="hidden" name="priority" value="medium" />
+                <input type="hidden" name="due_on" value={followUpDate} />
+                <button type="submit" style={secondaryBtn}>Create follow-up task</button>
+              </form>
+
+              <form action={createOpportunityTask} style={quickTaskForm}>
+                <input type="hidden" name="title" value={`Close check ${lead.company_name}`} />
+                <input type="hidden" name="task_type" value="follow_up" />
+                <input type="hidden" name="priority" value="high" />
+                <input type="hidden" name="due_on" value={closeCheckDate} />
+                <button type="submit" style={secondaryBtn}>Create close check task</button>
+              </form>
+            </div>
+
+            <div style={{ ...summaryBox, marginTop: 16 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Custom workflow task</div>
+              <form action={createOpportunityTask} style={{ display: "grid", gap: 10 }}>
+                <input
+                  name="title"
+                  defaultValue={`Follow up ${lead.company_name}`}
+                  placeholder="Task title"
+                  style={inputStyle}
+                />
+
+                <select name="task_type" defaultValue="follow_up" style={inputStyle}>
+                  <option value="call">Call</option>
+                  <option value="email">Email</option>
+                  <option value="quote_chase">Quote chase</option>
+                  <option value="follow_up">Follow up</option>
+                  <option value="social_post">Social post</option>
+                  <option value="customer_recovery">Customer recovery</option>
+                  <option value="other">Other</option>
+                </select>
+
+                <select name="priority" defaultValue="medium" style={inputStyle}>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="urgent">Urgent</option>
+                </select>
+
+                <input
+                  name="assigned_to_username"
+                  defaultValue={String(lead.assigned_to_username ?? "")}
+                  placeholder="Assign to username"
+                  style={inputStyle}
+                />
+
+                <input
+                  type="date"
+                  name="due_on"
+                  defaultValue={followUpDate}
+                  style={inputStyle}
+                />
+
+                <textarea
+                  name="notes"
+                  placeholder="Task notes"
+                  style={textareaStyle}
+                />
+
+                <button type="submit" style={primaryBtn}>Create task</button>
+              </form>
+            </div>
+          </section>
+        </div>
+
+        <div style={layoutGridBottom}>
+          <section style={panelStyle}>
             <h2 style={sectionTitle}>Opportunity summary</h2>
 
             <div style={{ display: "grid", gap: 10 }}>
@@ -338,6 +582,47 @@ export default async function OpportunityDetailPage({
                 </div>
               </div>
             ) : null}
+          </section>
+
+          <section style={panelStyle}>
+            <h2 style={sectionTitle}>Related tasks</h2>
+
+            {relatedTasks.length === 0 ? (
+              <p style={{ margin: 0, opacity: 0.78 }}>No workflow tasks linked to this opportunity yet.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {relatedTasks.map((task: any) => (
+                  <div key={task.id} style={taskCard}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <span style={{ ...pillStyle, ...statusStyle(task.status) }}>
+                        {String(task.status ?? "open").toUpperCase()}
+                      </span>
+                      <span style={taskTypePill}>{taskTypeLabel(task.task_type)}</span>
+                    </div>
+
+                    <div style={{ marginTop: 8, fontWeight: 800 }}>{task.title}</div>
+
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                      Assigned to {task.assigned_to_username || "Unassigned"} • Due {fmtDate(task.due_on)}
+                    </div>
+
+                    {task.completed_at ? (
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                        Completed {fmtDateTime(task.completed_at)}
+                      </div>
+                    ) : null}
+
+                    {task.notes ? (
+                      <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>{task.notes}</div>
+                    ) : null}
+
+                    <div style={{ marginTop: 10 }}>
+                      <a href="/sales-hub/workflows" style={linkBtn}>Open workflow board</a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       </div>
@@ -381,6 +666,13 @@ const statsGrid: React.CSSProperties = {
 const layoutGrid: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
+  gap: 16,
+  marginTop: 16,
+};
+
+const layoutGridBottom: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 0.9fr)",
   gap: 16,
   marginTop: 16,
 };
@@ -451,6 +743,32 @@ const summaryBox: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
+const taskCard: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const pillStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const taskTypePill: React.CSSProperties = {
+  ...pillStyle,
+  background: "rgba(0,0,0,0.06)",
+  color: "#333",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const quickTaskForm: React.CSSProperties = {
+  margin: 0,
+};
+
 const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
@@ -467,6 +785,18 @@ const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
+};
+
+const linkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
   background: "rgba(255,255,255,0.82)",
   color: "#111",
   fontWeight: 800,
