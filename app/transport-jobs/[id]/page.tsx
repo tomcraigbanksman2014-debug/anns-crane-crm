@@ -56,12 +56,7 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-const INVOICE_STATUSES = [
-  "Not Invoiced",
-  "Invoiced",
-  "Part Paid",
-  "Paid",
-];
+const INVOICE_STATUSES = ["Not Invoiced", "Invoiced", "Part Paid", "Paid"];
 
 function buildTimeOptions() {
   const options: Array<{ value: string; label: string }> = [];
@@ -257,7 +252,9 @@ async function createPurchaseOrderFromTransportJob(formData: FormData) {
     });
   }
 
-  redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
+  redirect(
+    `/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`
+  );
 }
 
 async function updateTransportJob(formData: FormData) {
@@ -316,16 +313,14 @@ async function updateTransportJob(formData: FormData) {
   const operatorId = clean(formData.get("operator_id")) || null;
   const transportDate = clean(formData.get("transport_date")) || null;
   const collectionTime = clean(formData.get("collection_time")) || null;
-  const deliveryDate =
-    clean(formData.get("delivery_date")) || transportDate || null;
+  const deliveryDate = clean(formData.get("delivery_date")) || transportDate || null;
   const deliveryTime = clean(formData.get("delivery_time")) || null;
 
   const rawSupplierId = clean(formData.get("supplier_id"));
   const otherSupplierName = clean(formData.get("other_supplier_name"));
   const supplierReferenceInput = clean(formData.get("supplier_reference"));
 
-  const supplierId =
-    rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
+  const supplierId = rawSupplierId && rawSupplierId !== "other" ? rawSupplierId : null;
 
   const supplierReference =
     rawSupplierId === "other"
@@ -365,6 +360,7 @@ async function updateTransportJob(formData: FormData) {
   const fullJobPrice = money(numberOrZero(formData.get("agreed_sell_rate")));
   const pricePerDay = money(numberOrZero(formData.get("price_per_day")));
   const dayCount = transportDate && deliveryDate ? countDaysInclusive(transportDate, deliveryDate) : 1;
+
   const agreedSellRate =
     priceMode === "per_day"
       ? money(pricePerDay * Math.max(dayCount, 1))
@@ -632,8 +628,14 @@ export default async function TransportJobDetailPage({
                     { label: "Customer", value: client?.company_name ?? "—" },
                     { label: "Job type", value: prettyJobType((item as any)?.job_type) },
                     { label: "Status", value: (item as any)?.status ?? "—" },
-                    { label: "Pickup complete", value: fmtDateTime((item as any)?.pickup_completed_at) },
-                    { label: "Delivery complete", value: fmtDateTime((item as any)?.delivery_completed_at) },
+                    {
+                      label: "Pickup complete",
+                      value: fmtDateTime((item as any)?.pickup_completed_at),
+                    },
+                    {
+                      label: "Delivery complete",
+                      value: fmtDateTime((item as any)?.delivery_completed_at),
+                    },
                     { label: "Collection date", value: (item as any)?.transport_date ?? "—" },
                     { label: "Delivery date", value: (item as any)?.delivery_date ?? "—" },
                     { label: "Collection time", value: (item as any)?.collection_time ?? "—" },
@@ -667,12 +669,36 @@ export default async function TransportJobDetailPage({
                 <SummaryCard
                   title="Commercial"
                   rows={[
-                    { label: "Price mode", value: (item as any)?.price_mode === "per_day" ? "Price per day" : "Full job price" },
-                    { label: "Price per day", value: (item as any)?.price_per_day != null ? fmtMoney((item as any).price_per_day) : "—" },
-                    { label: "Charge", value: fmtMoney((item as any)?.agreed_sell_rate ?? (item as any)?.price) },
-                    { label: "Supplier cost", value: fmtMoney((item as any)?.supplier_cost ?? 0) },
-                    { label: "Invoice status", value: (item as any)?.invoice_status ?? "Not Invoiced" },
-                    { label: "Invoice total", value: fmtMoney((item as any)?.total_invoice ?? 0) },
+                    {
+                      label: "Price mode",
+                      value:
+                        (item as any)?.price_mode === "per_day"
+                          ? "Price per day"
+                          : "Full job price",
+                    },
+                    {
+                      label: "Price per day",
+                      value:
+                        (item as any)?.price_per_day != null
+                          ? fmtMoney((item as any).price_per_day)
+                          : "—",
+                    },
+                    {
+                      label: "Charge",
+                      value: fmtMoney((item as any)?.agreed_sell_rate ?? (item as any)?.price),
+                    },
+                    {
+                      label: "Supplier cost",
+                      value: fmtMoney((item as any)?.supplier_cost ?? 0),
+                    },
+                    {
+                      label: "Invoice status",
+                      value: (item as any)?.invoice_status ?? "Not Invoiced",
+                    },
+                    {
+                      label: "Invoice total",
+                      value: fmtMoney((item as any)?.total_invoice ?? 0),
+                    },
                   ]}
                 />
               </div>
@@ -852,7 +878,11 @@ export default async function TransportJobDetailPage({
                       name="agreed_sell_rate"
                       type="number"
                       step="0.01"
-                      defaultValue={String((item as any)?.price_mode === "per_day" ? 0 : ((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0))}
+                      defaultValue={String(
+                        (item as any)?.price_mode === "per_day"
+                          ? 0
+                          : ((item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)
+                      )}
                     />
 
                     <Field
@@ -868,15 +898,21 @@ export default async function TransportJobDetailPage({
                       name="invoice_subtotal"
                       type="number"
                       step="0.01"
-                      defaultValue={String((item as any)?.invoice_subtotal ?? (item as any)?.agreed_sell_rate ?? (item as any)?.price ?? 0)}
+                      defaultValue={String(
+                        (item as any)?.invoice_subtotal ??
+                          (item as any)?.agreed_sell_rate ??
+                          (item as any)?.price ??
+                          0
+                      )}
                     />
                   </div>
                 </section>
 
                 <details id="supplier_details_section" style={detailsCard}>
                   <summary style={detailsSummary}>Cross-hire / supplier details</summary>
+
                   <div style={detailsHelp}>
-                    Only open this when the transport job is supplier-backed or cross-hired.
+                    Only use this when the transport job is supplier-backed or cross-hired.
                   </div>
 
                   <div style={gridStyle}>
@@ -894,15 +930,13 @@ export default async function TransportJobDetailPage({
                       ]}
                     />
 
-                    <div id="other_supplier_wrap" style={{ display: isOtherSupplier ? "block" : "none" }}>
-                      <Field
-                        id="other_supplier_name"
-                        label="Other supplier name"
-                        name="other_supplier_name"
-                        defaultValue={parsedOtherSupplier.otherSupplierName}
-                        placeholder="Enter one-off cross-hire supplier"
-                      />
-                    </div>
+                    <Field
+                      id="other_supplier_name"
+                      label="Other supplier name (only fill in if Supplier = Other)"
+                      name="other_supplier_name"
+                      defaultValue={parsedOtherSupplier.otherSupplierName}
+                      placeholder="Enter one-off cross-hire supplier"
+                    />
 
                     <Field
                       id="supplier_reference"
@@ -989,164 +1023,181 @@ export default async function TransportJobDetailPage({
                   </div>
                 </section>
 
-                <section style={sectionCard}>
-                  <div style={sectionTitle}>Transport Documents</div>
-
-                  <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
-                    <TransportDocumentUploadForm transportJobId={params.id} />
-
-                    {(transportDocuments ?? []).length === 0 ? (
-                      <div style={emptyState}>No documents uploaded yet.</div>
-                    ) : (
-                      <div style={{ display: "grid", gap: 10 }}>
-                        {(transportDocuments ?? []).map((doc: any) => (
-                          <div key={doc.id} style={listCard}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
-                                  {doc.file_name ?? "Document"}
-                                </div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                                  {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
-                                </div>
-                              </div>
-
-                              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                <a
-                                  href={documentHref(doc.file_path)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  style={secondaryBtn}
-                                >
-                                  Open
-                                </a>
-                                <TransportDocumentDeleteButton
-                                  transportJobId={params.id}
-                                  documentId={doc.id}
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </section>
-
-                <section style={sectionCard}>
-                  <div style={sectionTitle}>Transport Purchase Orders</div>
-
-                  <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12 }}>
-                    <input type="hidden" name="transport_job_id" value={params.id} />
-
-                    <div style={gridStyle}>
-                      <SelectField
-                        label="Supplier"
-                        name="supplier_id"
-                        defaultValue={(item as any)?.supplier_id ?? ""}
-                        options={(suppliers ?? []).map((s: any) => ({
-                          value: s.id,
-                          label: s.company_name ?? "Supplier",
-                        }))}
-                      />
-
-                      <SelectField
-                        label="Status"
-                        name="status"
-                        defaultValue="draft"
-                        options={[
-                          { value: "draft", label: "Draft" },
-                          { value: "sent", label: "Sent" },
-                          { value: "approved", label: "Approved" },
-                          { value: "completed", label: "Completed" },
-                          { value: "cancelled", label: "Cancelled" },
-                        ]}
-                      />
-
-                      <Field
-                        label="Order date"
-                        name="order_date"
-                        type="date"
-                        defaultValue={new Date().toISOString().slice(0, 10)}
-                      />
-
-                      <Field
-                        label="Required date"
-                        name="required_date"
-                        type="date"
-                      />
-
-                      <Field
-                        label="Supplier reference"
-                        name="supplier_reference"
-                        defaultValue={(item as any)?.supplier_reference ?? ""}
-                      />
-                    </div>
-
-                    <div>
-                      <label style={labelStyle}>Notes</label>
-                      <textarea
-                        name="notes"
-                        rows={3}
-                        style={textareaStyle}
-                        defaultValue={`Created from transport job ${(item as any)?.transport_number ?? ""}`}
-                      />
-                    </div>
-
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      <button type="submit" style={primaryBtn}>
-                        Create purchase order
-                      </button>
-                    </div>
-                  </form>
-
-                  <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
-                    {((purchaseOrders as any[]) ?? []).length === 0 ? (
-                      <div style={emptyState}>No purchase orders linked to this transport job yet.</div>
-                    ) : (
-                      ((purchaseOrders as any[]) ?? []).map((po: any) => {
-                        const poSupplier = first(po.suppliers);
-                        return (
-                          <div key={po.id} style={listCard}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
-                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                                  {po.status ?? "draft"}
-                                  {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
-                                  {po.order_date ? ` • Ordered ${fmtDate(po.order_date)}` : ""}
-                                  {po.required_date ? ` • Required ${fmtDate(po.required_date)}` : ""}
-                                </div>
-
-                                {po.supplier_reference || po.notes ? (
-                                  <div style={{ marginTop: 8, fontSize: 13, opacity: 0.82, wordBreak: "break-word" }}>
-                                    {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
-                                      .filter(Boolean)
-                                      .join(" • ")}
-                                  </div>
-                                ) : null}
-                              </div>
-
-                              <div style={{ textAlign: "right" }}>
-                                <div style={{ fontWeight: 900 }}>{fmtMoney(po.total_cost ?? 0)}</div>
-                                <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
-                                  Open PO
-                                </a>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </section>
-
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <button type="submit" style={primaryBtn}>
                     Save transport job
                   </button>
                 </div>
               </form>
+
+              <section style={{ ...sectionCard, marginTop: 18 }}>
+                <div style={sectionTitle}>Transport Documents</div>
+
+                <div style={{ marginTop: 12, display: "grid", gap: 14 }}>
+                  <TransportDocumentUploadForm transportJobId={params.id} />
+
+                  {(transportDocuments ?? []).length === 0 ? (
+                    <div style={emptyState}>No documents uploaded yet.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {(transportDocuments ?? []).map((doc: any) => (
+                        <div key={doc.id} style={listCard}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
+                                {doc.file_name ?? "Document"}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
+                              </div>
+                            </div>
+
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <a
+                                href={documentHref(doc.file_path)}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={secondaryBtn}
+                              >
+                                Open
+                              </a>
+                              <TransportDocumentDeleteButton
+                                transportJobId={params.id}
+                                documentId={doc.id}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section style={{ ...sectionCard, marginTop: 18 }}>
+                <div style={sectionTitle}>Transport Purchase Orders</div>
+
+                <form action={createPurchaseOrderFromTransportJob} style={{ display: "grid", gap: 12, marginTop: 12 }}>
+                  <input type="hidden" name="transport_job_id" value={params.id} />
+
+                  <div style={gridStyle}>
+                    <SelectField
+                      label="Supplier"
+                      name="supplier_id"
+                      defaultValue={(item as any)?.supplier_id ?? ""}
+                      options={(suppliers ?? []).map((s: any) => ({
+                        value: s.id,
+                        label: s.company_name ?? "Supplier",
+                      }))}
+                    />
+
+                    <SelectField
+                      label="Status"
+                      name="status"
+                      defaultValue="draft"
+                      options={[
+                        { value: "draft", label: "Draft" },
+                        { value: "sent", label: "Sent" },
+                        { value: "approved", label: "Approved" },
+                        { value: "completed", label: "Completed" },
+                        { value: "cancelled", label: "Cancelled" },
+                      ]}
+                    />
+
+                    <Field
+                      label="Order date"
+                      name="order_date"
+                      type="date"
+                      defaultValue={new Date().toISOString().slice(0, 10)}
+                    />
+
+                    <Field label="Required date" name="required_date" type="date" />
+
+                    <Field
+                      label="Supplier reference"
+                      name="supplier_reference"
+                      defaultValue={(item as any)?.supplier_reference ?? ""}
+                    />
+                  </div>
+
+                  <div>
+                    <label style={labelStyle}>Notes</label>
+                    <textarea
+                      name="notes"
+                      rows={3}
+                      style={textareaStyle}
+                      defaultValue={`Created from transport job ${(item as any)?.transport_number ?? ""}`}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <button type="submit" style={primaryBtn}>
+                      Create purchase order
+                    </button>
+                  </div>
+                </form>
+
+                <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+                  {((purchaseOrders as any[]) ?? []).length === 0 ? (
+                    <div style={emptyState}>No purchase orders linked to this transport job yet.</div>
+                  ) : (
+                    ((purchaseOrders as any[]) ?? []).map((po: any) => {
+                      const poSupplier = first(po.suppliers);
+                      return (
+                        <div key={po.id} style={listCard}>
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              gap: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900 }}>{po.po_number ?? "Purchase order"}</div>
+                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                {po.status ?? "draft"}
+                                {poSupplier?.company_name ? ` • ${poSupplier.company_name}` : ""}
+                                {po.order_date ? ` • Ordered ${fmtDate(po.order_date)}` : ""}
+                                {po.required_date ? ` • Required ${fmtDate(po.required_date)}` : ""}
+                              </div>
+
+                              {po.supplier_reference || po.notes ? (
+                                <div
+                                  style={{
+                                    marginTop: 8,
+                                    fontSize: 13,
+                                    opacity: 0.82,
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {[po.supplier_reference ? `Ref: ${po.supplier_reference}` : "", po.notes ?? ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div style={{ textAlign: "right" }}>
+                              <div style={{ fontWeight: 900 }}>{fmtMoney(po.total_cost ?? 0)}</div>
+                              <a href={`/purchase-orders/${po.id}`} style={secondaryBtn}>
+                                Open PO
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
             </>
           )}
         </div>
