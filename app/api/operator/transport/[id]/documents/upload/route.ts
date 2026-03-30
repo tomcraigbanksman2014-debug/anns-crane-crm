@@ -92,53 +92,67 @@ export async function POST(
     }
 
     const formData = await req.formData();
-    const file = formData.get("file");
-    const rawDocumentType = String(formData.get("document_type") ?? "photo").trim();
-    const documentType = rawDocumentType || "photo";
+    const rawDocumentType = String(formData.get("document_type") ?? "load_photo").trim();
+    const documentType = rawDocumentType || "load_photo";
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No file selected." }, { status: 400 });
+    const files = formData
+      .getAll("files")
+      .filter((entry): entry is File => entry instanceof File);
+
+    const fallbackFile = formData.get("file");
+    if (files.length === 0 && fallbackFile instanceof File) {
+      files.push(fallbackFile);
     }
 
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `transport-${params.id}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await admin.storage
-      .from("job-documents")
-      .upload(filePath, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      return NextResponse.json(
-        { error: `Storage upload failed: ${uploadError.message}` },
-        { status: 400 }
-      );
+    if (files.length === 0) {
+      return NextResponse.json({ error: "No files selected." }, { status: 400 });
     }
 
-    const { error: insertError } = await admin
-      .from("transport_job_documents")
-      .insert([
-        {
-          transport_job_id: params.id,
-          file_name: file.name,
-          file_path: filePath,
-          file_type: file.type || null,
-          document_type: documentType,
-          uploaded_by: user.id,
-          share_with_operator: false,
-        },
-      ]);
+    const createdDocuments: Array<Record<string, any>> = [];
 
-    if (insertError) {
-      return NextResponse.json(
-        { error: `Database save failed: ${insertError.message}` },
-        { status: 400 }
-      );
+    for (const file of files) {
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `transport-${params.id}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await admin.storage
+        .from("job-documents")
+        .upload(filePath, buffer, {
+          contentType: file.type || "application/octet-stream",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        return NextResponse.json(
+          { error: `Storage upload failed: ${uploadError.message}` },
+          { status: 400 }
+        );
+      }
+
+      const row = {
+        transport_job_id: params.id,
+        file_name: file.name,
+        file_path: filePath,
+        file_type: file.type || null,
+        document_type: documentType,
+        uploaded_by: user.id,
+        share_with_operator: false,
+      };
+
+      const { error: insertError } = await admin
+        .from("transport_job_documents")
+        .insert([row]);
+
+      if (insertError) {
+        return NextResponse.json(
+          { error: `Database save failed: ${insertError.message}` },
+          { status: 400 }
+        );
+      }
+
+      createdDocuments.push(row);
     }
 
     try {
@@ -153,19 +167,22 @@ export async function POST(
           transport_number: job.transport_number ?? null,
           operator_id: operator.id,
           operator_name: operator.full_name ?? null,
-          file_name: file.name,
-          file_path: filePath,
           document_type: documentType,
+          files: createdDocuments.map((doc) => ({
+            file_name: doc.file_name,
+            file_path: doc.file_path,
+            file_type: doc.file_type,
+          })),
         },
       });
     } catch {
       // don't fail upload if audit log fails
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, uploaded_count: createdDocuments.length });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message ?? "Could not upload transport document." },
+      { error: e?.message ?? "Could not upload transport documents." },
       { status: 400 }
     );
   }
