@@ -9,6 +9,7 @@ export default function TransportDocumentUploadForm({
 }) {
   const [saving, setSaving] = useState(false);
   const [shareWithOperator, setShareWithOperator] = useState(false);
+  const [selectedCount, setSelectedCount] = useState(0);
 
   return (
     <form
@@ -29,11 +30,20 @@ export default function TransportDocumentUploadForm({
         </select>
 
         <input
-          name="file"
+          name="files"
           type="file"
           required
+          multiple
+          accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
           style={inputStyle}
+          onChange={(e) => setSelectedCount(e.target.files?.length ?? 0)}
         />
+
+        {selectedCount > 0 ? (
+          <div style={helpText}>
+            {selectedCount} file{selectedCount === 1 ? "" : "s"} selected
+          </div>
+        ) : null}
 
         <label style={checkboxRow}>
           <input
@@ -81,6 +91,12 @@ const checkboxRow: React.CSSProperties = {
   alignItems: "center",
   gap: 8,
   fontSize: 14,
+  fontWeight: 700,
+};
+
+const helpText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
   fontWeight: 700,
 };
 
