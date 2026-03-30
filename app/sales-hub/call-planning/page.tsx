@@ -1,869 +1,437 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
-import { redirect } from "next/navigation";
+
+type LeadRow = {
+  id: string;
+  company_name: string;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  area: string | null;
+  industry: string | null;
+  status: string | null;
+  services: string[] | null;
+  do_not_contact: boolean | null;
+  archived: boolean | null;
+  assigned_to_username: string | null;
+  opportunity_value: number | null;
+  probability_percent: number | null;
+  expected_close_date: string | null;
+  next_follow_up_on: string | null;
+  last_contacted_at: string | null;
+  updated_at: string | null;
+};
+
+type WorkflowTaskRow = {
+  id: string;
+  lead_id: string | null;
+  title: string | null;
+  task_type: string | null;
+  status: string | null;
+  priority: string | null;
+  due_on: string | null;
+  assigned_to_username: string | null;
+};
+
+type PlannedCallRow = {
+  lead: LeadRow;
+  score: number;
+  weightedValue: number;
+  overdueDays: number | null;
+  expectedCloseDays: number | null;
+  openCallTaskCount: number;
+  topReason: string;
+  callAngle: string;
+};
+
+type PageProps = {
+  searchParams?: {
+    owner?: string;
+    area?: string;
+    status?: string;
+  };
+};
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
 }
 
-function dateOnly(value: string | null | undefined) {
-  return String(value ?? "").slice(0, 10);
-}
-
-function fmtDate(value: string | null | undefined) {
+function formatDateUK(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB");
 }
 
-function addDays(base: Date, days: number) {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
+function formatMoneyGBP(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  return n.toLocaleString("en-GB", {
+    style: "currency",
+    currency: "GBP",
+    maximumFractionDigits: 0,
+  });
+}
+
+function parseDateOnly(value: string | null | undefined) {
+  if (!value) return null;
+  const text = String(value).slice(0, 10);
+  if (!text) return null;
+  const d = new Date(`${text}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
   return d;
 }
 
-function latestDate(values: Array<string | null | undefined>) {
-  const valid = values
-    .map((value) => {
-      const d = new Date(String(value ?? ""));
-      return Number.isNaN(d.getTime()) ? null : d;
-    })
-    .filter(Boolean) as Date[];
+function daysUntil(value: string | null | undefined) {
+  const date = parseDateOnly(value);
+  if (!date) return null;
 
-  if (valid.length === 0) return null;
-  valid.sort((a, b) => b.getTime() - a.getTime());
-  return valid[0].toISOString();
-}
-
-function daysSince(value: string | null | undefined) {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
   const now = new Date();
-  const diff = now.getTime() - d.getTime();
-  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  return Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-function validCraneJob(row: any) {
-  const status = String(row?.status ?? "").toLowerCase();
-  return status !== "draft" && status !== "cancelled" && status !== "late_cancelled";
-}
-
-function validTransportJob(row: any) {
-  const status = String(row?.status ?? "").toLowerCase();
-  return status !== "cancelled";
-}
-
-function craneJobDate(row: any) {
-  return row?.end_date || row?.start_date || row?.job_date || row?.updated_at || row?.created_at || null;
-}
-
-function transportJobDate(row: any) {
-  return row?.delivery_date || row?.transport_date || row?.updated_at || row?.created_at || null;
-}
-
-function craneStart(row: any) {
-  return row?.start_date || row?.job_date || row?.end_date || null;
-}
-
-function craneEnd(row: any) {
-  return row?.end_date || row?.start_date || row?.job_date || null;
-}
-
-function transportStart(row: any) {
-  return row?.transport_date || row?.delivery_date || null;
-}
-
-function transportEnd(row: any) {
-  return row?.delivery_date || row?.transport_date || null;
-}
-
-function overlapsWindow(
-  startValue: string | null | undefined,
-  endValue: string | null | undefined,
-  windowStart: string,
-  windowEnd: string
-) {
-  const start = dateOnly(startValue);
-  const end = dateOnly(endValue || startValue);
-
-  if (!start) return false;
-
-  return start <= windowEnd && (end || start) >= windowStart;
-}
-
-function crossSellType(craneCount: number, transportCount: number) {
-  if (craneCount > 0 && transportCount === 0) return "crane_to_transport";
-  if (transportCount > 0 && craneCount === 0) return "transport_to_crane";
-  if (craneCount > 0 && transportCount > 0) return "both_to_full_package";
-  return null;
-}
-
-function promptDetails(type: string | null) {
-  if (type === "crane_to_transport") {
-    return {
-      title: "Offer HIAB / Transport Support",
-      serviceFocus: "HIAB Transport",
-      summary:
-        "This customer already uses crane hire but has no transport history recorded. Good next sell: HIAB transport, container work, machinery moves and support vehicles.",
-    };
+function probabilityForLead(lead: LeadRow) {
+  const manual = Number(lead.probability_percent);
+  if (Number.isFinite(manual)) {
+    return Math.max(0, Math.min(100, manual));
   }
 
-  if (type === "transport_to_crane") {
-    return {
-      title: "Offer Crane Hire / Contract Lift",
-      serviceFocus: "Crane Hire",
-      summary:
-        "This customer already uses transport but has no crane history recorded. Good next sell: crane hire, contract lifts, spider cranes and lifting support.",
-    };
-  }
+  const status = String(lead.status ?? "").toLowerCase();
 
-  if (type === "both_to_full_package") {
-    return {
-      title: "Offer Contract Lift / Full Package",
-      serviceFocus: "Contract Lift",
-      summary:
-        "This customer already uses both cranes and transport. Good next sell: higher-value full package work, planning, lifting operations and contract lift support.",
-    };
-  }
-
-  return {
-    title: "Cross-sell review",
-    serviceFocus: "Crane Hire",
-    summary: "Review this customer for additional services.",
-  };
-}
-
-function recoveryScore(args: {
-  craneCount: number;
-  transportCount: number;
-  dormantDays: number;
-  hasPhone: boolean;
-  hasEmail: boolean;
-}) {
-  let score = 0;
-
-  const totalHistory = args.craneCount + args.transportCount;
-  score += Math.min(totalHistory * 8, 45);
-
-  if (args.craneCount > 0 && args.transportCount > 0) score += 15;
-  if (args.hasPhone) score += 15;
-  if (args.hasEmail) score += 10;
-
-  if (args.dormantDays >= 90 && args.dormantDays <= 180) score += 18;
-  else if (args.dormantDays <= 365) score += 12;
-  else score += 6;
-
-  return Math.min(score, 100);
-}
-
-function crossSellScore(args: {
-  craneCount: number;
-  transportCount: number;
-  dormantDays: number;
-  hasPhone: boolean;
-  hasEmail: boolean;
-  type: string | null;
-}) {
-  let score = 0;
-
-  const history = args.craneCount + args.transportCount;
-  score += Math.min(history * 7, 42);
-
-  if (args.type === "crane_to_transport" || args.type === "transport_to_crane") {
-    score += 22;
-  } else if (args.type === "both_to_full_package") {
-    score += 15;
-  }
-
-  if (args.hasPhone) score += 14;
-  if (args.hasEmail) score += 10;
-
-  if (args.dormantDays <= 90) score += 18;
-  else if (args.dormantDays <= 180) score += 14;
-  else if (args.dormantDays <= 365) score += 10;
-  else score += 6;
-
-  return Math.min(score, 100);
-}
-
-function followUpPriority(lead: any, today: string) {
-  let score = Number(lead?.lead_score ?? 0);
-  const status = String(lead?.status ?? "").toLowerCase();
-  const next = dateOnly(lead?.next_follow_up_on);
-
-  if (status === "follow up") score += 25;
-  else if (status === "to contact") score += 20;
-  else if (status === "contacted") score += 15;
-  else if (status === "dormant") score += 14;
-  else if (status === "new") score += 12;
-  else if (status === "quoted") score += 8;
-
-  if (lead?.phone) score += 8;
-  if (lead?.email) score += 6;
-
-  if (!next && (status === "to contact" || status === "follow up" || status === "new")) {
-    score += 12;
-  }
-
-  if (next) {
-    const diff = Math.floor(
-      (new Date(today).getTime() - new Date(next).getTime()) / (1000 * 60 * 60 * 24)
-    );
-
-    if (diff > 3) score += 25;
-    else if (diff >= 1) score += 20;
-    else if (diff === 0) score += 18;
-    else if (diff === -1) score += 10;
-  }
-
-  return Math.min(score, 100);
-}
-
-function craneEligibleStatus(status: string | null | undefined) {
-  const s = String(status ?? "").toLowerCase();
-  if (!s) return true;
-  return !s.includes("maintenance") && !s.includes("repair") && !s.includes("inactive");
-}
-
-function vehicleEligibleStatus(status: string | null | undefined) {
-  const s = String(status ?? "").toLowerCase();
-  if (!s) return true;
-  return !s.includes("maintenance") && !s.includes("repair") && !s.includes("inactive");
-}
-
-function serviceMatch(assetType: "crane" | "transport", services: string[] | null | undefined) {
-  const joined = (services ?? []).join(" ").toLowerCase();
-
-  if (!joined.trim()) return 1;
-
-  if (assetType === "crane") {
-    if (
-      joined.includes("crane") ||
-      joined.includes("contract lift") ||
-      joined.includes("spider") ||
-      joined.includes("lifting")
-    ) {
-      return 3;
-    }
-    return 0;
-  }
-
-  if (
-    joined.includes("transport") ||
-    joined.includes("hiab") ||
-    joined.includes("haulage") ||
-    joined.includes("container") ||
-    joined.includes("machinery")
-  ) {
-    return 3;
-  }
-
+  if (status === "new") return 10;
+  if (status === "to contact") return 15;
+  if (status === "contacted") return 25;
+  if (status === "follow up") return 40;
+  if (status === "quoted") return 65;
+  if (status === "won") return 100;
+  if (status === "dormant") return 8;
   return 0;
 }
 
-function leadRank(assetType: "crane" | "transport", lead: any) {
-  const serviceScore = serviceMatch(assetType, lead.services);
-  if (serviceScore === 0) return -999;
+function weightedValueForLead(lead: LeadRow) {
+  return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
+}
 
+function isOpenLead(status: string | null | undefined) {
+  const s = String(status ?? "").toLowerCase();
+  return s !== "won" && s !== "lost";
+}
+
+function leadServicesText(lead: LeadRow) {
+  return Array.isArray(lead.services) ? lead.services.join(", ") : "";
+}
+
+function bestCallAngle(lead: LeadRow) {
+  const status = String(lead.status ?? "").toLowerCase();
+  const services = leadServicesText(lead).toLowerCase();
+  const industry = String(lead.industry ?? "").toLowerCase();
+
+  if (status === "quoted") {
+    return "Quote chase: check decision timing, objections and what is needed to win the job.";
+  }
+
+  if (status === "dormant") {
+    return "Reactivation: ask what they have coming up and re-open the relationship.";
+  }
+
+  if (status === "new" || status === "to contact") {
+    return "First introduction: establish requirement, timescales and who handles lifting or transport buying.";
+  }
+
+  if (
+    services.includes("hiab") ||
+    services.includes("transport") ||
+    services.includes("haulage") ||
+    industry.includes("container") ||
+    industry.includes("modular")
+  ) {
+    return "Transport-led call: focus on HIAB, haulage, delivery support and short-notice cover.";
+  }
+
+  if (
+    services.includes("crane") ||
+    services.includes("contract lift") ||
+    services.includes("lifting") ||
+    industry.includes("steel") ||
+    industry.includes("glazing") ||
+    industry.includes("construction")
+  ) {
+    return "Crane-led call: focus on crane hire, contract lifts, lifting support and nationwide response.";
+  }
+
+  return "General sales call: explore upcoming projects, pain points and where AnnS could support.";
+}
+
+function mainReason(lead: LeadRow, overdueDays: number | null, openCallTaskCount: number) {
+  const status = String(lead.status ?? "").toLowerCase();
+
+  if (openCallTaskCount > 0) return "Open call task already due";
+  if (overdueDays !== null && overdueDays < 0) return "Follow-up overdue";
+  if (status === "quoted") return "Quoted lead needs chasing";
+  if (status === "dormant") return "Dormant lead for recovery";
+  if (status === "new" || status === "to contact") return "New lead needs first contact";
+  return "High-value live opportunity";
+}
+
+function computeCallScore(lead: LeadRow, openCallTaskCount: number) {
   let score = 0;
-  score += Number(lead.lead_score ?? 0);
-  score += serviceScore * 15;
 
   const status = String(lead.status ?? "").toLowerCase();
-  if (status === "follow up") score += 20;
-  else if (status === "to contact") score += 18;
-  else if (status === "contacted") score += 14;
-  else if (status === "dormant") score += 16;
-  else if (status === "quoted") score += 10;
-  else if (status === "new") score += 12;
-  else if (status === "won" || status === "lost") score -= 100;
+  const overdueDays = daysUntil(lead.next_follow_up_on);
+  const closeDays = daysUntil(lead.expected_close_date);
+  const probability = probabilityForLead(lead);
+  const weightedValue = weightedValueForLead(lead);
 
-  if (lead.phone) score += 8;
-  if (lead.email) score += 6;
-  if (lead.next_follow_up_on) score += 4;
+  if (lead.phone) score += 50;
+  if (openCallTaskCount > 0) score += 40;
+  if (overdueDays !== null && overdueDays < 0) score += 35;
+  if (overdueDays !== null && overdueDays === 0) score += 25;
+  if (status === "quoted") score += 30;
+  if (status === "follow up") score += 18;
+  if (status === "dormant") score += 20;
+  if (status === "new" || status === "to contact") score += 16;
+  if (closeDays !== null && closeDays >= 0 && closeDays <= 7) score += 20;
+
+  score += Math.round(probability / 4);
+  score += Math.min(30, Math.round(weightedValue / 1000));
+
+  if (!lead.assigned_to_username) score += 6;
+  if (!lead.phone) score -= 100;
 
   return score;
 }
 
-async function createRecoveryLead(formData: FormData) {
-  "use server";
-
-  const supabase = createSupabaseServerClient();
-  const access = await getAccessContext();
-
-  if (!access.user || !canCreateCustomers(access)) {
-    redirect("/sales-hub/call-planning?error=You%20do%20not%20have%20permission%20to%20create%20recovery%20leads.");
-  }
-
-  const clientId = String(formData.get("client_id") ?? "").trim();
-  if (!clientId) {
-    redirect("/sales-hub/call-planning?error=Missing%20client%20id.");
-  }
-
-  const [
-    { data: client, error: clientError },
-    { data: existingLead },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportError },
-    { data: authRes },
-  ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, address, notes")
-      .eq("id", clientId)
-      .single(),
-    supabase
-      .from("sales_leads")
-      .select("id")
-      .eq("converted_client_id", clientId)
-      .maybeSingle(),
-    supabase
-      .from("jobs")
-      .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase
-      .from("transport_jobs")
-      .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase.auth.getUser(),
-  ]);
-
-  if (clientError || !client) {
-    redirect("/sales-hub/call-planning?error=Client%20not%20found.");
-  }
-
-  if (jobsError || transportError) {
-    redirect("/sales-hub/call-planning?error=Could%20not%20read%20client%20history.");
-  }
-
-  if (existingLead?.id) {
-    redirect(`/sales-hub/leads/${existingLead.id}?success=${encodeURIComponent("Recovery lead already existed, opened existing lead.")}`);
-  }
-
-  const validJobs = (jobs ?? []).filter(validCraneJob);
-  const validTransport = (transportJobs ?? []).filter(validTransportJob);
-
-  const lastCraneDate = latestDate(validJobs.map(craneJobDate));
-  const lastTransportDate = latestDate(validTransport.map(transportJobDate));
-  const lastActivity = latestDate([lastCraneDate, lastTransportDate]);
-  const dormantDays = daysSince(lastActivity) ?? 0;
-
-  const craneCount = validJobs.length;
-  const transportCount = validTransport.length;
-  const score = recoveryScore({
-    craneCount,
-    transportCount,
-    dormantDays,
-    hasPhone: Boolean(client.phone),
-    hasEmail: Boolean(client.email),
-  });
-
-  const services: string[] = [];
-  if (craneCount > 0) services.push("Crane Hire");
-  if (transportCount > 0) services.push("Transport");
-
-  const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
-
-  const noteLines = [
-    "Created from Call Planning Dashboard (Dormant Recovery).",
-    `Crane jobs: ${craneCount}.`,
-    `Transport jobs: ${transportCount}.`,
-    lastActivity ? `Last service date: ${fmtDate(lastActivity)}.` : "Last service date: unknown.",
-    `Dormant for approximately ${dormantDays} days.`,
-    client.notes ? `Existing client notes: ${client.notes}` : "",
-  ].filter(Boolean);
-
-  const { data: createdLead, error: createError } = await supabase
-    .from("sales_leads")
-    .insert({
-      company_name: client.company_name,
-      contact_name: client.contact_name || null,
-      email: client.email || null,
-      phone: client.phone || null,
-      address: client.address || null,
-      lead_source: "Dormant Customer Recovery",
-      status: "Dormant",
-      services,
-      notes: noteLines.join(" "),
-      lead_score: score,
-      do_not_contact: false,
-      next_follow_up_on: new Date().toISOString().slice(0, 10),
-      assigned_to_username: assignedUsername,
-      converted_client_id: client.id,
-    })
-    .select("id")
-    .single();
-
-  if (createError || !createdLead?.id) {
-    redirect(`/sales-hub/call-planning?error=${encodeURIComponent(createError?.message || "Could not create recovery lead.")}`);
-  }
-
-  await writeAuditLog({
-    actor_user_id: authRes.data.user?.id ?? null,
-    actor_username: assignedUsername,
-    action: "sales_recovery_lead_created_from_call_dashboard",
-    entity_type: "sales_recovery_lead",
-    entity_id: createdLead.id,
-    meta: {
-      client_id: client.id,
-      company_name: client.company_name,
-      crane_count: craneCount,
-      transport_count: transportCount,
-      dormant_days: dormantDays,
-      lead_score: score,
-    },
-  });
-
-  redirect(`/sales-hub/leads/${createdLead.id}?success=${encodeURIComponent("Recovery lead created.")}`);
+function byScoreDesc(a: PlannedCallRow, b: PlannedCallRow) {
+  if (b.score !== a.score) return b.score - a.score;
+  if (b.weightedValue !== a.weightedValue) return b.weightedValue - a.weightedValue;
+  return String(a.lead.company_name).localeCompare(String(b.lead.company_name));
 }
 
-async function createCrossSellLead(formData: FormData) {
-  "use server";
-
+export default async function CallPlanningPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
   const access = await getAccessContext();
 
-  if (!access.user || !canCreateCustomers(access)) {
-    redirect("/sales-hub/call-planning?error=You%20do%20not%20have%20permission%20to%20create%20cross-sell%20leads.");
-  }
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  const clientId = String(formData.get("client_id") ?? "").trim();
+  const canManage = !!access.user && canCreateCustomers(access);
+  const currentUsername = fromAuthEmail(user?.email ?? null);
 
-  if (!clientId) {
-    redirect("/sales-hub/call-planning?error=Missing%20client%20id.");
-  }
-
-  const [
-    { data: client, error: clientError },
-    { data: existingLead },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportError },
-    { data: authRes },
-  ] = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, address, notes")
-      .eq("id", clientId)
-      .single(),
-    supabase
-      .from("sales_leads")
-      .select("id, status")
-      .eq("converted_client_id", clientId)
-      .maybeSingle(),
-    supabase
-      .from("jobs")
-      .select("id, client_id, job_date, start_date, end_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase
-      .from("transport_jobs")
-      .select("id, client_id, transport_date, delivery_date, status, updated_at, created_at")
-      .eq("client_id", clientId),
-    supabase.auth.getUser(),
-  ]);
-
-  if (clientError || !client) {
-    redirect("/sales-hub/call-planning?error=Client%20not%20found.");
-  }
-
-  if (jobsError || transportError) {
-    redirect("/sales-hub/call-planning?error=Could%20not%20read%20client%20history.");
-  }
-
-  if (existingLead?.id) {
-    redirect(`/sales-hub/leads/${existingLead.id}?success=${encodeURIComponent("Cross-sell lead already existed, opened existing lead.")}`);
-  }
-
-  const validJobs = (jobs ?? []).filter(validCraneJob);
-  const validTransport = (transportJobs ?? []).filter(validTransportJob);
-
-  const craneCount = validJobs.length;
-  const transportCount = validTransport.length;
-  const type = crossSellType(craneCount, transportCount);
-  const details = promptDetails(type);
-  const lastActivity = latestDate([
-    latestDate(validJobs.map(craneJobDate)),
-    latestDate(validTransport.map(transportJobDate)),
-  ]);
-  const dormantDays = daysSince(lastActivity) ?? 0;
-
-  const score = crossSellScore({
-    craneCount,
-    transportCount,
-    dormantDays,
-    hasPhone: Boolean(client.phone),
-    hasEmail: Boolean(client.email),
-    type,
-  });
-
-  const assignedUsername = fromAuthEmail(authRes.data.user?.email ?? null) || null;
-
-  const noteLines = [
-    "Created from Call Planning Dashboard (Cross-Sell Prompt).",
-    details.summary,
-    `Crane jobs: ${craneCount}.`,
-    `Transport jobs: ${transportCount}.`,
-    lastActivity ? `Last service date: ${fmtDate(lastActivity)}.` : "Last service date: unknown.",
-    client.notes ? `Existing client notes: ${client.notes}` : "",
-  ].filter(Boolean);
-
-  const { data: createdLead, error: createError } = await supabase
-    .from("sales_leads")
-    .insert({
-      company_name: client.company_name,
-      contact_name: client.contact_name || null,
-      email: client.email || null,
-      phone: client.phone || null,
-      address: client.address || null,
-      lead_source: "Cross-Sell Prompt",
-      status: "To Contact",
-      services: [details.serviceFocus],
-      notes: noteLines.join(" "),
-      lead_score: score,
-      do_not_contact: false,
-      next_follow_up_on: new Date().toISOString().slice(0, 10),
-      assigned_to_username: assignedUsername,
-      converted_client_id: client.id,
-    })
-    .select("id")
-    .single();
-
-  if (createError || !createdLead?.id) {
-    redirect(`/sales-hub/call-planning?error=${encodeURIComponent(createError?.message || "Could not create cross-sell lead.")}`);
-  }
-
-  await writeAuditLog({
-    actor_user_id: authRes.data.user?.id ?? null,
-    actor_username: assignedUsername,
-    action: "sales_cross_sell_lead_created_from_call_dashboard",
-    entity_type: "sales_cross_sell_lead",
-    entity_id: createdLead.id,
-    meta: {
-      client_id: client.id,
-      company_name: client.company_name,
-      prompt_type: type,
-      crane_count: craneCount,
-      transport_count: transportCount,
-      lead_score: score,
-    },
-  });
-
-  redirect(`/sales-hub/leads/${createdLead.id}?success=${encodeURIComponent("Cross-sell lead created.")}`);
-}
-
-type CallPlanningPageProps = {
-  searchParams?: {
-    days?: string;
-    error?: string;
-  };
-};
-
-export default async function CallPlanningPage({
-  searchParams,
-}: CallPlanningPageProps) {
-  const supabase = createSupabaseServerClient();
-  const access = await getAccessContext();
-  const canCreate = !!access.user && canCreateCustomers(access);
-
-  const today = new Date().toISOString().slice(0, 10);
-  const lookAheadDays = Math.max(1, Math.min(14, Number(searchParams?.days || 3) || 3));
-  const availStart = addDays(new Date(), 1).toISOString().slice(0, 10);
-  const availEnd = addDays(new Date(availStart), lookAheadDays - 1).toISOString().slice(0, 10);
-  const errorMessage = String(searchParams?.error ?? "");
+  const selectedOwner = String(searchParams?.owner ?? "all").trim() || "all";
+  const selectedArea = String(searchParams?.area ?? "all").trim() || "all";
+  const selectedStatus = String(searchParams?.status ?? "all").trim() || "all";
 
   const [
     { data: leads, error: leadsError },
-    { data: clients, error: clientsError },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportError },
-    { data: existingLeads, error: existingLeadsError },
-    { data: cranes, error: cranesError },
-    { data: vehicles, error: vehiclesError },
+    { data: workflowTasks, error: tasksError },
   ] = await Promise.all([
     supabase
       .from("sales_leads")
-      .select("id, company_name, contact_name, phone, email, status, lead_score, do_not_contact, archived, next_follow_up_on, services, converted_client_id")
-      .eq("archived", false)
-      .order("lead_score", { ascending: false }),
-
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, address, archived")
+      .select(`
+        id,
+        company_name,
+        contact_name,
+        phone,
+        email,
+        area,
+        industry,
+        status,
+        services,
+        do_not_contact,
+        archived,
+        assigned_to_username,
+        opportunity_value,
+        probability_percent,
+        expected_close_date,
+        next_follow_up_on,
+        last_contacted_at,
+        updated_at
+      `)
       .eq("archived", false)
       .order("company_name", { ascending: true }),
-
     supabase
-      .from("jobs")
-      .select("id, client_id, crane_id, job_date, start_date, end_date, status, updated_at, created_at")
-      .not("client_id", "is", null),
-
-    supabase
-      .from("transport_jobs")
-      .select("id, client_id, vehicle_id, transport_date, delivery_date, status, updated_at, created_at")
-      .not("client_id", "is", null),
-
-    supabase
-      .from("sales_leads")
-      .select("id, company_name, converted_client_id, status")
-      .not("converted_client_id", "is", null),
-
-    supabase
-      .from("cranes")
-      .select("id, name, reg_number, fleet_number, capacity, status, archived")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-
-    supabase
-      .from("vehicles")
-      .select("id, name, reg_number, vehicle_type, capacity, status, archived")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
+      .from("sales_workflow_tasks")
+      .select(`
+        id,
+        lead_id,
+        title,
+        task_type,
+        status,
+        priority,
+        due_on,
+        assigned_to_username
+      `)
+      .eq("status", "open")
+      .order("due_on", { ascending: true }),
   ]);
 
-  const activeLeadRows = (leads ?? []).filter(
-    (lead: any) =>
-      !lead.archived &&
-      !lead.do_not_contact &&
-      !["won", "lost"].includes(String(lead.status ?? "").toLowerCase())
-  );
-
-  const followUpTasks = activeLeadRows
-    .map((lead: any) => {
-      const due = dateOnly(lead.next_follow_up_on);
-      const status = String(lead.status ?? "").toLowerCase();
-
-      const shouldShow =
-        (due && due <= today) ||
-        (!due && ["new", "to contact", "follow up", "contacted", "dormant", "quoted"].includes(status));
-
-      if (!shouldShow) return null;
-
-      return {
-        id: lead.id,
-        company_name: lead.company_name,
-        contact_name: lead.contact_name,
-        phone: lead.phone,
-        email: lead.email,
-        status: lead.status,
-        next_follow_up_on: lead.next_follow_up_on,
-        score: followUpPriority(lead, today),
-      };
+  const allLeads = ((leads ?? []) as LeadRow[])
+    .filter((lead) => !lead.do_not_contact)
+    .filter((lead) => isOpenLead(lead.status))
+    .filter((lead) => Boolean(lead.phone))
+    .filter((lead) => {
+      if (selectedOwner === "all") return true;
+      return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
     })
-    .filter(Boolean)
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, 15);
-
-  const jobsByClient = new Map<string, any[]>();
-  for (const row of (jobs ?? []).filter(validCraneJob)) {
-    const key = String((row as any).client_id ?? "");
-    if (!key) continue;
-    if (!jobsByClient.has(key)) jobsByClient.set(key, []);
-    jobsByClient.get(key)!.push(row);
-  }
-
-  const transportByClient = new Map<string, any[]>();
-  for (const row of (transportJobs ?? []).filter(validTransportJob)) {
-    const key = String((row as any).client_id ?? "");
-    if (!key) continue;
-    if (!transportByClient.has(key)) transportByClient.set(key, []);
-    transportByClient.get(key)!.push(row);
-  }
-
-  const leadByClientId = new Map<string, any>();
-  for (const lead of existingLeads ?? []) {
-    const key = String((lead as any).converted_client_id ?? "");
-    if (!key) continue;
-    leadByClientId.set(key, lead);
-  }
-
-  const dormantTasks = (clients ?? [])
-    .map((client: any) => {
-      const clientJobs = jobsByClient.get(String(client.id)) ?? [];
-      const clientTransport = transportByClient.get(String(client.id)) ?? [];
-
-      const craneCount = clientJobs.length;
-      const transportCount = clientTransport.length;
-      const totalCount = craneCount + transportCount;
-      if (totalCount === 0) return null;
-
-      const lastActivity = latestDate([
-        latestDate(clientJobs.map(craneJobDate)),
-        latestDate(clientTransport.map(transportJobDate)),
-      ]);
-
-      const dormantDays = daysSince(lastActivity);
-      if (dormantDays == null || dormantDays < 90) return null;
-
-      const score = recoveryScore({
-        craneCount,
-        transportCount,
-        dormantDays,
-        hasPhone: Boolean(client.phone),
-        hasEmail: Boolean(client.email),
-      });
-
-      return {
-        client,
-        existingLead: leadByClientId.get(String(client.id)) ?? null,
-        craneCount,
-        transportCount,
-        lastActivity,
-        dormantDays,
-        score,
-      };
+    .filter((lead) => {
+      if (selectedArea === "all") return true;
+      return String(lead.area ?? "").trim() === selectedArea;
     })
-    .filter(Boolean)
-    .sort((a: any, b: any) => b.score - a.score)
+    .filter((lead) => {
+      if (selectedStatus === "all") return true;
+      return String(lead.status ?? "").trim() === selectedStatus;
+    });
+
+  const openCallTasksByLead = new Map<string, WorkflowTaskRow[]>();
+
+  for (const task of (workflowTasks ?? []) as WorkflowTaskRow[]) {
+    if (String(task.task_type ?? "").toLowerCase() !== "call") continue;
+    const leadId = String(task.lead_id ?? "").trim();
+    if (!leadId) continue;
+    if (!openCallTasksByLead.has(leadId)) openCallTasksByLead.set(leadId, []);
+    openCallTasksByLead.get(leadId)!.push(task);
+  }
+
+  const plannedCalls: PlannedCallRow[] = allLeads.map((lead) => {
+    const openCallTaskCount = (openCallTasksByLead.get(String(lead.id)) ?? []).length;
+    const overdueDays = daysUntil(lead.next_follow_up_on);
+    const expectedCloseDays = daysUntil(lead.expected_close_date);
+    const weightedValue = weightedValueForLead(lead);
+
+    return {
+      lead,
+      score: computeCallScore(lead, openCallTaskCount),
+      weightedValue,
+      overdueDays,
+      expectedCloseDays,
+      openCallTaskCount,
+      topReason: mainReason(lead, overdueDays, openCallTaskCount),
+      callAngle: bestCallAngle(lead),
+    };
+  });
+
+  const rankedCalls = [...plannedCalls].sort(byScoreDesc);
+
+  const priorityCalls = rankedCalls.slice(0, 12);
+
+  const quoteChaseCalls = rankedCalls
+    .filter((item) => String(item.lead.status ?? "").toLowerCase() === "quoted")
     .slice(0, 10);
 
-  const crossSellTasks = (clients ?? [])
-    .map((client: any) => {
-      const clientJobs = jobsByClient.get(String(client.id)) ?? [];
-      const clientTransport = transportByClient.get(String(client.id)) ?? [];
-      const craneCount = clientJobs.length;
-      const transportCount = clientTransport.length;
-
-      const type = crossSellType(craneCount, transportCount);
-      if (!type) return null;
-
-      const details = promptDetails(type);
-      const lastActivity = latestDate([
-        latestDate(clientJobs.map(craneJobDate)),
-        latestDate(clientTransport.map(transportJobDate)),
-      ]);
-      const dormantDays = daysSince(lastActivity) ?? 0;
-
-      const score = crossSellScore({
-        craneCount,
-        transportCount,
-        dormantDays,
-        hasPhone: Boolean(client.phone),
-        hasEmail: Boolean(client.email),
-        type,
-      });
-
-      return {
-        client,
-        existingLead: leadByClientId.get(String(client.id)) ?? null,
-        craneCount,
-        transportCount,
-        type,
-        details,
-        lastActivity,
-        score,
-      };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => b.score - a.score)
+  const dormantRecoveryCalls = rankedCalls
+    .filter((item) => String(item.lead.status ?? "").toLowerCase() === "dormant")
     .slice(0, 10);
 
-  const bookedCraneIds = new Set(
-    (jobs ?? [])
-      .filter(
-        (row: any) =>
-          row.crane_id &&
-          validCraneJob(row) &&
-          overlapsWindow(craneStart(row), craneEnd(row), availStart, availEnd)
-      )
-      .map((row: any) => String(row.crane_id))
-  );
+  const overdueFollowUps = rankedCalls
+    .filter((item) => item.overdueDays !== null && item.overdueDays < 0)
+    .slice(0, 10);
 
-  const bookedVehicleIds = new Set(
-    (transportJobs ?? [])
-      .filter(
-        (row: any) =>
-          row.vehicle_id &&
-          validTransportJob(row) &&
-          overlapsWindow(transportStart(row), transportEnd(row), availStart, availEnd)
-      )
-      .map((row: any) => String(row.vehicle_id))
-  );
+  const callbackTasks = rankedCalls
+    .filter((item) => item.openCallTaskCount > 0)
+    .slice(0, 10);
 
-  const availabilityLeadPool = activeLeadRows;
+  const ownerOptions = Array.from(
+    new Set(
+      ((leads ?? []) as LeadRow[])
+        .map((lead) => String(lead.assigned_to_username ?? "").trim())
+        .filter(Boolean)
+        .concat(currentUsername ? [currentUsername] : [])
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
-  const freeCraneTasks = (cranes ?? [])
-    .filter((crane: any) => craneEligibleStatus(crane.status))
-    .filter((crane: any) => !bookedCraneIds.has(String(crane.id)))
-    .map((crane: any) => ({
-      assetType: "crane" as const,
-      asset: crane,
-      suggestions: [...availabilityLeadPool]
-        .map((lead: any) => ({ lead, score: leadRank("crane", lead) }))
-        .filter((row) => row.score > -999)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3),
-    }));
-
-  const freeVehicleTasks = (vehicles ?? [])
-    .filter((vehicle: any) => vehicleEligibleStatus(vehicle.status))
-    .filter((vehicle: any) => !bookedVehicleIds.has(String(vehicle.id)))
-    .map((vehicle: any) => ({
-      assetType: "transport" as const,
-      asset: vehicle,
-      suggestions: [...availabilityLeadPool]
-        .map((lead: any) => ({ lead, score: leadRank("transport", lead) }))
-        .filter((row) => row.score > -999)
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 3),
-    }));
-
-  const availabilityTasks = [...freeCraneTasks, ...freeVehicleTasks].slice(0, 8);
-
-  const totalActions =
-    followUpTasks.length + dormantTasks.length + crossSellTasks.length + availabilityTasks.length;
+  const areaOptions = Array.from(
+    new Set(
+      ((leads ?? []) as LeadRow[])
+        .map((lead) => String(lead.area ?? "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b));
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1280px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1380px, 96vw)", margin: "0 auto" }}>
         <div style={topBar}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Call Planning Dashboard</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Daily action screen for follow-ups, recovery, cross-sell and spare capacity selling.
+              Prioritise who to call today, why they matter and the best angle to use.
             </p>
           </div>
 
-          <a href="/sales-hub" style={secondaryBtn}>
-            ← Sales Hub
-          </a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub" style={secondaryBtn}>
+              ← Sales Hub
+            </a>
+            <a href="/sales-hub/campaigns" style={secondaryBtn}>
+              Campaigns
+            </a>
+            <a href="/sales-hub/availability" style={secondaryBtn}>
+              Availability
+            </a>
+          </div>
         </div>
 
-        {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
-        {clientsError ? <div style={errorCard}>{clientsError.message}</div> : null}
-        {jobsError ? <div style={errorCard}>{jobsError.message}</div> : null}
-        {transportError ? <div style={errorCard}>{transportError.message}</div> : null}
-        {existingLeadsError ? <div style={errorCard}>{existingLeadsError.message}</div> : null}
-        {cranesError ? <div style={errorCard}>{cranesError.message}</div> : null}
-        {vehiclesError ? <div style={errorCard}>{vehiclesError.message}</div> : null}
+        {tasksError ? <div style={errorCard}>{tasksError.message}</div> : null}
 
         <div style={statsGrid}>
-          <StatCard label="Total actions" value={String(totalActions)} />
-          <StatCard label="Follow-ups due" value={String(followUpTasks.length)} />
-          <StatCard label="Dormant recovery" value={String(dormantTasks.length)} />
-          <StatCard label="Cross-sell prompts" value={String(crossSellTasks.length)} />
-          <StatCard label="Free assets" value={String(availabilityTasks.length)} />
+          <StatCard label="Call-ready leads" value={String(rankedCalls.length)} />
+          <StatCard label="Priority calls" value={String(priorityCalls.length)} />
+          <StatCard label="Quote chases" value={String(quoteChaseCalls.length)} />
+          <StatCard label="Dormant recovery" value={String(dormantRecoveryCalls.length)} />
+          <StatCard label="Overdue follow-ups" value={String(overdueFollowUps.length)} />
+          <StatCard label="Open call tasks" value={String(callbackTasks.length)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
+          <h2 style={sectionTitle}>Filters</h2>
+
           <form method="get" action="/sales-hub/call-planning" style={filterGrid}>
             <div>
-              <label style={labelStyle}>Availability look-ahead</label>
-              <select name="days" defaultValue={String(lookAheadDays)} style={inputStyle}>
-                <option value="1">Tomorrow only</option>
-                <option value="3">Next 3 days</option>
-                <option value="7">Next 7 days</option>
-                <option value="14">Next 14 days</option>
+              <label style={labelStyle}>Owner</label>
+              <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
+                <option value="all">All owners</option>
+                {ownerOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
               </select>
             </div>
 
-            <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <label style={labelStyle}>Area</label>
+              <select name="area" defaultValue={selectedArea} style={inputStyle}>
+                <option value="all">All areas</option>
+                {areaOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Lead status</label>
+              <select name="status" defaultValue={selectedStatus} style={inputStyle}>
+                <option value="all">All live statuses</option>
+                <option value="New">New</option>
+                <option value="To Contact">To Contact</option>
+                <option value="Contacted">Contacted</option>
+                <option value="Quoted">Quoted</option>
+                <option value="Follow Up">Follow Up</option>
+                <option value="Dormant">Dormant</option>
+              </select>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
-                Apply
+                Refresh plan
               </button>
               <a href="/sales-hub/call-planning" style={secondaryBtn}>
                 Clear
@@ -872,217 +440,80 @@ export default async function CallPlanningPage({
           </form>
         </section>
 
-        <div style={sectionGrid}>
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Lead follow-ups due now</h2>
-            {!followUpTasks.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No urgent lead follow-ups right now.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {followUpTasks.map((lead: any) => (
-                  <div key={lead.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          {lead.contact_name || "No contact name"}
-                          {lead.status ? ` • ${lead.status}` : ""}
-                          {lead.phone ? ` • ${lead.phone}` : ""}
-                          {lead.email ? ` • ${lead.email}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          Next follow-up: {fmtDate(lead.next_follow_up_on)}
-                        </div>
-                      </div>
-
-                      <Badge label={`Priority ${lead.score}`} />
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      <a href={`/sales-hub/leads/${lead.id}`} style={secondaryBtn}>
-                        Open lead
-                      </a>
-                      <a href={`/sales-hub/leads/${lead.id}/outreach`} style={primaryBtn}>
-                        Outreach
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Dormant recovery opportunities</h2>
-            {!dormantTasks.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No strong dormant recovery opportunities found.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {dormantTasks.map((row: any) => (
-                  <div key={row.client.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{row.client.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          {row.client.contact_name || "No contact name"}
-                          {row.client.phone ? ` • ${row.client.phone}` : ""}
-                          {row.client.email ? ` • ${row.client.email}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          Last service {fmtDate(row.lastActivity)} • Crane {row.craneCount} • Transport {row.transportCount}
-                        </div>
-                      </div>
-
-                      <Badge label={`Priority ${row.score}`} />
-                    </div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      {row.existingLead ? (
-                        <>
-                          <a href={`/sales-hub/leads/${row.existingLead.id}`} style={secondaryBtn}>
-                            Open lead
-                          </a>
-                          <a href={`/sales-hub/leads/${row.existingLead.id}/outreach`} style={primaryBtn}>
-                            Outreach
-                          </a>
-                        </>
-                      ) : canCreate ? (
-                        <form action={createRecoveryLead}>
-                          <input type="hidden" name="client_id" value={row.client.id} />
-                          <button type="submit" style={primaryBtn}>
-                            Create recovery lead
-                          </button>
-                        </form>
-                      ) : (
-                        <div style={mutedNote}>No permission to create recovery lead.</div>
-                      )}
-
-                      <a href={`/customers/${row.client.id}`} style={secondaryBtn}>
-                        Open customer
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Cross-sell prompts</h2>
-            {!crossSellTasks.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No strong cross-sell prompts found.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {crossSellTasks.map((row: any) => (
-                  <div key={row.client.id} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{row.client.company_name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          {row.details.title}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          Last service {fmtDate(row.lastActivity)} • Crane {row.craneCount} • Transport {row.transportCount}
-                        </div>
-                      </div>
-
-                      <Badge label={`Priority ${row.score}`} />
-                    </div>
-
-                    <div style={summaryBox}>{row.details.summary}</div>
-
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
-                      {row.existingLead ? (
-                        <>
-                          <a href={`/sales-hub/leads/${row.existingLead.id}`} style={secondaryBtn}>
-                            Open lead
-                          </a>
-                          <a href={`/sales-hub/leads/${row.existingLead.id}/outreach`} style={primaryBtn}>
-                            Outreach
-                          </a>
-                        </>
-                      ) : canCreate ? (
-                        <form action={createCrossSellLead}>
-                          <input type="hidden" name="client_id" value={row.client.id} />
-                          <button type="submit" style={primaryBtn}>
-                            Create cross-sell lead
-                          </button>
-                        </form>
-                      ) : (
-                        <div style={mutedNote}>No permission to create cross-sell lead.</div>
-                      )}
-
-                      <a href={`/customers/${row.client.id}`} style={secondaryBtn}>
-                        Open customer
-                      </a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={panelStyle}>
-            <h2 style={sectionTitle}>Spare capacity selling</h2>
-            <div style={{ marginBottom: 10, fontSize: 13, opacity: 0.75 }}>
-              Free assets between {fmtDate(availStart)} and {fmtDate(availEnd)}
+        <section style={{ ...panelStyle, marginTop: 16 }}>
+          <div style={sectionTopRow}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Priority calls today</h2>
+            <div style={helperText}>
+              Highest value and most urgent calls first.
             </div>
+          </div>
 
-            {!availabilityTasks.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No free assets found in this window.</p>
+          {!priorityCalls.length ? (
+            <div style={mutedBox}>No leads matched the current filters.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+              {priorityCalls.map((item, index) => (
+                <CallCard
+                  key={item.lead.id}
+                  item={item}
+                  rank={index + 1}
+                  canManage={canManage}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <div style={twoColGrid}>
+          <section style={{ ...panelStyle, marginTop: 16 }}>
+            <h2 style={sectionTitle}>Quote chase calls</h2>
+            {!quoteChaseCalls.length ? (
+              <div style={mutedBox}>No quoted leads currently in scope.</div>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {availabilityTasks.map((row: any) => (
-                  <div key={`${row.assetType}-${row.asset.id}`} style={itemCard}>
-                    <div style={itemTopRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {row.asset.name || (row.assetType === "crane" ? "Crane" : "Vehicle")}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                          {row.assetType === "crane" ? "Crane" : "Transport"}
-                          {row.asset.reg_number ? ` • ${row.asset.reg_number}` : ""}
-                          {row.asset.fleet_number ? ` • ${row.asset.fleet_number}` : ""}
-                          {row.asset.vehicle_type ? ` • ${row.asset.vehicle_type}` : ""}
-                          {row.asset.capacity ? ` • ${row.asset.capacity}` : ""}
-                        </div>
-                      </div>
+                {quoteChaseCalls.map((item) => (
+                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
+                ))}
+              </div>
+            )}
+          </section>
 
-                      <Badge label={`${row.suggestions.length} suggestions`} />
-                    </div>
+          <section style={{ ...panelStyle, marginTop: 16 }}>
+            <h2 style={sectionTitle}>Dormant recovery</h2>
+            {!dormantRecoveryCalls.length ? (
+              <div style={mutedBox}>No dormant leads currently in scope.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {dormantRecoveryCalls.map((item) => (
+                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
 
-                    {row.suggestions.length === 0 ? (
-                      <div style={{ marginTop: 10, opacity: 0.78 }}>
-                        No matching leads currently. Use Leads or Dormant Recovery to build more targets.
-                      </div>
-                    ) : (
-                      <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
-                        {row.suggestions.map((item: any) => (
-                          <div key={item.lead.id} style={nestedCard}>
-                            <div style={itemTopRow}>
-                              <div style={{ minWidth: 0 }}>
-                                <div style={{ fontWeight: 800 }}>{item.lead.company_name}</div>
-                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                                  {item.lead.contact_name || "No contact name"}
-                                  {item.lead.status ? ` • ${item.lead.status}` : ""}
-                                </div>
-                              </div>
-                              <Badge label={`Rank ${item.score}`} />
-                            </div>
+        <div style={twoColGrid}>
+          <section style={{ ...panelStyle, marginTop: 16 }}>
+            <h2 style={sectionTitle}>Overdue follow-ups</h2>
+            {!overdueFollowUps.length ? (
+              <div style={mutedBox}>No overdue follow-ups currently in scope.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {overdueFollowUps.map((item) => (
+                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
+                ))}
+              </div>
+            )}
+          </section>
 
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-                              <a href={`/sales-hub/leads/${item.lead.id}`} style={secondaryBtn}>
-                                Open lead
-                              </a>
-                              <a href={`/sales-hub/leads/${item.lead.id}/outreach`} style={primaryBtn}>
-                                Outreach
-                              </a>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+          <section style={{ ...panelStyle, marginTop: 16 }}>
+            <h2 style={sectionTitle}>Open call tasks</h2>
+            {!callbackTasks.length ? (
+              <div style={mutedBox}>No open call tasks currently linked to filtered leads.</div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {callbackTasks.map((item) => (
+                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
                 ))}
               </div>
             )}
@@ -1102,11 +533,106 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Badge({ label }: { label: string }) {
-  return <div style={badgeStyle}>{label}</div>;
+function CallCard({
+  item,
+  rank,
+  canManage,
+}: {
+  item: PlannedCallRow;
+  rank: number;
+  canManage: boolean;
+}) {
+  const lead = item.lead;
+
+  return (
+    <div style={callCard}>
+      <div style={callCardTop}>
+        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+          <div style={rankBadge}>{rank}</div>
+
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>{lead.company_name}</div>
+
+            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
+              {lead.contact_name || "No contact"} • {lead.phone || "No phone"} • {lead.status || "New"}
+            </div>
+
+            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
+              {lead.area || "No area"} • {lead.industry || "No industry"} • Owner:{" "}
+              {lead.assigned_to_username || "Unassigned"}
+            </div>
+
+            <div style={reasonBox}>
+              <strong>{item.topReason}</strong>
+              <div style={{ marginTop: 6 }}>{item.callAngle}</div>
+            </div>
+
+            <div style={metaGrid}>
+              <div>Weighted value: {formatMoneyGBP(item.weightedValue)}</div>
+              <div>Probability: {probabilityForLead(lead)}%</div>
+              <div>Next follow-up: {formatDateUK(lead.next_follow_up_on)}</div>
+              <div>Expected close: {formatDateUK(lead.expected_close_date)}</div>
+              <div>Open call tasks: {item.openCallTaskCount}</div>
+              <div>Score: {item.score}</div>
+            </div>
+          </div>
+        </div>
+
+        <div style={actionCol}>
+          <a href={`/sales-hub/leads/${lead.id}`} style={miniLinkBtn}>
+            Open lead
+          </a>
+          <a href={`/sales-hub/opportunities/${lead.id}`} style={miniLinkBtn}>
+            Opportunity
+          </a>
+          {canManage ? (
+            <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkLinkBtn}>
+              Outreach
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
 }
 
-const topBar: React.CSSProperties = {
+function MiniCallCard({
+  item,
+  canManage,
+}: {
+  item: PlannedCallRow;
+  canManage: boolean;
+}) {
+  const lead = item.lead;
+
+  return (
+    <div style={miniCard}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
+          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
+            {lead.contact_name || "No contact"} • {lead.phone || "No phone"} • {lead.status || "New"}
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13 }}>{item.topReason}</div>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={miniBadge}>Score {item.score}</div>
+          <a href={`/sales-hub/leads/${lead.id}`} style={miniLinkBtn}>
+            Lead
+          </a>
+          {canManage ? (
+            <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkLinkBtn}>
+              Call
+            </a>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -1115,20 +641,13 @@ const topBar: React.CSSProperties = {
   marginBottom: 16,
 };
 
-const statsGrid: React.CSSProperties = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const sectionGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: 16,
-  marginTop: 16,
-};
-
-const panelStyle: React.CSSProperties = {
+const panelStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -1136,7 +655,7 @@ const panelStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCard: React.CSSProperties = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -1144,21 +663,39 @@ const statCard: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const filterGrid: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
+  marginTop: 0,
+  fontSize: 22,
+};
+
+const sectionTopRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const helperText: CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
+};
+
+const filterGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 280px) auto",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 12,
   alignItems: "end",
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -1170,52 +707,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const sectionTitle: React.CSSProperties = {
-  marginTop: 0,
-  fontSize: 22,
-};
-
-const itemCard: React.CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const nestedCard: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.9)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const itemTopRow: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 10,
-  alignItems: "flex-start",
-  flexWrap: "wrap",
-};
-
-const summaryBox: React.CSSProperties = {
-  marginTop: 10,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(0,0,0,0.05)",
-  border: "1px solid rgba(0,0,0,0.06)",
-  fontWeight: 600,
-};
-
-const badgeStyle: React.CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 999,
-  background: "rgba(0,0,0,0.06)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 800,
-  fontSize: 12,
-};
-
-const primaryBtn: React.CSSProperties = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -1227,7 +719,7 @@ const primaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -1238,7 +730,28 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const errorCard: React.CSSProperties = {
+const miniLinkBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const miniDarkLinkBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+};
+
+const errorCard: CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -1246,11 +759,87 @@ const errorCard: React.CSSProperties = {
   marginBottom: 12,
 };
 
-const mutedNote: React.CSSProperties = {
-  padding: "10px 12px",
-  borderRadius: 10,
+const twoColGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
+  gap: 16,
+};
+
+const mutedBox: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
-  opacity: 0.76,
+  opacity: 0.82,
   fontWeight: 700,
+};
+
+const callCard: CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const callCardTop: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "flex-start",
+};
+
+const rankBadge: CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 999,
+  background: "#111",
+  color: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  fontWeight: 900,
+  flexShrink: 0,
+};
+
+const reasonBox: CSSProperties = {
+  marginTop: 10,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.88)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  lineHeight: 1.5,
+  fontSize: 14,
+};
+
+const metaGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 8,
+  marginTop: 12,
+  fontSize: 13,
+  opacity: 0.82,
+};
+
+const actionCol: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const miniCard: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const miniBadge: CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 999,
+  background: "rgba(0,0,0,0.06)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+  fontSize: 12,
 };
