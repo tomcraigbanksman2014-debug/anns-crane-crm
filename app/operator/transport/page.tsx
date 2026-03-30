@@ -63,6 +63,33 @@ function prettyStatus(value: string | null | undefined) {
   return value ?? "—";
 }
 
+function effectiveDeliveryDate(job: any) {
+  return job.delivery_date || job.transport_date || "";
+}
+
+function applicableRouteOrderForDate(job: any, dateValue: string) {
+  const orders: number[] = [];
+
+  if (
+    job.transport_date === dateValue &&
+    typeof job.collection_route_order === "number" &&
+    Number.isFinite(job.collection_route_order)
+  ) {
+    orders.push(job.collection_route_order);
+  }
+
+  if (
+    effectiveDeliveryDate(job) === dateValue &&
+    typeof job.delivery_route_order === "number" &&
+    Number.isFinite(job.delivery_route_order)
+  ) {
+    orders.push(job.delivery_route_order);
+  }
+
+  if (orders.length === 0) return null;
+  return Math.min(...orders);
+}
+
 export default async function OperatorTransportPage() {
   const supabase = createSupabaseServerClient();
   const admin = getAdminClient();
@@ -124,7 +151,10 @@ export default async function OperatorTransportPage() {
       transport_number,
       transport_date,
       collection_time,
+      delivery_date,
       delivery_time,
+      collection_route_order,
+      delivery_route_order,
       collection_address,
       delivery_address,
       load_description,
@@ -154,6 +184,25 @@ export default async function OperatorTransportPage() {
     .order("transport_date", { ascending: true })
     .order("collection_time", { ascending: true });
 
+  const orderedTransportJobs = [...((transportJobs ?? []) as any[])].sort((a, b) => {
+    const dateA = String(a.transport_date ?? "");
+    const dateB = String(b.transport_date ?? "");
+    if (dateA !== dateB) return dateA.localeCompare(dateB);
+
+    const routeA = applicableRouteOrderForDate(a, dateA);
+    const routeB = applicableRouteOrderForDate(b, dateB);
+
+    if (routeA !== null && routeB !== null && routeA !== routeB) {
+      return routeA - routeB;
+    }
+    if (routeA !== null && routeB === null) return -1;
+    if (routeA === null && routeB !== null) return 1;
+
+    return String(a.collection_time || "99:99").localeCompare(
+      String(b.collection_time || "99:99")
+    );
+  });
+
   return (
     <ClientShell>
       <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
@@ -165,12 +214,12 @@ export default async function OperatorTransportPage() {
 
           {jobsError ? (
             <div style={errorBox}>{jobsError.message}</div>
-          ) : !transportJobs || transportJobs.length === 0 ? (
+          ) : orderedTransportJobs.length === 0 ? (
             <div style={infoBox}>No transport work assigned.</div>
           ) : (
             <>
               <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
-                {transportJobs.map((job: any) => {
+                {orderedTransportJobs.map((job: any) => {
                   const client = first(job.clients);
                   const vehicle = first(job.vehicles);
                   const linkedJob = first(job.jobs);
@@ -188,10 +237,10 @@ export default async function OperatorTransportPage() {
                       >
                         <div>
                           <div style={{ fontWeight: 1000, fontSize: 18 }}>
-                            {job.transport_number ?? "Transport Job"}
+                            {client?.company_name ?? job.transport_number ?? "Transport Job"}
                           </div>
                           <div style={{ marginTop: 4, opacity: 0.78 }}>
-                            {fmtDate(job.transport_date)}
+                            {job.transport_number ?? "—"} • {fmtDate(job.transport_date)}
                           </div>
                         </div>
 
@@ -199,7 +248,14 @@ export default async function OperatorTransportPage() {
                       </div>
 
                       <div style={detailBlock}>
-                        <strong>Customer:</strong> {client?.company_name ?? "—"}
+                        <strong>Route order:</strong>{" "}
+                        {typeof job.collection_route_order === "number"
+                          ? `Pickup #${job.collection_route_order}`
+                          : "Pickup —"}
+                        {" • "}
+                        {typeof job.delivery_route_order === "number"
+                          ? `Delivery #${job.delivery_route_order}`
+                          : "Delivery —"}
                       </div>
                       <div style={detailBlock}>
                         <strong>Vehicle:</strong> {vehicle?.name ?? "—"}
@@ -239,13 +295,14 @@ export default async function OperatorTransportPage() {
               <div style={{ marginTop: 18 }}>
                 <OperatorTransportTracker
                   operatorId={operator.id}
-                  jobs={(transportJobs ?? []).map((job: any) => {
+                  jobs={orderedTransportJobs.map((job: any) => {
                     const vehicle = first(job.vehicles);
                     return {
                       id: job.id,
                       transport_number: job.transport_number ?? "Transport Job",
                       transport_date: job.transport_date ?? "",
                       collection_time: job.collection_time ?? "",
+                      delivery_date: job.delivery_date ?? job.transport_date ?? "",
                       delivery_time: job.delivery_time ?? "",
                       collection_address: job.collection_address ?? "",
                       delivery_address: job.delivery_address ?? "",
@@ -254,6 +311,8 @@ export default async function OperatorTransportPage() {
                       vehicle_label: `${vehicle?.name ?? "Vehicle"}${
                         vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""
                       }`,
+                      collection_route_order: job.collection_route_order ?? null,
+                      delivery_route_order: job.delivery_route_order ?? null,
                     };
                   })}
                 />
