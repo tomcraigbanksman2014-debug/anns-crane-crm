@@ -24,6 +24,7 @@ export default async function SalesHubPage() {
     { data: leads, error },
     { data: templates },
     { data: campaigns },
+    { data: tasks },
   ] = await Promise.all([
     supabase
       .from("sales_leads")
@@ -36,6 +37,10 @@ export default async function SalesHubPage() {
     supabase
       .from("sales_campaigns")
       .select("id, name, status, scheduled_for, created_at")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("sales_workflow_tasks")
+      .select("id, status, due_on, created_at, completed_at")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -70,6 +75,13 @@ export default async function SalesHubPage() {
     )
     .slice(0, 4);
 
+  const workflowRows = tasks ?? [];
+  const openTasks = countWhere(workflowRows, (row) => String(row.status ?? "") === "open");
+  const overdueTasks = countWhere(
+    workflowRows,
+    (row) => String(row.status ?? "") === "open" && row.due_on && normaliseDateOnly(row.due_on) < today
+  );
+
   return (
     <ClientShell>
       <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
@@ -85,13 +97,16 @@ export default async function SalesHubPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Sales Hub</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Manage leads, track follow-ups and build more work into the diary.
+              Manage leads, campaigns, tasks and follow-ups to win more work.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/sales-hub/leads" style={secondaryBtnStyle}>
               View leads
+            </a>
+            <a href="/sales-hub/workflows" style={secondaryBtnStyle}>
+              Workflow tasks
             </a>
             <a href="/sales-hub/leads/new" style={primaryBtnStyle}>
               + Add lead
@@ -110,7 +125,8 @@ export default async function SalesHubPage() {
           <StatCard label="Won" value={String(won)} />
           <StatCard label="Dormant" value={String(dormant)} />
           <StatCard label="Follow-ups due" value={String(dueToday)} />
-          <StatCard label="Do not contact" value={String(doNotContact)} />
+          <StatCard label="Open tasks" value={String(openTasks)} />
+          <StatCard label="Overdue tasks" value={String(overdueTasks)} />
           <StatCard label="Active templates" value={String(activeTemplates)} />
           <StatCard label="Active campaigns" value={String(activeCampaigns)} />
         </div>
@@ -121,6 +137,11 @@ export default async function SalesHubPage() {
             <div style={{ display: "grid", gap: 10 }}>
               <a href="/sales-hub/automation" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Automation Centre</div>
+                <div style={toolCardSub}>Live now</div>
+              </a>
+
+              <a href="/sales-hub/workflows" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Workflow Tasks</div>
                 <div style={toolCardSub}>Live now</div>
               </a>
 
