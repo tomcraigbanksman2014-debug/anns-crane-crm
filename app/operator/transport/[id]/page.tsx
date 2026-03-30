@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import OperatorTransportActions from "./OperatorTransportActions";
 import OperatorTransportDocumentUpload from "./OperatorTransportDocumentUpload";
 import { redirect } from "next/navigation";
 
@@ -140,6 +141,8 @@ export default async function OperatorTransportJobPage({
           notes,
           status,
           operator_id,
+          pickup_completed_at,
+          delivery_completed_at,
           vehicles:vehicle_id (
             id,
             name,
@@ -240,6 +243,29 @@ export default async function OperatorTransportJobPage({
           </div>
 
           <div style={sectionBlock}>
+            <div style={rowLabel}>Progress</div>
+            <div style={rowValue}>
+              Pickup: {fmtDateTime((job as any).pickup_completed_at)}
+              {" • "}
+              Delivery: {fmtDateTime((job as any).delivery_completed_at)}
+            </div>
+          </div>
+
+          <div style={docSection}>
+            <h2 style={{ marginTop: 0, marginBottom: 10, fontSize: 22 }}>
+              Job Actions
+            </h2>
+            <div style={{ opacity: 0.78, fontSize: 14 }}>
+              Mark each stage as you complete it so the office can track progress live.
+            </div>
+            <OperatorTransportActions
+              transportJobId={(job as any).id}
+              pickupCompletedAt={(job as any).pickup_completed_at ?? null}
+              deliveryCompletedAt={(job as any).delivery_completed_at ?? null}
+            />
+          </div>
+
+          <div style={sectionBlock}>
             <div style={rowLabel}>Pickup</div>
             <div style={rowValue}>{(job as any).collection_address ?? "—"}</div>
           </div>
@@ -310,8 +336,8 @@ export default async function OperatorTransportJobPage({
           </div>
 
           <div style={{ marginTop: 16 }}>
-            <a href="/operator/jobs" style={backBtn}>
-              ← Back to My Jobs
+            <a href="/operator/transport" style={backBtn}>
+              ← Back to My Transport
             </a>
           </div>
         </div>
