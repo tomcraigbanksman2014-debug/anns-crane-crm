@@ -1,4 +1,4 @@
-import ClientShell from "../../../../../ClientShell";
+import ClientShell from "../../../../ClientShell";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import CampaignRunner from "./CampaignRunner";
 
