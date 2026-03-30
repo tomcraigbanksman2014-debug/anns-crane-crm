@@ -119,14 +119,14 @@ export default async function SalesHubPage() {
           <section style={cardStyle}>
             <h2 style={sectionTitle}>Sales tools</h2>
             <div style={{ display: "grid", gap: 10 }}>
-              <a href="/sales-hub/leads" style={toolCardLink}>
-                <div style={{ fontWeight: 900 }}>Leads / Potential Customers</div>
+              <a href="/sales-hub/call-planning" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Call Planning Dashboard</div>
                 <div style={toolCardSub}>Live now</div>
               </a>
 
-              <a href="/sales-hub/leads?status=Follow%20Up" style={toolCardLink}>
-                <div style={{ fontWeight: 900 }}>Call planning / follow-ups</div>
-                <div style={toolCardSub}>Use current lead statuses and dates</div>
+              <a href="/sales-hub/leads" style={toolCardLink}>
+                <div style={{ fontWeight: 900 }}>Leads / Potential Customers</div>
+                <div style={toolCardSub}>Live now</div>
               </a>
 
               <a href="/sales-hub/templates" style={toolCardLink}>
@@ -137,11 +137,6 @@ export default async function SalesHubPage() {
               <a href="/sales-hub/campaigns" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Campaigns</div>
                 <div style={toolCardSub}>Live now</div>
-              </a>
-
-              <a href="/sales-hub/campaigns" style={toolCardLink}>
-                <div style={{ fontWeight: 900 }}>Campaign Runner</div>
-                <div style={toolCardSub}>Generate drafts across linked leads</div>
               </a>
 
               <a href="/sales-hub/dormant-customers" style={toolCardLink}>
