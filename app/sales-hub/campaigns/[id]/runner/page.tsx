@@ -76,7 +76,9 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div style={statCard}>
       <div style={{ fontSize: 12, opacity: 0.68, fontWeight: 800 }}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 900, wordBreak: "break-word" }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 900, wordBreak: "break-word" }}>
+        {value}
+      </div>
     </div>
   );
 }
