@@ -30,6 +30,21 @@ function addDays(base: Date, days: number) {
   return d;
 }
 
+function toDateOnly(value: string | null | undefined) {
+  return String(value ?? "").slice(0, 10);
+}
+
+function daysUntil(value: string | null | undefined) {
+  const dateText = toDateOnly(value);
+  if (!dateText) return null;
+  const target = new Date(dateText);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
 function taskTypeLabel(value: string | null | undefined) {
   const v = String(value ?? "other");
   if (v === "quote_chase") return "Quote chase";
@@ -63,6 +78,16 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
     border: "1px solid rgba(0,120,255,0.16)",
   };
 }
+
+type SuggestedTask = {
+  key: string;
+  label: string;
+  title: string;
+  taskType: string;
+  priority: string;
+  dueOn: string;
+  notes: string;
+};
 
 async function addLeadActivity(formData: FormData) {
   "use server";
@@ -143,7 +168,7 @@ export default async function SalesLeadDetailPage({
 
     const { data: lead, error: leadError } = await supabase
       .from("sales_leads")
-      .select("id, company_name, contact_name, next_follow_up_on, status")
+      .select("id, company_name, contact_name, next_follow_up_on, status, assigned_to_username")
       .eq("id", params.id)
       .single();
 
@@ -158,6 +183,7 @@ export default async function SalesLeadDetailPage({
     const notes = String(formData.get("notes") ?? "").trim() || null;
     const assignedToUsername =
       String(formData.get("assigned_to_username") ?? "").trim() ||
+      String(lead.assigned_to_username ?? "").trim() ||
       fromAuthEmail(user?.email ?? null) ||
       null;
 
@@ -210,7 +236,11 @@ export default async function SalesLeadDetailPage({
     { data: activity, error: activityError },
     { data: tasks, error: tasksError },
   ] = await Promise.all([
-    supabase.from("sales_leads").select("*").eq("id", params.id).single(),
+    supabase
+      .from("sales_leads")
+      .select("*")
+      .eq("id", params.id)
+      .single(),
     supabase
       .from("sales_lead_activity")
       .select("*")
@@ -234,20 +264,100 @@ export default async function SalesLeadDetailPage({
   }
 
   const services = Array.isArray((lead as any).services) ? ((lead as any).services as string[]) : [];
+  const relatedTasks = tasks ?? [];
+  const openTasks = relatedTasks.filter((item: any) => String(item.status ?? "") === "open");
   const stats = {
     activityCount: (activity ?? []).length,
     score: Number((lead as any).lead_score ?? 0),
-    openTasks: (tasks ?? []).filter((item: any) => String(item.status ?? "") === "open").length,
-    completedTasks: (tasks ?? []).filter((item: any) => String(item.status ?? "") === "completed").length,
+    openTasks: openTasks.length,
+    completedTasks: relatedTasks.filter((item: any) => String(item.status ?? "") === "completed").length,
   };
 
-  const defaultFollowUpDate =
-    String((lead as any).next_follow_up_on ?? "").trim() ||
-    new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const status = String((lead as any).status ?? "New");
+  const followUpDate = String((lead as any).next_follow_up_on ?? "").trim() || today;
+  const followUpDays = daysUntil((lead as any).next_follow_up_on);
+  const assignedTo = String((lead as any).assigned_to_username ?? "").trim();
+  const hasPhone = Boolean((lead as any).phone);
+  const hasEmail = Boolean((lead as any).email);
 
-  const quoteChaseDate = addDays(new Date(), 2).toISOString().slice(0, 10);
-  const callDate = new Date().toISOString().slice(0, 10);
-  const emailDate = addDays(new Date(), 1).toISOString().slice(0, 10);
+  const suggestedTasks: SuggestedTask[] = [];
+
+  if (!assignedTo) {
+    suggestedTasks.push({
+      key: "unassigned-followup",
+      label: "No owner assigned",
+      title: `Assign and review ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "follow_up",
+      priority: "high",
+      dueOn: today,
+      notes: "Lead has no owner assigned. Review and allocate responsibility.",
+    });
+  }
+
+  if (followUpDays !== null && followUpDays <= 0) {
+    suggestedTasks.push({
+      key: "followup-due",
+      label: "Follow-up due now",
+      title: `Follow up ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "follow_up",
+      priority: "high",
+      dueOn: today,
+      notes: "Next follow-up date is due or overdue.",
+    });
+  }
+
+  if (status === "Quoted") {
+    suggestedTasks.push({
+      key: "quoted-chase",
+      label: "Quoted lead",
+      title: `Quote chase ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "quote_chase",
+      priority: "high",
+      dueOn: addDays(new Date(), 2).toISOString().slice(0, 10),
+      notes: "Lead is in Quoted status. Check whether the quote has been reviewed and push toward close.",
+    });
+  }
+
+  if (status === "Dormant") {
+    suggestedTasks.push({
+      key: "dormant-recovery",
+      label: "Dormant lead",
+      title: `Recovery contact ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "customer_recovery",
+      priority: "high",
+      dueOn: today,
+      notes: "Lead is marked Dormant. Re-engage with a recovery call or email.",
+    });
+  }
+
+  if ((status === "New" || status === "To Contact") && hasPhone) {
+    suggestedTasks.push({
+      key: "new-call",
+      label: "Early stage lead",
+      title: `Initial call ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "call",
+      priority: "high",
+      dueOn: today,
+      notes: "New / early stage lead with phone number available. Make initial contact.",
+    });
+  }
+
+  if ((status === "New" || status === "To Contact") && !hasPhone && hasEmail) {
+    suggestedTasks.push({
+      key: "new-email",
+      label: "Email-first lead",
+      title: `Initial email ${String((lead as any).company_name ?? "lead")}`,
+      taskType: "email",
+      priority: "medium",
+      dueOn: today,
+      notes: "Lead has no phone number but does have an email address. Send introduction email.",
+    });
+  }
+
+  const uniqueSuggestedTasks = suggestedTasks.filter(
+    (item, index, arr) => arr.findIndex((x) => x.key === item.key) === index
+  );
 
   return (
     <ClientShell>
@@ -310,13 +420,53 @@ export default async function SalesLeadDetailPage({
             </section>
 
             <section style={sideCard}>
+              <h2 style={sectionTitle}>Suggested next actions</h2>
+
+              {uniqueSuggestedTasks.length === 0 ? (
+                <p style={{ margin: 0, opacity: 0.75 }}>
+                  No strong task suggestions right now.
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {uniqueSuggestedTasks.map((task) => (
+                    <div key={task.key} style={activityCard}>
+                      <div style={{ fontWeight: 900 }}>{task.label}</div>
+                      <div style={{ marginTop: 6, fontSize: 14, opacity: 0.78 }}>
+                        {task.notes}
+                      </div>
+                      <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
+                        {taskTypeLabel(task.taskType)} • {task.priority} • due {fmtDate(task.dueOn)}
+                      </div>
+
+                      <form action={createLeadTask} style={{ marginTop: 10 }}>
+                        <input type="hidden" name="title" value={task.title} />
+                        <input type="hidden" name="task_type" value={task.taskType} />
+                        <input type="hidden" name="priority" value={task.priority} />
+                        <input type="hidden" name="due_on" value={task.dueOn} />
+                        <input type="hidden" name="notes" value={task.notes} />
+                        <input
+                          type="hidden"
+                          name="assigned_to_username"
+                          value={String((lead as any).assigned_to_username ?? "")}
+                        />
+                        <button type="submit" style={primaryBtn}>
+                          Create suggested task
+                        </button>
+                      </form>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <section style={sideCard}>
               <h2 style={sectionTitle}>Quick task buttons</h2>
               <div style={{ display: "grid", gap: 10 }}>
                 <form action={createLeadTask} style={quickTaskForm}>
                   <input type="hidden" name="title" value={`Call ${String((lead as any).company_name ?? "lead")}`} />
                   <input type="hidden" name="task_type" value="call" />
                   <input type="hidden" name="priority" value="high" />
-                  <input type="hidden" name="due_on" value={callDate} />
+                  <input type="hidden" name="due_on" value={today} />
                   <button type="submit" style={primaryBtn}>Create call task</button>
                 </form>
 
@@ -324,7 +474,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="title" value={`Follow up ${String((lead as any).company_name ?? "lead")}`} />
                   <input type="hidden" name="task_type" value="follow_up" />
                   <input type="hidden" name="priority" value="high" />
-                  <input type="hidden" name="due_on" value={defaultFollowUpDate} />
+                  <input type="hidden" name="due_on" value={followUpDate} />
                   <button type="submit" style={secondaryBtn}>Create follow-up task</button>
                 </form>
 
@@ -332,7 +482,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="title" value={`Email ${String((lead as any).company_name ?? "lead")}`} />
                   <input type="hidden" name="task_type" value="email" />
                   <input type="hidden" name="priority" value="medium" />
-                  <input type="hidden" name="due_on" value={emailDate} />
+                  <input type="hidden" name="due_on" value={addDays(new Date(), 1).toISOString().slice(0, 10)} />
                   <button type="submit" style={secondaryBtn}>Create email task</button>
                 </form>
 
@@ -340,7 +490,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="title" value={`Quote chase ${String((lead as any).company_name ?? "lead")}`} />
                   <input type="hidden" name="task_type" value="quote_chase" />
                   <input type="hidden" name="priority" value="high" />
-                  <input type="hidden" name="due_on" value={quoteChaseDate} />
+                  <input type="hidden" name="due_on" value={addDays(new Date(), 2).toISOString().slice(0, 10)} />
                   <button type="submit" style={secondaryBtn}>Create quote chase task</button>
                 </form>
               </div>
@@ -376,7 +526,7 @@ export default async function SalesLeadDetailPage({
                 <input
                   type="date"
                   name="due_on"
-                  defaultValue={defaultFollowUpDate}
+                  defaultValue={followUpDate}
                   style={inputStyle}
                 />
 
@@ -400,11 +550,11 @@ export default async function SalesLeadDetailPage({
 
             <section style={sideCard}>
               <h2 style={sectionTitle}>Related tasks</h2>
-              {!tasks || tasks.length === 0 ? (
+              {!relatedTasks || relatedTasks.length === 0 ? (
                 <p style={{ margin: 0, opacity: 0.75 }}>No workflow tasks linked to this lead yet.</p>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {tasks.map((task: any) => (
+                  {relatedTasks.map((task: any) => (
                     <div key={task.id} style={activityCard}>
                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ ...pillStyle, ...statusStyle(task.status) }}>
