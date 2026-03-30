@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Result = {
-  type: "customer" | "job" | "transport" | "quote" | "equipment" | "audit";
+  type: "customer" | "job" | "transport" | "quote" | "booking" | "equipment" | "audit";
   id: string;
   title: string;
   subtitle: string;
@@ -27,6 +27,10 @@ function typePill(type: Result["type"]) {
     quote: {
       background: "rgba(255,170,0,0.15)",
       border: "1px solid rgba(255,170,0,0.25)",
+    },
+    booking: {
+      background: "rgba(255,140,0,0.15)",
+      border: "1px solid rgba(255,140,0,0.25)",
     },
     equipment: {
       background: "rgba(120,120,120,0.12)",
@@ -167,16 +171,7 @@ export default function DashboardSearch() {
   }
 
   return (
-    <div
-      ref={rootRef}
-      style={{
-        position: "relative",
-        width: "100%",
-        maxWidth: "100%",
-        minWidth: 0,
-        boxSizing: "border-box",
-      }}
-    >
+    <div ref={rootRef} style={{ position: "relative", width: "min(620px, 92vw)" }}>
       <input
         ref={inputRef}
         value={q}
@@ -186,7 +181,7 @@ export default function DashboardSearch() {
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={onInputKeyDown}
-        placeholder="Search customers, jobs, transport, quotes, equipment…"
+        placeholder="Search customers, jobs, transport, bookings, quotes, equipment…"
         style={inputStyle}
       />
 
@@ -255,9 +250,6 @@ export default function DashboardSearch() {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  maxWidth: "100%",
-  minWidth: 0,
-  boxSizing: "border-box",
   padding: "12px 14px",
   borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.14)",
@@ -277,8 +269,6 @@ const panelStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.92)",
   boxShadow: "0 12px 40px rgba(0,0,0,0.12)",
   overflow: "hidden",
-  maxWidth: "100%",
-  boxSizing: "border-box",
 };
 
 const panelHeaderStyle: React.CSSProperties = {
