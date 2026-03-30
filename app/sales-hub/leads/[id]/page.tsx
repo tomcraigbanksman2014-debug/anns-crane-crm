@@ -124,7 +124,12 @@ export default async function SalesLeadDetailPage({
             </p>
           </div>
 
-          <a href="/sales-hub/leads" style={secondaryBtn}>← Back to leads</a>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub/leads" style={secondaryBtn}>← Back to leads</a>
+            <a href={`/sales-hub/leads/${params.id}/outreach`} style={primaryBtn}>
+              Outreach Generator
+            </a>
+          </div>
         </div>
 
         {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
