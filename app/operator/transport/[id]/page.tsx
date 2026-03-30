@@ -130,7 +130,10 @@ export default async function OperatorTransportJobPage({
           transport_number,
           transport_date,
           collection_time,
+          delivery_date,
           delivery_time,
+          collection_route_order,
+          delivery_route_order,
           collection_address,
           delivery_address,
           load_description,
@@ -202,13 +205,23 @@ export default async function OperatorTransportJobPage({
       <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <h1 style={{ marginTop: 0, marginBottom: 6, fontSize: 32 }}>
-            {(job as any).transport_number ?? "Transport Job"}
+            {client?.company_name ?? (job as any).transport_number ?? "Transport Job"}
           </h1>
-          <div style={{ opacity: 0.8 }}>{fmtDate((job as any).transport_date)}</div>
+          <div style={{ opacity: 0.8 }}>
+            {(job as any).transport_number ?? "—"} • {fmtDate((job as any).transport_date)}
+          </div>
 
           <div style={sectionBlock}>
-            <div style={rowLabel}>Customer</div>
-            <div style={rowValue}>{client?.company_name ?? "—"}</div>
+            <div style={rowLabel}>Route order</div>
+            <div style={rowValue}>
+              {typeof (job as any).collection_route_order === "number"
+                ? `Pickup #${(job as any).collection_route_order}`
+                : "Pickup —"}
+              {" • "}
+              {typeof (job as any).delivery_route_order === "number"
+                ? `Delivery #${(job as any).delivery_route_order}`
+                : "Delivery —"}
+            </div>
           </div>
 
           <div style={sectionBlock}>
