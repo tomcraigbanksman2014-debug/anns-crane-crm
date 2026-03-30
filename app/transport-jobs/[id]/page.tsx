@@ -39,6 +39,13 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString("en-GB");
+}
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -625,6 +632,8 @@ export default async function TransportJobDetailPage({
                     { label: "Customer", value: client?.company_name ?? "—" },
                     { label: "Job type", value: prettyJobType((item as any)?.job_type) },
                     { label: "Status", value: (item as any)?.status ?? "—" },
+                    { label: "Pickup complete", value: fmtDateTime((item as any)?.pickup_completed_at) },
+                    { label: "Delivery complete", value: fmtDateTime((item as any)?.delivery_completed_at) },
                     { label: "Collection date", value: (item as any)?.transport_date ?? "—" },
                     { label: "Delivery date", value: (item as any)?.delivery_date ?? "—" },
                     { label: "Collection time", value: (item as any)?.collection_time ?? "—" },
