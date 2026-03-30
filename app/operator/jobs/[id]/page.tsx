@@ -1,8 +1,26 @@
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { redirect } from "next/navigation";
 import OperatorJobActions from "../OperatorJobActions";
 import OperatorPhotoUpload from "./OperatorPhotoUpload";
 import OperatorJobSheetForm from "./OperatorJobSheetForm";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -172,12 +190,18 @@ function displayAsset(job: any) {
   return { name: "—", extra: "" };
 }
 
+function hrefFor(path: string | null | undefined) {
+  if (!path || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${path}`;
+}
+
 export default async function OperatorJobSheetPage({
   params,
 }: {
   params: { id: string };
 }) {
   const supabase = createSupabaseServerClient();
+  const admin = getAdminClient();
 
   const {
     data: { user },
@@ -185,18 +209,12 @@ export default async function OperatorJobSheetPage({
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return (
-      <ClientShell>
-        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
-          <div style={errorBox}>Not signed in.</div>
-        </div>
-      </ClientShell>
-    );
+    redirect(`/login?next=/operator/jobs/${params.id}`);
   }
 
   const authEmail = String(user.email ?? "").trim().toLowerCase();
 
-  const { data: operators, error: operatorsError } = await supabase
+  const { data: operators, error: operatorsError } = await admin
     .from("operators")
     .select("id, full_name, email, status")
     .eq("status", "active");
@@ -226,7 +244,7 @@ export default async function OperatorJobSheetPage({
 
   const [{ data: job, error: jobError }, { data: allDocuments, error: docsError }] =
     await Promise.all([
-      supabase
+      admin
         .from("jobs")
         .select(`
           id,
@@ -281,7 +299,7 @@ export default async function OperatorJobSheetPage({
         .eq("id", params.id)
         .single(),
 
-      supabase
+      admin
         .from("job_documents")
         .select("id, file_name, file_path, created_at, document_type, uploaded_by, share_with_operator")
         .eq("job_id", params.id)
@@ -437,7 +455,7 @@ export default async function OperatorJobSheetPage({
                 <div style={infoBox}>No shared or uploaded documents yet.</div>
               ) : (
                 visibleDocuments.map((doc: any) => {
-                  const href = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${doc.file_path}`;
+                  const href = hrefFor(doc.file_path);
                   const uploadedByCurrentUser = String(doc.uploaded_by ?? "") === String(user.id);
 
                   return (
