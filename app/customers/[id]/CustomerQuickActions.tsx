@@ -45,6 +45,10 @@ export default function CustomerQuickActions({
         </p>
 
         <div style={{ display: "grid", gap: 10 }}>
+          <a href={`/customers/${customerId}/outreach`} style={highlightLinkStyle}>
+            ✨ Open AI Outreach Generator
+          </a>
+
           <button type="button" onClick={() => choose("call")} style={actionBtnStyle}>
             📞 Log a call
           </button>
@@ -120,6 +124,18 @@ const linkBtnStyle: React.CSSProperties = {
   color: "#111",
   textDecoration: "none",
   fontWeight: 700,
+};
+
+const highlightLinkStyle: React.CSSProperties = {
+  display: "block",
+  textAlign: "left",
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(0,0,0,0.86)",
+  color: "#fff",
+  textDecoration: "none",
+  fontWeight: 800,
 };
 
 const mutedBox: React.CSSProperties = {
