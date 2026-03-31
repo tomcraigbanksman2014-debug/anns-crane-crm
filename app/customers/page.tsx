@@ -10,12 +10,12 @@ function daysBetween(from: string | null | undefined, to = new Date()) {
   return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
-function activityMeta(lastBookingDate: string | null | undefined) {
-  const days = daysBetween(lastBookingDate);
+function activityMeta(lastActivityDate: string | null | undefined) {
+  const days = daysBetween(lastActivityDate);
 
   if (days == null) {
     return {
-      label: "No bookings",
+      label: "No activity",
       bg: "rgba(0,0,0,0.08)",
       color: "#111",
     };
@@ -44,7 +44,7 @@ function activityMeta(lastBookingDate: string | null | undefined) {
   };
 }
 
-function formatLastBooking(value: string | null | undefined) {
+function formatLastActivity(value: string | null | undefined) {
   if (!value) return "-";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
@@ -90,30 +90,71 @@ export default async function CustomersPage({
 
   const clientIds = (customers ?? []).map((c: any) => c.id).filter(Boolean);
 
-  let lastBookingByClientId: Record<string, string | null> = {};
+  const lastActivityByClientId: Record<string, string | null> = {};
 
   if (clientIds.length > 0) {
-    const { data: bookings } = await supabase
-      .from("bookings")
-      .select("client_id, start_date, start_at, created_at")
-      .in("client_id", clientIds)
-      .order("start_at", { ascending: false })
-      .order("start_date", { ascending: false })
-      .order("created_at", { ascending: false });
+    const [jobsRes, transportJobsRes, correspondenceRes, quotesRes] = await Promise.all([
+      supabase
+        .from("jobs")
+        .select("client_id, job_date, start_date, end_date, created_at")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("transport_jobs")
+        .select("client_id, transport_date, delivery_date, created_at")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("customer_correspondence")
+        .select("client_id, created_at")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("quotes")
+        .select("client_id, quote_date, created_at")
+        .in("client_id", clientIds)
+        .order("created_at", { ascending: false }),
+    ]);
 
-    for (const b of bookings ?? []) {
-      const clientId = String((b as any).client_id ?? "");
-      if (!clientId) continue;
-
-      const when =
-        (b as any).start_at ||
-        (b as any).start_date ||
-        (b as any).created_at ||
-        null;
-
-      if (!lastBookingByClientId[clientId] && when) {
-        lastBookingByClientId[clientId] = String(when);
+    const applyActivity = (clientId: string, when: string | null) => {
+      if (!clientId || !when) return;
+      const existing = lastActivityByClientId[clientId];
+      if (!existing || String(when) > String(existing)) {
+        lastActivityByClientId[clientId] = String(when);
       }
+    };
+
+    for (const row of jobsRes.data ?? []) {
+      const clientId = String((row as any).client_id ?? "");
+      const when =
+        (row as any).job_date ||
+        (row as any).start_date ||
+        (row as any).end_date ||
+        (row as any).created_at ||
+        null;
+      applyActivity(clientId, when ? String(when) : null);
+    }
+
+    for (const row of transportJobsRes.data ?? []) {
+      const clientId = String((row as any).client_id ?? "");
+      const when =
+        (row as any).transport_date ||
+        (row as any).delivery_date ||
+        (row as any).created_at ||
+        null;
+      applyActivity(clientId, when ? String(when) : null);
+    }
+
+    for (const row of correspondenceRes.data ?? []) {
+      const clientId = String((row as any).client_id ?? "");
+      const when = (row as any).created_at || null;
+      applyActivity(clientId, when ? String(when) : null);
+    }
+
+    for (const row of quotesRes.data ?? []) {
+      const clientId = String((row as any).client_id ?? "");
+      const when = (row as any).quote_date || (row as any).created_at || null;
+      applyActivity(clientId, when ? String(when) : null);
     }
   }
 
@@ -228,7 +269,7 @@ export default async function CustomersPage({
                       Email
                     </th>
                     <th align="left" style={thStyle}>
-                      Last booking
+                      Last activity
                     </th>
                     <th align="left" style={thStyle}>
                       Activity
@@ -246,8 +287,8 @@ export default async function CustomersPage({
                 </thead>
                 <tbody>
                   {customers.map((c: any) => {
-                    const lastBooking = lastBookingByClientId[c.id] ?? null;
-                    const activity = activityMeta(lastBooking);
+                    const lastActivity = lastActivityByClientId[c.id] ?? null;
+                    const activity = activityMeta(lastActivity);
 
                     return (
                       <tr key={c.id}>
@@ -255,7 +296,7 @@ export default async function CustomersPage({
                         <td style={tdStyle}>{c.contact_name ?? "-"}</td>
                         <td style={tdStyle}>{c.phone ?? "-"}</td>
                         <td style={tdStyle}>{c.email ?? "-"}</td>
-                        <td style={tdStyle}>{formatLastBooking(lastBooking)}</td>
+                        <td style={tdStyle}>{formatLastActivity(lastActivity)}</td>
                         <td style={tdStyle}>
                           <span
                             style={{
