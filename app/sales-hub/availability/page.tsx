@@ -1,162 +1,52 @@
-import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
-
-type CraneRow = {
-  id: string;
-  name: string;
-  model: string | null;
-  capacity: string | null;
-  status: string | null;
-  archived: boolean | null;
-};
-
-type VehicleRow = {
-  id: string;
-  name: string | null;
-  reg_number: string | null;
-  vehicle_type: string | null;
-  capacity: string | null;
-  status: string | null;
-  archived: boolean | null;
-};
-
-type JobRow = {
-  id: string;
-  crane_id: string | null;
-  status: string | null;
-  archived: boolean | null;
-  job_date: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  site_name: string | null;
-};
-
-type TransportJobRow = {
-  id: string;
-  vehicle_id: string | null;
-  status: string | null;
-  archived: boolean | null;
-  transport_date: string | null;
-  delivery_date: string | null;
-  collection_address: string | null;
-  delivery_address: string | null;
-  load_description: string | null;
-};
-
-type LeadRow = {
-  id: string;
-  company_name: string;
-  contact_name: string | null;
-  email: string | null;
-  phone: string | null;
-  area: string | null;
-  industry: string | null;
-  status: string | null;
-  services: string[] | null;
-  do_not_contact: boolean | null;
-  archived: boolean | null;
-  assigned_to_username: string | null;
-  opportunity_value: number | null;
-  probability_percent: number | null;
-  expected_close_date: string | null;
-  next_follow_up_on: string | null;
-};
-
-type AvailabilityAsset = {
-  id: string;
-  name: string;
-  subtitle: string;
-  status: string;
-  firstBookedOn: string | null;
-  bookingCount: number;
-  availableDays: number;
-};
-
-type SellingPlay = {
-  key: string;
-  title: string;
-  focusLabel: string;
-  summary: string;
-  message: string;
-  leads: LeadRow[];
-  socialStudioHref: string;
-  campaignsHref: string;
-};
-
-type PageProps = {
-  searchParams?: {
-    window?: string;
-    area?: string;
-    focus?: string;
-  };
-};
+import { redirect } from "next/navigation";
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
 }
 
-function formatDateUK(value: string | null | undefined) {
+function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB");
 }
 
-function formatMoneyGBP(value: number | null | undefined) {
+function moneyGBP(value: number | null | undefined) {
   const n = Number(value ?? 0);
   return n.toLocaleString("en-GB", {
     style: "currency",
     currency: "GBP",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 }
 
-function toDateOnlyString(date: Date) {
-  const year = date.getFullYear();
-  const month = `${date.getMonth() + 1}`.padStart(2, "0");
-  const day = `${date.getDate()}`.padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function dateOnly(value: string | null | undefined) {
+  return String(value ?? "").slice(0, 10);
 }
 
 function addDays(base: Date, days: number) {
-  const next = new Date(base);
-  next.setDate(next.getDate() + days);
-  return next;
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
 }
 
-function parseDateOnly(value: string | null | undefined) {
-  if (!value) return null;
-  const text = String(value).slice(0, 10);
-  if (!text) return null;
-  const date = new Date(`${text}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
+function isOpenLeadStatus(status: string | null | undefined) {
+  const s = String(status ?? "").toLowerCase();
+  return s !== "won" && s !== "lost";
 }
 
-function overlapsDateRange(
-  itemStart: string | null | undefined,
-  itemEnd: string | null | undefined,
-  rangeStart: Date,
-  rangeEnd: Date
-) {
-  const start = parseDateOnly(itemStart);
-  const end = parseDateOnly(itemEnd || itemStart);
-
-  if (!start || !end) return false;
-
-  return start <= rangeEnd && end >= rangeStart;
-}
-
-function probabilityForLead(lead: LeadRow) {
-  const manual = Number(lead.probability_percent);
+function probabilityForLead(lead: any) {
+  const manual = Number(lead?.probability_percent);
   if (Number.isFinite(manual)) {
     return Math.max(0, Math.min(100, manual));
   }
 
-  const status = String(lead.status ?? "").toLowerCase();
+  const status = String(lead?.status ?? "").toLowerCase();
 
   if (status === "new") return 10;
   if (status === "to contact") return 15;
@@ -168,112 +58,67 @@ function probabilityForLead(lead: LeadRow) {
   return 0;
 }
 
-function weightedValueForLead(lead: LeadRow) {
-  return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
+function weightedValue(lead: any) {
+  const value = Number(lead?.opportunity_value ?? 0);
+  const probability = probabilityForLead(lead);
+  return value * (probability / 100);
 }
 
 function daysUntil(value: string | null | undefined) {
-  const date = parseDateOnly(value);
-  if (!date) return null;
-
+  const dateText = dateOnly(value);
+  if (!dateText) return null;
+  const target = new Date(dateText);
+  if (Number.isNaN(target.getTime())) return null;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  return Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
-function isLeadOpen(status: string | null | undefined) {
-  const s = String(status ?? "").toLowerCase();
-  return s !== "won" && s !== "lost";
-}
+type SuggestedTask = {
+  key: string;
+  label: string;
+  category: "follow_up" | "quote_chase" | "close_check" | "owner" | "recovery" | "first_contact";
+  lead_id: string;
+  company_name: string;
+  contact_name: string | null;
+  assigned_to_username: string | null;
+  status: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string;
+  notes: string;
+  probability: number;
+  opportunity_value: number;
+  weighted_value: number;
+  existing_open_task_count: number;
+};
 
-function leadMatchesArea(lead: LeadRow, areaFilter: string) {
-  if (areaFilter === "all") return true;
-  const area = String(lead.area ?? "").toLowerCase();
-  return area.includes(areaFilter.toLowerCase());
-}
+type AutomationCentrePageProps = {
+  searchParams?: {
+    owner?: string;
+    category?: string;
+    success?: string;
+    error?: string;
+  };
+};
 
-function leadMatchesFocus(lead: LeadRow, focus: "crane" | "transport" | "combined") {
-  const services = Array.isArray(lead.services) ? lead.services.join(" ").toLowerCase() : "";
-  const industry = String(lead.industry ?? "").toLowerCase();
+type SelectedSuggestedTaskPayload = {
+  lead_id: string | null;
+  client_id?: string | null;
+  company_name: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string | null;
+  notes: string | null;
+  assigned_to_username: string | null;
+};
 
-  const craneMatch =
-    services.includes("crane") ||
-    services.includes("contract lift") ||
-    services.includes("lifting") ||
-    industry.includes("steel") ||
-    industry.includes("glazing") ||
-    industry.includes("construction");
-
-  const transportMatch =
-    services.includes("transport") ||
-    services.includes("hiab") ||
-    services.includes("haulage") ||
-    services.includes("container") ||
-    services.includes("delivery") ||
-    industry.includes("modular") ||
-    industry.includes("container") ||
-    industry.includes("plant");
-
-  if (focus === "crane") return craneMatch;
-  if (focus === "transport") return transportMatch;
-  return craneMatch || transportMatch || isLeadOpen(lead.status);
-}
-
-function rankLeads(leads: LeadRow[]) {
-  return [...leads].sort((a, b) => {
-    const aOverdue = daysUntil(a.next_follow_up_on);
-    const bOverdue = daysUntil(b.next_follow_up_on);
-
-    const aDueRank = aOverdue !== null && aOverdue <= 0 ? 1 : 0;
-    const bDueRank = bOverdue !== null && bOverdue <= 0 ? 1 : 0;
-
-    if (bDueRank !== aDueRank) return bDueRank - aDueRank;
-
-    const weightedDiff = weightedValueForLead(b) - weightedValueForLead(a);
-    if (weightedDiff !== 0) return weightedDiff;
-
-    return probabilityForLead(b) - probabilityForLead(a);
-  });
-}
-
-function buildSocialStudioHref({
-  focusLabel,
-  area,
-  availabilityNote,
-  objective,
-}: {
-  focusLabel: string;
-  area: string;
-  availabilityNote: string;
-  objective: string;
-}) {
-  const params = new URLSearchParams();
-  params.set("service_focus", focusLabel);
-  params.set("area", area === "all" ? "across the UK" : area);
-  params.set("availability_note", availabilityNote);
-  params.set("objective", objective);
-  params.set("tone", "direct");
-  params.set("industry", "construction");
-  return `/sales-hub/social-studio?${params.toString()}`;
-}
-
-function buildCampaignsHref({
-  focusLabel,
-  area,
-}: {
-  focusLabel: string;
-  area: string;
-}) {
-  const params = new URLSearchParams();
-  params.set("service_focus", focusLabel);
-  params.set("area", area === "all" ? "across the UK" : area);
-  params.set("goal", "availability");
-  params.set("tone", "direct");
-  params.set("channel", "email");
-  return `/sales-hub/campaigns?${params.toString()}`;
-}
-
-export default async function SalesAvailabilityPage({ searchParams }: PageProps) {
+export default async function AutomationCentrePage({
+  searchParams,
+}: AutomationCentrePageProps) {
   const supabase = createSupabaseServerClient();
   const access = await getAccessContext();
 
@@ -281,44 +126,237 @@ export default async function SalesAvailabilityPage({ searchParams }: PageProps)
     data: { user },
   } = await supabase.auth.getUser();
 
-  const canManage = !!access.user && canCreateCustomers(access);
   const currentUsername = fromAuthEmail(user?.email ?? null);
+  const canManage = !!access.user && canCreateCustomers(access);
 
-  const selectedWindow = Math.max(1, Math.min(21, Number(searchParams?.window ?? "7") || 7));
-  const selectedArea = String(searchParams?.area ?? "all").trim() || "all";
-  const selectedFocus = String(searchParams?.focus ?? "all").trim() || "all";
+  const selectedOwner = String(searchParams?.owner ?? "all").trim();
+  const selectedCategory = String(searchParams?.category ?? "all").trim();
+  const successMessage = String(searchParams?.success ?? "");
+  const errorMessage = String(searchParams?.error ?? "");
+  const today = new Date().toISOString().slice(0, 10);
 
-  const today = new Date();
-  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const endDate = addDays(startDate, selectedWindow - 1);
+  async function createSuggestedTask(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const leadId = String(formData.get("lead_id") ?? "").trim() || null;
+    const clientId = String(formData.get("client_id") ?? "").trim() || null;
+    const companyName = String(formData.get("company_name") ?? "").trim() || null;
+    const title = String(formData.get("title") ?? "").trim();
+    const taskType = String(formData.get("task_type") ?? "follow_up").trim() || "follow_up";
+    const priority = String(formData.get("priority") ?? "medium").trim() || "medium";
+    const dueOn = String(formData.get("due_on") ?? "").trim() || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const assignedToUsername =
+      String(formData.get("assigned_to_username") ?? "").trim() ||
+      fromAuthEmail(user?.email ?? null) ||
+      null;
+
+    if (!title) {
+      redirect("/sales-hub/automation?error=Task%20title%20is%20required.");
+    }
+
+    if (!leadId && !clientId) {
+      redirect("/sales-hub/automation?error=Task%20must%20link%20to%20a%20lead%20or%20customer.");
+    }
+
+    let duplicateQuery = supabase
+      .from("sales_workflow_tasks")
+      .select("id")
+      .eq("status", "open")
+      .eq("title", title)
+      .eq("task_type", taskType)
+      .limit(1);
+
+    if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+    if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+    const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+    if (duplicateTask?.id) {
+      redirect("/sales-hub/automation?success=Matching%20open%20task%20already%20exists.");
+    }
+
+    const { data: createdTask, error } = await supabase
+      .from("sales_workflow_tasks")
+      .insert({
+        title,
+        task_type: taskType,
+        status: "open",
+        priority,
+        due_on: dueOn,
+        notes,
+        assigned_to_username: assignedToUsername,
+        lead_id: leadId,
+        client_id: clientId,
+        created_by_user_id: user?.id ?? null,
+        created_by_username: fromAuthEmail(user?.email ?? null) || null,
+      })
+      .select("id")
+      .single();
+
+    if (error || !createdTask?.id) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error?.message || "Could not create workflow task.")}`);
+    }
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_workflow_task_created_from_automation_queue",
+      entity_type: "sales_workflow_task",
+      entity_id: createdTask.id,
+      meta: {
+        lead_id: leadId,
+        client_id: clientId,
+        company_name: companyName,
+        title,
+        task_type: taskType,
+        priority,
+        due_on: dueOn,
+      },
+    });
+
+    redirect("/sales-hub/automation?success=Workflow%20task%20created.");
+  }
+
+  async function createSelectedSuggestedTasks(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const selectedItems = formData.getAll("selected_items");
+
+    if (!selectedItems.length) {
+      redirect("/sales-hub/automation?error=No%20suggested%20items%20selected.");
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const rawItem of selectedItems) {
+      try {
+        const parsed = JSON.parse(String(rawItem)) as SelectedSuggestedTaskPayload;
+
+        const leadId = String(parsed.lead_id ?? "").trim() || null;
+        const clientId = String(parsed.client_id ?? "").trim() || null;
+        const companyName = String(parsed.company_name ?? "").trim() || null;
+        const title = String(parsed.title ?? "").trim();
+        const taskType = String(parsed.task_type ?? "follow_up").trim() || "follow_up";
+        const priority = String(parsed.priority ?? "medium").trim() || "medium";
+        const dueOn = String(parsed.due_on ?? "").trim() || null;
+        const notes = String(parsed.notes ?? "").trim() || null;
+        const assignedToUsername =
+          String(parsed.assigned_to_username ?? "").trim() ||
+          fromAuthEmail(user?.email ?? null) ||
+          null;
+
+        if (!title || (!leadId && !clientId)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        let duplicateQuery = supabase
+          .from("sales_workflow_tasks")
+          .select("id")
+          .eq("status", "open")
+          .eq("title", title)
+          .eq("task_type", taskType)
+          .limit(1);
+
+        if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+        if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+        const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+        if (duplicateTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const { data: createdTask, error } = await supabase
+          .from("sales_workflow_tasks")
+          .insert({
+            title,
+            task_type: taskType,
+            status: "open",
+            priority,
+            due_on: dueOn,
+            notes,
+            assigned_to_username: assignedToUsername,
+            lead_id: leadId,
+            client_id: clientId,
+            created_by_user_id: user?.id ?? null,
+            created_by_username: fromAuthEmail(user?.email ?? null) || null,
+          })
+          .select("id")
+          .single();
+
+        if (error || !createdTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        createdCount += 1;
+
+        await writeAuditLog({
+          actor_user_id: user?.id ?? null,
+          actor_username: fromAuthEmail(user?.email ?? null) || null,
+          action: "sales_workflow_task_created_from_automation_bulk_queue",
+          entity_type: "sales_workflow_task",
+          entity_id: createdTask.id,
+          meta: {
+            lead_id: leadId,
+            client_id: clientId,
+            company_name: companyName,
+            title,
+            task_type: taskType,
+            priority,
+            due_on: dueOn,
+          },
+        });
+      } catch {
+        skippedCount += 1;
+      }
+    }
+
+    if (createdCount === 0 && skippedCount > 0) {
+      redirect("/sales-hub/automation?success=No%20new%20tasks%20were%20created.%20Selected%20items%20were%20already%20covered%20or%20invalid.");
+    }
+
+    redirect(
+      `/sales-hub/automation?success=${encodeURIComponent(
+        `Created ${createdCount} workflow task${createdCount === 1 ? "" : "s"}${
+          skippedCount ? `, skipped ${skippedCount}.` : "."
+        }`
+      )}`
+    );
+  }
 
   const [
-    { data: cranes, error: cranesError },
-    { data: vehicles, error: vehiclesError },
-    { data: jobs, error: jobsError },
-    { data: transportJobs, error: transportJobsError },
     { data: leads, error: leadsError },
+    { data: tasks, error: tasksError },
   ] = await Promise.all([
-    supabase
-      .from("cranes")
-      .select("id, name, model, capacity, status, archived")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-    supabase
-      .from("vehicles")
-      .select("id, name, reg_number, vehicle_type, capacity, status, archived")
-      .eq("archived", false)
-      .order("name", { ascending: true }),
-    supabase
-      .from("jobs")
-      .select("id, crane_id, status, archived, job_date, start_date, end_date, site_name")
-      .eq("archived", false)
-      .not("crane_id", "is", null),
-    supabase
-      .from("transport_jobs")
-      .select("id, vehicle_id, status, archived, transport_date, delivery_date, collection_address, delivery_address, load_description")
-      .eq("archived", false)
-      .not("vehicle_id", "is", null),
     supabase
       .from("sales_leads")
       .select(`
@@ -327,392 +365,461 @@ export default async function SalesAvailabilityPage({ searchParams }: PageProps)
         contact_name,
         email,
         phone,
-        area,
-        industry,
         status,
-        services,
+        lead_score,
         do_not_contact,
         archived,
+        next_follow_up_on,
+        last_contacted_at,
         assigned_to_username,
+        updated_at,
         opportunity_value,
         probability_percent,
-        expected_close_date,
-        next_follow_up_on
+        expected_close_date
       `)
       .eq("archived", false)
-      .order("company_name", { ascending: true }),
+      .order("updated_at", { ascending: false }),
+    supabase
+      .from("sales_workflow_tasks")
+      .select(`
+        id,
+        lead_id,
+        client_id,
+        title,
+        task_type,
+        status,
+        due_on,
+        assigned_to_username,
+        created_at,
+        completed_at
+      `)
+      .order("created_at", { ascending: false }),
   ]);
 
-  const blockingJobStatuses = new Set(["provisional", "confirmed", "in_progress", "completed"]);
-  const blockingTransportStatuses = new Set(["planned", "dispatched", "in_progress", "completed"]);
-
-  const craneAvailability: AvailabilityAsset[] = ((cranes ?? []) as CraneRow[]).map((crane) => {
-    const bookings = ((jobs ?? []) as JobRow[]).filter((job) => {
-      if (String(job.crane_id ?? "") !== crane.id) return false;
-      if (!blockingJobStatuses.has(String(job.status ?? "").toLowerCase())) return false;
-
-      const jobStart = job.start_date || job.job_date;
-      const jobEnd = job.end_date || job.start_date || job.job_date;
-      return overlapsDateRange(jobStart, jobEnd, startDate, endDate);
-    });
-
-    const firstBooked = bookings
-      .map((job) => job.start_date || job.job_date)
-      .filter(Boolean)
-      .sort()[0] || null;
-
-    return {
-      id: crane.id,
-      name: crane.name,
-      subtitle: [crane.model, crane.capacity].filter(Boolean).join(" • ") || "Crane",
-      status: String(crane.status ?? "available"),
-      firstBookedOn: firstBooked,
-      bookingCount: bookings.length,
-      availableDays: bookings.length === 0 ? selectedWindow : Math.max(0, selectedWindow - bookings.length),
-    };
-  });
-
-  const vehicleAvailability: AvailabilityAsset[] = ((vehicles ?? []) as VehicleRow[]).map((vehicle) => {
-    const bookings = ((transportJobs ?? []) as TransportJobRow[]).filter((job) => {
-      if (String(job.vehicle_id ?? "") !== vehicle.id) return false;
-      if (!blockingTransportStatuses.has(String(job.status ?? "").toLowerCase())) return false;
-
-      const jobStart = job.transport_date;
-      const jobEnd = job.delivery_date || job.transport_date;
-      return overlapsDateRange(jobStart, jobEnd, startDate, endDate);
-    });
-
-    const firstBooked = bookings
-      .map((job) => job.transport_date)
-      .filter(Boolean)
-      .sort()[0] || null;
-
-    return {
-      id: vehicle.id,
-      name: vehicle.name || vehicle.reg_number || "Vehicle",
-      subtitle:
-        [vehicle.vehicle_type, vehicle.capacity, vehicle.reg_number].filter(Boolean).join(" • ") || "Vehicle",
-      status: String(vehicle.status ?? "active"),
-      firstBookedOn: firstBooked,
-      bookingCount: bookings.length,
-      availableDays: bookings.length === 0 ? selectedWindow : Math.max(0, selectedWindow - bookings.length),
-    };
-  });
-
-  const freeCranes = craneAvailability.filter(
-    (item) => item.bookingCount === 0 && item.status.toLowerCase() === "available"
-  );
-
-  const freeVehicles = vehicleAvailability.filter(
-    (item) => item.bookingCount === 0 && item.status.toLowerCase() === "active"
-  );
-
-  const allLeads = ((leads ?? []) as LeadRow[])
-    .filter((lead) => !lead.do_not_contact)
-    .filter((lead) => isLeadOpen(lead.status))
-    .filter((lead) => leadMatchesArea(lead, selectedArea));
-
-  const craneLeads = rankLeads(allLeads.filter((lead) => leadMatchesFocus(lead, "crane"))).slice(0, 8);
-  const transportLeads = rankLeads(allLeads.filter((lead) => leadMatchesFocus(lead, "transport"))).slice(0, 8);
-  const combinedLeads = rankLeads(allLeads.filter((lead) => leadMatchesFocus(lead, "combined"))).slice(0, 8);
-
-  const availabilityNote =
-    selectedWindow === 1
-      ? "today"
-      : `within the next ${selectedWindow} days`;
-
-  const sellingPlays: SellingPlay[] = [
-    {
-      key: "crane",
-      title: "Crane availability push",
-      focusLabel: "mobile crane hire",
-      summary: `${freeCranes.length} crane${freeCranes.length === 1 ? "" : "s"} currently unbooked ${availabilityNote}.`,
-      message: `We currently have crane availability ${availabilityNote} and should target open crane-related leads with a direct availability push.`,
-      leads: craneLeads,
-      socialStudioHref: buildSocialStudioHref({
-        focusLabel: "mobile crane hire",
-        area: selectedArea,
-        availabilityNote,
-        objective: "availability",
-      }),
-      campaignsHref: buildCampaignsHref({
-        focusLabel: "mobile crane hire",
-        area: selectedArea,
-      }),
-    },
-    {
-      key: "transport",
-      title: "Transport / HIAB availability push",
-      focusLabel: "HIAB transport and heavy haulage",
-      summary: `${freeVehicles.length} vehicle${freeVehicles.length === 1 ? "" : "s"} currently unbooked ${availabilityNote}.`,
-      message: `We currently have transport availability ${availabilityNote} and should target leads likely to need HIAB, haulage or delivery support.`,
-      leads: transportLeads,
-      socialStudioHref: buildSocialStudioHref({
-        focusLabel: "HIAB transport and heavy haulage",
-        area: selectedArea,
-        availabilityNote,
-        objective: "availability",
-      }),
-      campaignsHref: buildCampaignsHref({
-        focusLabel: "HIAB transport and heavy haulage",
-        area: selectedArea,
-      }),
-    },
-    {
-      key: "combined",
-      title: "Full package push",
-      focusLabel: "cranes and transport support",
-      summary: `Use current fleet gaps to promote AnnS as a one-stop lifting and transport solution.`,
-      message: `This is the best angle when both crane and transport capacity exist and you want to sell AnnS as the complete package rather than a single asset.`,
-      leads: combinedLeads,
-      socialStudioHref: buildSocialStudioHref({
-        focusLabel: "cranes and transport support",
-        area: selectedArea,
-        availabilityNote,
-        objective: "awareness",
-      }),
-      campaignsHref: buildCampaignsHref({
-        focusLabel: "cranes and transport support",
-        area: selectedArea,
-      }),
-    },
-  ].filter((play) => {
-    if (selectedFocus === "all") return true;
-    return play.key === selectedFocus;
-  });
-
-  const areaOptions = Array.from(
-    new Set(
-      allLeads
-        .map((lead) => String(lead.area ?? "").trim())
+  const owners: string[] = Array.from(
+    new Set<string>(
+      (leads ?? [])
+        .map((lead: any) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
+        .concat(currentUsername ? [currentUsername] : [])
     )
   ).sort((a, b) => a.localeCompare(b));
+
+  const openTasksByLead = new Map<string, any[]>();
+
+  for (const task of tasks ?? []) {
+    if (String((task as any).status ?? "") !== "open") continue;
+    const leadId = String((task as any).lead_id ?? "").trim();
+    if (!leadId) continue;
+    if (!openTasksByLead.has(leadId)) openTasksByLead.set(leadId, []);
+    openTasksByLead.get(leadId)!.push(task);
+  }
+
+  function leadHasOpenTaskTitle(leadId: string, title: string) {
+    const leadTasks = openTasksByLead.get(leadId) ?? [];
+    return leadTasks.some(
+      (task) => String((task as any).title ?? "").trim().toLowerCase() === title.trim().toLowerCase()
+    );
+  }
+
+  function leadOpenTaskCount(leadId: string) {
+    return (openTasksByLead.get(leadId) ?? []).length;
+  }
+
+  const baseLeadRows = (leads ?? [])
+    .filter((lead: any) => !lead.archived && !lead.do_not_contact)
+    .filter((lead: any) => {
+      if (selectedOwner === "all") return true;
+      return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
+    });
+
+  const suggestedTasks: SuggestedTask[] = [];
+
+  for (const lead of baseLeadRows) {
+    const leadId = String(lead.id);
+    const companyName = String(lead.company_name ?? "Lead");
+    const assignedToUsername = String(lead.assigned_to_username ?? "").trim() || null;
+    const status = String(lead.status ?? "New");
+    const probability = probabilityForLead(lead);
+    const opportunityValue = Number(lead.opportunity_value ?? 0);
+    const weighted = weightedValue(lead);
+    const followUpDays = daysUntil(lead.next_follow_up_on);
+    const closeDays = daysUntil(lead.expected_close_date);
+    const hasPhone = Boolean(lead.phone);
+    const hasEmail = Boolean(lead.email);
+
+    const pushSuggestion = (
+      item: Omit<SuggestedTask, "probability" | "opportunity_value" | "weighted_value" | "existing_open_task_count">
+    ) => {
+      if (leadHasOpenTaskTitle(leadId, item.title)) return;
+
+      suggestedTasks.push({
+        ...item,
+        probability,
+        opportunity_value: opportunityValue,
+        weighted_value: weighted,
+        existing_open_task_count: leadOpenTaskCount(leadId),
+      });
+    };
+
+    if (!assignedToUsername && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-assign-owner`,
+        label: "No owner assigned",
+        category: "owner",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Assign and review ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Lead has no assigned owner. Allocate responsibility and review next action.",
+      });
+    }
+
+    if (followUpDays !== null && followUpDays <= 0 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-follow-up-due`,
+        label: "Follow-up due now",
+        category: "follow_up",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Follow up ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Next follow-up date is due or overdue.",
+      });
+    }
+
+    if (status === "Quoted") {
+      pushSuggestion({
+        key: `${leadId}-quote-chase`,
+        label: "Quoted lead",
+        category: "quote_chase",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Quote chase ${companyName}`,
+        task_type: "quote_chase",
+        priority: "high",
+        due_on: addDays(new Date(), 2).toISOString().slice(0, 10),
+        notes: "Lead is in Quoted status. Chase the quote and move it toward decision.",
+      });
+    }
+
+    if (closeDays !== null && closeDays >= 0 && closeDays <= 7 && probability >= 60 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-close-check`,
+        label: "Close check needed",
+        category: "close_check",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Close check ${companyName}`,
+        task_type: "follow_up",
+        priority: "urgent",
+        due_on: String(lead.expected_close_date ?? today),
+        notes: "High probability opportunity with close date in the next 7 days. Confirm decision timing and blockers.",
+      });
+    }
+
+    if (status === "Dormant") {
+      pushSuggestion({
+        key: `${leadId}-recovery`,
+        label: "Dormant recovery",
+        category: "recovery",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Recovery contact ${companyName}`,
+        task_type: "customer_recovery",
+        priority: "high",
+        due_on: today,
+        notes: "Lead is marked Dormant. Re-engage and test whether the requirement is still live.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && hasPhone) {
+      pushSuggestion({
+        key: `${leadId}-first-call`,
+        label: "First contact call",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial call ${companyName}`,
+        task_type: "call",
+        priority: "high",
+        due_on: today,
+        notes: "Early-stage lead with a phone number available. Make first contact.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && !hasPhone && hasEmail) {
+      pushSuggestion({
+        key: `${leadId}-first-email`,
+        label: "First contact email",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial email ${companyName}`,
+        task_type: "email",
+        priority: "medium",
+        due_on: today,
+        notes: "Early-stage lead has no phone number but does have an email address. Send an introduction email.",
+      });
+    }
+  }
+
+  const filteredSuggestions = suggestedTasks
+    .filter((item) => selectedCategory === "all" || item.category === selectedCategory)
+    .sort((a, b) => {
+      const priorityRank = (value: string) => {
+        if (value === "urgent") return 4;
+        if (value === "high") return 3;
+        if (value === "medium") return 2;
+        return 1;
+      };
+
+      const aRank = priorityRank(a.priority);
+      const bRank = priorityRank(b.priority);
+
+      if (bRank !== aRank) return bRank - aRank;
+      if (a.due_on !== b.due_on) return String(a.due_on).localeCompare(String(b.due_on));
+      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
+    });
+
+  const stats = {
+    total: filteredSuggestions.length,
+    follow_up: filteredSuggestions.filter((item) => item.category === "follow_up").length,
+    quote_chase: filteredSuggestions.filter((item) => item.category === "quote_chase").length,
+    close_check: filteredSuggestions.filter((item) => item.category === "close_check").length,
+    owner: filteredSuggestions.filter((item) => item.category === "owner").length,
+    recovery: filteredSuggestions.filter((item) => item.category === "recovery").length,
+    first_contact: filteredSuggestions.filter((item) => item.category === "first_contact").length,
+  };
 
   return (
     <ClientShell>
       <div style={{ width: "min(1380px, 96vw)", margin: "0 auto" }}>
         <div style={topBar}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>Availability-Driven Selling</h1>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Automation Centre</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Turn open fleet availability into targeted sales actions, outreach angles and lead priorities.
+              Central queue of suggested sales tasks generated from lead and opportunity signals.
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/sales-hub" style={secondaryBtn}>
               ← Sales Hub
             </a>
-            <a href="/sales-hub/campaigns" style={secondaryBtn}>
-              Campaigns
-            </a>
-            <a href="/sales-hub/social-studio" style={secondaryBtn}>
-              Social Studio
+            <a href="/sales-hub/workflows" style={secondaryBtn}>
+              Workflow tasks
             </a>
           </div>
         </div>
 
-        {cranesError ? <div style={errorCard}>{cranesError.message}</div> : null}
-        {vehiclesError ? <div style={errorCard}>{vehiclesError.message}</div> : null}
-        {jobsError ? <div style={errorCard}>{jobsError.message}</div> : null}
-        {transportJobsError ? <div style={errorCard}>{transportJobsError.message}</div> : null}
+        {successMessage ? <div style={successCard}>{decodeURIComponent(successMessage)}</div> : null}
+        {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
+        {tasksError ? <div style={errorCard}>{tasksError.message}</div> : null}
 
         <div style={statsGrid}>
-          <StatCard label="Free cranes" value={String(freeCranes.length)} />
-          <StatCard label="Free vehicles" value={String(freeVehicles.length)} />
-          <StatCard label="Open leads in scope" value={String(allLeads.length)} />
-          <StatCard label="Sales manager" value={currentUsername || "Unknown"} />
+          <StatCard label="Suggested tasks" value={String(stats.total)} />
+          <StatCard label="Follow-ups due" value={String(stats.follow_up)} />
+          <StatCard label="Quote chases" value={String(stats.quote_chase)} />
+          <StatCard label="Close checks" value={String(stats.close_check)} />
+          <StatCard label="No owner" value={String(stats.owner)} />
+          <StatCard label="Dormant recovery" value={String(stats.recovery)} />
+          <StatCard label="First contact" value={String(stats.first_contact)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <h2 style={sectionTitle}>Filters</h2>
-
-          <form method="get" action="/sales-hub/availability" style={filterGrid}>
+          <form method="get" action="/sales-hub/automation" style={filterGrid}>
             <div>
-              <label style={labelStyle}>Availability window</label>
-              <select name="window" defaultValue={String(selectedWindow)} style={inputStyle}>
-                <option value="3">Next 3 days</option>
-                <option value="5">Next 5 days</option>
-                <option value="7">Next 7 days</option>
-                <option value="14">Next 14 days</option>
-                <option value="21">Next 21 days</option>
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Area</label>
-              <select name="area" defaultValue={selectedArea} style={inputStyle}>
-                <option value="all">All areas</option>
-                {areaOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
+              <label style={labelStyle}>Owner</label>
+              <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
+                <option value="all">All owners</option>
+                {owners.map((owner) => (
+                  <option key={owner} value={owner}>
+                    {owner}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label style={labelStyle}>Selling focus</label>
-              <select name="focus" defaultValue={selectedFocus} style={inputStyle}>
-                <option value="all">All plays</option>
-                <option value="crane">Crane only</option>
-                <option value="transport">Transport only</option>
-                <option value="combined">Combined package</option>
+              <label style={labelStyle}>Category</label>
+              <select name="category" defaultValue={selectedCategory} style={inputStyle}>
+                <option value="all">All categories</option>
+                <option value="follow_up">Follow-ups due</option>
+                <option value="quote_chase">Quote chases</option>
+                <option value="close_check">Close checks</option>
+                <option value="owner">No owner</option>
+                <option value="recovery">Dormant recovery</option>
+                <option value="first_contact">First contact</option>
               </select>
             </div>
 
-            <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" as const }}>
+            <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
-                Refresh dashboard
+                Apply
               </button>
-              <a href="/sales-hub/availability" style={secondaryBtn}>
+              <a href="/sales-hub/automation" style={secondaryBtn}>
                 Clear
               </a>
             </div>
           </form>
-
-          <div style={rangeNote}>
-            Looking at availability from <strong>{formatDateUK(toDateOnlyString(startDate))}</strong> to{" "}
-            <strong>{formatDateUK(toDateOnlyString(endDate))}</strong>.
-          </div>
         </section>
 
-        <div style={twoColGrid}>
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Crane availability</h2>
-
-            {!craneAvailability.length ? (
-              <div style={mutedBox}>No cranes found.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {craneAvailability.map((item) => (
-                  <div key={item.id} style={assetCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" as const }}>
-                      <div>
-                        <div style={{ fontWeight: 900 }}>{item.name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{item.subtitle}</div>
-                      </div>
-
-                      <div style={miniBadge}>
-                        {item.bookingCount === 0 ? "Available" : `${item.bookingCount} booking${item.bookingCount === 1 ? "" : "s"}`}
-                      </div>
-                    </div>
-
-                    <div style={metaRow}>
-                      <div>Status: {item.status}</div>
-                      <div>Next booked: {item.firstBookedOn ? formatDateUK(item.firstBookedOn) : "No bookings"}</div>
-                      <div>Free days in window: {item.availableDays}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Vehicle availability</h2>
-
-            {!vehicleAvailability.length ? (
-              <div style={mutedBox}>No vehicles found.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {vehicleAvailability.map((item) => (
-                  <div key={item.id} style={assetCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" as const }}>
-                      <div>
-                        <div style={{ fontWeight: 900 }}>{item.name}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{item.subtitle}</div>
-                      </div>
-
-                      <div style={miniBadge}>
-                        {item.bookingCount === 0 ? "Available" : `${item.bookingCount} booking${item.bookingCount === 1 ? "" : "s"}`}
-                      </div>
-                    </div>
-
-                    <div style={metaRow}>
-                      <div>Status: {item.status}</div>
-                      <div>Next booked: {item.firstBookedOn ? formatDateUK(item.firstBookedOn) : "No bookings"}</div>
-                      <div>Free days in window: {item.availableDays}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <h2 style={sectionTitle}>Selling plays</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Suggested task queue</h2>
+            <div style={helperText}>
+              Tick the rows you want, then use the bulk create button.
+            </div>
+          </div>
 
-          <div style={{ display: "grid", gap: 14 }}>
-            {sellingPlays.map((play) => (
-              <div key={play.key} style={playCard}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
-                  <div>
-                    <div style={{ fontWeight: 900, fontSize: 18 }}>{play.title}</div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{play.summary}</div>
+          {!filteredSuggestions.length ? (
+            <p style={{ marginTop: 14, marginBottom: 0, opacity: 0.78 }}>
+              No suggested tasks matched the current filters.
+            </p>
+          ) : (
+            <form action={createSelectedSuggestedTasks}>
+              {canManage ? (
+                <div style={bulkBar}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                  <div style={helperText}>
+                    Duplicate open tasks are skipped automatically.
                   </div>
-
-                  <div style={miniBadge}>{play.focusLabel}</div>
                 </div>
+              ) : (
+                <div style={mutedNote}>You do not have permission to create workflow tasks.</div>
+              )}
 
-                <div style={messageBox}>{play.message}</div>
+              <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                {filteredSuggestions.map((item) => {
+                  const payload: SelectedSuggestedTaskPayload = {
+                    lead_id: item.lead_id,
+                    company_name: item.company_name,
+                    title: item.title,
+                    task_type: item.task_type,
+                    priority: item.priority,
+                    due_on: item.due_on,
+                    notes: item.notes,
+                    assigned_to_username: item.assigned_to_username,
+                  };
 
-                <div style={actionRow}>
-                  <a href={play.socialStudioHref} style={primaryLinkBtn}>
-                    Create social post
-                  </a>
-                  <a href={play.campaignsHref} style={secondaryBtn}>
-                    Build campaign
-                  </a>
-                </div>
+                  return (
+                    <div key={item.key} style={itemCard}>
+                      <div style={itemTopRow}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+                          <div style={{ paddingTop: 4 }}>
+                            <input
+                              type="checkbox"
+                              name="selected_items"
+                              value={JSON.stringify(payload)}
+                              style={{ width: 18, height: 18 }}
+                            />
+                          </div>
 
-                <div style={{ marginTop: 14 }}>
-                  <div style={subHeading}>Best leads to target now</div>
-
-                  {!play.leads.length ? (
-                    <div style={mutedBox}>No matching open leads found for this play.</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {play.leads.map((lead) => (
-                        <div key={lead.id} style={leadCard}>
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" as const }}>
-                            <div>
-                              <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                                {lead.contact_name || "No contact"} • {lead.status || "New"} •{" "}
-                                {lead.assigned_to_username || "Unassigned"}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                                {lead.area || "No area"} • {lead.industry || "No industry"} • Weighted{" "}
-                                {formatMoneyGBP(weightedValueForLead(lead))}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                                Next follow-up: {formatDateUK(lead.next_follow_up_on)}
-                              </div>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              <MiniBadge label={item.label} />
+                              <MiniBadge label={String(item.status ?? "New")} />
+                              <MiniBadge label={`${item.priority.toUpperCase()} priority`} />
                             </div>
 
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center" }}>
-                              <a href={`/sales-hub/leads/${lead.id}`} style={miniLinkBtn}>
-                                Open lead
-                              </a>
-                              {canManage ? (
-                                <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkLinkBtn}>
-                                  Outreach
-                                </a>
-                              ) : null}
+                            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 18 }}>
+                              {item.company_name}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              {item.contact_name || "No contact name"}
+                              {item.assigned_to_username ? ` • ${item.assigned_to_username}` : " • Unassigned"}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              Due {fmtDate(item.due_on)} • Probability {item.probability}% • Weighted {moneyGBP(item.weighted_value)}
+                            </div>
+
+                            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
+                              {item.notes}
                             </div>
                           </div>
                         </div>
-                      ))}
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <MiniBadge label={`Open tasks ${item.existing_open_task_count}`} />
+                        </div>
+                      </div>
+
+                      <div style={actionsWrap}>
+                        {canManage ? (
+                          <form action={createSuggestedTask} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={item.lead_id} />
+                            <input type="hidden" name="company_name" value={item.company_name} />
+                            <input type="hidden" name="title" value={item.title} />
+                            <input type="hidden" name="task_type" value={item.task_type} />
+                            <input type="hidden" name="priority" value={item.priority} />
+                            <input type="hidden" name="due_on" value={item.due_on} />
+                            <input type="hidden" name="notes" value={item.notes} />
+                            <input
+                              type="hidden"
+                              name="assigned_to_username"
+                              value={String(item.assigned_to_username ?? "")}
+                            />
+                            <button type="submit" style={miniDarkBtn}>
+                              Create single task
+                            </button>
+                          </form>
+                        ) : null}
+
+                        <a href={`/sales-hub/leads/${item.lead_id}`} style={miniBtnLink}>
+                          Open lead
+                        </a>
+                        <a href={`/sales-hub/opportunities/${item.lead_id}`} style={miniBtnLink}>
+                          Open opportunity
+                        </a>
+                        <a href={`/sales-hub/leads/${item.lead_id}/outreach`} style={miniDarkBtnLink}>
+                          Outreach
+                        </a>
+                      </div>
                     </div>
-                  )}
-                </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
+
+              {canManage ? (
+                <div style={bulkBarBottom}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                </div>
+              ) : null}
+            </form>
+          )}
         </section>
       </div>
     </ClientShell>
@@ -728,7 +835,11 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const topBar: CSSProperties = {
+function MiniBadge({ label }: { label: string }) {
+  return <div style={miniBadge}>{label}</div>;
+}
+
+const topBar: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -737,13 +848,13 @@ const topBar: CSSProperties = {
   marginBottom: 16,
 };
 
-const statsGrid: CSSProperties = {
+const statsGrid: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const panelStyle: CSSProperties = {
+const panelStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -751,7 +862,7 @@ const panelStyle: CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCard: CSSProperties = {
+const statCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -759,26 +870,21 @@ const statCard: CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle: CSSProperties = {
-  marginTop: 0,
-  fontSize: 22,
-};
-
-const filterGrid: CSSProperties = {
+const filterGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "minmax(220px, 260px) minmax(220px, 260px) auto",
   gap: 12,
   alignItems: "end",
 };
 
-const labelStyle: CSSProperties = {
+const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle: CSSProperties = {
+const inputStyle: React.CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -790,7 +896,51 @@ const inputStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
-const primaryBtn: CSSProperties = {
+const sectionTitle: React.CSSProperties = {
+  marginTop: 0,
+  fontSize: 22,
+};
+
+const itemCard: React.CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const itemTopRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+};
+
+const actionsWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 12,
+  alignItems: "center",
+};
+
+const inlineForm: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const miniBadge: React.CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 999,
+  background: "rgba(0,0,0,0.06)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+  fontSize: 12,
+};
+
+const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -802,17 +952,7 @@ const primaryBtn: CSSProperties = {
   cursor: "pointer",
 };
 
-const primaryLinkBtn: CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "#111",
-  color: "#fff",
-  fontWeight: 800,
-  textDecoration: "none",
-};
-
-const secondaryBtn: CSSProperties = {
+const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -823,7 +963,7 @@ const secondaryBtn: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniLinkBtn: CSSProperties = {
+const miniBtnLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -834,7 +974,19 @@ const miniLinkBtn: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniDarkLinkBtn: CSSProperties = {
+const miniDarkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "none",
+  cursor: "pointer",
+};
+
+const miniDarkBtnLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -844,7 +996,15 @@ const miniDarkLinkBtn: CSSProperties = {
   textDecoration: "none",
 };
 
-const errorCard: CSSProperties = {
+const successCard: React.CSSProperties = {
+  background: "rgba(0,160,80,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,160,80,0.18)",
+  marginBottom: 12,
+};
+
+const errorCard: React.CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -852,87 +1012,38 @@ const errorCard: CSSProperties = {
   marginBottom: 12,
 };
 
-const twoColGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: 16,
-};
-
-const rangeNote: CSSProperties = {
-  marginTop: 12,
-  fontSize: 14,
-  opacity: 0.8,
-};
-
-const assetCard: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const metaRow: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-  gap: 8,
-  marginTop: 10,
-  fontSize: 13,
-  opacity: 0.8,
-};
-
-const playCard: CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const miniBadge: CSSProperties = {
-  padding: "6px 8px",
-  borderRadius: 999,
-  background: "rgba(0,0,0,0.06)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 800,
-  fontSize: 12,
-};
-
-const actionRow: CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 12,
-  alignItems: "center",
-};
-
-const subHeading: CSSProperties = {
-  fontSize: 14,
-  fontWeight: 900,
-  marginBottom: 10,
-};
-
-const messageBox: CSSProperties = {
-  marginTop: 12,
-  padding: "12px 14px",
+const mutedNote: React.CSSProperties = {
+  padding: "10px 12px",
   borderRadius: 10,
-  background: "rgba(255,255,255,0.88)",
+  background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
-  whiteSpace: "pre-wrap",
-  lineHeight: 1.6,
-  fontSize: 14,
+  opacity: 0.76,
+  fontWeight: 700,
 };
 
-const leadCard: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.82)",
-  border: "1px solid rgba(0,0,0,0.08)",
+const helperText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
 };
 
-const mutedBox: CSSProperties = {
+const bulkBar: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 14,
   padding: "12px 14px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
-  opacity: 0.82,
-  fontWeight: 700,
+};
+
+const bulkBarBottom: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 14,
 };
