@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import { redirect } from "next/navigation";
+import { generateSocialPostsWithFallback } from "../../lib/ai/sales";
 
 type CampaignRow = {
   id: string;
@@ -263,6 +264,7 @@ type SocialStudioPageProps = {
     availability_note?: string;
     asset_name?: string;
     include_phone?: string;
+    generate?: string;
     success?: string;
     error?: string;
   };
@@ -398,19 +400,38 @@ export default async function SocialStudioPage({
   const industry = String(searchParams?.industry ?? "").trim() || "construction";
   const assetName = String(searchParams?.asset_name ?? "").trim();
   const includePhone = String(searchParams?.include_phone ?? "yes").trim() !== "no";
+  const shouldUseAI = String(searchParams?.generate ?? "").trim() === "yes";
 
-  const variants = generatePostVariants({
-    serviceFocus,
-    area,
-    industry,
-    tone,
-    objective,
-    availabilityNote,
-    assetName,
-    campaignName: String(selectedCampaign?.name ?? ""),
-    sourceTemplate: String(selectedTemplate?.body_hint ?? ""),
-    includePhone,
-  });
+  const generation = shouldUseAI
+    ? await generateSocialPostsWithFallback({
+        serviceFocus,
+        area,
+        industry,
+        tone,
+        objective,
+        availabilityNote,
+        assetName,
+        campaignName: String(selectedCampaign?.name ?? ""),
+        sourceTemplate: String(selectedTemplate?.body_hint ?? ""),
+        includePhone,
+      })
+    : {
+        variants: generatePostVariants({
+          serviceFocus,
+          area,
+          industry,
+          tone,
+          objective,
+          availabilityNote,
+          assetName,
+          campaignName: String(selectedCampaign?.name ?? ""),
+          sourceTemplate: String(selectedTemplate?.body_hint ?? ""),
+          includePhone,
+        }),
+        provider: "fallback" as const,
+      };
+
+  const variants = generation.variants;
 
   return (
     <ClientShell>
@@ -447,10 +468,22 @@ export default async function SocialStudioPage({
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
 
+        {shouldUseAI ? (
+          <div style={generation.provider === "openai" ? successCard : errorCard}>
+            {generation.provider === "openai"
+              ? "AI-generated social posts ready."
+              : "AI was unavailable, so the studio used the built-in fallback generator."}
+          </div>
+        ) : null}
+
         <div style={statsGrid}>
           <StatCard label="Available campaigns" value={String(allCampaigns.length)} />
           <StatCard label="LinkedIn templates" value={String(allTemplates.length)} />
           <StatCard label="Generated variants" value={String(variants.length)} />
+          <StatCard
+            label="Generation mode"
+            value={shouldUseAI ? (generation.provider === "openai" ? "AI" : "Fallback") : "Preview"}
+          />
           <StatCard label="Current editor" value={currentUsername || "Unknown"} />
         </div>
 
@@ -458,6 +491,8 @@ export default async function SocialStudioPage({
           <h2 style={sectionTitle}>Post builder</h2>
 
           <form method="get" action="/sales-hub/social-studio" style={builderGrid}>
+            <input type="hidden" name="generate" value="yes" />
+
             <div>
               <label style={labelStyle}>Campaign</label>
               <select name="campaign_id" defaultValue={selectedCampaignId} style={inputStyle}>
@@ -582,9 +617,7 @@ export default async function SocialStudioPage({
                     <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>{variant.description}</div>
                   </div>
 
-                  <div style={miniBadge}>
-                    LinkedIn / social ready
-                  </div>
+                  <div style={miniBadge}>LinkedIn / social ready</div>
                 </div>
 
                 <div style={postBody}>{variant.body}</div>
