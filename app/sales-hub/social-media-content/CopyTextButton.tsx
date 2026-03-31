@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 
 export default function CopyTextButton({
   text,
@@ -28,7 +29,7 @@ export default function CopyTextButton({
   );
 }
 
-const buttonStyle: React.CSSProperties = {
+const buttonStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
