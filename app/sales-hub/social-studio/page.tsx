@@ -463,8 +463,16 @@ async function generateAiCards(args: {
     `Availability window: ${fmtDate(args.windowStart)} to ${fmtDate(args.windowEnd)} (${args.days} day window)`,
     `Free cranes count: ${args.freeCraneCount}`,
     `Free vehicles count: ${args.freeVehicleCount}`,
-    `Example free crane: ${args.freeCrane ? `${clean(args.freeCrane.name)}${args.freeCrane.capacity ? ` (${args.freeCrane.capacity})` : ""}` : "None"}`,
-    `Example free vehicle: ${args.freeVehicle ? `${clean(args.freeVehicle.name)}${args.freeVehicle.vehicle_type ? ` (${args.freeVehicle.vehicle_type})` : ""}` : "None"}`,
+    `Example free crane: ${
+      args.freeCrane
+        ? `${clean(args.freeCrane.name)}${args.freeCrane.capacity ? ` (${args.freeCrane.capacity})` : ""}`
+        : "None"
+    }`,
+    `Example free vehicle: ${
+      args.freeVehicle
+        ? `${clean(args.freeVehicle.name)}${args.freeVehicle.vehicle_type ? ` (${args.freeVehicle.vehicle_type})` : ""}`
+        : "None"
+    }`,
     `Selected asset type: ${args.selectedAssetType || "None"}`,
     `Selected asset name: ${selectedAssetName || "None"}`,
     `Selected asset details: ${selectedAssetBits || "None"}`,
@@ -492,21 +500,21 @@ async function generateAiCards(args: {
 
   const rows = Array.isArray(parsed?.posts) ? parsed.posts : [];
 
-  return rows
-    .map((row) => {
-      const key = String(row?.key ?? "").trim() as SocialCard["key"];
-      if (!["availability", "asset", "services", "short_notice"].includes(key)) return null;
+  const mapped: Array<SocialCard | null> = rows.map((row) => {
+    const key = String(row?.key ?? "").trim() as SocialCard["key"];
+    if (!["availability", "asset", "services", "short_notice"].includes(key)) return null;
 
-      return {
-        key,
-        title: compactSpaces(String(row?.title ?? "")) || "Generated Post",
-        body: String(row?.body ?? "").trim(),
-        hashtags: compactSpaces(String(row?.hashtags ?? "")),
-        imageTip: compactSpaces(String(row?.imageTip ?? "")) || "Use a strong relevant image.",
-        provider: "openai" as const,
-      };
-    })
-    .filter((row): row is SocialCard => !!row && !!row.body);
+    return {
+      key,
+      title: compactSpaces(String(row?.title ?? "")) || "Generated Post",
+      body: String(row?.body ?? "").trim(),
+      hashtags: compactSpaces(String(row?.hashtags ?? "")),
+      imageTip: compactSpaces(String(row?.imageTip ?? "")) || "Use a strong relevant image.",
+      provider: "openai",
+    };
+  });
+
+  return mapped.filter((row): row is SocialCard => Boolean(row && row.body));
 }
 
 function mergeCards(
@@ -532,7 +540,7 @@ function providerLabel(cards: SocialCard[], shouldUseAI: boolean) {
   return "Mixed";
 }
 
-export default async function SocialMediaContentPage({
+export default async function SocialStudioPage({
   searchParams,
 }: {
   searchParams?: SearchParams;
@@ -735,7 +743,7 @@ export default async function SocialMediaContentPage({
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <form method="get" action="/sales-hub/social-media-content" style={filterGrid}>
+          <form method="get" action="/sales-hub/social-studio" style={filterGrid}>
             <input type="hidden" name="generate" value="yes" />
 
             <div>
@@ -791,7 +799,7 @@ export default async function SocialMediaContentPage({
               <button type="submit" style={primaryBtn}>
                 Generate
               </button>
-              <a href="/sales-hub/social-media-content" style={secondaryBtn}>
+              <a href="/sales-hub/social-studio" style={secondaryBtn}>
                 Reset
               </a>
             </div>
@@ -841,7 +849,7 @@ export default async function SocialMediaContentPage({
           <div style={{ display: "grid", gap: 8 }}>
             <div style={tipRow}>1. Use availability posts when a crane or vehicle is free soon.</div>
             <div style={tipRow}>2. Use asset spotlight posts when you want to push one key unit.</div>
-            <div style={tipRow}>3. Use full service promo posts to remind people you cover more than one part of the job.</div>
+            <div style={tipRow}>3. Use full service promo posts to remind people you cover more than one offering.</div>
             <div style={tipRow}>4. Use short-notice posts when you want a more urgent sales angle.</div>
           </div>
         </section>
