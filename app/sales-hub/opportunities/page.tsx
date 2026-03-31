@@ -61,6 +61,8 @@ type OpportunityPageProps = {
   searchParams?: {
     owner?: string;
     view?: string;
+    success?: string;
+    error?: string;
   };
 };
 
@@ -439,8 +441,8 @@ export default async function OpportunityTrackingPage({
     }
   }
 
-  const owners = Array.from(
-    new Set(
+  const owners: string[] = Array.from(
+    new Set<string>(
       allRows
         .map((lead) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
