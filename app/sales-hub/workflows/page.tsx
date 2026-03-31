@@ -387,8 +387,8 @@ export default async function SalesWorkflowTasksPage({
       .order("company_name", { ascending: true }),
   ]);
 
-  const ownerOptions = Array.from(
-    new Set(
+  const ownerOptions: string[] = Array.from(
+    new Set<string>(
       (tasks ?? [])
         .map((row: any) => String(row.assigned_to_username ?? "").trim())
         .filter(Boolean)
