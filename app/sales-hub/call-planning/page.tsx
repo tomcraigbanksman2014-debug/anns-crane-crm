@@ -1,106 +1,52 @@
-import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
-
-type LeadRow = {
-  id: string;
-  company_name: string;
-  contact_name: string | null;
-  phone: string | null;
-  email: string | null;
-  area: string | null;
-  industry: string | null;
-  status: string | null;
-  services: string[] | null;
-  do_not_contact: boolean | null;
-  archived: boolean | null;
-  assigned_to_username: string | null;
-  opportunity_value: number | null;
-  probability_percent: number | null;
-  expected_close_date: string | null;
-  next_follow_up_on: string | null;
-  last_contacted_at: string | null;
-  updated_at: string | null;
-};
-
-type WorkflowTaskRow = {
-  id: string;
-  lead_id: string | null;
-  title: string | null;
-  task_type: string | null;
-  status: string | null;
-  priority: string | null;
-  due_on: string | null;
-  assigned_to_username: string | null;
-};
-
-type PlannedCallRow = {
-  lead: LeadRow;
-  score: number;
-  weightedValue: number;
-  overdueDays: number | null;
-  expectedCloseDays: number | null;
-  openCallTaskCount: number;
-  topReason: string;
-  callAngle: string;
-};
-
-type PageProps = {
-  searchParams?: {
-    owner?: string;
-    area?: string;
-    status?: string;
-  };
-};
+import { redirect } from "next/navigation";
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
 }
 
-function formatDateUK(value: string | null | undefined) {
+function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB");
 }
 
-function formatMoneyGBP(value: number | null | undefined) {
+function moneyGBP(value: number | null | undefined) {
   const n = Number(value ?? 0);
   return n.toLocaleString("en-GB", {
     style: "currency",
     currency: "GBP",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   });
 }
 
-function parseDateOnly(value: string | null | undefined) {
-  if (!value) return null;
-  const text = String(value).slice(0, 10);
-  if (!text) return null;
-  const d = new Date(`${text}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return null;
+function dateOnly(value: string | null | undefined) {
+  return String(value ?? "").slice(0, 10);
+}
+
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
   return d;
 }
 
-function daysUntil(value: string | null | undefined) {
-  const date = parseDateOnly(value);
-  if (!date) return null;
-
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  return Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+function isOpenLeadStatus(status: string | null | undefined) {
+  const s = String(status ?? "").toLowerCase();
+  return s !== "won" && s !== "lost";
 }
 
-function probabilityForLead(lead: LeadRow) {
-  const manual = Number(lead.probability_percent);
+function probabilityForLead(lead: any) {
+  const manual = Number(lead?.probability_percent);
   if (Number.isFinite(manual)) {
     return Math.max(0, Math.min(100, manual));
   }
 
-  const status = String(lead.status ?? "").toLowerCase();
+  const status = String(lead?.status ?? "").toLowerCase();
 
   if (status === "new") return 10;
   if (status === "to contact") return 15;
@@ -112,106 +58,67 @@ function probabilityForLead(lead: LeadRow) {
   return 0;
 }
 
-function weightedValueForLead(lead: LeadRow) {
-  return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
-}
-
-function isOpenLead(status: string | null | undefined) {
-  const s = String(status ?? "").toLowerCase();
-  return s !== "won" && s !== "lost";
-}
-
-function leadServicesText(lead: LeadRow) {
-  return Array.isArray(lead.services) ? lead.services.join(", ") : "";
-}
-
-function bestCallAngle(lead: LeadRow) {
-  const status = String(lead.status ?? "").toLowerCase();
-  const services = leadServicesText(lead).toLowerCase();
-  const industry = String(lead.industry ?? "").toLowerCase();
-
-  if (status === "quoted") {
-    return "Quote chase: check decision timing, objections and what is needed to win the job.";
-  }
-
-  if (status === "dormant") {
-    return "Reactivation: ask what they have coming up and re-open the relationship.";
-  }
-
-  if (status === "new" || status === "to contact") {
-    return "First introduction: establish requirement, timescales and who handles lifting or transport buying.";
-  }
-
-  if (
-    services.includes("hiab") ||
-    services.includes("transport") ||
-    services.includes("haulage") ||
-    industry.includes("container") ||
-    industry.includes("modular")
-  ) {
-    return "Transport-led call: focus on HIAB, haulage, delivery support and short-notice cover.";
-  }
-
-  if (
-    services.includes("crane") ||
-    services.includes("contract lift") ||
-    services.includes("lifting") ||
-    industry.includes("steel") ||
-    industry.includes("glazing") ||
-    industry.includes("construction")
-  ) {
-    return "Crane-led call: focus on crane hire, contract lifts, lifting support and nationwide response.";
-  }
-
-  return "General sales call: explore upcoming projects, pain points and where AnnS could support.";
-}
-
-function mainReason(lead: LeadRow, overdueDays: number | null, openCallTaskCount: number) {
-  const status = String(lead.status ?? "").toLowerCase();
-
-  if (openCallTaskCount > 0) return "Open call task already due";
-  if (overdueDays !== null && overdueDays < 0) return "Follow-up overdue";
-  if (status === "quoted") return "Quoted lead needs chasing";
-  if (status === "dormant") return "Dormant lead for recovery";
-  if (status === "new" || status === "to contact") return "New lead needs first contact";
-  return "High-value live opportunity";
-}
-
-function computeCallScore(lead: LeadRow, openCallTaskCount: number) {
-  let score = 0;
-
-  const status = String(lead.status ?? "").toLowerCase();
-  const overdueDays = daysUntil(lead.next_follow_up_on);
-  const closeDays = daysUntil(lead.expected_close_date);
+function weightedValue(lead: any) {
+  const value = Number(lead?.opportunity_value ?? 0);
   const probability = probabilityForLead(lead);
-  const weightedValue = weightedValueForLead(lead);
-
-  if (lead.phone) score += 50;
-  if (openCallTaskCount > 0) score += 40;
-  if (overdueDays !== null && overdueDays < 0) score += 35;
-  if (overdueDays !== null && overdueDays === 0) score += 25;
-  if (status === "quoted") score += 30;
-  if (status === "follow up") score += 18;
-  if (status === "dormant") score += 20;
-  if (status === "new" || status === "to contact") score += 16;
-  if (closeDays !== null && closeDays >= 0 && closeDays <= 7) score += 20;
-
-  score += Math.round(probability / 4);
-  score += Math.min(30, Math.round(weightedValue / 1000));
-
-  if (!lead.assigned_to_username) score += 6;
-  if (!lead.phone) score -= 100;
-
-  return score;
+  return value * (probability / 100);
 }
 
-function byScoreDesc(a: PlannedCallRow, b: PlannedCallRow) {
-  if (b.score !== a.score) return b.score - a.score;
-  if (b.weightedValue !== a.weightedValue) return b.weightedValue - a.weightedValue;
-  return String(a.lead.company_name).localeCompare(String(b.lead.company_name));
+function daysUntil(value: string | null | undefined) {
+  const dateText = dateOnly(value);
+  if (!dateText) return null;
+  const target = new Date(dateText);
+  if (Number.isNaN(target.getTime())) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffMs = target.getTime() - today.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
 }
 
-export default async function CallPlanningPage({ searchParams }: PageProps) {
+type SuggestedTask = {
+  key: string;
+  label: string;
+  category: "follow_up" | "quote_chase" | "close_check" | "owner" | "recovery" | "first_contact";
+  lead_id: string;
+  company_name: string;
+  contact_name: string | null;
+  assigned_to_username: string | null;
+  status: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string;
+  notes: string;
+  probability: number;
+  opportunity_value: number;
+  weighted_value: number;
+  existing_open_task_count: number;
+};
+
+type AutomationCentrePageProps = {
+  searchParams?: {
+    owner?: string;
+    category?: string;
+    success?: string;
+    error?: string;
+  };
+};
+
+type SelectedSuggestedTaskPayload = {
+  lead_id: string | null;
+  client_id?: string | null;
+  company_name: string | null;
+  title: string;
+  task_type: string;
+  priority: string;
+  due_on: string | null;
+  notes: string | null;
+  assigned_to_username: string | null;
+};
+
+export default async function AutomationCentrePage({
+  searchParams,
+}: AutomationCentrePageProps) {
   const supabase = createSupabaseServerClient();
   const access = await getAccessContext();
 
@@ -219,16 +126,236 @@ export default async function CallPlanningPage({ searchParams }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const canManage = !!access.user && canCreateCustomers(access);
   const currentUsername = fromAuthEmail(user?.email ?? null);
+  const canManage = !!access.user && canCreateCustomers(access);
 
-  const selectedOwner = String(searchParams?.owner ?? "all").trim() || "all";
-  const selectedArea = String(searchParams?.area ?? "all").trim() || "all";
-  const selectedStatus = String(searchParams?.status ?? "all").trim() || "all";
+  const selectedOwner = String(searchParams?.owner ?? "all").trim();
+  const selectedCategory = String(searchParams?.category ?? "all").trim();
+  const successMessage = String(searchParams?.success ?? "");
+  const errorMessage = String(searchParams?.error ?? "");
+  const today = new Date().toISOString().slice(0, 10);
+
+  async function createSuggestedTask(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const leadId = String(formData.get("lead_id") ?? "").trim() || null;
+    const clientId = String(formData.get("client_id") ?? "").trim() || null;
+    const companyName = String(formData.get("company_name") ?? "").trim() || null;
+    const title = String(formData.get("title") ?? "").trim();
+    const taskType = String(formData.get("task_type") ?? "follow_up").trim() || "follow_up";
+    const priority = String(formData.get("priority") ?? "medium").trim() || "medium";
+    const dueOn = String(formData.get("due_on") ?? "").trim() || null;
+    const notes = String(formData.get("notes") ?? "").trim() || null;
+    const assignedToUsername =
+      String(formData.get("assigned_to_username") ?? "").trim() ||
+      fromAuthEmail(user?.email ?? null) ||
+      null;
+
+    if (!title) {
+      redirect("/sales-hub/automation?error=Task%20title%20is%20required.");
+    }
+
+    if (!leadId && !clientId) {
+      redirect("/sales-hub/automation?error=Task%20must%20link%20to%20a%20lead%20or%20customer.");
+    }
+
+    let duplicateQuery = supabase
+      .from("sales_workflow_tasks")
+      .select("id")
+      .eq("status", "open")
+      .eq("title", title)
+      .eq("task_type", taskType)
+      .limit(1);
+
+    if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+    if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+    const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+    if (duplicateTask?.id) {
+      redirect("/sales-hub/automation?success=Matching%20open%20task%20already%20exists.");
+    }
+
+    const { data: createdTask, error } = await supabase
+      .from("sales_workflow_tasks")
+      .insert({
+        title,
+        task_type: taskType,
+        status: "open",
+        priority,
+        due_on: dueOn,
+        notes,
+        assigned_to_username: assignedToUsername,
+        lead_id: leadId,
+        client_id: clientId,
+        created_by_user_id: user?.id ?? null,
+        created_by_username: fromAuthEmail(user?.email ?? null) || null,
+      })
+      .select("id")
+      .single();
+
+    if (error || !createdTask?.id) {
+      redirect(`/sales-hub/automation?error=${encodeURIComponent(error?.message || "Could not create workflow task.")}`);
+    }
+
+    await writeAuditLog({
+      actor_user_id: user?.id ?? null,
+      actor_username: fromAuthEmail(user?.email ?? null) || null,
+      action: "sales_workflow_task_created_from_automation_queue",
+      entity_type: "sales_workflow_task",
+      entity_id: createdTask.id,
+      meta: {
+        lead_id: leadId,
+        client_id: clientId,
+        company_name: companyName,
+        title,
+        task_type: taskType,
+        priority,
+        due_on: dueOn,
+      },
+    });
+
+    redirect("/sales-hub/automation?success=Workflow%20task%20created.");
+  }
+
+  async function createSelectedSuggestedTasks(formData: FormData) {
+    "use server";
+
+    const access = await getAccessContext();
+
+    if (!access.user || !canCreateCustomers(access)) {
+      redirect("/sales-hub/automation?error=You%20do%20not%20have%20permission%20to%20create%20workflow%20tasks.");
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const selectedItems = formData.getAll("selected_items");
+
+    if (!selectedItems.length) {
+      redirect("/sales-hub/automation?error=No%20suggested%20items%20selected.");
+    }
+
+    let createdCount = 0;
+    let skippedCount = 0;
+
+    for (const rawItem of selectedItems) {
+      try {
+        const parsed = JSON.parse(String(rawItem)) as SelectedSuggestedTaskPayload;
+
+        const leadId = String(parsed.lead_id ?? "").trim() || null;
+        const clientId = String(parsed.client_id ?? "").trim() || null;
+        const companyName = String(parsed.company_name ?? "").trim() || null;
+        const title = String(parsed.title ?? "").trim();
+        const taskType = String(parsed.task_type ?? "follow_up").trim() || "follow_up";
+        const priority = String(parsed.priority ?? "medium").trim() || "medium";
+        const dueOn = String(parsed.due_on ?? "").trim() || null;
+        const notes = String(parsed.notes ?? "").trim() || null;
+        const assignedToUsername =
+          String(parsed.assigned_to_username ?? "").trim() ||
+          fromAuthEmail(user?.email ?? null) ||
+          null;
+
+        if (!title || (!leadId && !clientId)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        let duplicateQuery = supabase
+          .from("sales_workflow_tasks")
+          .select("id")
+          .eq("status", "open")
+          .eq("title", title)
+          .eq("task_type", taskType)
+          .limit(1);
+
+        if (leadId) duplicateQuery = duplicateQuery.eq("lead_id", leadId);
+        if (clientId) duplicateQuery = duplicateQuery.eq("client_id", clientId);
+
+        const { data: duplicateTask } = await duplicateQuery.maybeSingle();
+
+        if (duplicateTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const { data: createdTask, error } = await supabase
+          .from("sales_workflow_tasks")
+          .insert({
+            title,
+            task_type: taskType,
+            status: "open",
+            priority,
+            due_on: dueOn,
+            notes,
+            assigned_to_username: assignedToUsername,
+            lead_id: leadId,
+            client_id: clientId,
+            created_by_user_id: user?.id ?? null,
+            created_by_username: fromAuthEmail(user?.email ?? null) || null,
+          })
+          .select("id")
+          .single();
+
+        if (error || !createdTask?.id) {
+          skippedCount += 1;
+          continue;
+        }
+
+        createdCount += 1;
+
+        await writeAuditLog({
+          actor_user_id: user?.id ?? null,
+          actor_username: fromAuthEmail(user?.email ?? null) || null,
+          action: "sales_workflow_task_created_from_automation_bulk_queue",
+          entity_type: "sales_workflow_task",
+          entity_id: createdTask.id,
+          meta: {
+            lead_id: leadId,
+            client_id: clientId,
+            company_name: companyName,
+            title,
+            task_type: taskType,
+            priority,
+            due_on: dueOn,
+          },
+        });
+      } catch {
+        skippedCount += 1;
+      }
+    }
+
+    if (createdCount === 0 && skippedCount > 0) {
+      redirect("/sales-hub/automation?success=No%20new%20tasks%20were%20created.%20Selected%20items%20were%20already%20covered%20or%20invalid.");
+    }
+
+    redirect(
+      `/sales-hub/automation?success=${encodeURIComponent(
+        `Created ${createdCount} workflow task${createdCount === 1 ? "" : "s"}${
+          skippedCount ? `, skipped ${skippedCount}.` : "."
+        }`
+      )}`
+    );
+  }
 
   const [
     { data: leads, error: leadsError },
-    { data: workflowTasks, error: tasksError },
+    { data: tasks, error: tasksError },
   ] = await Promise.all([
     supabase
       .from("sales_leads")
@@ -236,130 +363,268 @@ export default async function CallPlanningPage({ searchParams }: PageProps) {
         id,
         company_name,
         contact_name,
-        phone,
         email,
-        area,
-        industry,
+        phone,
         status,
-        services,
+        lead_score,
         do_not_contact,
         archived,
-        assigned_to_username,
-        opportunity_value,
-        probability_percent,
-        expected_close_date,
         next_follow_up_on,
         last_contacted_at,
-        updated_at
+        assigned_to_username,
+        updated_at,
+        opportunity_value,
+        probability_percent,
+        expected_close_date
       `)
       .eq("archived", false)
-      .order("company_name", { ascending: true }),
+      .order("updated_at", { ascending: false }),
     supabase
       .from("sales_workflow_tasks")
       .select(`
         id,
         lead_id,
+        client_id,
         title,
         task_type,
         status,
-        priority,
         due_on,
-        assigned_to_username
+        assigned_to_username,
+        created_at,
+        completed_at
       `)
-      .eq("status", "open")
-      .order("due_on", { ascending: true }),
+      .order("created_at", { ascending: false }),
   ]);
 
-  const allLeads = ((leads ?? []) as LeadRow[])
-    .filter((lead) => !lead.do_not_contact)
-    .filter((lead) => isOpenLead(lead.status))
-    .filter((lead) => Boolean(lead.phone))
-    .filter((lead) => {
-      if (selectedOwner === "all") return true;
-      return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
-    })
-    .filter((lead) => {
-      if (selectedArea === "all") return true;
-      return String(lead.area ?? "").trim() === selectedArea;
-    })
-    .filter((lead) => {
-      if (selectedStatus === "all") return true;
-      return String(lead.status ?? "").trim() === selectedStatus;
-    });
-
-  const openCallTasksByLead = new Map<string, WorkflowTaskRow[]>();
-
-  for (const task of (workflowTasks ?? []) as WorkflowTaskRow[]) {
-    if (String(task.task_type ?? "").toLowerCase() !== "call") continue;
-    const leadId = String(task.lead_id ?? "").trim();
-    if (!leadId) continue;
-    if (!openCallTasksByLead.has(leadId)) openCallTasksByLead.set(leadId, []);
-    openCallTasksByLead.get(leadId)!.push(task);
-  }
-
-  const plannedCalls: PlannedCallRow[] = allLeads.map((lead) => {
-    const openCallTaskCount = (openCallTasksByLead.get(String(lead.id)) ?? []).length;
-    const overdueDays = daysUntil(lead.next_follow_up_on);
-    const expectedCloseDays = daysUntil(lead.expected_close_date);
-    const weightedValue = weightedValueForLead(lead);
-
-    return {
-      lead,
-      score: computeCallScore(lead, openCallTaskCount),
-      weightedValue,
-      overdueDays,
-      expectedCloseDays,
-      openCallTaskCount,
-      topReason: mainReason(lead, overdueDays, openCallTaskCount),
-      callAngle: bestCallAngle(lead),
-    };
-  });
-
-  const rankedCalls = [...plannedCalls].sort(byScoreDesc);
-
-  const priorityCalls = rankedCalls.slice(0, 12);
-
-  const quoteChaseCalls = rankedCalls
-    .filter((item) => String(item.lead.status ?? "").toLowerCase() === "quoted")
-    .slice(0, 10);
-
-  const dormantRecoveryCalls = rankedCalls
-    .filter((item) => String(item.lead.status ?? "").toLowerCase() === "dormant")
-    .slice(0, 10);
-
-  const overdueFollowUps = rankedCalls
-    .filter((item) => item.overdueDays !== null && item.overdueDays < 0)
-    .slice(0, 10);
-
-  const callbackTasks = rankedCalls
-    .filter((item) => item.openCallTaskCount > 0)
-    .slice(0, 10);
-
-  const ownerOptions = Array.from(
-    new Set(
-      ((leads ?? []) as LeadRow[])
-        .map((lead) => String(lead.assigned_to_username ?? "").trim())
+  const owners: string[] = Array.from(
+    new Set<string>(
+      (leads ?? [])
+        .map((lead: any) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
         .concat(currentUsername ? [currentUsername] : [])
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const areaOptions = Array.from(
-    new Set(
-      ((leads ?? []) as LeadRow[])
-        .map((lead) => String(lead.area ?? "").trim())
-        .filter(Boolean)
-    )
-  ).sort((a, b) => a.localeCompare(b));
+  const openTasksByLead = new Map<string, any[]>();
+
+  for (const task of tasks ?? []) {
+    if (String((task as any).status ?? "") !== "open") continue;
+    const leadId = String((task as any).lead_id ?? "").trim();
+    if (!leadId) continue;
+    if (!openTasksByLead.has(leadId)) openTasksByLead.set(leadId, []);
+    openTasksByLead.get(leadId)!.push(task);
+  }
+
+  function leadHasOpenTaskTitle(leadId: string, title: string) {
+    const leadTasks = openTasksByLead.get(leadId) ?? [];
+    return leadTasks.some(
+      (task) => String((task as any).title ?? "").trim().toLowerCase() === title.trim().toLowerCase()
+    );
+  }
+
+  function leadOpenTaskCount(leadId: string) {
+    return (openTasksByLead.get(leadId) ?? []).length;
+  }
+
+  const baseLeadRows = (leads ?? [])
+    .filter((lead: any) => !lead.archived && !lead.do_not_contact)
+    .filter((lead: any) => {
+      if (selectedOwner === "all") return true;
+      return String(lead.assigned_to_username ?? "").trim() === selectedOwner;
+    });
+
+  const suggestedTasks: SuggestedTask[] = [];
+
+  for (const lead of baseLeadRows) {
+    const leadId = String(lead.id);
+    const companyName = String(lead.company_name ?? "Lead");
+    const assignedToUsername = String(lead.assigned_to_username ?? "").trim() || null;
+    const status = String(lead.status ?? "New");
+    const probability = probabilityForLead(lead);
+    const opportunityValue = Number(lead.opportunity_value ?? 0);
+    const weighted = weightedValue(lead);
+    const followUpDays = daysUntil(lead.next_follow_up_on);
+    const closeDays = daysUntil(lead.expected_close_date);
+    const hasPhone = Boolean(lead.phone);
+    const hasEmail = Boolean(lead.email);
+
+    const pushSuggestion = (
+      item: Omit<SuggestedTask, "probability" | "opportunity_value" | "weighted_value" | "existing_open_task_count">
+    ) => {
+      if (leadHasOpenTaskTitle(leadId, item.title)) return;
+
+      suggestedTasks.push({
+        ...item,
+        probability,
+        opportunity_value: opportunityValue,
+        weighted_value: weighted,
+        existing_open_task_count: leadOpenTaskCount(leadId),
+      });
+    };
+
+    if (!assignedToUsername && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-assign-owner`,
+        label: "No owner assigned",
+        category: "owner",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Assign and review ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Lead has no assigned owner. Allocate responsibility and review next action.",
+      });
+    }
+
+    if (followUpDays !== null && followUpDays <= 0 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-follow-up-due`,
+        label: "Follow-up due now",
+        category: "follow_up",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Follow up ${companyName}`,
+        task_type: "follow_up",
+        priority: "high",
+        due_on: today,
+        notes: "Next follow-up date is due or overdue.",
+      });
+    }
+
+    if (status === "Quoted") {
+      pushSuggestion({
+        key: `${leadId}-quote-chase`,
+        label: "Quoted lead",
+        category: "quote_chase",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Quote chase ${companyName}`,
+        task_type: "quote_chase",
+        priority: "high",
+        due_on: addDays(new Date(), 2).toISOString().slice(0, 10),
+        notes: "Lead is in Quoted status. Chase the quote and move it toward decision.",
+      });
+    }
+
+    if (closeDays !== null && closeDays >= 0 && closeDays <= 7 && probability >= 60 && isOpenLeadStatus(status)) {
+      pushSuggestion({
+        key: `${leadId}-close-check`,
+        label: "Close check needed",
+        category: "close_check",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Close check ${companyName}`,
+        task_type: "follow_up",
+        priority: "urgent",
+        due_on: String(lead.expected_close_date ?? today),
+        notes: "High probability opportunity with close date in the next 7 days. Confirm decision timing and blockers.",
+      });
+    }
+
+    if (status === "Dormant") {
+      pushSuggestion({
+        key: `${leadId}-recovery`,
+        label: "Dormant recovery",
+        category: "recovery",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Recovery contact ${companyName}`,
+        task_type: "customer_recovery",
+        priority: "high",
+        due_on: today,
+        notes: "Lead is marked Dormant. Re-engage and test whether the requirement is still live.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && hasPhone) {
+      pushSuggestion({
+        key: `${leadId}-first-call`,
+        label: "First contact call",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial call ${companyName}`,
+        task_type: "call",
+        priority: "high",
+        due_on: today,
+        notes: "Early-stage lead with a phone number available. Make first contact.",
+      });
+    }
+
+    if ((status === "New" || status === "To Contact") && !hasPhone && hasEmail) {
+      pushSuggestion({
+        key: `${leadId}-first-email`,
+        label: "First contact email",
+        category: "first_contact",
+        lead_id: leadId,
+        company_name: companyName,
+        contact_name: lead.contact_name ?? null,
+        assigned_to_username: assignedToUsername,
+        status,
+        title: `Initial email ${companyName}`,
+        task_type: "email",
+        priority: "medium",
+        due_on: today,
+        notes: "Early-stage lead has no phone number but does have an email address. Send an introduction email.",
+      });
+    }
+  }
+
+  const filteredSuggestions = suggestedTasks
+    .filter((item) => selectedCategory === "all" || item.category === selectedCategory)
+    .sort((a, b) => {
+      const priorityRank = (value: string) => {
+        if (value === "urgent") return 4;
+        if (value === "high") return 3;
+        if (value === "medium") return 2;
+        return 1;
+      };
+
+      const aRank = priorityRank(a.priority);
+      const bRank = priorityRank(b.priority);
+
+      if (bRank !== aRank) return bRank - aRank;
+      if (a.due_on !== b.due_on) return String(a.due_on).localeCompare(String(b.due_on));
+      return Number(b.weighted_value ?? 0) - Number(a.weighted_value ?? 0);
+    });
+
+  const stats = {
+    total: filteredSuggestions.length,
+    follow_up: filteredSuggestions.filter((item) => item.category === "follow_up").length,
+    quote_chase: filteredSuggestions.filter((item) => item.category === "quote_chase").length,
+    close_check: filteredSuggestions.filter((item) => item.category === "close_check").length,
+    owner: filteredSuggestions.filter((item) => item.category === "owner").length,
+    recovery: filteredSuggestions.filter((item) => item.category === "recovery").length,
+    first_contact: filteredSuggestions.filter((item) => item.category === "first_contact").length,
+  };
 
   return (
     <ClientShell>
       <div style={{ width: "min(1380px, 96vw)", margin: "0 auto" }}>
         <div style={topBar}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>Call Planning Dashboard</h1>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Automation Centre</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Prioritise who to call today, why they matter and the best angle to use.
+              Central queue of suggested sales tasks generated from lead and opportunity signals.
             </p>
           </div>
 
@@ -367,73 +632,59 @@ export default async function CallPlanningPage({ searchParams }: PageProps) {
             <a href="/sales-hub" style={secondaryBtn}>
               ← Sales Hub
             </a>
-            <a href="/sales-hub/campaigns" style={secondaryBtn}>
-              Campaigns
-            </a>
-            <a href="/sales-hub/availability" style={secondaryBtn}>
-              Availability
+            <a href="/sales-hub/workflows" style={secondaryBtn}>
+              Workflow tasks
             </a>
           </div>
         </div>
 
+        {successMessage ? <div style={successCard}>{decodeURIComponent(successMessage)}</div> : null}
+        {errorMessage ? <div style={errorCard}>{decodeURIComponent(errorMessage)}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
         {tasksError ? <div style={errorCard}>{tasksError.message}</div> : null}
 
         <div style={statsGrid}>
-          <StatCard label="Call-ready leads" value={String(rankedCalls.length)} />
-          <StatCard label="Priority calls" value={String(priorityCalls.length)} />
-          <StatCard label="Quote chases" value={String(quoteChaseCalls.length)} />
-          <StatCard label="Dormant recovery" value={String(dormantRecoveryCalls.length)} />
-          <StatCard label="Overdue follow-ups" value={String(overdueFollowUps.length)} />
-          <StatCard label="Open call tasks" value={String(callbackTasks.length)} />
+          <StatCard label="Suggested tasks" value={String(stats.total)} />
+          <StatCard label="Follow-ups due" value={String(stats.follow_up)} />
+          <StatCard label="Quote chases" value={String(stats.quote_chase)} />
+          <StatCard label="Close checks" value={String(stats.close_check)} />
+          <StatCard label="No owner" value={String(stats.owner)} />
+          <StatCard label="Dormant recovery" value={String(stats.recovery)} />
+          <StatCard label="First contact" value={String(stats.first_contact)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <h2 style={sectionTitle}>Filters</h2>
-
-          <form method="get" action="/sales-hub/call-planning" style={filterGrid}>
+          <form method="get" action="/sales-hub/automation" style={filterGrid}>
             <div>
               <label style={labelStyle}>Owner</label>
               <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
                 <option value="all">All owners</option>
-                {ownerOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
+                {owners.map((owner) => (
+                  <option key={owner} value={owner}>
+                    {owner}
                   </option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label style={labelStyle}>Area</label>
-              <select name="area" defaultValue={selectedArea} style={inputStyle}>
-                <option value="all">All areas</option>
-                {areaOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
+              <label style={labelStyle}>Category</label>
+              <select name="category" defaultValue={selectedCategory} style={inputStyle}>
+                <option value="all">All categories</option>
+                <option value="follow_up">Follow-ups due</option>
+                <option value="quote_chase">Quote chases</option>
+                <option value="close_check">Close checks</option>
+                <option value="owner">No owner</option>
+                <option value="recovery">Dormant recovery</option>
+                <option value="first_contact">First contact</option>
               </select>
             </div>
 
-            <div>
-              <label style={labelStyle}>Lead status</label>
-              <select name="status" defaultValue={selectedStatus} style={inputStyle}>
-                <option value="all">All live statuses</option>
-                <option value="New">New</option>
-                <option value="To Contact">To Contact</option>
-                <option value="Contacted">Contacted</option>
-                <option value="Quoted">Quoted</option>
-                <option value="Follow Up">Follow Up</option>
-                <option value="Dormant">Dormant</option>
-              </select>
-            </div>
-
-            <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
               <button type="submit" style={primaryBtn}>
-                Refresh plan
+                Apply
               </button>
-              <a href="/sales-hub/call-planning" style={secondaryBtn}>
+              <a href="/sales-hub/automation" style={secondaryBtn}>
                 Clear
               </a>
             </div>
@@ -441,84 +692,135 @@ export default async function CallPlanningPage({ searchParams }: PageProps) {
         </section>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
-          <div style={sectionTopRow}>
-            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Priority calls today</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Suggested task queue</h2>
             <div style={helperText}>
-              Highest value and most urgent calls first.
+              Tick the rows you want, then use the bulk create button.
             </div>
           </div>
 
-          {!priorityCalls.length ? (
-            <div style={mutedBox}>No leads matched the current filters.</div>
+          {!filteredSuggestions.length ? (
+            <p style={{ marginTop: 14, marginBottom: 0, opacity: 0.78 }}>
+              No suggested tasks matched the current filters.
+            </p>
           ) : (
-            <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-              {priorityCalls.map((item, index) => (
-                <CallCard
-                  key={item.lead.id}
-                  item={item}
-                  rank={index + 1}
-                  canManage={canManage}
-                />
-              ))}
-            </div>
+            <form action={createSelectedSuggestedTasks}>
+              {canManage ? (
+                <div style={bulkBar}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                  <div style={helperText}>
+                    Duplicate open tasks are skipped automatically.
+                  </div>
+                </div>
+              ) : (
+                <div style={mutedNote}>You do not have permission to create workflow tasks.</div>
+              )}
+
+              <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
+                {filteredSuggestions.map((item) => {
+                  const payload: SelectedSuggestedTaskPayload = {
+                    lead_id: item.lead_id,
+                    company_name: item.company_name,
+                    title: item.title,
+                    task_type: item.task_type,
+                    priority: item.priority,
+                    due_on: item.due_on,
+                    notes: item.notes,
+                    assigned_to_username: item.assigned_to_username,
+                  };
+
+                  return (
+                    <div key={item.key} style={itemCard}>
+                      <div style={itemTopRow}>
+                        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
+                          <div style={{ paddingTop: 4 }}>
+                            <input
+                              type="checkbox"
+                              name="selected_items"
+                              value={JSON.stringify(payload)}
+                              style={{ width: 18, height: 18 }}
+                            />
+                          </div>
+
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                              <MiniBadge label={item.label} />
+                              <MiniBadge label={String(item.status ?? "New")} />
+                              <MiniBadge label={`${item.priority.toUpperCase()} priority`} />
+                            </div>
+
+                            <div style={{ marginTop: 10, fontWeight: 900, fontSize: 18 }}>
+                              {item.company_name}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              {item.contact_name || "No contact name"}
+                              {item.assigned_to_username ? ` • ${item.assigned_to_username}` : " • Unassigned"}
+                            </div>
+
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.76 }}>
+                              Due {fmtDate(item.due_on)} • Probability {item.probability}% • Weighted {moneyGBP(item.weighted_value)}
+                            </div>
+
+                            <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.5 }}>
+                              {item.notes}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                          <MiniBadge label={`Open tasks ${item.existing_open_task_count}`} />
+                        </div>
+                      </div>
+
+                      <div style={actionsWrap}>
+                        {canManage ? (
+                          <form action={createSuggestedTask} style={inlineForm}>
+                            <input type="hidden" name="lead_id" value={item.lead_id} />
+                            <input type="hidden" name="company_name" value={item.company_name} />
+                            <input type="hidden" name="title" value={item.title} />
+                            <input type="hidden" name="task_type" value={item.task_type} />
+                            <input type="hidden" name="priority" value={item.priority} />
+                            <input type="hidden" name="due_on" value={item.due_on} />
+                            <input type="hidden" name="notes" value={item.notes} />
+                            <input
+                              type="hidden"
+                              name="assigned_to_username"
+                              value={String(item.assigned_to_username ?? "")}
+                            />
+                            <button type="submit" style={miniDarkBtn}>
+                              Create single task
+                            </button>
+                          </form>
+                        ) : null}
+
+                        <a href={`/sales-hub/leads/${item.lead_id}`} style={miniBtnLink}>
+                          Open lead
+                        </a>
+                        <a href={`/sales-hub/opportunities/${item.lead_id}`} style={miniBtnLink}>
+                          Open opportunity
+                        </a>
+                        <a href={`/sales-hub/leads/${item.lead_id}/outreach`} style={miniDarkBtnLink}>
+                          Outreach
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {canManage ? (
+                <div style={bulkBarBottom}>
+                  <button type="submit" style={primaryBtn}>
+                    Create selected workflow tasks
+                  </button>
+                </div>
+              ) : null}
+            </form>
           )}
         </section>
-
-        <div style={twoColGrid}>
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Quote chase calls</h2>
-            {!quoteChaseCalls.length ? (
-              <div style={mutedBox}>No quoted leads currently in scope.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {quoteChaseCalls.map((item) => (
-                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Dormant recovery</h2>
-            {!dormantRecoveryCalls.length ? (
-              <div style={mutedBox}>No dormant leads currently in scope.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {dormantRecoveryCalls.map((item) => (
-                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
-
-        <div style={twoColGrid}>
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Overdue follow-ups</h2>
-            {!overdueFollowUps.length ? (
-              <div style={mutedBox}>No overdue follow-ups currently in scope.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {overdueFollowUps.map((item) => (
-                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section style={{ ...panelStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Open call tasks</h2>
-            {!callbackTasks.length ? (
-              <div style={mutedBox}>No open call tasks currently linked to filtered leads.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {callbackTasks.map((item) => (
-                  <MiniCallCard key={item.lead.id} item={item} canManage={canManage} />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
       </div>
     </ClientShell>
   );
@@ -533,106 +835,11 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CallCard({
-  item,
-  rank,
-  canManage,
-}: {
-  item: PlannedCallRow;
-  rank: number;
-  canManage: boolean;
-}) {
-  const lead = item.lead;
-
-  return (
-    <div style={callCard}>
-      <div style={callCardTop}>
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start", minWidth: 0, flex: 1 }}>
-          <div style={rankBadge}>{rank}</div>
-
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>{lead.company_name}</div>
-
-            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
-              {lead.contact_name || "No contact"} • {lead.phone || "No phone"} • {lead.status || "New"}
-            </div>
-
-            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
-              {lead.area || "No area"} • {lead.industry || "No industry"} • Owner:{" "}
-              {lead.assigned_to_username || "Unassigned"}
-            </div>
-
-            <div style={reasonBox}>
-              <strong>{item.topReason}</strong>
-              <div style={{ marginTop: 6 }}>{item.callAngle}</div>
-            </div>
-
-            <div style={metaGrid}>
-              <div>Weighted value: {formatMoneyGBP(item.weightedValue)}</div>
-              <div>Probability: {probabilityForLead(lead)}%</div>
-              <div>Next follow-up: {formatDateUK(lead.next_follow_up_on)}</div>
-              <div>Expected close: {formatDateUK(lead.expected_close_date)}</div>
-              <div>Open call tasks: {item.openCallTaskCount}</div>
-              <div>Score: {item.score}</div>
-            </div>
-          </div>
-        </div>
-
-        <div style={actionCol}>
-          <a href={`/sales-hub/leads/${lead.id}`} style={miniLinkBtn}>
-            Open lead
-          </a>
-          <a href={`/sales-hub/opportunities/${lead.id}`} style={miniLinkBtn}>
-            Opportunity
-          </a>
-          {canManage ? (
-            <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkLinkBtn}>
-              Outreach
-            </a>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
+function MiniBadge({ label }: { label: string }) {
+  return <div style={miniBadge}>{label}</div>;
 }
 
-function MiniCallCard({
-  item,
-  canManage,
-}: {
-  item: PlannedCallRow;
-  canManage: boolean;
-}) {
-  const lead = item.lead;
-
-  return (
-    <div style={miniCard}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-        <div>
-          <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>
-            {lead.contact_name || "No contact"} • {lead.phone || "No phone"} • {lead.status || "New"}
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13 }}>{item.topReason}</div>
-        </div>
-
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={miniBadge}>Score {item.score}</div>
-          <a href={`/sales-hub/leads/${lead.id}`} style={miniLinkBtn}>
-            Lead
-          </a>
-          {canManage ? (
-            <a href={`/sales-hub/leads/${lead.id}/outreach`} style={miniDarkLinkBtn}>
-              Call
-            </a>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const topBar: CSSProperties = {
+const topBar: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -641,13 +848,13 @@ const topBar: CSSProperties = {
   marginBottom: 16,
 };
 
-const statsGrid: CSSProperties = {
+const statsGrid: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const panelStyle: CSSProperties = {
+const panelStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -655,7 +862,7 @@ const panelStyle: CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCard: CSSProperties = {
+const statCard: React.CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -663,39 +870,21 @@ const statCard: CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle: CSSProperties = {
-  marginTop: 0,
-  fontSize: 22,
-};
-
-const sectionTopRow: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const helperText: CSSProperties = {
-  fontSize: 13,
-  opacity: 0.72,
-};
-
-const filterGrid: CSSProperties = {
+const filterGrid: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "minmax(220px, 260px) minmax(220px, 260px) auto",
   gap: 12,
   alignItems: "end",
 };
 
-const labelStyle: CSSProperties = {
+const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle: CSSProperties = {
+const inputStyle: React.CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -707,7 +896,51 @@ const inputStyle: CSSProperties = {
   boxSizing: "border-box",
 };
 
-const primaryBtn: CSSProperties = {
+const sectionTitle: React.CSSProperties = {
+  marginTop: 0,
+  fontSize: 22,
+};
+
+const itemCard: React.CSSProperties = {
+  padding: "14px 16px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const itemTopRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+};
+
+const actionsWrap: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  marginTop: 12,
+  alignItems: "center",
+};
+
+const inlineForm: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const miniBadge: React.CSSProperties = {
+  padding: "6px 8px",
+  borderRadius: 999,
+  background: "rgba(0,0,0,0.06)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+  fontSize: 12,
+};
+
+const primaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -719,7 +952,7 @@ const primaryBtn: CSSProperties = {
   cursor: "pointer",
 };
 
-const secondaryBtn: CSSProperties = {
+const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -730,7 +963,7 @@ const secondaryBtn: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniLinkBtn: CSSProperties = {
+const miniBtnLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -741,7 +974,19 @@ const miniLinkBtn: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const miniDarkLinkBtn: CSSProperties = {
+const miniDarkBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 8,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "none",
+  cursor: "pointer",
+};
+
+const miniDarkBtnLink: React.CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -751,7 +996,15 @@ const miniDarkLinkBtn: CSSProperties = {
   textDecoration: "none",
 };
 
-const errorCard: CSSProperties = {
+const successCard: React.CSSProperties = {
+  background: "rgba(0,160,80,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,160,80,0.18)",
+  marginBottom: 12,
+};
+
+const errorCard: React.CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -759,87 +1012,38 @@ const errorCard: CSSProperties = {
   marginBottom: 12,
 };
 
-const twoColGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
-  gap: 16,
-};
-
-const mutedBox: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
+const mutedNote: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
-  opacity: 0.82,
+  opacity: 0.76,
   fontWeight: 700,
 };
 
-const callCard: CSSProperties = {
-  padding: "14px 16px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.08)",
+const helperText: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.72,
 };
 
-const callCardTop: CSSProperties = {
+const bulkBar: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   flexWrap: "wrap",
-  alignItems: "flex-start",
-};
-
-const rankBadge: CSSProperties = {
-  width: 34,
-  height: 34,
-  borderRadius: 999,
-  background: "#111",
-  color: "#fff",
-  display: "flex",
   alignItems: "center",
-  justifyContent: "center",
-  fontWeight: 900,
-  flexShrink: 0,
-};
-
-const reasonBox: CSSProperties = {
-  marginTop: 10,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.88)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  lineHeight: 1.5,
-  fontSize: 14,
-};
-
-const metaGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-  gap: 8,
-  marginTop: 12,
-  fontSize: 13,
-  opacity: 0.82,
-};
-
-const actionCol: CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-  alignItems: "center",
-};
-
-const miniCard: CSSProperties = {
+  marginTop: 14,
   padding: "12px 14px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const miniBadge: CSSProperties = {
-  padding: "6px 8px",
-  borderRadius: 999,
-  background: "rgba(0,0,0,0.06)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontWeight: 800,
-  fontSize: 12,
+const bulkBarBottom: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-start",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 14,
 };
