@@ -396,8 +396,8 @@ export default async function AutomationCentrePage({
       .order("created_at", { ascending: false }),
   ]);
 
-  const owners = Array.from(
-    new Set(
+  const owners: string[] = Array.from(
+    new Set<string>(
       (leads ?? [])
         .map((lead: any) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
