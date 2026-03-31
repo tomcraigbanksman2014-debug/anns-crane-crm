@@ -1,6 +1,29 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import CopyTextButton from "./CopyTextButton";
+
+type ToneValue = "professional" | "sales" | "friendly";
+type ModeValue = "all" | "availability" | "asset" | "services" | "short_notice";
+type AssetType = "crane" | "vehicle" | null;
+type ProviderType = "openai" | "fallback";
+
+type SearchParams = {
+  tone?: string | string[];
+  mode?: string | string[];
+  days?: string | string[];
+  asset?: string | string[];
+  generate?: string | string[];
+};
+
+type SocialCard = {
+  key: "availability" | "asset" | "services" | "short_notice";
+  title: string;
+  body: string;
+  hashtags: string;
+  imageTip: string;
+  provider: ProviderType;
+};
 
 function addDays(base: Date, days: number) {
   const d = new Date(base);
@@ -76,6 +99,10 @@ function clean(value: unknown) {
   return s.length ? s : "";
 }
 
+function compactSpaces(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 function titleCase(input: string) {
   return input
     .split(" ")
@@ -84,18 +111,23 @@ function titleCase(input: string) {
     .join(" ");
 }
 
-function getToneValue(value: string | string[] | undefined) {
+function getToneValue(value: string | string[] | undefined): ToneValue {
   const v = Array.isArray(value) ? value[0] : value;
   const safe = String(v ?? "professional").toLowerCase();
-  if (safe === "sales" || safe === "friendly") return safe;
+  if (safe === "sales" || safe === "friendly") return safe as ToneValue;
   return "professional";
 }
 
-function getModeValue(value: string | string[] | undefined) {
+function getModeValue(value: string | string[] | undefined): ModeValue {
   const v = Array.isArray(value) ? value[0] : value;
   const safe = String(v ?? "all").toLowerCase();
-  if (safe === "availability" || safe === "asset" || safe === "services" || safe === "short_notice") {
-    return safe;
+  if (
+    safe === "availability" ||
+    safe === "asset" ||
+    safe === "services" ||
+    safe === "short_notice"
+  ) {
+    return safe as ModeValue;
   }
   return "all";
 }
@@ -106,7 +138,15 @@ function getDaysValue(value: string | string[] | undefined) {
   return Math.max(1, Math.min(14, v));
 }
 
-function hashtagsForPost(type: "availability" | "asset" | "services" | "short_notice", assetType?: "crane" | "vehicle") {
+function getGenerateValue(value: string | string[] | undefined) {
+  const v = Array.isArray(value) ? value[0] : value;
+  return String(v ?? "").toLowerCase() === "yes";
+}
+
+function hashtagsForPost(
+  type: "availability" | "asset" | "services" | "short_notice",
+  assetType?: "crane" | "vehicle"
+) {
   const tags = ["#AnnSCraneHire", "#CraneHire", "#HIAB", "#Transport", "#UKWide"];
 
   if (type === "availability") tags.push("#Availability", "#ShortNotice");
@@ -121,11 +161,11 @@ function hashtagsForPost(type: "availability" | "asset" | "services" | "short_no
 }
 
 function availabilityPost(args: {
-  tone: string;
+  tone: ToneValue;
   days: number;
   freeCrane: any | null;
   freeVehicle: any | null;
-}) {
+}): SocialCard {
   const windowText = args.days === 1 ? "tomorrow" : `over the next ${args.days} days`;
 
   const craneLine = args.freeCrane
@@ -163,29 +203,33 @@ function availabilityPost(args: {
     .join("\n");
 
   return {
+    key: "availability",
     title: "Availability Post",
     body,
     hashtags: hashtagsForPost("availability"),
     imageTip: "Use a clean yard or on-site photo of the available crane or vehicle.",
+    provider: "fallback",
   };
 }
 
 function assetSpotlightPost(args: {
-  tone: string;
+  tone: ToneValue;
   asset: any | null;
-  assetType: "crane" | "vehicle" | null;
-}) {
+  assetType: AssetType;
+}): SocialCard {
   if (!args.asset || !args.assetType) {
     return {
+      key: "asset",
       title: "Asset Spotlight",
-      body:
-        "Select a crane or vehicle above to generate an asset spotlight post.",
+      body: "Select a crane or vehicle above to generate an asset spotlight post.",
       hashtags: hashtagsForPost("asset"),
       imageTip: "Use a strong photo of the selected asset on a clean site or in the yard.",
+      provider: "fallback",
     };
   }
 
-  const assetName = clean(args.asset.name) || (args.assetType === "crane" ? "our crane" : "our vehicle");
+  const assetName =
+    clean(args.asset.name) || (args.assetType === "crane" ? "our crane" : "our vehicle");
   const detailBits = [
     args.asset.capacity ? args.asset.capacity : "",
     args.asset.vehicle_type ? args.asset.vehicle_type : "",
@@ -194,7 +238,9 @@ function assetSpotlightPost(args: {
 
   let intro = `Fleet spotlight: ${assetName}.`;
   if (args.tone === "sales") intro = `Available from the AnnS Crane Hire fleet: ${assetName}.`;
-  if (args.tone === "friendly") intro = `A quick spotlight on ${assetName} from the AnnS Crane Hire fleet.`;
+  if (args.tone === "friendly") {
+    intro = `A quick spotlight on ${assetName} from the AnnS Crane Hire fleet.`;
+  }
 
   const supportLine =
     args.assetType === "crane"
@@ -215,14 +261,16 @@ function assetSpotlightPost(args: {
     .join("\n");
 
   return {
+    key: "asset",
     title: "Asset Spotlight",
     body,
     hashtags: hashtagsForPost("asset", args.assetType),
     imageTip: "Use a strong branded shot of the selected asset working on site.",
+    provider: "fallback",
   };
 }
 
-function servicesPost(args: { tone: string }) {
+function servicesPost(args: { tone: ToneValue }): SocialCard {
   let intro =
     "AnnS Crane Hire is not just a one-trick pony and not just a small local firm.";
 
@@ -249,18 +297,20 @@ function servicesPost(args: { tone: string }) {
   ].join("\n");
 
   return {
+    key: "services",
     title: "Full Service Promo",
     body,
     hashtags: hashtagsForPost("services"),
     imageTip: "Use a collage or photo showing crane + transport together.",
+    provider: "fallback",
   };
 }
 
 function shortNoticePost(args: {
-  tone: string;
+  tone: ToneValue;
   asset: any | null;
-  assetType: "crane" | "vehicle" | null;
-}) {
+  assetType: AssetType;
+}): SocialCard {
   const assetName = args.asset ? clean(args.asset.name) : "";
   const specificLine = assetName
     ? `We currently have ${assetName} ready to go if a job needs picking up quickly.`
@@ -290,19 +340,205 @@ function shortNoticePost(args: {
   ].join("\n");
 
   return {
+    key: "short_notice",
     title: "Short-Notice / Rescue Style Post",
     body,
     hashtags: hashtagsForPost("short_notice", args.assetType ?? undefined),
     imageTip: "Use a live working photo and keep the caption direct.",
+    provider: "fallback",
   };
 }
 
-type SearchParams = {
-  tone?: string | string[];
-  mode?: string | string[];
-  days?: string | string[];
-  asset?: string | string[];
-};
+function stripCodeFence(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  return trimmed.replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
+}
+
+function extractJsonObject(value: string) {
+  const cleaned = stripCodeFence(value);
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error("AI response did not contain JSON.");
+  }
+  return cleaned.slice(start, end + 1);
+}
+
+function extractResponseText(payload: any) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  const chunks: string[] = [];
+
+  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
+    if (!Array.isArray(item?.content)) continue;
+
+    for (const content of item.content) {
+      const text =
+        typeof content?.text === "string"
+          ? content.text
+          : typeof content?.output_text === "string"
+          ? content.output_text
+          : "";
+      if (text) chunks.push(text);
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
+async function callOpenAI(input: string, maxOutputTokens: number) {
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4.1";
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.8,
+      max_output_tokens: maxOutputTokens,
+      input,
+    }),
+    cache: "no-store",
+  });
+
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "OpenAI request failed.");
+  }
+
+  const text = extractResponseText(payload);
+  if (!text) {
+    throw new Error("OpenAI returned no text.");
+  }
+
+  return text;
+}
+
+async function generateAiCards(args: {
+  tone: ToneValue;
+  days: number;
+  windowStart: string;
+  windowEnd: string;
+  freeCraneCount: number;
+  freeVehicleCount: number;
+  freeCrane: any | null;
+  freeVehicle: any | null;
+  selectedAsset: any | null;
+  selectedAssetType: AssetType;
+  requestedKeys: Array<SocialCard["key"]>;
+}) {
+  const selectedAssetName = args.selectedAsset ? clean(args.selectedAsset.name) : "";
+  const selectedAssetBits = [
+    args.selectedAsset?.capacity ? String(args.selectedAsset.capacity) : "",
+    args.selectedAsset?.vehicle_type ? String(args.selectedAsset.vehicle_type) : "",
+    args.selectedAsset?.reg_number ? `Reg ${args.selectedAsset.reg_number}` : "",
+    args.selectedAsset?.fleet_number ? `Fleet ${args.selectedAsset.fleet_number}` : "",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  const prompt = [
+    "You are writing high-quality LinkedIn-ready social media posts for AnnS Crane Hire in the UK.",
+    "Write commercially strong posts that sound human, practical and sales-focused without sounding robotic.",
+    "Do not use markdown. Do not use emojis. Do not use quotation marks around the whole response.",
+    "Return only valid JSON in this exact format:",
+    '{"posts":[{"key":"availability","title":"string","body":"string","hashtags":"string","imageTip":"string"}]}',
+    "Use only the keys requested.",
+    "Each body should be a ready-to-post caption with short paragraphs.",
+    "Put hashtags only in the hashtags field, not in the body.",
+    "",
+    `Tone: ${args.tone}`,
+    `Availability window: ${fmtDate(args.windowStart)} to ${fmtDate(args.windowEnd)} (${args.days} day window)`,
+    `Free cranes count: ${args.freeCraneCount}`,
+    `Free vehicles count: ${args.freeVehicleCount}`,
+    `Example free crane: ${
+      args.freeCrane
+        ? `${clean(args.freeCrane.name)}${args.freeCrane.capacity ? ` (${args.freeCrane.capacity})` : ""}`
+        : "None"
+    }`,
+    `Example free vehicle: ${
+      args.freeVehicle
+        ? `${clean(args.freeVehicle.name)}${args.freeVehicle.vehicle_type ? ` (${args.freeVehicle.vehicle_type})` : ""}`
+        : "None"
+    }`,
+    `Selected asset type: ${args.selectedAssetType || "None"}`,
+    `Selected asset name: ${selectedAssetName || "None"}`,
+    `Selected asset details: ${selectedAssetBits || "None"}`,
+    "Business context: AnnS Crane Hire supports crane hire, HIAB transport, contract lifts, machinery moves, container work, heavy haulage and wider lifting and transport requirements across the UK.",
+    "Brand position: professional but personal service, responsive, not just a small local firm, UK-wide support.",
+    `Requested keys: ${args.requestedKeys.join(", ")}`,
+    "",
+    "Post intent guidance:",
+    "- availability: promote near-term free fleet availability",
+    "- asset: spotlight the selected asset and what it can support",
+    "- services: promote the wider range of services, not just one offering",
+    "- short_notice: urgent rescue-style post for late changes and short-notice support",
+  ].join("\n");
+
+  const text = await callOpenAI(prompt, 2200);
+  const parsed = JSON.parse(extractJsonObject(text)) as {
+    posts?: Array<{
+      key?: string;
+      title?: string;
+      body?: string;
+      hashtags?: string;
+      imageTip?: string;
+    }>;
+  };
+
+  const rows = Array.isArray(parsed?.posts) ? parsed.posts : [];
+
+  const mapped: Array<SocialCard | null> = rows.map((row) => {
+    const key = String(row?.key ?? "").trim() as SocialCard["key"];
+    if (!["availability", "asset", "services", "short_notice"].includes(key)) return null;
+
+    return {
+      key,
+      title: compactSpaces(String(row?.title ?? "")) || "Generated Post",
+      body: String(row?.body ?? "").trim(),
+      hashtags: compactSpaces(String(row?.hashtags ?? "")),
+      imageTip: compactSpaces(String(row?.imageTip ?? "")) || "Use a strong relevant image.",
+      provider: "openai",
+    };
+  });
+
+  return mapped.filter((row): row is SocialCard => Boolean(row && row.body));
+}
+
+function mergeCards(
+  fallbackCards: SocialCard[],
+  aiCards: SocialCard[] | null,
+  requestedKeys: Array<SocialCard["key"]>
+) {
+  if (!aiCards || !aiCards.length) {
+    return fallbackCards.filter((card) => requestedKeys.includes(card.key));
+  }
+
+  const aiMap = new Map(aiCards.map((card) => [card.key, card]));
+  return fallbackCards
+    .filter((card) => requestedKeys.includes(card.key))
+    .map((card) => aiMap.get(card.key) || card);
+}
+
+function providerLabel(cards: SocialCard[], shouldUseAI: boolean) {
+  if (!shouldUseAI) return "Preview";
+  const openAiCount = cards.filter((card) => card.provider === "openai").length;
+  if (openAiCount === 0) return "Fallback";
+  if (openAiCount === cards.length) return "AI";
+  return "Mixed";
+}
 
 export default async function SocialMediaContentPage({
   searchParams,
@@ -314,7 +550,10 @@ export default async function SocialMediaContentPage({
   const tone = getToneValue(searchParams?.tone);
   const mode = getModeValue(searchParams?.mode);
   const days = getDaysValue(searchParams?.days);
-  const assetParam = String(Array.isArray(searchParams?.asset) ? searchParams?.asset[0] : searchParams?.asset ?? "");
+  const shouldUseAI = getGenerateValue(searchParams?.generate);
+  const assetParam = String(
+    Array.isArray(searchParams?.asset) ? searchParams?.asset[0] : searchParams?.asset ?? ""
+  );
 
   const tomorrow = addDays(new Date(), 1);
   const endDate = addDays(tomorrow, days - 1);
@@ -388,7 +627,7 @@ export default async function SocialMediaContentPage({
   ];
 
   let selectedAsset: any | null = null;
-  let selectedAssetType: "crane" | "vehicle" | null = null;
+  let selectedAssetType: AssetType = null;
 
   if (assetParam) {
     const found = allAssets.find((item) => item.key === assetParam);
@@ -414,7 +653,7 @@ export default async function SocialMediaContentPage({
     }
   }
 
-  const cards = [
+  const fallbackCards: SocialCard[] = [
     availabilityPost({
       tone,
       days,
@@ -432,14 +671,37 @@ export default async function SocialMediaContentPage({
       asset: selectedAsset,
       assetType: selectedAssetType,
     }),
-  ].filter((card, index) => {
-    if (mode === "all") return true;
-    if (mode === "availability") return index === 0;
-    if (mode === "asset") return index === 1;
-    if (mode === "services") return index === 2;
-    if (mode === "short_notice") return index === 3;
-    return true;
-  });
+  ];
+
+  const requestedKeys: Array<SocialCard["key"]> =
+    mode === "all"
+      ? ["availability", "asset", "services", "short_notice"]
+      : [mode];
+
+  let aiCards: SocialCard[] | null = null;
+
+  if (shouldUseAI) {
+    try {
+      aiCards = await generateAiCards({
+        tone,
+        days,
+        windowStart,
+        windowEnd,
+        freeCraneCount: freeCranes.length,
+        freeVehicleCount: freeVehicles.length,
+        freeCrane: freeCranes[0] ?? null,
+        freeVehicle: freeVehicles[0] ?? null,
+        selectedAsset,
+        selectedAssetType,
+        requestedKeys,
+      });
+    } catch {
+      aiCards = null;
+    }
+  }
+
+  const cards = mergeCards(fallbackCards, aiCards, requestedKeys);
+  const generationMode = providerLabel(cards, shouldUseAI);
 
   return (
     <ClientShell>
@@ -462,6 +724,23 @@ export default async function SocialMediaContentPage({
         {jobsError ? <div style={errorCard}>{jobsError.message}</div> : null}
         {transportError ? <div style={errorCard}>{transportError.message}</div> : null}
 
+        {shouldUseAI ? (
+          <div
+            style={
+              generationMode === "AI" || generationMode === "Mixed"
+                ? successCard
+                : warningCard
+            }
+          >
+            Generation mode: <strong>{generationMode}</strong>
+            {generationMode === "Fallback"
+              ? " — AI was unavailable, so the built-in fallback copy was used."
+              : generationMode === "Mixed"
+              ? " — some posts used AI and some used fallback copy."
+              : " — posts generated using AI."}
+          </div>
+        ) : null}
+
         <div style={statsGrid}>
           <StatCard label="Free cranes" value={String(freeCranes.length)} />
           <StatCard label="Free vehicles" value={String(freeVehicles.length)} />
@@ -471,6 +750,8 @@ export default async function SocialMediaContentPage({
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
           <form method="get" action="/sales-hub/social-media-content" style={filterGrid}>
+            <input type="hidden" name="generate" value="yes" />
+
             <div>
               <label style={labelStyle}>Post type</label>
               <select name="mode" defaultValue={mode} style={inputStyle}>
@@ -520,7 +801,14 @@ export default async function SocialMediaContentPage({
               </select>
             </div>
 
-            <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "end",
+                gap: 10,
+                flexWrap: "wrap" as const,
+              }}
+            >
               <button type="submit" style={primaryBtn}>
                 Generate
               </button>
@@ -539,7 +827,7 @@ export default async function SocialMediaContentPage({
               const fullText = `${card.body}\n\n${card.hashtags}`;
 
               return (
-                <div key={card.title} style={postCard}>
+                <div key={card.key} style={postCard}>
                   <div style={postHeader}>
                     <div>
                       <div style={{ fontSize: 20, fontWeight: 900 }}>{card.title}</div>
@@ -548,7 +836,13 @@ export default async function SocialMediaContentPage({
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 8,
+                        flexWrap: "wrap" as const,
+                      }}
+                    >
                       <CopyTextButton text={fullText} label="Copy full post" />
                       <CopyTextButton text={card.body} label="Copy caption only" />
                     </div>
@@ -592,22 +886,22 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const topBar: React.CSSProperties = {
+const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   alignItems: "center",
-  flexWrap: "wrap",
+  flexWrap: "wrap" as const,
   marginBottom: 16,
 };
 
-const statsGrid: React.CSSProperties = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: 12,
 };
 
-const statCard: React.CSSProperties = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -615,7 +909,7 @@ const statCard: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const panelStyle: React.CSSProperties = {
+const panelStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -623,21 +917,21 @@ const panelStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const filterGrid: React.CSSProperties = {
+const filterGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
   gap: 12,
   alignItems: "end",
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   display: "block",
   fontSize: 12,
   marginBottom: 6,
   opacity: 0.85,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -646,37 +940,37 @@ const inputStyle: React.CSSProperties = {
   outline: "none",
   fontSize: 15,
   background: "rgba(255,255,255,0.85)",
-  boxSizing: "border-box",
+  boxSizing: "border-box" as const,
 };
 
-const postCard: React.CSSProperties = {
+const postCard: CSSProperties = {
   padding: "14px 16px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const postHeader: React.CSSProperties = {
+const postHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   alignItems: "flex-start",
-  flexWrap: "wrap",
+  flexWrap: "wrap" as const,
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   fontSize: 22,
 };
 
-const miniLabel: React.CSSProperties = {
+const miniLabel: CSSProperties = {
   fontSize: 12,
   opacity: 0.7,
   fontWeight: 800,
   marginBottom: 6,
 };
 
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   width: "100%",
   minHeight: 210,
   padding: "12px 14px",
@@ -685,12 +979,12 @@ const textareaStyle: React.CSSProperties = {
   outline: "none",
   fontSize: 15,
   background: "rgba(255,255,255,0.9)",
-  boxSizing: "border-box",
-  resize: "vertical",
-  whiteSpace: "pre-wrap",
+  boxSizing: "border-box" as const,
+  resize: "vertical" as const,
+  whiteSpace: "pre-wrap" as const,
 };
 
-const hashBox: React.CSSProperties = {
+const hashBox: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,255,255,0.9)",
@@ -698,7 +992,7 @@ const hashBox: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const primaryBtn: React.CSSProperties = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -710,7 +1004,7 @@ const primaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -721,7 +1015,23 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const errorCard: React.CSSProperties = {
+const successCard: CSSProperties = {
+  background: "rgba(0,160,80,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,160,80,0.18)",
+  marginBottom: 12,
+};
+
+const warningCard: CSSProperties = {
+  background: "rgba(180,120,0,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(180,120,0,0.18)",
+  marginBottom: 12,
+};
+
+const errorCard: CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
@@ -729,7 +1039,7 @@ const errorCard: React.CSSProperties = {
   marginBottom: 12,
 };
 
-const tipRow: React.CSSProperties = {
+const tipRow: CSSProperties = {
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,255,255,0.72)",
