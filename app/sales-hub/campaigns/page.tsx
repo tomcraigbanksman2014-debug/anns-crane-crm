@@ -430,8 +430,8 @@ export default async function SalesCampaignsPage({
     String(searchParams?.availability_note ?? "").trim() ||
     String(selectedTemplate?.availability_note ?? "");
 
-  const ownerOptions = Array.from(
-    new Set(
+  const ownerOptions: string[] = Array.from(
+    new Set<string>(
       allLeads
         .map((lead) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
@@ -439,8 +439,8 @@ export default async function SalesCampaignsPage({
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const serviceOptions = Array.from(
-    new Set(
+  const serviceOptions: string[] = Array.from(
+    new Set<string>(
       allLeads.flatMap((lead) =>
         Array.isArray(lead.services)
           ? lead.services.map((item) => String(item).trim()).filter(Boolean)
@@ -449,14 +449,14 @@ export default async function SalesCampaignsPage({
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const areaOptions = Array.from(
-    new Set(
+  const areaOptions: string[] = Array.from(
+    new Set<string>(
       allLeads.map((lead) => String(lead.area ?? "").trim()).filter(Boolean)
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const industryOptions = Array.from(
-    new Set(
+  const industryOptions: string[] = Array.from(
+    new Set<string>(
       allLeads.map((lead) => String(lead.industry ?? "").trim()).filter(Boolean)
     )
   ).sort((a, b) => a.localeCompare(b));
