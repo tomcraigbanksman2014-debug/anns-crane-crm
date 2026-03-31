@@ -5,7 +5,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type TimelineItem = {
   id: string;
-  kind: "job" | "transport" | "correspondence" | "quote";
+  kind: "job" | "transport" | "correspondence" | "quote" | "imported";
   sortDate: string;
   title: string;
   subtitle: string;
@@ -37,11 +37,17 @@ function safeNum(value: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function clean(value: unknown) {
+  const s = String(value ?? "").trim();
+  return s.length ? s : "";
+}
+
 function buildTimeline(
   jobs: any[] = [],
   transportJobs: any[] = [],
   correspondence: any[] = [],
-  quotes: any[] = []
+  quotes: any[] = [],
+  importedHistory: any[] = []
 ): TimelineItem[] {
   const jobItems: TimelineItem[] = jobs.map((job: any) => {
     const total = safeNum(job.total_invoice ?? job.invoice_total ?? job.invoice_amount);
@@ -91,9 +97,7 @@ function buildTimeline(
         .filter(Boolean)
         .join(" • "),
       body:
-        [t.collection_address, t.delivery_address]
-          .filter(Boolean)
-          .join(" → ") || null,
+        [t.collection_address, t.delivery_address].filter(Boolean).join(" → ") || null,
       href: `/transport-jobs/${t.id}`,
       badge: "TRANSPORT",
     };
@@ -145,11 +149,42 @@ function buildTimeline(
     };
   });
 
+  const importedItems: TimelineItem[] = importedHistory.map((row: any) => {
+    const costText =
+      row.parsed_cost != null && Number.isFinite(Number(row.parsed_cost))
+        ? `Parsed cost: ${formatMoney(Number(row.parsed_cost))}`
+        : null;
+
+    return {
+      id: `imported-${row.id}`,
+      kind: "imported",
+      sortDate: String(row.job_date || row.created_at || ""),
+      title:
+        clean(row.customer_guess) ||
+        clean(row.asset_name) ||
+        "Imported diary history",
+      subtitle: [
+        row.job_date ? formatDateOnly(row.job_date) : "-",
+        row.job_type_guess ? `Type: ${row.job_type_guess}` : null,
+        row.asset_name ? `Asset: ${row.asset_name}` : null,
+        row.source_sheet ? `Sheet: ${row.source_sheet}` : null,
+        row.source_cell ? `Cell: ${row.source_cell}` : null,
+        costText,
+      ]
+        .filter(Boolean)
+        .join(" • "),
+      body: row.raw_text ?? null,
+      href: null,
+      badge: "IMPORTED",
+    };
+  });
+
   return [
     ...jobItems,
     ...transportItems,
     ...correspondenceItems,
     ...quoteItems,
+    ...importedItems,
   ].sort((a, b) => String(b.sortDate).localeCompare(String(a.sortDate)));
 }
 
@@ -157,12 +192,14 @@ function buildCustomerStats(
   jobs: any[] = [],
   transportJobs: any[] = [],
   quotes: any[] = [],
-  correspondence: any[] = []
+  correspondence: any[] = [],
+  importedHistory: any[] = []
 ) {
   const totalJobs = jobs.length;
   const totalTransportJobs = transportJobs.length;
   const totalQuotes = quotes.length;
   const totalCorrespondence = correspondence.length;
+  const totalImportedHistory = importedHistory.length;
 
   const jobInvoiced = jobs.reduce((sum: number, j: any) => {
     return sum + safeNum(j.total_invoice ?? j.invoice_total ?? j.invoice_amount);
@@ -195,6 +232,9 @@ function buildCustomerStats(
   const allActivityDates = [
     ...jobs.map((x: any) => x.job_date || x.created_at || null),
     ...transportJobs.map((x: any) => x.transport_date || x.created_at || null),
+    ...quotes.map((x: any) => x.quote_date || x.created_at || null),
+    ...correspondence.map((x: any) => x.created_at || null),
+    ...importedHistory.map((x: any) => x.job_date || x.created_at || null),
   ]
     .filter(Boolean)
     .map((x) => String(x))
@@ -205,6 +245,7 @@ function buildCustomerStats(
     totalTransportJobs,
     totalQuotes,
     totalCorrespondence,
+    totalImportedHistory,
     totalInvoiced: jobInvoiced + transportInvoiced,
     totalOutstanding: jobOutstanding + transportOutstanding,
     firstActivityDate: allActivityDates[0] ?? null,
@@ -225,6 +266,7 @@ export default async function CustomerPage({
     { data: transportJobs, error: transportJobsError },
     { data: correspondence, error: correspondenceError },
     { data: quotes, error: quotesError },
+    { data: importedHistory, error: importedHistoryError },
   ] = await Promise.all([
     supabase
       .from("clients")
@@ -259,25 +301,38 @@ export default async function CustomerPage({
       .select("id, status, quote_date, amount, subject, notes, created_at")
       .eq("client_id", params.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("imported_job_history")
+      .select(
+        "id, job_date, asset_name, raw_text, parsed_cost, job_type_guess, customer_guess, source_sheet, source_cell, created_at"
+      )
+      .eq("matched_client_id", params.id)
+      .eq("review_status", "approved")
+      .eq("exclude_from_ai", false)
+      .order("job_date", { ascending: false }),
   ]);
 
   const safeJobs = jobs ?? [];
   const safeTransportJobs = transportJobs ?? [];
   const safeCorrespondence = correspondence ?? [];
   const safeQuotes = quotes ?? [];
+  const safeImportedHistory = importedHistory ?? [];
 
   const timeline = buildTimeline(
     safeJobs,
     safeTransportJobs,
     safeCorrespondence,
-    safeQuotes
+    safeQuotes,
+    safeImportedHistory
   );
 
   const stats = buildCustomerStats(
     safeJobs,
     safeTransportJobs,
     safeQuotes,
-    safeCorrespondence
+    safeCorrespondence,
+    safeImportedHistory
   );
 
   return (
@@ -289,7 +344,7 @@ export default async function CustomerPage({
             justifyContent: "space-between",
             gap: 12,
             alignItems: "center",
-            flexWrap: "wrap",
+            flexWrap: "wrap" as const,
           }}
         >
           <div>
@@ -297,11 +352,11 @@ export default async function CustomerPage({
               {customer?.company_name ?? "Customer"}
             </h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View customer details, jobs, transport, quotes and correspondence.
+              View customer details, jobs, transport, quotes, correspondence and imported diary history.
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
             <a href="/customers" style={btnStyle}>
               ← Back
             </a>
@@ -343,6 +398,11 @@ export default async function CustomerPage({
                 <div style={statCardStyle}>
                   <div style={statLabelStyle}>Correspondence</div>
                   <div style={statValueStyle}>{stats.totalCorrespondence}</div>
+                </div>
+
+                <div style={statCardStyle}>
+                  <div style={statLabelStyle}>Imported diary history</div>
+                  <div style={statValueStyle}>{stats.totalImportedHistory}</div>
                 </div>
 
                 <div style={statCardStyle}>
@@ -392,6 +452,8 @@ export default async function CustomerPage({
                     <div style={errorBox}>{correspondenceError.message}</div>
                   ) : quotesError ? (
                     <div style={errorBox}>{quotesError.message}</div>
+                  ) : importedHistoryError ? (
+                    <div style={errorBox}>{importedHistoryError.message}</div>
                   ) : timeline.length === 0 ? (
                     <p style={{ margin: 0 }}>No customer activity yet.</p>
                   ) : (
@@ -404,7 +466,7 @@ export default async function CustomerPage({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 8,
-                                flexWrap: "wrap",
+                                flexWrap: "wrap" as const,
                                 marginBottom: 8,
                               }}
                             >
@@ -418,7 +480,19 @@ export default async function CustomerPage({
                                       ? "rgba(255,170,0,0.14)"
                                       : item.kind === "quote"
                                       ? "rgba(140,0,255,0.10)"
+                                      : item.kind === "imported"
+                                      ? "rgba(80,120,255,0.12)"
                                       : "rgba(0,0,0,0.08)",
+                                  color:
+                                    item.kind === "job"
+                                      ? "#0b6b34"
+                                      : item.kind === "transport"
+                                      ? "#8a6200"
+                                      : item.kind === "quote"
+                                      ? "#5b2d90"
+                                      : item.kind === "imported"
+                                      ? "#27408b"
+                                      : "#111",
                                 }}
                               >
                                 {item.badge}
@@ -429,38 +503,84 @@ export default async function CustomerPage({
                                   href={item.href}
                                   style={{
                                     color: "#111",
-                                    fontWeight: 800,
                                     textDecoration: "none",
+                                    fontWeight: 900,
                                   }}
                                 >
                                   {item.title}
                                 </a>
                               ) : (
-                                <strong>{item.title}</strong>
+                                <div style={{ fontWeight: 900 }}>{item.title}</div>
                               )}
                             </div>
 
-                            <div
-                              style={{
-                                fontSize: 13,
-                                opacity: 0.78,
-                                marginBottom: item.body ? 10 : 0,
-                              }}
-                            >
+                            <div style={{ fontSize: 13, opacity: 0.78 }}>
                               {item.subtitle}
                             </div>
 
                             {item.body ? (
                               <div
                                 style={{
-                                  whiteSpace: "pre-wrap",
-                                  fontSize: 14,
+                                  marginTop: 10,
+                                  whiteSpace: "pre-wrap" as const,
                                   lineHeight: 1.55,
                                 }}
                               >
                                 {item.body}
                               </div>
                             ) : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
+                <section style={cardStyle}>
+                  <h2 style={sectionTitle}>Imported diary history</h2>
+
+                  {importedHistoryError ? (
+                    <div style={errorBox}>{importedHistoryError.message}</div>
+                  ) : safeImportedHistory.length === 0 ? (
+                    <p style={{ margin: 0 }}>No approved imported diary history for this customer yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {safeImportedHistory.slice(0, 12).map((row: any) => (
+                        <div key={row.id} style={linkedRowStyle}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>
+                              {row.customer_guess || "Imported diary entry"}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                              {row.job_date ? formatDateOnly(row.job_date) : "-"}
+                              {row.job_type_guess ? ` • ${row.job_type_guess}` : ""}
+                              {row.asset_name ? ` • ${row.asset_name}` : ""}
+                              {row.source_sheet ? ` • ${row.source_sheet}` : ""}
+                              {row.source_cell ? ` • ${row.source_cell}` : ""}
+                            </div>
+                            {row.raw_text ? (
+                              <div
+                                style={{
+                                  marginTop: 8,
+                                  fontSize: 13,
+                                  whiteSpace: "pre-wrap" as const,
+                                  lineHeight: 1.5,
+                                  opacity: 0.88,
+                                }}
+                              >
+                                {row.raw_text}
+                              </div>
+                            ) : null}
+                          </div>
+
+                          <div style={{ textAlign: "right", minWidth: 90 }}>
+                            {row.parsed_cost != null && Number.isFinite(Number(row.parsed_cost)) ? (
+                              <div style={{ fontWeight: 900 }}>
+                                {formatMoney(Number(row.parsed_cost))}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 13, opacity: 0.7 }}>Historic</div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -591,9 +711,28 @@ export default async function CustomerPage({
                       {customer.created_at ? formatDateTime(customer.created_at) : "-"}
                     </div>
                     <div>
+                      <strong>Imported diary history:</strong> {stats.totalImportedHistory}
+                    </div>
+                    <div>
                       <strong>Notes:</strong> {customer.notes ?? "-"}
                     </div>
                   </div>
+
+                  {stats.totalImportedHistory > 0 ? (
+                    <div
+                      style={{
+                        marginTop: 14,
+                        padding: 12,
+                        borderRadius: 12,
+                        background: "rgba(80,120,255,0.10)",
+                        border: "1px solid rgba(80,120,255,0.16)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      This customer has approved imported diary history. AI summaries and customer insight
+                      can now use that historic activity as well as live CRM jobs.
+                    </div>
+                  ) : null}
                 </section>
 
                 <CustomerQuickActions
@@ -692,7 +831,7 @@ const linkedRowStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
-  alignItems: "center",
+  alignItems: "flex-start",
   padding: 12,
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
