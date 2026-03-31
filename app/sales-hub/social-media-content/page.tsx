@@ -679,6 +679,7 @@ export default async function SocialMediaContentPage({
       : [mode];
 
   let aiCards: SocialCard[] | null = null;
+  let aiError: string | null = null;
 
   if (shouldUseAI) {
     try {
@@ -695,8 +696,9 @@ export default async function SocialMediaContentPage({
         selectedAssetType,
         requestedKeys,
       });
-    } catch {
+    } catch (error) {
       aiCards = null;
+      aiError = error instanceof Error ? error.message : "Unknown AI error.";
     }
   }
 
@@ -734,7 +736,7 @@ export default async function SocialMediaContentPage({
           >
             Generation mode: <strong>{generationMode}</strong>
             {generationMode === "Fallback"
-              ? " — AI was unavailable, so the built-in fallback copy was used."
+              ? ` — AI was unavailable, so the built-in fallback copy was used.${aiError ? ` Error: ${aiError}` : ""}`
               : generationMode === "Mixed"
               ? " — some posts used AI and some used fallback copy."
               : " — posts generated using AI."}
@@ -868,7 +870,10 @@ export default async function SocialMediaContentPage({
           <div style={{ display: "grid", gap: 8 }}>
             <div style={tipRow}>1. Use availability posts when a crane or vehicle is free soon.</div>
             <div style={tipRow}>2. Use asset spotlight posts when you want to push one key unit.</div>
-            <div style={tipRow}>3. Use full service promo posts to remind people you cover more than one part of the job.</div>
+            <div style={tipRow}>
+              3. Use full service promo posts to remind people you cover more than one part of
+              the job.
+            </div>
             <div style={tipRow}>4. Use short-notice posts when you want a more urgent sales angle.</div>
           </div>
         </section>
