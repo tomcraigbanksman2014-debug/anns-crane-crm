@@ -89,72 +89,20 @@ export default async function CustomersPage({
   const { data: customers, error } = await query;
 
   const clientIds = (customers ?? []).map((c: any) => c.id).filter(Boolean);
-
-  const lastActivityByClientId: Record<string, string | null> = {};
+  const rollupByClientId: Record<string, any> = {};
 
   if (clientIds.length > 0) {
-    const [jobsRes, transportJobsRes, correspondenceRes, quotesRes] = await Promise.all([
-      supabase
-        .from("jobs")
-        .select("client_id, job_date, start_date, end_date, created_at")
-        .in("client_id", clientIds)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("transport_jobs")
-        .select("client_id, transport_date, delivery_date, created_at")
-        .in("client_id", clientIds)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("customer_correspondence")
-        .select("client_id, created_at")
-        .in("client_id", clientIds)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("quotes")
-        .select("client_id, quote_date, created_at")
-        .in("client_id", clientIds)
-        .order("created_at", { ascending: false }),
-    ]);
+    const { data: rollupRows } = await supabase
+      .from("customer_activity_rollup")
+      .select(
+        "client_id, last_activity_date, crm_job_count, crm_transport_job_count, crm_quote_count, crm_correspondence_count, imported_history_count"
+      )
+      .in("client_id", clientIds);
 
-    const applyActivity = (clientId: string, when: string | null) => {
-      if (!clientId || !when) return;
-      const existing = lastActivityByClientId[clientId];
-      if (!existing || String(when) > String(existing)) {
-        lastActivityByClientId[clientId] = String(when);
-      }
-    };
-
-    for (const row of jobsRes.data ?? []) {
+    for (const row of rollupRows ?? []) {
       const clientId = String((row as any).client_id ?? "");
-      const when =
-        (row as any).job_date ||
-        (row as any).start_date ||
-        (row as any).end_date ||
-        (row as any).created_at ||
-        null;
-      applyActivity(clientId, when ? String(when) : null);
-    }
-
-    for (const row of transportJobsRes.data ?? []) {
-      const clientId = String((row as any).client_id ?? "");
-      const when =
-        (row as any).transport_date ||
-        (row as any).delivery_date ||
-        (row as any).created_at ||
-        null;
-      applyActivity(clientId, when ? String(when) : null);
-    }
-
-    for (const row of correspondenceRes.data ?? []) {
-      const clientId = String((row as any).client_id ?? "");
-      const when = (row as any).created_at || null;
-      applyActivity(clientId, when ? String(when) : null);
-    }
-
-    for (const row of quotesRes.data ?? []) {
-      const clientId = String((row as any).client_id ?? "");
-      const when = (row as any).quote_date || (row as any).created_at || null;
-      applyActivity(clientId, when ? String(when) : null);
+      if (!clientId) continue;
+      rollupByClientId[clientId] = row;
     }
   }
 
@@ -167,7 +115,7 @@ export default async function CustomersPage({
             justifyContent: "space-between",
             gap: 12,
             alignItems: "center",
-            flexWrap: "wrap",
+            flexWrap: "wrap" as const,
           }}
         >
           <div>
@@ -275,6 +223,9 @@ export default async function CustomersPage({
                       Activity
                     </th>
                     <th align="left" style={thStyle}>
+                      Historic diary
+                    </th>
+                    <th align="left" style={thStyle}>
                       Archived
                     </th>
                     <th align="left" style={thStyle}>
@@ -287,8 +238,12 @@ export default async function CustomersPage({
                 </thead>
                 <tbody>
                   {customers.map((c: any) => {
-                    const lastActivity = lastActivityByClientId[c.id] ?? null;
+                    const rollup = rollupByClientId[c.id] ?? null;
+                    const lastActivity = rollup?.last_activity_date ?? null;
                     const activity = activityMeta(lastActivity);
+                    const importedHistoryCount = Number(
+                      rollup?.imported_history_count ?? 0
+                    );
 
                     return (
                       <tr key={c.id}>
@@ -312,12 +267,31 @@ export default async function CustomersPage({
                             {activity.label}
                           </span>
                         </td>
+                        <td style={tdStyle}>
+                          {importedHistoryCount > 0 ? (
+                            <span
+                              style={{
+                                display: "inline-block",
+                                padding: "4px 8px",
+                                borderRadius: 999,
+                                fontSize: 12,
+                                fontWeight: 800,
+                                background: "rgba(80,120,255,0.12)",
+                                color: "#27408b",
+                              }}
+                            >
+                              {importedHistoryCount} imported
+                            </span>
+                          ) : (
+                            "-"
+                          )}
+                        </td>
                         <td style={tdStyle}>{c.archived ? "Yes" : "No"}</td>
                         <td style={tdStyle}>
                           {c.created_at ? new Date(c.created_at).toLocaleString() : "-"}
                         </td>
                         <td style={tdStyle}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
                             <a href={`/customers/${c.id}`} style={linkBtnStyle}>
                               Open
                             </a>
