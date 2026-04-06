@@ -145,10 +145,6 @@ function prettyStopType(value: "pickup" | "delivery") {
   return value === "pickup" ? "Pickup" : "Delivery";
 }
 
-function isCancelledStatus(value: string | null | undefined) {
-  return String(value ?? "").trim().toLowerCase() === "cancelled";
-}
-
 function hasCoords(lat: number | null, lng: number | null) {
   return typeof lat === "number" && typeof lng === "number";
 }
@@ -437,7 +433,7 @@ export default function TransportMapClient() {
       setError(`Live tracking error: ${locationsRes.error.message}`);
     }
 
-    setItems(((jobsRes.data ?? []) as TransportItem[]).filter((item) => !isCancelledStatus(item.status)));
+    setItems((jobsRes.data ?? []) as TransportItem[]);
     setLocations((locationsRes.data ?? []) as DriverLocation[]);
     setLoading(false);
   }, []);
@@ -465,7 +461,6 @@ export default function TransportMapClient() {
     const map = new Map<string, string>();
 
     for (const item of items) {
-      if (isCancelledStatus(item.status)) continue;
       const vehicle = first(item.vehicles);
       if (item.vehicle_id && vehicle?.name) {
         map.set(
@@ -480,11 +475,11 @@ export default function TransportMapClient() {
 
   const filtered = useMemo(() => {
     return items.filter((item) => {
-      if (isCancelledStatus(item.status)) return false;
-
+      const itemStatus = String(item.status ?? "").toLowerCase();
       const statusOk =
-        statusFilter === "all" ||
-        String(item.status ?? "").toLowerCase() === statusFilter;
+        statusFilter === "all"
+          ? itemStatus !== "cancelled"
+          : itemStatus === statusFilter;
 
       const dateOk = !dateFilter || jobTouchesDate(item, dateFilter);
 
@@ -518,8 +513,8 @@ export default function TransportMapClient() {
     const baseStops: RouteStop[] = [];
 
     for (const item of items) {
-      if (isCancelledStatus(item.status)) continue;
       if (String(item.vehicle_id ?? "") !== vehicleFilter) continue;
+      if (String(item.status ?? "").toLowerCase() === "cancelled") continue;
 
       const client = first(item.clients);
       const vehicle = first(item.vehicles);
@@ -771,6 +766,7 @@ export default function TransportMapClient() {
               <option value="confirmed">confirmed</option>
               <option value="in_progress">in_progress</option>
               <option value="completed">completed</option>
+              <option value="cancelled">cancelled</option>
             </select>
           </div>
 
