@@ -147,4 +147,16 @@ export async function POST(req: Request) {
           .eq("id", String(stop.transportJobId));
 
         if (updateError) {
-          return NextResponse.json({ error: updateError.
+          return NextResponse.json({ error: updateError.message }, { status: 400 });
+        }
+      }
+    }
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message ?? "Could not save route order." },
+      { status: 400 }
+    );
+  }
+}
