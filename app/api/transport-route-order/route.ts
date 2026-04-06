@@ -23,6 +23,10 @@ function clean(value: unknown) {
   return s || null;
 }
 
+function isCancelledStatus(value: unknown) {
+  return String(value ?? "").trim().toLowerCase() === "cancelled";
+}
+
 function positiveIntOrNull(value: unknown) {
   const n = Number(value);
   if (!Number.isFinite(n)) return null;
@@ -65,7 +69,7 @@ export async function POST(req: Request) {
 
     const { data: jobs, error: jobsError } = await admin
       .from("transport_jobs")
-      .select("id, vehicle_id, transport_date, delivery_date, archived")
+      .select("id, vehicle_id, transport_date, delivery_date, archived, status")
       .eq("vehicle_id", vehicleId)
       .eq("archived", false)
       .or(`transport_date.eq.${routeDate},delivery_date.eq.${routeDate}`);
@@ -74,13 +78,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: jobsError.message }, { status: 400 });
     }
 
-    const relevantJobs = (jobs ?? []) as Array<{
+    const relevantJobs = ((jobs ?? []) as Array<{
       id: string;
       vehicle_id: string | null;
       transport_date: string | null;
       delivery_date: string | null;
       archived?: boolean | null;
-    }>;
+      status?: string | null;
+    }>).filter((job) => !isCancelledStatus(job.status));
 
     const relevantJobMap = new Map(relevantJobs.map((job) => [job.id, job]));
 
@@ -142,16 +147,4 @@ export async function POST(req: Request) {
           .eq("id", String(stop.transportJobId));
 
         if (updateError) {
-          return NextResponse.json({ error: updateError.message }, { status: 400 });
-        }
-      }
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Could not save route order." },
-      { status: 400 }
-    );
-  }
-}
+          return NextResponse.json({ error: updateError.
