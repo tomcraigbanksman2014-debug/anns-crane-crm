@@ -506,15 +506,41 @@ export default function PlannerBoard() {
     setDraggingId(null);
   }
 
+  function protectMenuInteraction(e: React.MouseEvent<HTMLElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   function renderMenu(item: PlannerItem) {
     const isOpen = openMenuId === item.id;
 
+    const openJob = () => {
+      setOpenMenuId(null);
+      window.location.href = `/jobs/${item.job_id}`;
+    };
+
+    const editJob = () => {
+      setOpenMenuId(null);
+      window.location.href = `/jobs/${item.job_id}/edit`;
+    };
+
     return (
-      <div style={menuWrap} onClick={(e) => e.stopPropagation()}>
+      <div
+        style={menuWrap}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        draggable={false}
+      >
         <button
           type="button"
           style={menuBtn}
+          draggable={false}
+          onMouseDown={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
           onClick={(e) => {
+            e.preventDefault();
             e.stopPropagation();
             setOpenMenuId((current) => (current === item.id ? null : item.id));
           }}
@@ -523,23 +549,42 @@ export default function PlannerBoard() {
         </button>
 
         {isOpen ? (
-          <div style={menuList}>
-            <a href={`/jobs/${item.job_id}`} style={menuItemLink}>
+          <div
+            style={menuList}
+            draggable={false}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button type="button" style={menuItemBtn} draggable={false} onMouseDown={protectMenuInteraction} onClick={openJob}>
               Open job
-            </a>
-            <a href={`/jobs/${item.job_id}/edit`} style={menuItemLink}>
+            </button>
+            <button type="button" style={menuItemBtn} draggable={false} onMouseDown={protectMenuInteraction} onClick={editJob}>
               Edit job
-            </a>
-            <button type="button" style={menuItemBtn} onClick={() => duplicateJob(item)}>
+            </button>
+            <button
+              type="button"
+              style={menuItemBtn}
+              draggable={false}
+              onMouseDown={protectMenuInteraction}
+              onClick={() => duplicateJob(item)}
+            >
               Duplicate job
             </button>
-            <button type="button" style={menuItemBtn} onClick={() => createTransport(item)}>
+            <button
+              type="button"
+              style={menuItemBtn}
+              draggable={false}
+              onMouseDown={protectMenuInteraction}
+              onClick={() => createTransport(item)}
+            >
               Create transport job
             </button>
             {item.equipment_id ? (
               <button
                 type="button"
                 style={menuItemBtn}
+                draggable={false}
+                onMouseDown={protectMenuInteraction}
                 onClick={() =>
                   movePlannerItem(item, {
                     equipmentId: null,
@@ -560,7 +605,7 @@ export default function PlannerBoard() {
     return (
       <div
         key={item.id}
-        draggable={movingId !== item.id}
+        draggable={movingId !== item.id && openMenuId !== item.id}
         onDragStart={() => onDragStart(item)}
         onDragEnd={onDragEnd}
         style={{
