@@ -239,6 +239,11 @@ function actionLabel(item: PlannerItem) {
   return `Job ${item.job_number ? `#${item.job_number}` : ""} • ${getClientName(item)}`;
 }
 
+function isNoDragTarget(target: EventTarget | null) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest("[data-no-drag='true']"));
+}
+
 export default function PlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
   const [loading, setLoading] = useState(true);
@@ -497,7 +502,11 @@ export default function PlannerBoard() {
     }
   }
 
-  function onDragStart(item: PlannerItem) {
+  function onDragStart(e: React.DragEvent<HTMLDivElement>, item: PlannerItem) {
+    if (isNoDragTarget(e.target)) {
+      e.preventDefault();
+      return;
+    }
     setDraggingId(item.id);
     setOpenMenuId(null);
   }
@@ -506,39 +515,36 @@ export default function PlannerBoard() {
     setDraggingId(null);
   }
 
-  function protectMenuInteraction(e: React.MouseEvent<HTMLElement>) {
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
   function renderMenu(item: PlannerItem) {
     const isOpen = openMenuId === item.id;
 
-    const openJob = () => {
-      setOpenMenuId(null);
-      window.location.href = `/jobs/${item.job_id}`;
-    };
+    function goTo(url: string) {
+      window.location.href = url;
+    }
 
-    const editJob = () => {
-      setOpenMenuId(null);
-      window.location.href = `/jobs/${item.job_id}/edit`;
-    };
+    function noDragClick(e: React.MouseEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    function noDragDown(e: React.MouseEvent | React.PointerEvent) {
+      e.stopPropagation();
+    }
 
     return (
       <div
+        data-no-drag="true"
         style={menuWrap}
         onClick={(e) => e.stopPropagation()}
-        onMouseDown={(e) => e.stopPropagation()}
-        draggable={false}
+        onMouseDown={noDragDown}
+        onPointerDown={noDragDown}
       >
         <button
           type="button"
+          data-no-drag="true"
           style={menuBtn}
-          draggable={false}
-          onMouseDown={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-          }}
+          onMouseDown={noDragDown}
+          onPointerDown={noDragDown}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -550,47 +556,37 @@ export default function PlannerBoard() {
 
         {isOpen ? (
           <div
+            data-no-drag="true"
             style={menuList}
-            draggable={false}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
+            onMouseDown={noDragDown}
+            onPointerDown={noDragDown}
           >
-            <button type="button" style={menuItemBtn} draggable={false} onMouseDown={protectMenuInteraction} onClick={openJob}>
+            <button type="button" data-no-drag="true" style={menuItemBtn} onMouseDown={noDragDown} onPointerDown={noDragDown} onClick={(e) => { noDragClick(e); goTo(`/jobs/${item.job_id}`); }}>
               Open job
             </button>
-            <button type="button" style={menuItemBtn} draggable={false} onMouseDown={protectMenuInteraction} onClick={editJob}>
+            <button type="button" data-no-drag="true" style={menuItemBtn} onMouseDown={noDragDown} onPointerDown={noDragDown} onClick={(e) => { noDragClick(e); goTo(`/jobs/${item.job_id}/edit`); }}>
               Edit job
             </button>
-            <button
-              type="button"
-              style={menuItemBtn}
-              draggable={false}
-              onMouseDown={protectMenuInteraction}
-              onClick={() => duplicateJob(item)}
-            >
+            <button type="button" data-no-drag="true" style={menuItemBtn} onMouseDown={noDragDown} onPointerDown={noDragDown} onClick={(e) => { noDragClick(e); duplicateJob(item); }}>
               Duplicate job
             </button>
-            <button
-              type="button"
-              style={menuItemBtn}
-              draggable={false}
-              onMouseDown={protectMenuInteraction}
-              onClick={() => createTransport(item)}
-            >
+            <button type="button" data-no-drag="true" style={menuItemBtn} onMouseDown={noDragDown} onPointerDown={noDragDown} onClick={(e) => { noDragClick(e); createTransport(item); }}>
               Create transport job
             </button>
             {item.equipment_id ? (
               <button
                 type="button"
+                data-no-drag="true"
                 style={menuItemBtn}
-                draggable={false}
-                onMouseDown={protectMenuInteraction}
-                onClick={() =>
+                onMouseDown={noDragDown}
+                onPointerDown={noDragDown}
+                onClick={(e) => {
+                  noDragClick(e);
                   movePlannerItem(item, {
                     equipmentId: null,
                     dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
-                  })
-                }
+                  });
+                }}
               >
                 Remove crane assignment
               </button>
@@ -605,8 +601,8 @@ export default function PlannerBoard() {
     return (
       <div
         key={item.id}
-        draggable={movingId !== item.id && openMenuId !== item.id}
-        onDragStart={() => onDragStart(item)}
+        draggable={movingId !== item.id}
+        onDragStart={(e) => onDragStart(e, item)}
         onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : fullJobCard),
