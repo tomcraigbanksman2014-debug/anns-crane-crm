@@ -4,14 +4,17 @@ import CampaignRunner from "./CampaignRunner";
 
 export default async function CampaignRunnerPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
   const [
     { data: campaign, error },
-    { count },
+    { count: leadCount },
+    { count: customerCount },
   ] = await Promise.all([
     supabase
       .from("sales_campaigns")
@@ -20,6 +23,10 @@ export default async function CampaignRunnerPage({
       .single(),
     supabase
       .from("sales_campaign_leads")
+      .select("*", { count: "exact", head: true })
+      .eq("campaign_id", params.id),
+    supabase
+      .from("sales_campaign_customers")
       .select("*", { count: "exact", head: true })
       .eq("campaign_id", params.id),
   ]);
@@ -41,16 +48,19 @@ export default async function CampaignRunnerPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Campaign Runner</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Generate drafts across all leads linked to this campaign.
+              Generate drafts across all leads and customers linked to this campaign.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href={`/sales-hub/campaigns/${params.id}`} style={secondaryBtn}>
-              ← Back to campaign
+            <a href="/sales-hub/campaigns" style={secondaryBtn}>
+              ← Campaigns
             </a>
           </div>
         </div>
+
+        {searchParams?.success ? <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div> : null}
+        {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
 
         <div style={statsGrid}>
           <StatCard label="Campaign" value={String((campaign as any).name ?? "-")} />
@@ -58,7 +68,9 @@ export default async function CampaignRunnerPage({
           <StatCard label="Channel" value={String((campaign as any).channel ?? "email")} />
           <StatCard label="Goal" value={String((campaign as any).goal ?? "introduction")} />
           <StatCard label="Tone" value={String((campaign as any).tone ?? "professional")} />
-          <StatCard label="Linked leads" value={String(count ?? 0)} />
+          <StatCard label="Linked leads" value={String(leadCount ?? 0)} />
+          <StatCard label="Linked customers" value={String(customerCount ?? 0)} />
+          <StatCard label="Total targets" value={String((leadCount ?? 0) + (customerCount ?? 0))} />
         </div>
 
         <div style={{ marginTop: 16 }}>
@@ -115,6 +127,14 @@ const secondaryBtn: React.CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const successCard: React.CSSProperties = {
+  background: "rgba(0,160,80,0.14)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,160,80,0.18)",
+  marginBottom: 12,
 };
 
 const errorCard: React.CSSProperties = {
