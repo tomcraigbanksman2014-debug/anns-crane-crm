@@ -26,6 +26,27 @@ type LeadRow = {
   updated_at: string | null;
 };
 
+type CustomerRow = {
+  id: string;
+  company_name: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  notes: string | null;
+  archived: boolean | null;
+  created_at: string | null;
+};
+
+type CustomerRollup = {
+  client_id: string;
+  last_activity_date: string | null;
+  crm_job_count: number | null;
+  crm_transport_job_count: number | null;
+  crm_quote_count: number | null;
+  crm_correspondence_count: number | null;
+  imported_history_count: number | null;
+};
+
 type TemplateRow = {
   id: string;
   name: string;
@@ -84,22 +105,69 @@ function weightedValueForLead(lead: LeadRow) {
   return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
 }
 
-function fillTokens(
-  text: string,
-  values: Record<string, string>
-) {
+function daysBetween(from: string | null | undefined, to = new Date()) {
+  if (!from) return null;
+  const d = new Date(from);
+  if (Number.isNaN(d.getTime())) return null;
+  const diff = to.getTime() - d.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
+function getActivityInfo(lastActivityDate: string | null | undefined) {
+  const days = daysBetween(lastActivityDate);
+
+  if (days == null) {
+    return {
+      key: "no_activity",
+      label: "No activity",
+      bg: "rgba(0,0,0,0.08)",
+      color: "#111",
+    };
+  }
+
+  if (days <= 30) {
+    return {
+      key: "active",
+      label: "Active",
+      bg: "rgba(0,160,80,0.14)",
+      color: "#0b6b34",
+    };
+  }
+
+  if (days <= 90) {
+    return {
+      key: "recent",
+      label: "Recent",
+      bg: "rgba(255,180,0,0.16)",
+      color: "#8a6200",
+    };
+  }
+
+  return {
+    key: "dormant",
+    label: "Dormant",
+    bg: "rgba(180,0,0,0.12)",
+    color: "#8a1f1f",
+  };
+}
+
+function fillTokens(text: string, values: Record<string, string>) {
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => values[key] ?? "");
 }
 
-function buildDefaultBody(channel: string, goal: string) {
+function buildDefaultBody(channel: string, goal: string, audience: "lead" | "customer") {
+  const introWord = audience === "customer" ? "check in" : "introduce our business";
+
   if (channel === "text") {
     if (goal === "availability") {
       return "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. We currently have {{service_focus}} availability {{availability_note}}. Let me know if you have anything coming up that we can price for you. {{cta}}";
     }
     if (goal === "reactivation") {
-      return "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. Just reaching out as we haven’t worked together for a while and wanted to see if you have any upcoming lifting or transport requirements. {{cta}}";
+      return audience === "customer"
+        ? "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. Just checking back in as we haven’t worked together for a little while and wanted to see if you have any upcoming lifting or transport requirements. {{cta}}"
+        : "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. Just reaching out as we haven’t spoken before and wanted to see if you have any upcoming lifting or transport requirements. {{cta}}";
     }
-    return "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. We support businesses with {{service_focus}} across the UK and I wanted to introduce our service. {{cta}}";
+    return `Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. I wanted to ${introWord} and let you know we support businesses with {{service_focus}} across the UK. {{cta}}`;
   }
 
   if (channel === "linkedin") {
@@ -107,9 +175,11 @@ function buildDefaultBody(channel: string, goal: string) {
       return "Hi {{contact_name}}, I wanted to reach out as we currently have {{service_focus}} availability {{availability_note}}. If you have any upcoming requirements, I’d be happy to help.";
     }
     if (goal === "reactivation") {
-      return "Hi {{contact_name}}, I hope you’re well. I wanted to reconnect and see whether you have any upcoming lifting or transport requirements we may be able to support.";
+      return audience === "customer"
+        ? "Hi {{contact_name}}, I hope you’re well. I wanted to reconnect and see whether you have any upcoming lifting or transport requirements we may be able to support again."
+        : "Hi {{contact_name}}, I hope you’re well. I wanted to introduce AnnS Crane Hire and see whether you have any upcoming lifting or transport requirements we may be able to support.";
     }
-    return "Hi {{contact_name}}, I’m reaching out from AnnS Crane Hire. We support businesses across the UK with {{service_focus}}, and I thought it would be useful to introduce ourselves.";
+    return `Hi {{contact_name}}, I’m reaching out from AnnS Crane Hire. We support businesses across the UK with {{service_focus}}, and I thought it would be useful to ${audience === "customer" ? "check in" : "introduce ourselves"}.`;
   }
 
   if (goal === "availability") {
@@ -131,7 +201,7 @@ AnnS Crane Hire`;
 
 I hope you’re well.
 
-I wanted to get back in touch from AnnS Crane Hire as we haven’t worked together for a little while, and I just wanted to see whether you have any upcoming lifting or transport requirements we may be able to support.
+I wanted to get back in touch from AnnS Crane Hire ${audience === "customer" ? "as we haven’t worked together for a little while" : "to introduce our business"}, and just wanted to see whether you have any upcoming lifting or transport requirements we may be able to support.
 
 We cover the UK with cranes and transport and would be happy to assist if anything is coming up.
 
@@ -158,7 +228,7 @@ AnnS Crane Hire`;
 
   return `Hi {{contact_name}},
 
-I’m reaching out from AnnS Crane Hire to introduce our business.
+I’m reaching out from AnnS Crane Hire to ${audience === "customer" ? "check in and see if we can help again" : "introduce our business"}.
 
 We support customers across the UK with {{service_focus}}, offering a professional and responsive service for both crane and transport requirements.
 
@@ -169,7 +239,7 @@ Tom Craig
 AnnS Crane Hire`;
 }
 
-function buildPreview({
+function buildLeadPreview({
   lead,
   template,
   channel,
@@ -210,12 +280,73 @@ function buildPreview({
       ? "Checking in from AnnS Crane Hire"
       : "Introduction from AnnS Crane Hire");
 
-  const bodyTemplate =
-    template?.body_hint?.trim() || buildDefaultBody(channel, goal);
+  const bodyTemplate = template?.body_hint?.trim() || buildDefaultBody(channel, goal, "lead");
 
   return {
     subject: fillTokens(subjectTemplate, tokenValues).trim(),
     body: fillTokens(bodyTemplate, tokenValues).trim(),
+  };
+}
+
+function buildCustomerPreview({
+  customer,
+  rollup,
+  template,
+  channel,
+  goal,
+  tone,
+  serviceFocus,
+  availabilityNote,
+}: {
+  customer: CustomerRow;
+  rollup: CustomerRollup | null;
+  template: TemplateRow | null;
+  channel: string;
+  goal: string;
+  tone: string;
+  serviceFocus: string;
+  availabilityNote: string;
+}) {
+  const cta =
+    template?.custom_cta?.trim() ||
+    "If this would be useful, please let me know and I’d be happy to help.";
+
+  const tokenValues = {
+    company_name: String(customer.company_name ?? ""),
+    contact_name: String(customer.contact_name ?? customer.company_name ?? "there"),
+    service_focus: serviceFocus || "crane hire and transport support",
+    availability_note: availabilityNote || "",
+    cta,
+    area: "",
+    industry: "",
+    lead_source: "existing customer",
+    tone,
+  };
+
+  const bodyTemplate =
+    template?.body_hint?.trim() || buildDefaultBody(channel, goal, "customer");
+
+  const subjectTemplate =
+    template?.subject_hint?.trim() ||
+    (goal === "availability"
+      ? "{{service_focus}} availability from AnnS Crane Hire"
+      : goal === "reactivation"
+      ? "Checking in from AnnS Crane Hire"
+      : "Following up from AnnS Crane Hire");
+
+  const relationshipLine = [
+    Number(rollup?.crm_job_count ?? 0) > 0 ? `${rollup?.crm_job_count} jobs` : "",
+    Number(rollup?.crm_transport_job_count ?? 0) > 0 ? `${rollup?.crm_transport_job_count} transport jobs` : "",
+    Number(rollup?.imported_history_count ?? 0) > 0 ? `${rollup?.imported_history_count} imported history entries` : "",
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  const body = fillTokens(bodyTemplate, tokenValues).trim();
+
+  return {
+    subject: fillTokens(subjectTemplate, tokenValues).trim(),
+    body: relationshipLine ? `${body}\n\n[Relationship context: ${relationshipLine}]` : body,
   };
 }
 
@@ -226,6 +357,8 @@ type CampaignsPageProps = {
     area?: string;
     industry?: string;
     status?: string;
+    customer_activity?: string;
+    customer_imported?: string;
     template_id?: string;
     channel?: string;
     goal?: string;
@@ -254,7 +387,6 @@ export default async function SalesCampaignsPage({
     "use server";
 
     const access = await getAccessContext();
-
     if (!access.user || !canCreateCustomers(access)) {
       redirect("/sales-hub/campaigns?error=You%20do%20not%20have%20permission%20to%20create%20campaigns.");
     }
@@ -272,17 +404,15 @@ export default async function SalesCampaignsPage({
     const tone = String(formData.get("tone") ?? "professional").trim() || "professional";
     const serviceFocus = String(formData.get("service_focus") ?? "").trim() || null;
     const availabilityNote = String(formData.get("availability_note") ?? "").trim() || null;
-    const leadIds = formData
-      .getAll("lead_ids")
-      .map((value) => String(value).trim())
-      .filter(Boolean);
+    const leadIds = formData.getAll("lead_ids").map((v) => String(v).trim()).filter(Boolean);
+    const customerIds = formData.getAll("customer_ids").map((v) => String(v).trim()).filter(Boolean);
 
     if (!name) {
       redirect("/sales-hub/campaigns?error=Campaign%20name%20is%20required.");
     }
 
-    if (!leadIds.length) {
-      redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead.");
+    if (!leadIds.length && !customerIds.length) {
+      redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead%20or%20customer.");
     }
 
     const { data: campaign, error: campaignError } = await supabase
@@ -307,29 +437,47 @@ export default async function SalesCampaignsPage({
       redirect(`/sales-hub/campaigns?error=${encodeURIComponent(campaignError?.message || "Could not create campaign.")}`);
     }
 
-    const campaignLeadRows = leadIds.map((leadId) => ({
-      campaign_id: campaign.id,
-      lead_id: leadId,
-    }));
+    if (leadIds.length) {
+      const { error: linkError } = await supabase
+        .from("sales_campaign_leads")
+        .insert(leadIds.map((leadId) => ({ campaign_id: campaign.id, lead_id: leadId })));
 
-    const { error: linkError } = await supabase
-      .from("sales_campaign_leads")
-      .insert(campaignLeadRows);
+      if (linkError) {
+        redirect(`/sales-hub/campaigns?error=${encodeURIComponent(linkError.message)}`);
+      }
 
-    if (linkError) {
-      redirect(`/sales-hub/campaigns?error=${encodeURIComponent(linkError.message)}`);
+      await supabase.from("sales_lead_activity").insert(
+        leadIds.map((leadId) => ({
+          lead_id: leadId,
+          entry_type: "campaign",
+          subject: `Added to campaign: ${name}`,
+          message: `Lead added to campaign "${name}" via Sales Hub Campaign Execution.`,
+          created_by_user_id: user?.id ?? null,
+          created_by_username: fromAuthEmail(user?.email ?? null) || null,
+        }))
+      );
     }
 
-    const activityRows = leadIds.map((leadId) => ({
-      lead_id: leadId,
-      entry_type: "campaign",
-      subject: `Added to campaign: ${name}`,
-      message: `Lead added to campaign "${name}" via Sales Hub Campaign Execution.`,
-      created_by_user_id: user?.id ?? null,
-      created_by_username: fromAuthEmail(user?.email ?? null) || null,
-    }));
+    if (customerIds.length) {
+      const { error: customerLinkError } = await supabase
+        .from("sales_campaign_customers")
+        .insert(customerIds.map((clientId) => ({ campaign_id: campaign.id, client_id: clientId })));
 
-    await supabase.from("sales_lead_activity").insert(activityRows);
+      if (customerLinkError) {
+        redirect(`/sales-hub/campaigns?error=${encodeURIComponent(customerLinkError.message)}`);
+      }
+
+      await supabase.from("customer_correspondence").insert(
+        customerIds.map((clientId) => ({
+          client_id: clientId,
+          entry_type: "campaign",
+          subject: `Added to campaign: ${name}`,
+          message: `Customer added to campaign "${name}" via Sales Hub Campaign Execution.`,
+          created_by_user_id: user?.id ?? null,
+          created_by_username: fromAuthEmail(user?.email ?? null) || null,
+        }))
+      );
+    }
 
     await writeAuditLog({
       actor_user_id: user?.id ?? null,
@@ -344,18 +492,22 @@ export default async function SalesCampaignsPage({
         tone,
         template_id: templateId,
         selected_lead_count: leadIds.length,
+        selected_customer_count: customerIds.length,
         service_focus: serviceFocus,
       },
     });
 
-    redirect(`/sales-hub/campaigns/${campaign.id}?success=${encodeURIComponent("Campaign created.")}`);
+    redirect(`/sales-hub/campaigns/${campaign.id}/runner?success=${encodeURIComponent("Campaign created.")}`);
   }
 
   const [
     { data: leads, error: leadsError },
+    { data: customers, error: customersError },
+    { data: customerRollups, error: customerRollupsError },
     { data: templates, error: templatesError },
     { data: campaigns, error: campaignsError },
     { data: campaignLeadLinks },
+    { data: campaignCustomerLinks },
   ] = await Promise.all([
     supabase
       .from("sales_leads")
@@ -382,6 +534,14 @@ export default async function SalesCampaignsPage({
       .eq("archived", false)
       .order("updated_at", { ascending: false }),
     supabase
+      .from("clients")
+      .select("id, company_name, contact_name, email, phone, notes, archived, created_at")
+      .eq("archived", false)
+      .order("company_name", { ascending: true }),
+    supabase
+      .from("customer_activity_rollup")
+      .select("client_id, last_activity_date, crm_job_count, crm_transport_job_count, crm_quote_count, crm_correspondence_count, imported_history_count"),
+    supabase
       .from("sales_templates")
       .select("*")
       .eq("is_active", true)
@@ -391,47 +551,39 @@ export default async function SalesCampaignsPage({
       .select("*")
       .order("created_at", { ascending: false })
       .limit(8),
-    supabase
-      .from("sales_campaign_leads")
-      .select("campaign_id, lead_id"),
+    supabase.from("sales_campaign_leads").select("campaign_id, lead_id"),
+    supabase.from("sales_campaign_customers").select("campaign_id, client_id"),
   ]);
 
   const allLeads = (leads ?? []) as LeadRow[];
+  const allCustomers = (customers ?? []) as CustomerRow[];
+  const allCustomerRollups = (customerRollups ?? []) as CustomerRollup[];
   const activeTemplates = (templates ?? []) as TemplateRow[];
+  const customerRollupById = new Map<string, CustomerRollup>();
+  for (const row of allCustomerRollups) customerRollupById.set(String(row.client_id), row);
 
   const selectedOwner = String(searchParams?.owner ?? "all").trim();
   const selectedService = String(searchParams?.service ?? "all").trim();
   const selectedArea = String(searchParams?.area ?? "all").trim();
   const selectedIndustry = String(searchParams?.industry ?? "all").trim();
   const selectedStatus = String(searchParams?.status ?? "all").trim();
+  const selectedCustomerActivity = String(searchParams?.customer_activity ?? "all").trim();
+  const selectedCustomerImported = String(searchParams?.customer_imported ?? "all").trim();
   const selectedTemplateId =
     String(searchParams?.template_id ?? "").trim() || String(activeTemplates[0]?.id ?? "");
-  const selectedTemplate =
-    activeTemplates.find((item) => String(item.id) === selectedTemplateId) || null;
-
-  const selectedChannel =
-    String(searchParams?.channel ?? "").trim() ||
-    String(selectedTemplate?.channel ?? "email");
-
-  const selectedGoal =
-    String(searchParams?.goal ?? "").trim() ||
-    String(selectedTemplate?.goal ?? "introduction");
-
-  const selectedTone =
-    String(searchParams?.tone ?? "").trim() ||
-    String(selectedTemplate?.tone ?? "professional");
-
+  const selectedTemplate = activeTemplates.find((item) => String(item.id) === selectedTemplateId) || null;
+  const selectedChannel = String(searchParams?.channel ?? "").trim() || String(selectedTemplate?.channel ?? "email");
+  const selectedGoal = String(searchParams?.goal ?? "").trim() || String(selectedTemplate?.goal ?? "introduction");
+  const selectedTone = String(searchParams?.tone ?? "").trim() || String(selectedTemplate?.tone ?? "professional");
   const selectedServiceFocus =
     String(searchParams?.service_focus ?? "").trim() ||
     String(selectedTemplate?.service_focus ?? "") ||
     "crane hire and transport support";
-
   const selectedAvailabilityNote =
-    String(searchParams?.availability_note ?? "").trim() ||
-    String(selectedTemplate?.availability_note ?? "");
+    String(searchParams?.availability_note ?? "").trim() || String(selectedTemplate?.availability_note ?? "");
 
   const ownerOptions: string[] = Array.from(
-    new Set<string>(
+    new Set(
       allLeads
         .map((lead) => String(lead.assigned_to_username ?? "").trim())
         .filter(Boolean)
@@ -440,53 +592,39 @@ export default async function SalesCampaignsPage({
   ).sort((a, b) => a.localeCompare(b));
 
   const serviceOptions: string[] = Array.from(
-    new Set<string>(
+    new Set(
       allLeads.flatMap((lead) =>
-        Array.isArray(lead.services)
-          ? lead.services.map((item) => String(item).trim()).filter(Boolean)
-          : []
+        Array.isArray(lead.services) ? lead.services.map((item) => String(item).trim()).filter(Boolean) : []
       )
     )
   ).sort((a, b) => a.localeCompare(b));
 
   const areaOptions: string[] = Array.from(
-    new Set<string>(
-      allLeads.map((lead) => String(lead.area ?? "").trim()).filter(Boolean)
-    )
+    new Set(allLeads.map((lead) => String(lead.area ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
   const industryOptions: string[] = Array.from(
-    new Set<string>(
-      allLeads.map((lead) => String(lead.industry ?? "").trim()).filter(Boolean)
-    )
+    new Set(allLeads.map((lead) => String(lead.industry ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
   const filteredLeads = allLeads.filter((lead) => {
     if (lead.do_not_contact) return false;
+    if (selectedOwner !== "all" && String(lead.assigned_to_username ?? "").trim() !== selectedOwner) return false;
+    if (selectedService !== "all" && !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))) return false;
+    if (selectedArea !== "all" && String(lead.area ?? "").trim() !== selectedArea) return false;
+    if (selectedIndustry !== "all" && String(lead.industry ?? "").trim() !== selectedIndustry) return false;
+    if (selectedStatus !== "all" && String(lead.status ?? "").trim() !== selectedStatus) return false;
+    return true;
+  });
 
-    if (selectedOwner !== "all" && String(lead.assigned_to_username ?? "").trim() !== selectedOwner) {
-      return false;
-    }
+  const filteredCustomers = allCustomers.filter((customer) => {
+    const rollup = customerRollupById.get(String(customer.id)) ?? null;
+    const activity = getActivityInfo(rollup?.last_activity_date ?? null);
+    const importedCount = Number(rollup?.imported_history_count ?? 0);
 
-    if (
-      selectedService !== "all" &&
-      !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))
-    ) {
-      return false;
-    }
-
-    if (selectedArea !== "all" && String(lead.area ?? "").trim() !== selectedArea) {
-      return false;
-    }
-
-    if (selectedIndustry !== "all" && String(lead.industry ?? "").trim() !== selectedIndustry) {
-      return false;
-    }
-
-    if (selectedStatus !== "all" && String(lead.status ?? "").trim() !== selectedStatus) {
-      return false;
-    }
-
+    if (selectedCustomerActivity !== "all" && activity.key !== selectedCustomerActivity) return false;
+    if (selectedCustomerImported === "with_imported" && importedCount <= 0) return false;
+    if (selectedCustomerImported === "without_imported" && importedCount > 0) return false;
     return true;
   });
 
@@ -497,10 +635,35 @@ export default async function SalesCampaignsPage({
     leadCountByCampaign.set(key, (leadCountByCampaign.get(key) ?? 0) + 1);
   }
 
-  const previews = filteredLeads.slice(0, 5).map((lead) => ({
-    lead,
-    preview: buildPreview({
+  const customerCountByCampaign = new Map<string, number>();
+  for (const link of campaignCustomerLinks ?? []) {
+    const key = String((link as any).campaign_id ?? "");
+    if (!key) continue;
+    customerCountByCampaign.set(key, (customerCountByCampaign.get(key) ?? 0) + 1);
+  }
+
+  const leadPreviews = filteredLeads.slice(0, 3).map((lead) => ({
+    type: "lead" as const,
+    name: lead.company_name,
+    subtitle: `${lead.contact_name || "No contact"} • ${lead.status || "New"}`,
+    preview: buildLeadPreview({
       lead,
+      template: selectedTemplate,
+      channel: selectedChannel,
+      goal: selectedGoal,
+      tone: selectedTone,
+      serviceFocus: selectedServiceFocus,
+      availabilityNote: selectedAvailabilityNote,
+    }),
+  }));
+
+  const customerPreviews = filteredCustomers.slice(0, 3).map((customer) => ({
+    type: "customer" as const,
+    name: customer.company_name,
+    subtitle: `${customer.contact_name || "No contact"} • ${getActivityInfo(customerRollupById.get(String(customer.id))?.last_activity_date).label}`,
+    preview: buildCustomerPreview({
+      customer,
+      rollup: customerRollupById.get(String(customer.id)) ?? null,
       template: selectedTemplate,
       channel: selectedChannel,
       goal: selectedGoal,
@@ -512,6 +675,7 @@ export default async function SalesCampaignsPage({
 
   const stats = {
     totalLeads: filteredLeads.length,
+    totalCustomers: filteredCustomers.length,
     templates: activeTemplates.length,
     activeCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Active").length,
     draftCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Draft").length,
@@ -519,39 +683,32 @@ export default async function SalesCampaignsPage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1380px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
         <div style={topBar}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Campaign Execution</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Build target lists, preview outreach and create campaigns from inside Sales Hub.
+              Build target lists, preview outreach and create campaigns for both leads and returning customers.
             </p>
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/sales-hub" style={secondaryBtn}>
-              ← Sales Hub
-            </a>
-            <a href="/sales-hub/templates" style={secondaryBtn}>
-              Template Library
-            </a>
+            <a href="/sales-hub" style={secondaryBtn}>← Sales Hub</a>
+            <a href="/sales-hub/templates" style={secondaryBtn}>Template Library</a>
           </div>
         </div>
 
-        {searchParams?.success ? (
-          <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div>
-        ) : null}
-
-        {searchParams?.error ? (
-          <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div>
-        ) : null}
-
+        {searchParams?.success ? <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div> : null}
+        {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
+        {customersError ? <div style={errorCard}>{customersError.message}</div> : null}
+        {customerRollupsError ? <div style={errorCard}>{customerRollupsError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
 
         <div style={statsGrid}>
           <StatCard label="Filtered leads" value={String(stats.totalLeads)} />
+          <StatCard label="Filtered customers" value={String(stats.totalCustomers)} />
           <StatCard label="Active templates" value={String(stats.templates)} />
           <StatCard label="Draft campaigns" value={String(stats.draftCampaigns)} />
           <StatCard label="Active campaigns" value={String(stats.activeCampaigns)} />
@@ -562,53 +719,33 @@ export default async function SalesCampaignsPage({
 
           <form method="get" action="/sales-hub/campaigns" style={filterGrid}>
             <div>
-              <label style={labelStyle}>Owner</label>
+              <label style={labelStyle}>Lead owner</label>
               <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
                 <option value="all">All owners</option>
-                {ownerOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
+                {ownerOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
-
             <div>
-              <label style={labelStyle}>Service</label>
+              <label style={labelStyle}>Lead service</label>
               <select name="service" defaultValue={selectedService} style={inputStyle}>
                 <option value="all">All services</option>
-                {serviceOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
+                {serviceOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
-
             <div>
-              <label style={labelStyle}>Area</label>
+              <label style={labelStyle}>Lead area</label>
               <select name="area" defaultValue={selectedArea} style={inputStyle}>
                 <option value="all">All areas</option>
-                {areaOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
+                {areaOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
-
             <div>
-              <label style={labelStyle}>Industry</label>
+              <label style={labelStyle}>Lead industry</label>
               <select name="industry" defaultValue={selectedIndustry} style={inputStyle}>
                 <option value="all">All industries</option>
-                {industryOptions.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
+                {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Lead status</label>
               <select name="status" defaultValue={selectedStatus} style={inputStyle}>
@@ -623,18 +760,30 @@ export default async function SalesCampaignsPage({
                 <option value="Lost">Lost</option>
               </select>
             </div>
-
+            <div>
+              <label style={labelStyle}>Customer activity</label>
+              <select name="customer_activity" defaultValue={selectedCustomerActivity} style={inputStyle}>
+                <option value="all">All customers</option>
+                <option value="active">Active customers</option>
+                <option value="recent">Recent customers</option>
+                <option value="dormant">Dormant customers</option>
+                <option value="no_activity">No activity</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Customer imported history</label>
+              <select name="customer_imported" defaultValue={selectedCustomerImported} style={inputStyle}>
+                <option value="all">All customers</option>
+                <option value="with_imported">With imported history</option>
+                <option value="without_imported">Without imported history</option>
+              </select>
+            </div>
             <div>
               <label style={labelStyle}>Template</label>
               <select name="template_id" defaultValue={selectedTemplateId} style={inputStyle}>
-                {activeTemplates.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name}
-                  </option>
-                ))}
+                {activeTemplates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Channel</label>
               <select name="channel" defaultValue={selectedChannel} style={inputStyle}>
@@ -643,7 +792,6 @@ export default async function SalesCampaignsPage({
                 <option value="linkedin">LinkedIn</option>
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Goal</label>
               <select name="goal" defaultValue={selectedGoal} style={inputStyle}>
@@ -653,7 +801,6 @@ export default async function SalesCampaignsPage({
                 <option value="availability">Availability</option>
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Tone</label>
               <select name="tone" defaultValue={selectedTone} style={inputStyle}>
@@ -662,32 +809,17 @@ export default async function SalesCampaignsPage({
                 <option value="direct">Direct</option>
               </select>
             </div>
-
             <div>
               <label style={labelStyle}>Service focus</label>
-              <input
-                name="service_focus"
-                defaultValue={selectedServiceFocus}
-                style={inputStyle}
-              />
+              <input name="service_focus" defaultValue={selectedServiceFocus} style={inputStyle} />
             </div>
-
             <div>
               <label style={labelStyle}>Availability note</label>
-              <input
-                name="availability_note"
-                defaultValue={selectedAvailabilityNote}
-                style={inputStyle}
-              />
+              <input name="availability_note" defaultValue={selectedAvailabilityNote} style={inputStyle} />
             </div>
-
             <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
-                Refresh preview
-              </button>
-              <a href="/sales-hub/campaigns" style={secondaryBtn}>
-                Clear
-              </a>
+              <button type="submit" style={primaryBtn}>Refresh preview</button>
+              <a href="/sales-hub/campaigns" style={secondaryBtn}>Clear</a>
             </div>
           </form>
         </section>
@@ -695,31 +827,23 @@ export default async function SalesCampaignsPage({
         <div style={twoColGrid}>
           <section style={{ ...panelStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Message preview</h2>
-
-            {!previews.length ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>
-                No leads match the current targeting filters.
-              </p>
+            {leadPreviews.length === 0 && customerPreviews.length === 0 ? (
+              <p style={{ margin: 0, opacity: 0.78 }}>No leads or customers match the current filters.</p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
-                {previews.map(({ lead, preview }) => (
-                  <div key={lead.id} style={previewCard}>
-                    <div style={{ fontWeight: 900 }}>
-                      {lead.company_name} {lead.contact_name ? `• ${lead.contact_name}` : ""}
-                    </div>
-
+                {[...leadPreviews, ...customerPreviews].map((row, index) => (
+                  <div key={`${row.type}-${index}`} style={previewCard}>
+                    <div style={{ fontWeight: 900 }}>{row.name}</div>
                     <div style={{ marginTop: 6, fontSize: 13, opacity: 0.72 }}>
-                      {selectedChannel.toUpperCase()} • {selectedGoal} • {selectedTone}
+                      {row.type.toUpperCase()} • {row.subtitle} • {selectedChannel.toUpperCase()} • {selectedGoal} • {selectedTone}
                     </div>
-
                     <div style={{ marginTop: 10 }}>
                       <div style={miniLabel}>Subject / opener</div>
-                      <div style={messageBox}>{preview.subject || "—"}</div>
+                      <div style={messageBox}>{row.preview.subject || "—"}</div>
                     </div>
-
                     <div style={{ marginTop: 10 }}>
                       <div style={miniLabel}>Body</div>
-                      <div style={messageBox}>{preview.body || "—"}</div>
+                      <div style={messageBox}>{row.preview.body || "—"}</div>
                     </div>
                   </div>
                 ))}
@@ -729,26 +853,21 @@ export default async function SalesCampaignsPage({
 
           <section style={{ ...panelStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Recent campaigns</h2>
-
             {!campaigns?.length ? (
               <p style={{ margin: 0, opacity: 0.78 }}>No campaigns created yet.</p>
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {(campaigns ?? []).map((campaign: any) => (
-                  <a
-                    key={campaign.id}
-                    href={`/sales-hub/campaigns/${campaign.id}`}
-                    style={recentCard}
-                  >
-                    <div style={{ fontWeight: 900 }}>{campaign.name}</div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                      {campaign.channel} • {campaign.goal} • {campaign.status}
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                      {leadCountByCampaign.get(String(campaign.id)) ?? 0} linked leads
-                    </div>
-                  </a>
-                ))}
+                {(campaigns ?? []).map((campaign: any) => {
+                  const leadCount = leadCountByCampaign.get(String(campaign.id)) ?? 0;
+                  const customerCount = customerCountByCampaign.get(String(campaign.id)) ?? 0;
+                  return (
+                    <a key={campaign.id} href={`/sales-hub/campaigns/${campaign.id}/runner`} style={recentCard}>
+                      <div style={{ fontWeight: 900 }}>{campaign.name}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{campaign.channel} • {campaign.goal} • {campaign.status}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{leadCount} linked leads • {customerCount} linked customers</div>
+                    </a>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -756,11 +875,10 @@ export default async function SalesCampaignsPage({
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
           <h2 style={sectionTitle}>Create campaign</h2>
-
           {!canManage ? (
             <div style={mutedBox}>You do not have permission to create campaigns.</div>
-          ) : !filteredLeads.length ? (
-            <div style={mutedBox}>No leads match the current targeting filters.</div>
+          ) : !filteredLeads.length && !filteredCustomers.length ? (
+            <div style={mutedBox}>No leads or customers match the current targeting filters.</div>
           ) : (
             <form action={createCampaign}>
               <input type="hidden" name="template_id" value={selectedTemplateId} />
@@ -773,57 +891,71 @@ export default async function SalesCampaignsPage({
               <div style={createGrid}>
                 <div>
                   <label style={labelStyle}>Campaign name</label>
-                  <input
-                    name="name"
-                    defaultValue={`${selectedGoal} campaign ${new Date().toLocaleDateString("en-GB")}`}
-                    style={inputStyle}
-                  />
+                  <input name="name" defaultValue={`${selectedGoal} campaign ${new Date().toLocaleDateString("en-GB")}`} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Description</label>
+                  <input name="description" defaultValue={`Targeted ${selectedChannel} outreach for ${selectedServiceFocus}`} style={inputStyle} />
+                </div>
+              </div>
+
+              <div style={selectionGrid}>
+                <div>
+                  <div style={miniLabel}>Select leads to include</div>
+                  {!filteredLeads.length ? (
+                    <div style={mutedBox}>No leads match the current lead filters.</div>
+                  ) : (
+                    <div style={leadList}>
+                      {filteredLeads.map((lead) => (
+                        <label key={lead.id} style={leadRow}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <input type="checkbox" name="lead_ids" value={lead.id} style={{ width: 18, height: 18, marginTop: 2 }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{lead.contact_name || "No contact"} • {lead.status || "New"} • {lead.assigned_to_username || "Unassigned"}</div>
+                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{lead.area || "No area"} • {lead.industry || "No industry"} • Weighted {moneyGBP(weightedValueForLead(lead))}</div>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div>
-                  <label style={labelStyle}>Description</label>
-                  <input
-                    name="description"
-                    defaultValue={`Targeted ${selectedChannel} outreach for ${selectedServiceFocus}`}
-                    style={inputStyle}
-                  />
+                  <div style={miniLabel}>Select customers to include</div>
+                  {!filteredCustomers.length ? (
+                    <div style={mutedBox}>No customers match the current customer filters.</div>
+                  ) : (
+                    <div style={leadList}>
+                      {filteredCustomers.map((customer) => {
+                        const rollup = customerRollupById.get(String(customer.id)) ?? null;
+                        const activity = getActivityInfo(rollup?.last_activity_date ?? null);
+                        const importedCount = Number(rollup?.imported_history_count ?? 0);
+                        const liveJobs = Number(rollup?.crm_job_count ?? 0) + Number(rollup?.crm_transport_job_count ?? 0);
+                        return (
+                          <label key={customer.id} style={leadRow}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <input type="checkbox" name="customer_ids" value={customer.id} style={{ width: 18, height: 18, marginTop: 2 }} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{customer.company_name}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{customer.contact_name || "No contact"} • {customer.email || customer.phone || "No direct contact"}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: activity.bg, color: activity.color, fontWeight: 800, marginRight: 8 }}>{activity.label}</span>
+                                  {fmtDate(rollup?.last_activity_date ?? null)} • {liveJobs} live jobs • {importedCount} imported
+                                </div>
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <div style={miniLabel}>Select leads to include</div>
-
-                <div style={leadList}>
-                  {filteredLeads.map((lead) => (
-                    <label key={lead.id} style={leadRow}>
-                      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <input
-                          type="checkbox"
-                          name="lead_ids"
-                          value={lead.id}
-                          style={{ width: 18, height: 18, marginTop: 2 }}
-                        />
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                            {lead.contact_name || "No contact"} • {lead.status || "New"} •{" "}
-                            {lead.assigned_to_username || "Unassigned"}
-                          </div>
-                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                            {lead.area || "No area"} • {lead.industry || "No industry"} • Weighted{" "}
-                            {moneyGBP(weightedValueForLead(lead))}
-                          </div>
-                        </div>
-                      </div>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div style={{ marginTop: 16 }}>
-                <button type="submit" style={primaryBtn}>
-                  Create campaign from selected leads
-                </button>
+                <button type="submit" style={primaryBtn}>Create campaign from selected leads and customers</button>
               </div>
             </form>
           )}
@@ -889,6 +1021,13 @@ const createGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: 12,
+};
+
+const selectionGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  gap: 16,
+  marginTop: 16,
 };
 
 const labelStyle: CSSProperties = {
