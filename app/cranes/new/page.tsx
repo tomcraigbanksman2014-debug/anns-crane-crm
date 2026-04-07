@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -84,9 +85,9 @@ export default function NewCranePage({
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
+              <ServerSubmitButton style={primaryBtn} pendingText="Saving crane…">
                 Create crane
-              </button>
+              </ServerSubmitButton>
               <a href="/cranes" style={secondaryBtn}>
                 Cancel
               </a>
