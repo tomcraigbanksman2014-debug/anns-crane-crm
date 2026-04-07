@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
@@ -250,9 +251,9 @@ export default async function ArchiveToolsPage({
                         name="archived"
                         value={job.archived ? "false" : "true"}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         {job.archived ? "Restore" : "Archive"}
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
@@ -280,9 +281,9 @@ export default async function ArchiveToolsPage({
                         name="archived"
                         value={job.archived ? "false" : "true"}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         {job.archived ? "Restore" : "Archive"}
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
@@ -308,9 +309,9 @@ export default async function ArchiveToolsPage({
                         name="status"
                         value={item.status === "active" ? "inactive" : "active"}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         {item.status === "active" ? "Deactivate" : "Activate"}
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
@@ -338,9 +339,9 @@ export default async function ArchiveToolsPage({
                         name="status"
                         value={item.status === "active" ? "inactive" : "active"}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         {item.status === "active" ? "Deactivate" : "Activate"}
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
@@ -368,9 +369,9 @@ export default async function ArchiveToolsPage({
                         name="status"
                         value={item.status === "active" ? "inactive" : "active"}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         {item.status === "active" ? "Deactivate" : "Activate"}
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
