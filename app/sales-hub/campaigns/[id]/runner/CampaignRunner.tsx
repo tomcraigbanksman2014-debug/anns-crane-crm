@@ -29,6 +29,7 @@ export default function CampaignRunner({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [skipped, setSkipped] = useState<SkippedRow[]>([]);
@@ -39,6 +40,7 @@ export default function CampaignRunner({
   async function generateDrafts() {
     setLoading(true);
     setError(null);
+    setNotice(null);
 
     try {
       const res = await fetch(`/api/sales-campaigns/${campaignId}/generate-drafts`, {
@@ -52,13 +54,25 @@ export default function CampaignRunner({
         return;
       }
 
-      setDrafts(Array.isArray(data?.drafts) ? data.drafts : []);
-      setSkipped(Array.isArray(data?.skipped) ? data.skipped : []);
+      const nextDrafts = Array.isArray(data?.drafts) ? data.drafts : [];
+      const nextSkipped = Array.isArray(data?.skipped) ? data.skipped : [];
+
+      setDrafts(nextDrafts);
+      setSkipped(nextSkipped);
       setChannel(String(data?.campaign?.channel ?? "email"));
       setGoal(String(data?.campaign?.goal ?? "introduction"));
       setTone(String(data?.campaign?.tone ?? "professional"));
+
+      if (nextDrafts.length > 0) {
+        setNotice(`Generated ${nextDrafts.length} draft${nextDrafts.length === 1 ? "" : "s"}.`);
+      } else if (nextSkipped.length > 0) {
+        setNotice(`No drafts were generated. ${nextSkipped.length} target${nextSkipped.length === 1 ? " was" : "s were"} skipped.`);
+      } else {
+        setNotice("No draftable leads or customers were found in this campaign.");
+      }
     } catch {
       setError("Could not generate drafts.");
+      setNotice(null);
     } finally {
       setLoading(false);
     }
@@ -67,10 +81,11 @@ export default function CampaignRunner({
   async function copyText(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setError(`${label} copied.`);
-      setTimeout(() => setError(null), 1500);
+      setNotice(`${label} copied.`);
+      setTimeout(() => setNotice(null), 1500);
     } catch {
       setError(`Could not copy ${label.toLowerCase()}.`);
+      setNotice(null);
     }
   }
 
@@ -100,9 +115,8 @@ export default function CampaignRunner({
         Generate one set of drafts across all leads and customers linked to <strong>{campaignName}</strong>.
       </p>
 
-      {error ? (
-        <div style={error.includes("copied") ? successBox : errorBox}>{error}</div>
-      ) : null}
+      {error ? <div style={errorBox}>{error}</div> : null}
+      {notice ? <div style={successBox}>{notice}</div> : null}
 
       <div style={summaryGrid}>
         <SummaryCard label="Channel" value={channel} />
