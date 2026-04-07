@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import StatusPill from "../../components/StatusPill";
 import { getAccessContext, canViewInvoices } from "../../lib/access";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -173,9 +174,9 @@ export default async function BookingPage({
                 method="post"
                 style={{ margin: 0 }}
               >
-                <button type="submit" style={primaryBtnStyle}>
+                <ServerSubmitButton style={primaryBtnStyle} pendingText="Working…">
                   Convert to job
-                </button>
+                </ServerSubmitButton>
               </form>
             )}
           </div>
@@ -273,9 +274,9 @@ export default async function BookingPage({
                       method="post"
                       style={{ margin: 0 }}
                     >
-                      <button type="submit" style={primaryBtnStyle}>
+                      <ServerSubmitButton style={primaryBtnStyle} pendingText="Working…">
                         Convert booking to job
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 )}
