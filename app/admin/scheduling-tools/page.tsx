@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
@@ -371,9 +372,9 @@ export default async function AdminSchedulingToolsPage({
                   />
                 </div>
 
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Run crane bulk update
-                </button>
+                </ServerSubmitButton>
               </form>
             </section>
 
@@ -432,9 +433,9 @@ export default async function AdminSchedulingToolsPage({
                   />
                 </div>
 
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Run transport bulk update
-                </button>
+                </ServerSubmitButton>
               </form>
             </section>
           </div>
@@ -453,9 +454,9 @@ export default async function AdminSchedulingToolsPage({
                 />
               </div>
 
-              <button type="submit" style={primaryBtn}>
+              <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                 Check conflicts
-              </button>
+              </ServerSubmitButton>
             </form>
 
             {!selectedDate ? (
