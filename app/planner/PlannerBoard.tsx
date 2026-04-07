@@ -244,6 +244,13 @@ function isNoDragTarget(target: EventTarget | null) {
   return Boolean(target.closest("[data-no-drag='true']"));
 }
 
+function stopNoDragEvent(event: { target: EventTarget | null; preventDefault: () => void; stopPropagation: () => void }) {
+  if (isNoDragTarget(event.target)) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+}
+
 export default function PlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
   const [loading, setLoading] = useState(true);
@@ -528,6 +535,7 @@ export default function PlannerBoard() {
     }
 
     function noDragDown(e: React.MouseEvent | React.PointerEvent) {
+      e.preventDefault();
       e.stopPropagation();
     }
 
@@ -601,14 +609,21 @@ export default function PlannerBoard() {
     return (
       <div
         key={item.id}
-        draggable={movingId !== item.id}
+        draggable={openMenuId !== item.id && movingId !== item.id}
+        onMouseDownCapture={stopNoDragEvent}
+        onPointerDownCapture={stopNoDragEvent}
+        onClickCapture={(e) => {
+          if (isNoDragTarget(e.target)) {
+            e.stopPropagation();
+          }
+        }}
         onDragStart={(e) => onDragStart(e, item)}
         onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : fullJobCard),
           ...getStatusTone(item.status),
           opacity: draggingId === item.id ? 0.55 : movingId === item.id ? 0.45 : 1,
-          cursor: movingId === item.id ? "wait" : "grab",
+          cursor: movingId === item.id ? "wait" : openMenuId === item.id ? "default" : "grab",
         }}
         title={actionLabel(item)}
       >
