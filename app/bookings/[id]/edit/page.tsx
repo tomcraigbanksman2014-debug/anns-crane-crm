@@ -5,6 +5,7 @@ import { getAccessContext, canCreateBookings, canViewInvoices } from "../../../l
 import { writeAuditLog } from "../../../lib/audit";
 import { buildQuarterHourOptions, normaliseTimeValue } from "../../../lib/timeOptions";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
@@ -437,9 +438,9 @@ export default async function EditBookingPage({
                 )}
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Save booking
-                  </button>
+                  </ServerSubmitButton>
 
                   <a href={`/bookings/${params.id}`} style={secondaryBtn}>
                     Cancel
@@ -449,12 +450,11 @@ export default async function EditBookingPage({
 
               <form action={deleteBooking} style={{ marginTop: 12 }}>
                 <input type="hidden" name="id" value={booking.id} />
-                <button
-                  type="submit"
+                <ServerSubmitButton
                   style={dangerBtn}
-                >
+                 pendingText="Working…">
                   Delete
-                </button>
+                </ServerSubmitButton>
               </form>
             </>
           ) : null}
