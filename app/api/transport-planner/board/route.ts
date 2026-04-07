@@ -1,8 +1,15 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
 
-function isoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+function startOfWeekMonday(date: Date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
 }
 
 function addDays(base: Date, days: number) {
@@ -11,13 +18,17 @@ function addDays(base: Date, days: number) {
   return d;
 }
 
-function startOfWeekMonday(base: Date) {
-  const d = new Date(base);
-  d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function num(value: unknown) {
+  const n = Number(value ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function lower(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function overlapsRange(
@@ -32,85 +43,38 @@ function overlapsRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
-function num(value: any) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
+function countDaysInclusive(startDate: string | null | undefined, endDate: string | null | undefined) {
+  const start = String(startDate ?? "").trim();
+  const end = String(endDate ?? startDate ?? "").trim();
+  if (!start || !end) return 0;
 
-function lower(value: any) {
-  return String(value ?? "").trim().toLowerCase();
-}
-
-function countDaysInclusive(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
-    return 0;
-  }
+  const s = new Date(`${start}T00:00:00`);
+  const e = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return 0;
 
   let count = 0;
-  const cursor = new Date(start);
-  while (cursor <= end) {
+  const cursor = new Date(s);
+  while (cursor <= e) {
     count += 1;
     cursor.setDate(cursor.getDate() + 1);
   }
   return count;
 }
 
-function effectiveTransportPrice(row: any) {
-  const mode = String(row?.price_mode ?? "full_job").trim().toLowerCase();
-
+function effectiveTransportPrice(job: any) {
+  const mode = lower(job?.price_mode || "full_job");
   if (mode === "per_day") {
-    const rate = num(row?.price_per_day);
-    const startDate = String(row?.transport_date ?? "").trim();
-    const endDate = String(row?.delivery_date ?? row?.transport_date ?? "").trim();
-    const days = startDate && endDate ? countDaysInclusive(startDate, endDate) : 1;
-    return rate * Math.max(days, 1);
+    const rate = num(job?.price_per_day);
+    const days = Math.max(countDaysInclusive(job?.transport_date, job?.delivery_date ?? job?.transport_date), 1);
+    return Number((rate * days).toFixed(2));
   }
-
-  return num(row?.agreed_sell_rate ?? row?.price);
-}
-
-function bankHolidaysByYear(year: number) {
-  const map: Record<number, Array<{ date: string; label: string }>> = {
-    2025: [
-      { date: "2025-01-01", label: "New Year’s Day" },
-      { date: "2025-04-18", label: "Good Friday" },
-      { date: "2025-04-21", label: "Easter Monday" },
-      { date: "2025-05-05", label: "Early May bank holiday" },
-      { date: "2025-05-26", label: "Spring bank holiday" },
-      { date: "2025-08-25", label: "Summer bank holiday" },
-      { date: "2025-12-25", label: "Christmas Day" },
-      { date: "2025-12-26", label: "Boxing Day" },
-    ],
-    2026: [
-      { date: "2026-01-01", label: "New Year’s Day" },
-      { date: "2026-04-03", label: "Good Friday" },
-      { date: "2026-04-06", label: "Easter Monday" },
-      { date: "2026-05-04", label: "Early May bank holiday" },
-      { date: "2026-05-25", label: "Spring bank holiday" },
-      { date: "2026-08-31", label: "Summer bank holiday" },
-      { date: "2026-12-25", label: "Christmas Day" },
-      { date: "2026-12-28", label: "Boxing Day (substitute day)" },
-    ],
-    2027: [
-      { date: "2027-01-01", label: "New Year’s Day" },
-      { date: "2027-03-26", label: "Good Friday" },
-      { date: "2027-03-29", label: "Easter Monday" },
-      { date: "2027-05-03", label: "Early May bank holiday" },
-      { date: "2027-05-31", label: "Spring bank holiday" },
-      { date: "2027-08-30", label: "Summer bank holiday" },
-      { date: "2027-12-27", label: "Christmas Day (substitute day)" },
-      { date: "2027-12-28", label: "Boxing Day (substitute day)" },
-    ],
-  };
-
-  return map[year] ?? [];
+  return num(job?.agreed_sell_rate) || num(job?.price) || num(job?.total_invoice);
 }
 
 export async function GET(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
     const url = new URL(req.url);
     const dateParam = String(url.searchParams.get("date") ?? "").trim();
 
@@ -124,39 +88,73 @@ export async function GET(req: Request) {
 
     const rangeStart = isoDate(weekStart);
     const rangeEnd = isoDate(weekEnd);
-    const bankHolidays = bankHolidaysByYear(weekStart.getFullYear()).filter(
+    const bankHolidays = getEnglandWalesBankHolidays(weekStart.getFullYear()).filter(
       (d) => d.date >= rangeStart && d.date <= rangeEnd
     );
 
-    const [jobsRes, vehiclesRes, operatorsRes] = await Promise.all([
-      supabase
-        .from("transport_jobs")
-        .select(`
-          *,
-          clients:client_id (
-            id,
-            company_name
-          )
-        `)
-        .eq("archived", false)
-        .order("transport_date", { ascending: true }),
+    const { data: jobsData, error: jobsError } = await supabase
+      .from("transport_jobs")
+      .select(`
+        id,
+        transport_number,
+        client_id,
+        vehicle_id,
+        operator_id,
+        job_type,
+        collection_address,
+        delivery_address,
+        transport_date,
+        collection_time,
+        delivery_date,
+        delivery_time,
+        load_description,
+        status,
+        supplier_cost,
+        agreed_sell_rate,
+        price,
+        total_invoice,
+        price_mode,
+        price_per_day,
+        notes,
+        clients:client_id (
+          id,
+          company_name
+        )
+      `)
+      .eq("archived", false)
+      .lte("transport_date", rangeEnd)
+      .or(`delivery_date.gte.${rangeStart},delivery_date.is.null`)
+      .order("transport_date", { ascending: true });
 
+    if (jobsError) {
+      return NextResponse.json({ error: jobsError.message }, { status: 400 });
+    }
+
+    const transportJobs = jobsData ?? [];
+    const operatorIds = Array.from(
+      new Set(
+        transportJobs
+          .map((row: any) => String(row.operator_id ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    const [vehiclesRes, operatorsRes] = await Promise.all([
       supabase
         .from("vehicles")
         .select("id, name, reg_number, status, archived")
         .eq("archived", false)
         .order("name", { ascending: true }),
-
-      supabase
-        .from("operators")
-        .select("id, full_name, status, archived")
-        .eq("archived", false)
-        .order("full_name", { ascending: true }),
+      operatorIds.length
+        ? supabase
+            .from("operators")
+            .select("id, full_name, status, archived")
+            .in("id", operatorIds)
+            .eq("archived", false)
+            .order("full_name", { ascending: true })
+        : Promise.resolve({ data: [], error: null } as any),
     ]);
 
-    if (jobsRes.error) {
-      return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
-    }
     if (vehiclesRes.error) {
       return NextResponse.json({ error: vehiclesRes.error.message }, { status: 400 });
     }
@@ -164,7 +162,6 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
     }
 
-    const transportJobs = jobsRes.data ?? [];
     const vehicles = vehiclesRes.data ?? [];
     const operators = operatorsRes.data ?? [];
 
@@ -178,71 +175,48 @@ export async function GET(req: Request) {
         effective_price: effectiveTransportPrice(row),
       }));
 
-    const vehicleRows = vehicles.map((vehicle: any) => {
-      const items = activeJobs
-        .filter((row: any) => row.vehicle_id === vehicle.id)
-        .map((row: any) => {
-          const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
-          const operator = operators.find((o: any) => o.id === row.operator_id) ?? null;
+    const operatorById = new Map<string, any>();
+    for (const operator of operators) {
+      operatorById.set(String((operator as any).id ?? ""), operator);
+    }
 
-          return {
-            job_id: row.id,
-            transport_number: row.transport_number ?? null,
-            client_name: client?.company_name ?? null,
-            collection_address: row.collection_address ?? null,
-            delivery_address: row.delivery_address ?? null,
-            transport_date: row.transport_date ?? null,
-            collection_time: row.collection_time ?? null,
-            delivery_date: row.delivery_date ?? row.transport_date ?? null,
-            delivery_time: row.delivery_time ?? null,
-            operator_name: operator?.full_name ?? null,
-            status: row.status ?? null,
-            job_type: row.job_type ?? null,
-            load_description: row.load_description ?? null,
-            supplier_cost: num(row.supplier_cost),
-            agreed_sell_rate: num(row.agreed_sell_rate),
-            job_price: num(row.effective_price),
-            price_mode: row.price_mode ?? "full_job",
-            price_per_day: num(row.price_per_day),
-          };
-        });
+    const mapJob = (row: any) => {
+      const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
+      const operator = operatorById.get(String(row.operator_id ?? "")) ?? null;
 
       return {
-        id: vehicle.id,
-        name: vehicle.name,
-        reg_number: vehicle.reg_number,
-        status: vehicle.status,
-        items,
+        job_id: row.id,
+        transport_number: row.transport_number ?? null,
+        client_name: client?.company_name ?? null,
+        collection_address: row.collection_address ?? null,
+        delivery_address: row.delivery_address ?? null,
+        transport_date: row.transport_date ?? null,
+        collection_time: row.collection_time ?? null,
+        delivery_date: row.delivery_date ?? row.transport_date ?? null,
+        delivery_time: row.delivery_time ?? null,
+        operator_name: operator?.full_name ?? null,
+        operator_id: row.operator_id ?? null,
+        vehicle_id: row.vehicle_id ?? null,
+        status: row.status ?? null,
+        job_type: row.job_type ?? null,
+        load_description: row.load_description ?? null,
+        supplier_cost: num(row.supplier_cost),
+        agreed_sell_rate: num(row.agreed_sell_rate),
+        job_price: num(row.effective_price),
+        price_mode: row.price_mode ?? "full_job",
+        price_per_day: num(row.price_per_day),
       };
-    });
+    };
 
-    const unallocatedJobs = activeJobs
-      .filter((row: any) => !row.vehicle_id)
-      .map((row: any) => {
-        const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
-        const operator = operators.find((o: any) => o.id === row.operator_id) ?? null;
+    const vehicleRows = vehicles.map((vehicle: any) => ({
+      id: vehicle.id,
+      name: vehicle.name,
+      reg_number: vehicle.reg_number,
+      status: vehicle.status,
+      items: activeJobs.filter((row: any) => row.vehicle_id === vehicle.id).map(mapJob),
+    }));
 
-        return {
-          job_id: row.id,
-          transport_number: row.transport_number ?? null,
-          client_name: client?.company_name ?? null,
-          collection_address: row.collection_address ?? null,
-          delivery_address: row.delivery_address ?? null,
-          transport_date: row.transport_date ?? null,
-          collection_time: row.collection_time ?? null,
-          delivery_date: row.delivery_date ?? row.transport_date ?? null,
-          delivery_time: row.delivery_time ?? null,
-          operator_name: operator?.full_name ?? null,
-          status: row.status ?? null,
-          job_type: row.job_type ?? null,
-          load_description: row.load_description ?? null,
-          supplier_cost: num(row.supplier_cost),
-          agreed_sell_rate: num(row.agreed_sell_rate),
-          job_price: num(row.effective_price),
-          price_mode: row.price_mode ?? "full_job",
-          price_per_day: num(row.price_per_day),
-        };
-      });
+    const unallocatedJobs = activeJobs.filter((row: any) => !row.vehicle_id).map(mapJob);
 
     return NextResponse.json({
       week_start: rangeStart,
