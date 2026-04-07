@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -1076,9 +1077,9 @@ export default async function TransportJobDetailPage({
                 </section>
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Saving transport job…">
                     Save transport job
-                  </button>
+                  </ServerSubmitButton>
                 </div>
               </form>
 
@@ -1190,9 +1191,9 @@ export default async function TransportJobDetailPage({
                   </div>
 
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button type="submit" style={primaryBtn}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Creating purchase order…">
                       Create purchase order
-                    </button>
+                    </ServerSubmitButton>
                   </div>
                 </form>
 
