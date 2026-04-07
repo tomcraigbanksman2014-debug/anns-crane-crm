@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 export async function POST(req: Request) {
@@ -11,7 +12,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Job ID is required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { error } = await supabase
       .from("jobs")
