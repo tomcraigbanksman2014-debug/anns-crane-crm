@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 function clean(value: unknown) {
@@ -13,7 +14,8 @@ function normaliseStatus(value: unknown) {
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { data, error } = await supabase
       .from("operators")
@@ -35,7 +37,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
     const body = await req.json().catch(() => null);
 
     const fullName = clean(body?.full_name);
