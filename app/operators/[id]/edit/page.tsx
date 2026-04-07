@@ -3,6 +3,7 @@ import OperatorQualificationInlineSummary from "../../../components/OperatorQual
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
@@ -114,9 +115,9 @@ export default async function OperatorEditPage({
                   <TextAreaField label="Notes" name="notes" defaultValue={operator.notes ?? ""} rows={4} />
 
                   <div>
-                    <button type="submit" style={primaryBtn}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                       Save operator
-                    </button>
+                    </ServerSubmitButton>
                   </div>
                 </form>
               </section>
