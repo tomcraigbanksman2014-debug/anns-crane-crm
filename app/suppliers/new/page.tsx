@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -82,9 +83,9 @@ export default async function NewSupplierPage({
               <FullWidthField label="Notes" name="notes" />
 
               <div>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Saving supplier…">
                   Save supplier
-                </button>
+                </ServerSubmitButton>
               </div>
             </form>
           </section>
