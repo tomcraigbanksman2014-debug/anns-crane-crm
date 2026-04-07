@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 function makeTransportNumber() {
@@ -21,7 +22,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Transport job ID is required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { data: job, error: readError } = await supabase
       .from("transport_jobs")
