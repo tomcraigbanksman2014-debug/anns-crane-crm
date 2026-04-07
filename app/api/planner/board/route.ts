@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
@@ -117,43 +119,6 @@ function isPlannerVisibleStatus(status: string | null | undefined) {
   return true;
 }
 
-function bankHolidaysByYear(year: number) {
-  const map: Record<number, Array<{ date: string; label: string }>> = {
-    2025: [
-      { date: "2025-01-01", label: "New Year’s Day" },
-      { date: "2025-04-18", label: "Good Friday" },
-      { date: "2025-04-21", label: "Easter Monday" },
-      { date: "2025-05-05", label: "Early May bank holiday" },
-      { date: "2025-05-26", label: "Spring bank holiday" },
-      { date: "2025-08-25", label: "Summer bank holiday" },
-      { date: "2025-12-25", label: "Christmas Day" },
-      { date: "2025-12-26", label: "Boxing Day" },
-    ],
-    2026: [
-      { date: "2026-01-01", label: "New Year’s Day" },
-      { date: "2026-04-03", label: "Good Friday" },
-      { date: "2026-04-06", label: "Easter Monday" },
-      { date: "2026-05-04", label: "Early May bank holiday" },
-      { date: "2026-05-25", label: "Spring bank holiday" },
-      { date: "2026-08-31", label: "Summer bank holiday" },
-      { date: "2026-12-25", label: "Christmas Day" },
-      { date: "2026-12-28", label: "Boxing Day (substitute day)" },
-    ],
-    2027: [
-      { date: "2027-01-01", label: "New Year’s Day" },
-      { date: "2027-03-26", label: "Good Friday" },
-      { date: "2027-03-29", label: "Easter Monday" },
-      { date: "2027-05-03", label: "Early May bank holiday" },
-      { date: "2027-05-31", label: "Spring bank holiday" },
-      { date: "2027-08-30", label: "Summer bank holiday" },
-      { date: "2027-12-27", label: "Christmas Day (substitute day)" },
-      { date: "2027-12-28", label: "Boxing Day (substitute day)" },
-    ],
-  };
-
-  return map[year] ?? [];
-}
-
 function classifyUnassignedType(job: any) {
   const siteName = String(job?.site_name ?? "").trim().toLowerCase();
   const notes = String(job?.notes ?? "").trim().toLowerCase();
@@ -178,7 +143,8 @@ function classifyUnassignedType(job: any) {
 
 export async function GET(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
@@ -187,7 +153,7 @@ export async function GET(req: Request) {
 
     const from = isoDate(weekStart);
     const to = isoDate(weekEnd);
-    const bankHolidays = bankHolidaysByYear(weekStart.getFullYear()).filter(
+    const bankHolidays = getEnglandWalesBankHolidays(weekStart.getFullYear()).filter(
       (h) => h.date >= from && h.date <= to
     );
 
@@ -195,11 +161,36 @@ export async function GET(req: Request) {
       supabase
         .from("jobs")
         .select(`
-          *,
+          id,
+          client_id,
+          equipment_id,
+          operator_id,
+          crane_id,
+          job_number,
+          job_date,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          status,
+          site_name,
+          site_address,
+          hire_type,
+          lift_type,
+          notes,
+          invoice_subtotal,
+          invoice_amount,
+          total_invoice,
+          price_mode,
+          price_per_day,
+          exclude_weekends,
+          archived,
           clients:client_id (company_name),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, reg_number)
-        `),
+        `)
+        .eq("archived", false)
+        .or(`and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`),
 
       supabase
         .from("job_equipment")
@@ -218,7 +209,29 @@ export async function GET(req: Request) {
           supplier_cost,
           notes,
           jobs:job_id (
-            *,
+            id,
+            client_id,
+            operator_id,
+            crane_id,
+            job_number,
+            job_date,
+            start_date,
+            end_date,
+            start_time,
+            end_time,
+            status,
+            site_name,
+            site_address,
+            hire_type,
+            lift_type,
+            notes,
+            invoice_subtotal,
+            invoice_amount,
+            total_invoice,
+            price_mode,
+            price_per_day,
+            exclude_weekends,
+            archived,
             clients:client_id (company_name)
           ),
           operators:operator_id (id, full_name),
@@ -226,8 +239,8 @@ export async function GET(req: Request) {
         `)
         .eq("asset_type", "crane"),
 
-      supabase.from("operators").select("id, full_name"),
-      supabase.from("cranes").select("id, name, reg_number"),
+      supabase.from("operators").select("id, full_name").eq("archived", false).order("full_name", { ascending: true }),
+      supabase.from("cranes").select("id, name, reg_number").eq("archived", false).order("name", { ascending: true }),
     ]);
 
     if (jobsRes.error) {
@@ -294,12 +307,11 @@ export async function GET(req: Request) {
     const activeAllocations = allocations.filter((row: any) => {
       const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
       if (!linkedJob) return false;
-
       const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
 
       return overlapsWorkingWeek(
-        row.start_date,
-        row.end_date ?? row.start_date,
+        row.start_date ?? linkedJob?.start_date ?? linkedJob?.job_date,
+        row.end_date ?? row.start_date ?? linkedJob?.end_date ?? linkedJob?.start_date ?? linkedJob?.job_date,
         from,
         to,
         excludeWeekends
@@ -406,6 +418,6 @@ export async function GET(req: Request) {
         })) ?? [],
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 400 });
+    return NextResponse.json({ error: e?.message ?? "Could not load planner board." }, { status: 400 });
   }
 }
