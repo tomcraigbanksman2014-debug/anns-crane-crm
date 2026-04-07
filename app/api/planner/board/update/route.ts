@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 function clean(value: unknown) {
@@ -8,12 +9,21 @@ function clean(value: unknown) {
 
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
+
+    if (userError || !user) {
+      return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+    }
+
     const body = await req.json().catch(() => ({}));
 
     const allocationId = clean(body.allocation_id);
     const jobId = clean(body.job_id);
-
     const operatorId = body.operator_id === "" ? null : clean(body.operator_id);
     const craneId = body.equipment_id === "" ? null : clean(body.equipment_id);
     const jobDate = clean(body.job_date);
@@ -35,73 +45,47 @@ export async function POST(req: Request) {
     }
 
     if (allocationId) {
-      const updatePayload: Record<string, any> = {
+      const allocationPayload: Record<string, any> = {
         operator_id: operatorId,
         crane_id: craneId,
         updated_at: new Date().toISOString(),
       };
 
-      if (startDate) updatePayload.start_date = startDate;
-      if (endDate) updatePayload.end_date = endDate;
-      if (startTime !== null) updatePayload.start_time = startTime;
-      if (endTime !== null) updatePayload.end_time = endTime;
+      if (startDate) allocationPayload.start_date = startDate;
+      if (endDate) allocationPayload.end_date = endDate;
+      if (startTime !== null) allocationPayload.start_time = startTime;
+      if (endTime !== null) allocationPayload.end_time = endTime;
 
       const { error: allocationError } = await supabase
         .from("job_equipment")
-        .update(updatePayload)
+        .update(allocationPayload)
         .eq("id", allocationId);
 
       if (allocationError) {
         return NextResponse.json({ error: allocationError.message }, { status: 400 });
       }
+    }
 
-      const jobPayload: Record<string, any> = {
-        updated_at: new Date().toISOString(),
-      };
+    const jobPayload: Record<string, any> = {
+      operator_id: operatorId,
+      crane_id: craneId,
+      updated_at: new Date().toISOString(),
+    };
 
-      if (startDate) {
-        jobPayload.job_date = startDate;
-        jobPayload.start_date = startDate;
-      }
+    if (jobDate) jobPayload.job_date = jobDate;
+    if (startDate) {
+      jobPayload.start_date = startDate;
+      jobPayload.job_date = startDate;
+    }
+    if (endDate) jobPayload.end_date = endDate;
+    if (startTime !== null) jobPayload.start_time = startTime;
+    if (endTime !== null) jobPayload.end_time = endTime;
+    if (status) jobPayload.status = status;
 
-      if (endDate) {
-        jobPayload.end_date = endDate;
-      }
+    const { error: jobError } = await supabase.from("jobs").update(jobPayload).eq("id", jobId);
 
-      if (status) {
-        jobPayload.status = status;
-      }
-
-      const { error: jobError } = await supabase
-        .from("jobs")
-        .update(jobPayload)
-        .eq("id", jobId);
-
-      if (jobError) {
-        return NextResponse.json({ error: jobError.message }, { status: 400 });
-      }
-    } else {
-      const updatePayload: Record<string, any> = {
-        operator_id: operatorId,
-        crane_id: craneId,
-        updated_at: new Date().toISOString(),
-      };
-
-      if (jobDate) updatePayload.job_date = jobDate;
-      if (startDate) updatePayload.start_date = startDate;
-      if (endDate) updatePayload.end_date = endDate;
-      if (startTime !== null) updatePayload.start_time = startTime;
-      if (endTime !== null) updatePayload.end_time = endTime;
-      if (status) updatePayload.status = status;
-
-      const { error } = await supabase
-        .from("jobs")
-        .update(updatePayload)
-        .eq("id", jobId);
-
-      if (error) {
-        return NextResponse.json({ error: error.message }, { status: 400 });
-      }
+    if (jobError) {
+      return NextResponse.json({ error: jobError.message }, { status: 400 });
     }
 
     return NextResponse.json({ ok: true });
