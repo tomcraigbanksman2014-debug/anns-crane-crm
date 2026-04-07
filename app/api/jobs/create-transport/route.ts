@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
 
@@ -22,7 +23,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Crane job ID is required." }, { status: 400 });
     }
 
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { data: job, error: readError } = await supabase
       .from("jobs")
