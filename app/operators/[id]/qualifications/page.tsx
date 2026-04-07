@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { getQualificationStatus } from "../../../lib/utils/qualificationStatus";
 import { addValidityToDate, prettyValidity } from "../../../lib/utils/qualificationRenewal";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
 }
@@ -317,9 +318,9 @@ export default async function OperatorQualificationsPage({
                   <TextAreaField label="Notes" name="notes" rows={3} />
 
                   <div>
-                    <button type="submit" style={primaryBtn}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                       Add qualification
-                    </button>
+                    </ServerSubmitButton>
                   </div>
                 </form>
               </section>
@@ -427,9 +428,9 @@ export default async function OperatorQualificationsPage({
                             />
 
                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                              <button type="submit" style={primaryBtn}>
+                              <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                                 Save changes
-                              </button>
+                              </ServerSubmitButton>
                             </div>
                           </form>
 
@@ -470,9 +471,9 @@ export default async function OperatorQualificationsPage({
                               </div>
 
                               <div>
-                                <button type="submit" style={renewBtn}>
+                                <ServerSubmitButton style={renewBtn} pendingText="Working…">
                                   Renew
-                                </button>
+                                </ServerSubmitButton>
                               </div>
                             </form>
                           </div>
@@ -480,9 +481,9 @@ export default async function OperatorQualificationsPage({
                           <form action={deleteQualification} style={{ marginTop: 12 }}>
                             <input type="hidden" name="operator_id" value={operator.id} />
                             <input type="hidden" name="qualification_id" value={item.id} />
-                            <button type="submit" style={dangerBtn}>
+                            <ServerSubmitButton style={dangerBtn} pendingText="Working…">
                               Delete qualification
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         </div>
                       );
