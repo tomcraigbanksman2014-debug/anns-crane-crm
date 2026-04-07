@@ -557,6 +557,9 @@ export default async function CampaignDetailPage({
             <a href="/sales-hub/campaigns" style={secondaryBtn}>
               ← Campaigns
             </a>
+            <a href={`/sales-hub/campaigns/${params.id}/runner`} style={primaryBtn}>
+              Run campaign
+            </a>
             <a href="/sales-hub/templates" style={secondaryBtn}>
               Templates
             </a>
