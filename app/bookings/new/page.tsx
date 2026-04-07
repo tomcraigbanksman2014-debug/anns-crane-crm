@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getAccessContext, canCreateBookings, canViewInvoices } from "../../lib/access";
@@ -274,9 +275,9 @@ export default async function NewBookingPage({
               />
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Saving booking…">
                   Create booking
-                </button>
+                </ServerSubmitButton>
                 <a href="/bookings" style={secondaryBtn}>
                   Cancel
                 </a>
