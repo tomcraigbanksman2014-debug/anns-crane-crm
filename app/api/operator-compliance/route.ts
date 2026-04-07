@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { getComplianceSummary } from "../../lib/utils/qualificationCompliance";
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const [{ data: operators }, { data: required }, { data: quals }] = await Promise.all([
       supabase
