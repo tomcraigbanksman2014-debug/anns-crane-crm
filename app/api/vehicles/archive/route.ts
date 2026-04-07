@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
     const body = await req.json().catch(() => null);
     const vehicleId = String(body?.vehicleId ?? "").trim();
 
