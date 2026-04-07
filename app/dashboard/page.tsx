@@ -461,6 +461,7 @@ export default function DashboardPage() {
             value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
             subtext="Crane and transport jobs with unpaid or part-paid invoices"
             badge={<StatusPill text="£" />}
+            href="/jobs?view=active&invoice=outstanding"
           />
           <StatCard
             title="Utilisation"
