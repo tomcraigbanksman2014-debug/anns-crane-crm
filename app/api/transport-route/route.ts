@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { requireApiUser } from "../../lib/apiAuth";
 
 type OrsFeature = {
   geometry?: {
@@ -34,6 +35,9 @@ function getAdminClient() {
 
 export async function POST(req: Request) {
   try {
+    const { response } = await requireApiUser();
+    if (response) return response;
+
     const body = await req.json().catch(() => null);
 
     const fromLat = Number(body?.fromLat);
