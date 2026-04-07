@@ -4,6 +4,7 @@ import { writeAuditLog } from "../../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -548,9 +549,9 @@ export default async function OpportunityDetailPage({
               </div>
 
               <div>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Save opportunity
-                </button>
+                </ServerSubmitButton>
               </div>
             </form>
           </section>
@@ -585,9 +586,9 @@ export default async function OpportunityDetailPage({
                         name="assigned_to_username"
                         value={String(lead.assigned_to_username ?? "")}
                       />
-                      <button type="submit" style={primaryBtn}>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                         Create suggested task
-                      </button>
+                      </ServerSubmitButton>
                     </form>
                   </div>
                 ))}
@@ -601,7 +602,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="task_type" value="quote_chase" />
                 <input type="hidden" name="priority" value="high" />
                 <input type="hidden" name="due_on" value={addDays(new Date(), 2).toISOString().slice(0, 10)} />
-                <button type="submit" style={primaryBtn}>Create quote chase task</button>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">Create quote chase task</ServerSubmitButton>
               </form>
 
               <form action={createOpportunityTask} style={quickTaskForm}>
@@ -609,7 +610,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="task_type" value="call" />
                 <input type="hidden" name="priority" value="high" />
                 <input type="hidden" name="due_on" value={addDays(new Date(), 1).toISOString().slice(0, 10)} />
-                <button type="submit" style={secondaryBtn}>Create call back task</button>
+                <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create call back task</ServerSubmitButton>
               </form>
 
               <form action={createOpportunityTask} style={quickTaskForm}>
@@ -617,7 +618,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="task_type" value="follow_up" />
                 <input type="hidden" name="priority" value="medium" />
                 <input type="hidden" name="due_on" value={String(lead.next_follow_up_on ?? addDays(new Date(), 3).toISOString().slice(0, 10))} />
-                <button type="submit" style={secondaryBtn}>Create follow-up task</button>
+                <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create follow-up task</ServerSubmitButton>
               </form>
 
               <form action={createOpportunityTask} style={quickTaskForm}>
@@ -625,7 +626,7 @@ export default async function OpportunityDetailPage({
                 <input type="hidden" name="task_type" value="follow_up" />
                 <input type="hidden" name="priority" value="high" />
                 <input type="hidden" name="due_on" value={String(lead.expected_close_date ?? addDays(new Date(), 3).toISOString().slice(0, 10))} />
-                <button type="submit" style={secondaryBtn}>Create close check task</button>
+                <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create close check task</ServerSubmitButton>
               </form>
             </div>
 
@@ -676,7 +677,7 @@ export default async function OpportunityDetailPage({
                   style={textareaStyle}
                 />
 
-                <button type="submit" style={primaryBtn}>Create task</button>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">Create task</ServerSubmitButton>
               </form>
             </div>
           </section>
