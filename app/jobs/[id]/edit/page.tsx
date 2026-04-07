@@ -1,4 +1,5 @@
 import ClientShell from "../../../ClientShell";
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../../lib/timeOptions";
@@ -540,7 +541,7 @@ export default async function EditJobPage({
             </div>
 
             <div style={{ display: "flex", gap: 10, marginTop: 18, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>Update job</button>
+              <ServerSubmitButton style={primaryBtn} pendingText="Updating job…">Update job</ServerSubmitButton>
               <a href={`/jobs/${job.id}`} style={secondaryBtn}>Cancel</a>
             </div>
           </form>
