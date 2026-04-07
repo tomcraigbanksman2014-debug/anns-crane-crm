@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 type LeadRow = {
   id: string;
   company_name: string;
@@ -612,9 +613,9 @@ export default async function CampaignDetailPage({
               </div>
 
               <div>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Save campaign status
-                </button>
+                </ServerSubmitButton>
               </div>
             </form>
 
@@ -625,9 +626,9 @@ export default async function CampaignDetailPage({
                 ))}
                 <input type="hidden" name="outcome" value="sent" />
                 <input type="hidden" name="note" value="" />
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Log all linked leads as sent now
-                </button>
+                </ServerSubmitButton>
               </form>
             ) : null}
           </section>
@@ -685,9 +686,9 @@ export default async function CampaignDetailPage({
                 </div>
 
                 <div>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Log selected leads
-                  </button>
+                  </ServerSubmitButton>
                 </div>
               </div>
 
@@ -762,9 +763,9 @@ export default async function CampaignDetailPage({
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Log selected leads
-                </button>
+                </ServerSubmitButton>
               </div>
             </form>
           )}
