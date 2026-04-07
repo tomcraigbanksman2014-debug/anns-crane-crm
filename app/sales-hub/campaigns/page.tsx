@@ -3,6 +3,8 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
+import { getCustomerActivityRollups } from "../../lib/customerActivity";
 import { redirect } from "next/navigation";
 
 type LeadRow = {
@@ -404,8 +406,8 @@ export default async function SalesCampaignsPage({
     const tone = String(formData.get("tone") ?? "professional").trim() || "professional";
     const serviceFocus = String(formData.get("service_focus") ?? "").trim() || null;
     const availabilityNote = String(formData.get("availability_note") ?? "").trim() || null;
-    const leadIds = formData.getAll("lead_ids").map((v) => String(v).trim()).filter(Boolean);
-    const customerIds = formData.getAll("customer_ids").map((v) => String(v).trim()).filter(Boolean);
+    const leadIds = Array.from(new Set(formData.getAll("lead_ids").map((v) => String(v).trim()).filter(Boolean)));
+    const customerIds = Array.from(new Set(formData.getAll("customer_ids").map((v) => String(v).trim()).filter(Boolean)));
 
     if (!name) {
       redirect("/sales-hub/campaigns?error=Campaign%20name%20is%20required.");
@@ -443,11 +445,12 @@ export default async function SalesCampaignsPage({
         .insert(leadIds.map((leadId) => ({ campaign_id: campaign.id, lead_id: leadId })));
 
       if (linkError) {
+        await supabase.from("sales_campaigns").delete().eq("id", campaign.id);
         redirect(`/sales-hub/campaigns?error=${encodeURIComponent(linkError.message)}`);
       }
 
       await supabase.from("sales_lead_activity").insert(
-        leadIds.map((leadId) => ({
+        Array.from(new Set(leadIds)).map((leadId) => ({
           lead_id: leadId,
           entry_type: "campaign",
           subject: `Added to campaign: ${name}`,
@@ -464,11 +467,13 @@ export default async function SalesCampaignsPage({
         .insert(customerIds.map((clientId) => ({ campaign_id: campaign.id, client_id: clientId })));
 
       if (customerLinkError) {
+        await supabase.from("sales_campaign_leads").delete().eq("campaign_id", campaign.id);
+        await supabase.from("sales_campaigns").delete().eq("id", campaign.id);
         redirect(`/sales-hub/campaigns?error=${encodeURIComponent(customerLinkError.message)}`);
       }
 
       await supabase.from("customer_correspondence").insert(
-        customerIds.map((clientId) => ({
+        Array.from(new Set(customerIds)).map((clientId) => ({
           client_id: clientId,
           entry_type: "campaign",
           subject: `Added to campaign: ${name}`,
@@ -503,7 +508,6 @@ export default async function SalesCampaignsPage({
   const [
     { data: leads, error: leadsError },
     { data: customers, error: customersError },
-    { data: customerRollups, error: customerRollupsError },
     { data: templates, error: templatesError },
     { data: campaigns, error: campaignsError },
     { data: campaignLeadLinks },
@@ -539,9 +543,6 @@ export default async function SalesCampaignsPage({
       .eq("archived", false)
       .order("company_name", { ascending: true }),
     supabase
-      .from("customer_activity_rollup")
-      .select("client_id, last_activity_date, crm_job_count, crm_transport_job_count, crm_quote_count, crm_correspondence_count, imported_history_count"),
-    supabase
       .from("sales_templates")
       .select("*")
       .eq("is_active", true)
@@ -557,10 +558,11 @@ export default async function SalesCampaignsPage({
 
   const allLeads = (leads ?? []) as LeadRow[];
   const allCustomers = (customers ?? []) as CustomerRow[];
-  const allCustomerRollups = (customerRollups ?? []) as CustomerRollup[];
   const activeTemplates = (templates ?? []) as TemplateRow[];
-  const customerRollupById = new Map<string, CustomerRollup>();
-  for (const row of allCustomerRollups) customerRollupById.set(String(row.client_id), row);
+  const customerRollupById = await getCustomerActivityRollups(
+    supabase,
+    allCustomers.map((customer) => String(customer.id ?? "")).filter(Boolean)
+  );
 
   const selectedOwner = String(searchParams?.owner ?? "all").trim();
   const selectedService = String(searchParams?.service ?? "all").trim();
@@ -702,7 +704,6 @@ export default async function SalesCampaignsPage({
         {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
         {customersError ? <div style={errorCard}>{customersError.message}</div> : null}
-        {customerRollupsError ? <div style={errorCard}>{customerRollupsError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
 
@@ -818,7 +819,7 @@ export default async function SalesCampaignsPage({
               <input name="availability_note" defaultValue={selectedAvailabilityNote} style={inputStyle} />
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>Refresh preview</button>
+              <ServerSubmitButton style={primaryBtn} pendingText="Working…">Refresh preview</ServerSubmitButton>
               <a href="/sales-hub/campaigns" style={secondaryBtn}>Clear</a>
             </div>
           </form>
@@ -955,7 +956,7 @@ export default async function SalesCampaignsPage({
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <button type="submit" style={primaryBtn}>Create campaign from selected leads and customers</button>
+                <ServerSubmitButton style={primaryBtn} pendingText="Creating campaign…">Create campaign from selected leads and customers</ServerSubmitButton>
               </div>
             </form>
           )}
