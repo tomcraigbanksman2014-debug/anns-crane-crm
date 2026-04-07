@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 type LeadRow = {
   id: string;
   company_name: string;
@@ -628,9 +629,9 @@ export default async function OpportunityTrackingPage({
             </div>
 
             <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
+              <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                 Apply
-              </button>
+              </ServerSubmitButton>
               <a href="/sales-hub/opportunities" style={secondaryBtn}>
                 Clear
               </a>
@@ -821,9 +822,9 @@ export default async function OpportunityTrackingPage({
                               ))}
                             </select>
 
-                            <button type="submit" style={quickMoveBtn}>
+                            <ServerSubmitButton style={quickMoveBtn} pendingText="Working…">
                               Move
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         ) : null}
                       </div>
