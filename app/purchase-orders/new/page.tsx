@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import POLinesEditorClient from "../POLinesEditorClient";
 import { redirect } from "next/navigation";
@@ -248,9 +249,9 @@ export default async function NewPurchaseOrderPage({
               <POLinesEditorClient fieldName="po_lines_json" />
 
               <div>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Saving purchase order…">
                   Save purchase order
-                </button>
+                </ServerSubmitButton>
               </div>
             </form>
           </section>
