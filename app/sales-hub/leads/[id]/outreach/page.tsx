@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../../../components/ServerSubmitButton";
 type LeadRow = {
   id: string;
   company_name: string;
@@ -510,9 +511,9 @@ export default async function LeadOutreachPage({ params, searchParams }: PagePro
                 </div>
 
                 <div>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Save outreach activity
-                  </button>
+                  </ServerSubmitButton>
                 </div>
               </form>
             )}
