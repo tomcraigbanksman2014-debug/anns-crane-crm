@@ -1,3 +1,4 @@
+import ServerSubmitButton from "../components/ServerSubmitButton";
 "use client";
 
 export default function DeletePurchaseOrderButton({
@@ -20,9 +21,9 @@ export default function DeletePurchaseOrderButton({
         if (!ok) e.preventDefault();
       }}
     >
-      <button type="submit" style={compact ? compactDeleteBtn : deleteBtn}>
+      <ServerSubmitButton style={compact ? compactDeleteBtn : deleteBtn} pendingText="Working…">
         {compact ? "Delete" : "Delete purchase order"}
-      </button>
+      </ServerSubmitButton>
     </form>
   );
 }
