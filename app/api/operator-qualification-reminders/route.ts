@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import {
   compareQualificationExpiryAsc,
@@ -16,7 +17,8 @@ export async function GET(req: Request) {
     const daysRaw = Number(url.searchParams.get("days") ?? 30);
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(daysRaw, 180)) : 30;
 
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { data, error } = await supabase
       .from("operator_qualifications")
