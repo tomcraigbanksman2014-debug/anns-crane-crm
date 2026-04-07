@@ -301,12 +301,16 @@ export default function PlannerBoard() {
   }, []);
 
   useEffect(() => {
-    function onDocClick() {
+    function onDocPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-planner-menu-root='true']")) {
+        return;
+      }
       setOpenMenuId(null);
     }
 
-    document.addEventListener("click", onDocClick);
-    return () => document.removeEventListener("click", onDocClick);
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
   }, []);
 
   const visibleDays = useMemo(() => {
