@@ -1,5 +1,6 @@
-import ServerSubmitButton from "../components/ServerSubmitButton";
 "use client";
+
+import ServerSubmitButton from "../components/ServerSubmitButton";
 
 export default function DeletePurchaseOrderButton({
   purchaseOrderId,
