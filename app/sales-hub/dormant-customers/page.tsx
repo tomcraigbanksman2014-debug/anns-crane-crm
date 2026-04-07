@@ -4,6 +4,7 @@ import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -423,9 +424,9 @@ export default async function DormantCustomersPage({
             </div>
 
             <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
+              <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                 Apply
-              </button>
+              </ServerSubmitButton>
               <a href="/sales-hub/dormant-customers" style={secondaryBtn}>
                 Clear
               </a>
@@ -487,9 +488,9 @@ export default async function DormantCustomersPage({
                       ) : canCreate ? (
                         <form action={createRecoveryLead}>
                           <input type="hidden" name="client_id" value={client.id} />
-                          <button type="submit" style={primaryBtn}>
+                          <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                             Create Recovery Lead
-                          </button>
+                          </ServerSubmitButton>
                         </form>
                       ) : (
                         <div style={mutedNote}>You do not have permission to create recovery leads.</div>
