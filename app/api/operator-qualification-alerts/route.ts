@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import {
   compareQualificationExpiryAsc,
@@ -12,7 +13,8 @@ function asArray<T>(value: T | T[] | null | undefined): T[] {
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const { data, error } = await supabase
       .from("operator_qualifications")
