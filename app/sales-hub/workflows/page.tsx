@@ -4,6 +4,7 @@ import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -600,9 +601,9 @@ export default async function SalesWorkflowTasksPage({
                 </div>
 
                 <div>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Create task
-                  </button>
+                  </ServerSubmitButton>
                 </div>
               </form>
             ) : (
@@ -649,9 +650,9 @@ export default async function SalesWorkflowTasksPage({
               </div>
 
               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <button type="submit" style={primaryBtn}>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                   Apply
-                </button>
+                </ServerSubmitButton>
                 <a href="/sales-hub/workflows" style={secondaryBtn}>
                   Clear
                 </a>
@@ -730,27 +731,27 @@ export default async function SalesWorkflowTasksPage({
                         {String(task.status ?? "") === "open" && canManage ? (
                           <form action={completeTask}>
                             <input type="hidden" name="task_id" value={task.id} />
-                            <button type="submit" style={miniDarkBtn}>
+                            <ServerSubmitButton style={miniDarkBtn} pendingText="Working…">
                               Complete
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         ) : null}
 
                         {String(task.status ?? "") === "completed" && canManage ? (
                           <form action={reopenTask}>
                             <input type="hidden" name="task_id" value={task.id} />
-                            <button type="submit" style={miniBtn}>
+                            <ServerSubmitButton style={miniBtn} pendingText="Working…">
                               Reopen
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         ) : null}
 
                         {String(task.status ?? "") !== "cancelled" && canManage ? (
                           <form action={cancelTask}>
                             <input type="hidden" name="task_id" value={task.id} />
-                            <button type="submit" style={miniBtn}>
+                            <ServerSubmitButton style={miniBtn} pendingText="Working…">
                               Cancel
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         ) : null}
 
