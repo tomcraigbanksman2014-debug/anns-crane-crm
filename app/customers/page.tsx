@@ -1,6 +1,7 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import CustomerArchiveButton from "./CustomerArchiveButton";
+import { getCustomerActivityRollups } from "../lib/customerActivity";
 
 function daysBetween(from: string | null | undefined, to = new Date()) {
   if (!from) return null;
@@ -105,20 +106,10 @@ export default async function CustomersPage({
 
   const clientIds = (customers ?? []).map((c: any) => c.id).filter(Boolean);
   const rollupByClientId: Record<string, any> = {};
+  const customerRollups = await getCustomerActivityRollups(supabase, clientIds);
 
-  if (clientIds.length > 0) {
-    const { data: rollupRows } = await supabase
-      .from("customer_activity_rollup")
-      .select(
-        "client_id, last_activity_date, crm_job_count, crm_transport_job_count, crm_quote_count, crm_correspondence_count, imported_history_count"
-      )
-      .in("client_id", clientIds);
-
-    for (const row of rollupRows ?? []) {
-      const clientId = String((row as any).client_id ?? "");
-      if (!clientId) continue;
-      rollupByClientId[clientId] = row;
-    }
+  for (const [clientId, row] of customerRollups.entries()) {
+    rollupByClientId[clientId] = row;
   }
 
   const filteredCustomers = (customers ?? []).filter((customer: any) => {
