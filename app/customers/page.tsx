@@ -108,9 +108,9 @@ export default async function CustomersPage({
   const rollupByClientId: Record<string, any> = {};
   const customerRollups = await getCustomerActivityRollups(supabase, clientIds);
 
-  for (const [clientId, row] of customerRollups.entries()) {
+  customerRollups.forEach((row, clientId) => {
     rollupByClientId[clientId] = row;
-  }
+  });
 
   const filteredCustomers = (customers ?? []).filter((customer: any) => {
     const rollup = rollupByClientId[customer.id] ?? null;
