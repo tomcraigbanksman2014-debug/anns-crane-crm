@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 
 function isoDate(value: Date) {
@@ -94,7 +95,8 @@ function purchaseOrderValue(row: any) {
 
 export async function GET() {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const now = new Date();
     const today = isoDate(now);
