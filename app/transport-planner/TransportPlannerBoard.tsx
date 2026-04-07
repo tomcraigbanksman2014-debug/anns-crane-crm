@@ -13,6 +13,8 @@ type PlannerItem = {
   delivery_date?: string | null;
   delivery_time?: string | null;
   operator_name?: string | null;
+  operator_id?: string | null;
+  vehicle_id?: string | null;
   status?: string | null;
   job_type?: string | null;
   load_description?: string | null;
@@ -130,39 +132,36 @@ export default function TransportPlannerBoard() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [actionId, setActionId] = useState<string | null>(null);
+
+  async function loadBoard(targetWeekStart: string) {
+    setLoading(true);
+    setError("");
+
+    try {
+      const res = await fetch(`/api/transport-planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not load transport planner.");
+      }
+
+      setData(json);
+    } catch (e: any) {
+      setError(e?.message || "Could not load transport planner.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    let active = true;
-
-    async function load() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const res = await fetch(`/api/transport-planner/board?date=${encodeURIComponent(weekStart)}`);
-        const json = await res.json();
-
-        if (!res.ok) {
-          throw new Error(json?.error || "Could not load transport planner.");
-        }
-
-        if (!active) return;
-        setData(json);
-      } catch (e: any) {
-        if (!active) return;
-        setError(e?.message || "Could not load transport planner.");
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    load();
-
-    return () => {
-      active = false;
-    };
+    loadBoard(weekStart);
   }, [weekStart]);
 
   useEffect(() => {
@@ -173,6 +172,15 @@ export default function TransportPlannerBoard() {
     syncMobile();
     window.addEventListener("resize", syncMobile);
     return () => window.removeEventListener("resize", syncMobile);
+  }, []);
+
+  useEffect(() => {
+    function onDocClick() {
+      setOpenMenuId(null);
+    }
+
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
   }, []);
 
   const visibleDays = useMemo(() => {
@@ -229,6 +237,177 @@ export default function TransportPlannerBoard() {
     });
   }
 
+  async function duplicateTransportJob(item: PlannerItem) {
+    setActionId(item.job_id);
+    setOpenMenuId(null);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/transport-jobs/duplicate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ job_id: item.job_id }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not duplicate transport job.");
+      }
+
+      const newId = String(json?.job?.id ?? "").trim();
+      if (newId) {
+        window.location.href = `/transport-jobs/${newId}`;
+        return;
+      }
+
+      setMessage("Transport job duplicated.");
+      await loadBoard(weekStart);
+    } catch (e: any) {
+      setError(e?.message || "Could not duplicate transport job.");
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function clearVehicleAssignment(item: PlannerItem) {
+    setActionId(item.job_id);
+    setOpenMenuId(null);
+    setError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/transport-planner/board/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          transport_job_id: item.job_id,
+          vehicle_id: "",
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not remove vehicle assignment.");
+      }
+
+      setMessage("Vehicle assignment removed.");
+      await loadBoard(weekStart);
+    } catch (e: any) {
+      setError(e?.message || "Could not remove vehicle assignment.");
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  function openJob(id: string) {
+    window.location.href = `/transport-jobs/${id}`;
+  }
+
+  function openEdit(id: string) {
+    window.location.href = `/transport-jobs/${id}`;
+  }
+
+  function renderMenu(item: PlannerItem) {
+    const isOpen = openMenuId === item.job_id;
+
+    function noBubble(e: React.MouseEvent | React.PointerEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    return (
+      <div data-no-open="true" style={menuWrap} onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          style={menuBtn}
+          onMouseDown={noBubble}
+          onPointerDown={noBubble}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setOpenMenuId((current) => (current === item.job_id ? null : item.job_id));
+          }}
+        >
+          ⋯
+        </button>
+
+        {isOpen ? (
+          <div style={menuList} onMouseDown={noBubble} onPointerDown={noBubble}>
+            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); openJob(item.job_id); }}>
+              Open transport job
+            </button>
+            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); openEdit(item.job_id); }}>
+              Edit transport job
+            </button>
+            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); duplicateTransportJob(item); }}>
+              Duplicate transport job
+            </button>
+            {item.vehicle_id ? (
+              <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); clearVehicleAssignment(item); }}>
+                Remove vehicle assignment
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderJobCard(item: PlannerItem, compact = false) {
+    const busy = actionId === item.job_id;
+    return (
+      <div
+        key={`${item.job_id}-${item.transport_date}-${item.delivery_date}-${compact ? "compact" : "full"}`}
+        style={{
+          ...(compact ? miniJobCard : jobCardStyle),
+          ...statusTone(item.status),
+          opacity: busy ? 0.65 : 1,
+          cursor: busy ? "wait" : "pointer",
+        }}
+        onClick={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest("[data-no-open='true']")) {
+            return;
+          }
+          openJob(item.job_id);
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport job"}</div>
+            <div style={{ marginTop: 4, fontSize: compact ? 12 : 13, opacity: 0.82 }}>
+              {item.client_name ?? "No customer"}
+            </div>
+          </div>
+          {renderMenu(item)}
+        </div>
+
+        <div style={{ marginTop: 4, fontSize: compact ? 11 : 12, opacity: 0.82 }}>
+          {item.job_type ?? "—"}
+        </div>
+        <div style={{ marginTop: 4, fontSize: compact ? 11 : 12, opacity: 0.78 }}>
+          {item.collection_address ?? "No collection"} → {item.delivery_address ?? "No delivery"}
+        </div>
+        <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, opacity: 0.72 }}>
+          {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
+        </div>
+        <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+          {fmtMoney(getDisplayPrice(item))}
+          {String(item.price_mode ?? "full_job") === "per_day" ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}` : " • Full job"}
+        </div>
+        <div style={tagWrap}>
+          <div style={pillNeutral}>{item.operator_name ?? "Unassigned"}</div>
+          {!item.vehicle_id ? <div style={pillWarn}>No vehicle assigned</div> : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={toolbarStyle}>
@@ -240,6 +419,7 @@ export default function TransportPlannerBoard() {
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <a href="/transport-jobs/new" style={primaryBtn}>+ Add transport job</a>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
             ← Previous week
           </button>
@@ -291,46 +471,15 @@ export default function TransportPlannerBoard() {
 
       {loading ? <div style={infoBox}>Loading transport planner…</div> : null}
       {error ? <div style={errorBox}>{error}</div> : null}
+      {message ? <div style={successBox}>{message}</div> : null}
 
       {!loading && !error ? (
         <>
           {(data?.unallocated_jobs ?? []).length > 0 ? (
             <section style={sectionCard}>
               <div style={sectionTitle}>Unassigned transport jobs</div>
-
               <div style={{ display: "grid", gap: 10 }}>
-                {sortItemsByStartTime(data?.unallocated_jobs ?? []).map((item) => (
-                  <a
-                    key={`unalloc-${item.job_id}`}
-                    href={`/transport-jobs/${item.job_id}`}
-                    style={{ ...jobCardStyle, ...statusTone(item.status) }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>
-                          {item.transport_number ?? "Transport job"}
-                          {item.client_name ? ` • ${item.client_name}` : ""}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.82 }}>
-                          {item.collection_address ?? "No collection"} → {item.delivery_address ?? "No delivery"}
-                        </div>
-                      </div>
-
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <div style={{ fontWeight: 1000 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                          {String(item.price_mode ?? "full_job") === "per_day"
-                            ? `Per day ${fmtMoney(item.price_per_day ?? 0)}`
-                            : "Full job"}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={tagWrap}>
-                      <div style={pillWarn}>No vehicle assigned</div>
-                    </div>
-                  </a>
-                ))}
+                {sortItemsByStartTime(data?.unallocated_jobs ?? []).map((item) => renderJobCard(item))}
               </div>
             </section>
           ) : null}
@@ -357,19 +506,7 @@ export default function TransportPlannerBoard() {
                     <MobileDayCell
                       day={activeDay}
                       items={sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, activeDay.key)))}
-                      renderItem={(item) => (
-                        <a key={`${item.job_id}-${activeDay.key}`} href={`/transport-jobs/${item.job_id}`} style={{ ...miniJobCard, ...statusTone(item.status) }}>
-                          <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport"}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.client_name ?? "No customer"}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.job_type ?? "—"}</div>
-                          <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                            {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
-                          </div>
-                          <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.collection_time ?? "—"} → {item.delivery_time ?? "—"}</div>
-                          <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{item.operator_name ?? "Unassigned"}</div>
-                        </a>
-                      )}
+                      renderItem={(item) => renderJobCard(item, true)}
                     />
                   </div>
                 ) : (
@@ -421,23 +558,7 @@ export default function TransportPlannerBoard() {
                             <div style={emptyState}>Free</div>
                           ) : (
                             <div style={{ display: "grid", gap: 8 }}>
-                              {dayItems.map((item) => (
-                                <a
-                                  key={`${item.job_id}-${day.key}`}
-                                  href={`/transport-jobs/${item.job_id}`}
-                                  style={{ ...miniJobCard, ...statusTone(item.status) }}
-                                >
-                                  <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport"}</div>
-                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.client_name ?? "No customer"}</div>
-                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.82 }}>{item.job_type ?? "—"}</div>
-                                  <div style={{ marginTop: 6, fontSize: 12, fontWeight: 900 }}>{fmtMoney(getDisplayPrice(item))}</div>
-                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
-                                    {String(item.price_mode ?? "full_job") === "per_day" ? `Per day ${fmtMoney(item.price_per_day ?? 0)}` : "Full job"}
-                                  </div>
-                                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.72 }}>{item.collection_time ?? "—"} → {item.delivery_time ?? "—"}</div>
-                                  <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>{item.operator_name ?? "Unassigned"}</div>
-                                </a>
-                              ))}
+                              {dayItems.map((item) => renderJobCard(item, true))}
                             </div>
                           )}
                         </div>
@@ -559,17 +680,18 @@ const sectionTitle: React.CSSProperties = {
 };
 
 const headCell: React.CSSProperties = {
-  padding: 12,
+  padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
+  fontSize: 13,
 };
 
 const sideCell: React.CSSProperties = {
   padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
@@ -577,92 +699,146 @@ const dayCell: React.CSSProperties = {
   minHeight: 120,
   padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.28)",
+  background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const mobileRowHeader: React.CSSProperties = {
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
   display: "flex",
   justifyContent: "space-between",
-  gap: 10,
+  gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
 };
 
 const mobileDayCell: React.CSSProperties = {
-  minHeight: 120,
+  minHeight: 100,
   padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.28)",
+  background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const jobCardStyle: React.CSSProperties = {
-  display: "block",
+  padding: 12,
+  borderRadius: 12,
   textDecoration: "none",
   color: "#111",
-  padding: 14,
-  borderRadius: 14,
+  boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
 };
 
 const miniJobCard: React.CSSProperties = {
-  display: "block",
-  textDecoration: "none",
-  color: "#111",
+  ...jobCardStyle,
   padding: 10,
-  borderRadius: 10,
-};
-
-const pillWarn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "6px 10px",
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 900,
-  background: "rgba(255,170,0,0.16)",
-  border: "1px solid rgba(255,170,0,0.22)",
 };
 
 const tagWrap: React.CSSProperties = {
+  marginTop: 8,
   display: "flex",
-  gap: 8,
+  gap: 6,
   flexWrap: "wrap",
-  marginTop: 10,
+};
+
+const pillNeutral: React.CSSProperties = {
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 800,
+  background: "rgba(255,255,255,0.7)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const pillWarn: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(255,180,0,0.16)",
+  border: "1px solid rgba(255,180,0,0.22)",
+};
+
+const infoBox: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const errorBox: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,0,0,0.10)",
+  border: "1px solid rgba(255,0,0,0.20)",
+};
+
+const successBox: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(0,180,120,0.12)",
+  border: "1px solid rgba(0,180,120,0.20)",
+};
+
+const emptyState: React.CSSProperties = {
+  fontSize: 13,
+  opacity: 0.7,
+};
+
+const primaryBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  textDecoration: "none",
+  fontWeight: 800,
+  border: "1px solid #111",
 };
 
 const secondaryBtn: React.CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  textDecoration: "none",
   background: "rgba(255,255,255,0.82)",
   color: "#111",
+  textDecoration: "none",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
   cursor: "pointer",
 };
 
-const infoBox: React.CSSProperties = {
-  padding: "12px 14px",
+const menuWrap: React.CSSProperties = {
+  position: "relative",
+  flexShrink: 0,
+};
+
+const menuBtn: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.90)",
+  fontWeight: 1000,
+  cursor: "pointer",
+};
+
+const menuList: React.CSSProperties = {
+  position: "absolute",
+  top: 38,
+  right: 0,
+  minWidth: 210,
+  display: "grid",
+  gap: 4,
+  padding: 6,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.58)",
-  border: "1px dashed rgba(0,0,0,0.10)",
-  opacity: 0.82,
+  background: "#fff",
+  border: "1px solid rgba(0,0,0,0.10)",
+  boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
+  zIndex: 20,
 };
 
-const emptyState: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.6,
-  fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
+const menuItemBtn: React.CSSProperties = {
+  textAlign: "left",
   padding: "10px 12px",
   borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
+  border: "1px solid transparent",
+  background: "rgba(255,255,255,0.92)",
+  cursor: "pointer",
+  fontWeight: 800,
 };
