@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
 }
@@ -375,9 +376,9 @@ export default async function SupplierDetailPage({
                       <FullWidthField label="Notes" name="notes" defaultValue={supplier.notes ?? ""} />
 
                       <div>
-                        <button type="submit" style={primaryBtn}>
+                        <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                           Update supplier
-                        </button>
+                        </ServerSubmitButton>
                       </div>
                     </form>
                   </section>
@@ -557,9 +558,9 @@ export default async function SupplierDetailPage({
                       <FullWidthField label="Message" name="message" />
 
                       <div>
-                        <button type="submit" style={primaryBtn}>
+                        <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                           Add correspondence
-                        </button>
+                        </ServerSubmitButton>
                       </div>
                     </form>
                   </section>
