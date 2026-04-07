@@ -1,30 +1,49 @@
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
-import { writeAuditLog } from "../../../../../../lib/audit";
+import { createClient } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
 
-function matchesOperatorLogin(authEmail: string, operator: any) {
-  const email = String(authEmail ?? "").trim().toLowerCase();
-  const username = email.includes("@") ? email.split("@")[0] : email;
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
-  const operatorEmailUsername = operatorEmail.includes("@")
-    ? operatorEmail.split("@")[0]
-    : operatorEmail;
-  const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
 
-  return (
-    (!!operatorEmail && operatorEmail === email) ||
-    (!!operatorEmailUsername && operatorEmailUsername === username) ||
-    (!!operatorName && operatorName === username)
-  );
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
 
-export async function POST(
-  req: Request,
-  { params }: { params: { id: string } }
-) {
+function clean(value: unknown) {
+  const s = String(value ?? "").trim();
+  return s || null;
+}
+
+function isCancelledStatus(value: unknown) {
+  return String(value ?? "").trim().toLowerCase() === "cancelled";
+}
+
+function positiveIntOrNull(value: unknown) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const rounded = Math.round(n);
+  return rounded > 0 ? rounded : null;
+}
+
+type RouteStopPayload = {
+  transport_job_id?: string;
+  stop_type?: "pickup" | "delivery";
+  stop_order?: number;
+};
+
+export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
 
     const {
       data: { user },
@@ -35,108 +54,108 @@ export async function POST(
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const authEmail = String(user.email ?? "").trim().toLowerCase();
+    const body = await req.json().catch(() => ({}));
 
-    const { data: operators, error: operatorsError } = await supabase
-      .from("operators")
-      .select("id, full_name, email, status")
-      .eq("status", "active");
+    const vehicleId = clean(body.vehicle_id);
+    const routeDate = clean(body.route_date);
+    const stops = Array.isArray(body.stops) ? (body.stops as RouteStopPayload[]) : [];
 
-    if (operatorsError) {
-      return NextResponse.json({ error: operatorsError.message }, { status: 400 });
-    }
-
-    const operator =
-      (operators ?? []).find((op: any) => matchesOperatorLogin(authEmail, op)) ?? null;
-
-    if (!operator) {
+    if (!vehicleId || !routeDate) {
       return NextResponse.json(
-        { error: "No operator record linked to this login." },
-        { status: 403 }
+        { error: "vehicle_id and route_date are required." },
+        { status: 400 }
       );
     }
 
-    const { data: job, error: jobError } = await supabase
+    const { data: jobs, error: jobsError } = await admin
       .from("transport_jobs")
-      .select("id, transport_number, operator_id")
-      .eq("id", params.id)
-      .single();
+      .select("id, vehicle_id, transport_date, delivery_date, archived, status")
+      .eq("vehicle_id", vehicleId)
+      .eq("archived", false)
+      .or(`transport_date.eq.${routeDate},delivery_date.eq.${routeDate}`);
 
-    if (jobError || !job) {
-      return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
+    if (jobsError) {
+      return NextResponse.json({ error: jobsError.message }, { status: 400 });
     }
 
-    if (String(job.operator_id ?? "") !== String(operator.id)) {
-      return NextResponse.json(
-        { error: "This transport job is not assigned to you." },
-        { status: 403 }
-      );
+    const relevantJobs = ((jobs ?? []) as Array<{
+      id: string;
+      vehicle_id: string | null;
+      transport_date: string | null;
+      delivery_date: string | null;
+      archived?: boolean | null;
+      status?: string | null;
+    }>).filter((job) => !isCancelledStatus(job.status));
+
+    const relevantJobMap = new Map(relevantJobs.map((job) => [job.id, job]));
+
+    for (const job of relevantJobs) {
+      const updatePayload: Record<string, number | null> = {};
+
+      if (job.transport_date === routeDate) {
+        updatePayload.collection_route_order = null;
+      }
+
+      if ((job.delivery_date || job.transport_date) === routeDate) {
+        updatePayload.delivery_route_order = null;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const { error: resetError } = await admin
+          .from("transport_jobs")
+          .update(updatePayload)
+          .eq("id", job.id);
+
+        if (resetError) {
+          return NextResponse.json({ error: resetError.message }, { status: 400 });
+        }
+      }
     }
 
-    const formData = await req.formData();
-    const file = formData.get("file");
-    const documentType = String(formData.get("document_type") ?? "photo").trim() || "photo";
+    const orderedStops = [...stops]
+      .map((stop) => ({
+        transportJobId: clean(stop.transport_job_id),
+        stopType: stop.stop_type === "delivery" ? "delivery" : "pickup",
+        stopOrder: positiveIntOrNull(stop.stop_order),
+      }))
+      .filter((stop) => !!stop.transportJobId && !!stop.stopOrder)
+      .sort((a, b) => Number(a.stopOrder) - Number(b.stopOrder));
 
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: "No document uploaded" }, { status: 400 });
+    for (const stop of orderedStops) {
+      const job = relevantJobMap.get(String(stop.transportJobId));
+      if (!job) {
+        continue;
+      }
+
+      const updatePayload: Record<string, number> = {};
+
+      if (stop.stopType === "pickup" && job.transport_date === routeDate) {
+        updatePayload.collection_route_order = Number(stop.stopOrder);
+      }
+
+      if (
+        stop.stopType === "delivery" &&
+        (job.delivery_date || job.transport_date) === routeDate
+      ) {
+        updatePayload.delivery_route_order = Number(stop.stopOrder);
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        const { error: updateError } = await admin
+          .from("transport_jobs")
+          .update(updatePayload)
+          .eq("id", String(stop.transportJobId));
+
+        if (updateError) {
+          return NextResponse.json({ error: updateError.message }, { status: 400 });
+        }
+      }
     }
-
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `transport-${params.id}/${Date.now()}-${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("job-documents")
-      .upload(filePath, buffer, {
-        contentType: file.type || "application/octet-stream",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 400 });
-    }
-
-    const { error: insertError } = await supabase
-      .from("transport_job_documents")
-      .insert([
-        {
-          transport_job_id: params.id,
-          file_name: file.name,
-          file_path: filePath,
-          file_type: file.type || null,
-          document_type: documentType,
-          uploaded_by: user.id,
-          share_with_operator: false,
-        },
-      ]);
-
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 400 });
-    }
-
-    await writeAuditLog({
-      actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "operator_transport_document_uploaded",
-      entity_type: "operator_transport_document",
-      entity_id: params.id,
-      meta: {
-        transport_job_id: params.id,
-        transport_number: job.transport_number ?? null,
-        operator_id: operator.id,
-        operator_name: operator.full_name ?? null,
-        file_name: file.name,
-        file_path: filePath,
-        document_type: documentType,
-      },
-    });
 
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     return NextResponse.json(
-      { error: e?.message ?? "Could not upload transport document." },
+      { error: e?.message ?? "Could not save route order." },
       { status: 400 }
     );
   }
