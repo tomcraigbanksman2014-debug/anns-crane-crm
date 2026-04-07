@@ -13,7 +13,7 @@ import {
   TileLayer,
   useMap,
 } from "react-leaflet";
-import L, { type LatLngExpression } from "leaflet";
+import L, { type LatLngBoundsExpression, type LatLngExpression } from "leaflet";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 
 const SafeMapContainer = MapContainer as any;
@@ -224,7 +224,7 @@ function FitMapToMarkers({ points }: { points: LatLngExpression[] }) {
       return;
     }
 
-    map.fitBounds(points as L.LatLngBoundsExpression, { padding: [40, 40] });
+    map.fitBounds(points as LatLngBoundsExpression, { padding: [40, 40] });
   }, [map, points]);
 
   return null;
