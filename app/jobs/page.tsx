@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "../lib/audit";
 
+import ServerSubmitButton from "../components/ServerSubmitButton";
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -396,9 +397,9 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                                 style={moneyInput}
                               />
 
-                              <button type="submit" style={saveMiniBtn}>
+                              <ServerSubmitButton style={saveMiniBtn} pendingText="Working…">
                                 Save
-                              </button>
+                              </ServerSubmitButton>
                             </form>
                           </div>
                         </td>
