@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAccessContext, canViewInvoices } from "../lib/access";
 
+import ServerSubmitButton from "../components/ServerSubmitButton";
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -367,9 +368,9 @@ export default async function TransportJobsPage({
               placeholder={`Search ref, address, load, status${showInvoices ? " or invoice status" : ""}...`}
               style={searchInput}
             />
-            <button type="submit" style={primaryBtn}>
+            <ServerSubmitButton style={primaryBtn} pendingText="Working…">
               Search
-            </button>
+            </ServerSubmitButton>
             <a href={clearSearchHref()} style={secondaryBtn}>
               Clear
             </a>
@@ -546,9 +547,9 @@ export default async function TransportJobsPage({
                                   style={moneyInput}
                                 />
 
-                                <button type="submit" style={saveMiniBtn}>
+                                <ServerSubmitButton style={saveMiniBtn} pendingText="Working…">
                                   Save
-                                </button>
+                                </ServerSubmitButton>
                               </form>
                             </div>
                           </td>
