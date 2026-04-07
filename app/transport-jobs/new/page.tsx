@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -147,11 +148,11 @@ async function resolveClientId(
   }
 ) {
   if (selectedClientId && selectedClientId !== "other") {
-    return { clientId: selectedClientId, duplicateMessage: "" };
+    return { clientId: selectedClientId, createdClientId: null as string | null, duplicateMessage: "" };
   }
 
   if (!otherCustomer.companyName) {
-    return { clientId: null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
+    return { clientId: null, createdClientId: null as string | null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
   }
 
   const wantedCompany = normaliseCompanyName(otherCustomer.companyName);
@@ -165,7 +166,7 @@ async function resolveClientId(
     .order("company_name", { ascending: true });
 
   if (existingClientsError) {
-    return { clientId: null, duplicateMessage: existingClientsError.message };
+    return { clientId: null, createdClientId: null as string | null, duplicateMessage: existingClientsError.message };
   }
 
   const rows = (existingClients ?? []).map((client: any) => ({
@@ -195,7 +196,7 @@ async function resolveClientId(
     );
 
   if (strongMatch?.id) {
-    return { clientId: strongMatch.id, duplicateMessage: "" };
+    return { clientId: strongMatch.id, createdClientId: null as string | null, duplicateMessage: "" };
   }
 
   const possibleMatches = rows.filter((client: any) => {
@@ -213,6 +214,7 @@ async function resolveClientId(
 
     return {
       clientId: null,
+      createdClientId: null as string | null,
       duplicateMessage: `Possible duplicate customer found: ${labels}. Please select the existing customer from the dropdown instead of using Other.`,
     };
   }
@@ -235,17 +237,21 @@ async function resolveClientId(
   if (insertClientError || !insertedClient?.id) {
     return {
       clientId: null,
+      createdClientId: null as string | null,
       duplicateMessage: insertClientError?.message || "Could not create customer.",
     };
   }
 
-  return { clientId: insertedClient.id, duplicateMessage: "" };
+  return { clientId: insertedClient.id, createdClientId: insertedClient.id, duplicateMessage: "" };
 }
 
 async function createTransportJob(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const transportNumber =
     clean(formData.get("transport_number")) || generateTransportNumber();
@@ -292,6 +298,7 @@ async function createTransportJob(formData: FormData) {
   }
 
   const clientId = clientResolution.clientId;
+  const createdClientId = clientResolution.createdClientId;
 
   const collectionAddress = clean(formData.get("collection_address")) || null;
   const deliveryAddress = clean(formData.get("delivery_address")) || null;
@@ -414,12 +421,15 @@ async function createTransportJob(formData: FormData) {
     .single();
 
   if (error || !data?.id) {
+    if (createdClientId) {
+      await supabase.from("clients").delete().eq("id", createdClientId);
+    }
     redirect(`/transport-jobs/new?error=${encodeURIComponent(error?.message ?? "Could not create transport job.")}`);
   }
 
   await writeAuditLog({
-    actor_user_id: null,
-    actor_username: fromAuthEmail(null),
+    actor_user_id: user?.id ?? null,
+    actor_username: fromAuthEmail(user?.email ?? null) || null,
     action: "transport_job_created",
     entity_type: "transport_job",
     entity_id: data.id,
@@ -740,7 +750,7 @@ export default async function NewTransportJobPage({
             </section>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>Save transport job</button>
+              <ServerSubmitButton style={primaryBtn} pendingText="Saving transport job…">Save transport job</ServerSubmitButton>
               <a href="/transport-jobs" style={secondaryBtn}>Cancel</a>
             </div>
           </form>
