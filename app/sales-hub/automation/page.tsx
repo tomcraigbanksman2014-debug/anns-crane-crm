@@ -4,6 +4,7 @@ import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -681,9 +682,9 @@ export default async function AutomationCentrePage({
             </div>
 
             <div style={{ display: "flex", alignItems: "end", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>
+              <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                 Apply
-              </button>
+              </ServerSubmitButton>
               <a href="/sales-hub/automation" style={secondaryBtn}>
                 Clear
               </a>
@@ -707,9 +708,9 @@ export default async function AutomationCentrePage({
             <form action={createSelectedSuggestedTasks}>
               {canManage ? (
                 <div style={bulkBar}>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Create selected workflow tasks
-                  </button>
+                  </ServerSubmitButton>
                   <div style={helperText}>
                     Duplicate open tasks are skipped automatically.
                   </div>
@@ -790,9 +791,9 @@ export default async function AutomationCentrePage({
                               name="assigned_to_username"
                               value={String(item.assigned_to_username ?? "")}
                             />
-                            <button type="submit" style={miniDarkBtn}>
+                            <ServerSubmitButton style={miniDarkBtn} pendingText="Working…">
                               Create single task
-                            </button>
+                            </ServerSubmitButton>
                           </form>
                         ) : null}
 
@@ -813,9 +814,9 @@ export default async function AutomationCentrePage({
 
               {canManage ? (
                 <div style={bulkBarBottom}>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                     Create selected workflow tasks
-                  </button>
+                  </ServerSubmitButton>
                 </div>
               ) : null}
             </form>
