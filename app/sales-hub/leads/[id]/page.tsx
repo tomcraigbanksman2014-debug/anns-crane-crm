@@ -5,6 +5,7 @@ import { writeAuditLog } from "../../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../../lib/access";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 function fmtDate(value: string | null | undefined) {
   if (!value) return "-";
   const d = new Date(value);
@@ -449,9 +450,9 @@ export default async function SalesLeadDetailPage({
                           name="assigned_to_username"
                           value={String((lead as any).assigned_to_username ?? "")}
                         />
-                        <button type="submit" style={primaryBtn}>
+                        <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                           Create suggested task
-                        </button>
+                        </ServerSubmitButton>
                       </form>
                     </div>
                   ))}
@@ -467,7 +468,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="task_type" value="call" />
                   <input type="hidden" name="priority" value="high" />
                   <input type="hidden" name="due_on" value={today} />
-                  <button type="submit" style={primaryBtn}>Create call task</button>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Working…">Create call task</ServerSubmitButton>
                 </form>
 
                 <form action={createLeadTask} style={quickTaskForm}>
@@ -475,7 +476,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="task_type" value="follow_up" />
                   <input type="hidden" name="priority" value="high" />
                   <input type="hidden" name="due_on" value={followUpDate} />
-                  <button type="submit" style={secondaryBtn}>Create follow-up task</button>
+                  <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create follow-up task</ServerSubmitButton>
                 </form>
 
                 <form action={createLeadTask} style={quickTaskForm}>
@@ -483,7 +484,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="task_type" value="email" />
                   <input type="hidden" name="priority" value="medium" />
                   <input type="hidden" name="due_on" value={addDays(new Date(), 1).toISOString().slice(0, 10)} />
-                  <button type="submit" style={secondaryBtn}>Create email task</button>
+                  <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create email task</ServerSubmitButton>
                 </form>
 
                 <form action={createLeadTask} style={quickTaskForm}>
@@ -491,7 +492,7 @@ export default async function SalesLeadDetailPage({
                   <input type="hidden" name="task_type" value="quote_chase" />
                   <input type="hidden" name="priority" value="high" />
                   <input type="hidden" name="due_on" value={addDays(new Date(), 2).toISOString().slice(0, 10)} />
-                  <button type="submit" style={secondaryBtn}>Create quote chase task</button>
+                  <ServerSubmitButton style={secondaryBtn} pendingText="Working…">Create quote chase task</ServerSubmitButton>
                 </form>
               </div>
             </section>
@@ -544,7 +545,7 @@ export default async function SalesLeadDetailPage({
                   style={textareaStyle}
                 />
 
-                <button type="submit" style={primaryBtn}>Create task</button>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">Create task</ServerSubmitButton>
               </form>
             </section>
 
@@ -591,7 +592,7 @@ export default async function SalesLeadDetailPage({
                 </select>
                 <input name="subject" placeholder="Subject (optional)" style={inputStyle} />
                 <textarea name="message" rows={5} placeholder="What happened, what was said, what is next?" style={textareaStyle} />
-                <button type="submit" style={primaryBtn}>Save activity</button>
+                <ServerSubmitButton style={primaryBtn} pendingText="Working…">Save activity</ServerSubmitButton>
               </form>
             </section>
 
