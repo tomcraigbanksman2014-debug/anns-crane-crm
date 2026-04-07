@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
@@ -91,11 +92,11 @@ async function resolveClientId(
   }
 ) {
   if (selectedClientId && selectedClientId !== "other") {
-    return { clientId: selectedClientId, duplicateMessage: "" };
+    return { clientId: selectedClientId, createdClientId: null as string | null, duplicateMessage: "" };
   }
 
   if (!otherCustomer.companyName) {
-    return { clientId: null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
+    return { clientId: null, createdClientId: null as string | null, duplicateMessage: "Please enter the customer name when Customer is set to Other." };
   }
 
   const wantedCompany = normaliseCompanyName(otherCustomer.companyName);
@@ -109,7 +110,7 @@ async function resolveClientId(
     .order("company_name", { ascending: true });
 
   if (existingClientsError) {
-    return { clientId: null, duplicateMessage: existingClientsError.message };
+    return { clientId: null, createdClientId: null as string | null, duplicateMessage: existingClientsError.message };
   }
 
   const rows = (existingClients ?? []).map((client: any) => ({
@@ -139,7 +140,7 @@ async function resolveClientId(
     );
 
   if (strongMatch?.id) {
-    return { clientId: strongMatch.id, duplicateMessage: "" };
+    return { clientId: strongMatch.id, createdClientId: null as string | null, duplicateMessage: "" };
   }
 
   const possibleMatches = rows.filter((client: any) => {
@@ -157,6 +158,7 @@ async function resolveClientId(
 
     return {
       clientId: null,
+      createdClientId: null as string | null,
       duplicateMessage: `Possible duplicate customer found: ${labels}. Please select the existing customer from the dropdown instead of using Other.`,
     };
   }
@@ -179,11 +181,12 @@ async function resolveClientId(
   if (insertClientError || !insertedClient?.id) {
     return {
       clientId: null,
+      createdClientId: null as string | null,
       duplicateMessage: insertClientError?.message || "Could not create customer.",
     };
   }
 
-  return { clientId: insertedClient.id, duplicateMessage: "" };
+  return { clientId: insertedClient.id, createdClientId: insertedClient.id, duplicateMessage: "" };
 }
 
 async function createJob(formData: FormData) {
@@ -234,6 +237,7 @@ async function createJob(formData: FormData) {
   }
 
   const clientId = clientResolution.clientId;
+  const createdClientId = clientResolution.createdClientId;
 
   if (!clientId || !startDate || !endDate) {
     redirect(
@@ -304,6 +308,9 @@ async function createJob(formData: FormData) {
     .single();
 
   if (error || !data?.id) {
+    if (createdClientId) {
+      await supabase.from("clients").delete().eq("id", createdClientId);
+    }
     redirect(
       `/jobs/new?error=${encodeURIComponent(
         error?.message || "Failed to create job."
@@ -343,6 +350,9 @@ async function createJob(formData: FormData) {
 
     if (allocationError) {
       await supabase.from("jobs").delete().eq("id", data.id);
+      if (createdClientId) {
+        await supabase.from("clients").delete().eq("id", createdClientId);
+      }
       redirect(`/jobs/new?error=${encodeURIComponent(allocationError.message)}`);
     }
   }
@@ -741,7 +751,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="submit" style={primaryBtn}>Save job</button>
+              <ServerSubmitButton style={primaryBtn} pendingText="Saving job…">Save job</ServerSubmitButton>
               <a href="/jobs" style={secondaryBtn}>Cancel</a>
             </div>
           </form>
