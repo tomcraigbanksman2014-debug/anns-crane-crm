@@ -1,4 +1,5 @@
 import ClientShell from "../../../ClientShell";
+import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import CraneDocumentsManager from "../CraneDocumentsManager";
@@ -184,9 +185,9 @@ export default async function EditCranePage({
                 />
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                  <button type="submit" style={primaryBtn}>
+                  <ServerSubmitButton style={primaryBtn} pendingText="Updating crane…">
                     Save crane
-                  </button>
+                  </ServerSubmitButton>
                   <a href={`/cranes/${params.id}`} style={secondaryBtn}>
                     Cancel
                   </a>
@@ -195,9 +196,9 @@ export default async function EditCranePage({
 
               <form action={archiveCrane} style={{ marginTop: 14 }}>
                 <input type="hidden" name="id" value={crane.id} />
-                <button type="submit" style={dangerBtn}>
+                <ServerSubmitButton style={dangerBtn} pendingText="Working…">
                   Archive crane
-                </button>
+                </ServerSubmitButton>
               </form>
             </div>
 
