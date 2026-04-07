@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { generateSalesDraftWithFallback } from "../../../../lib/ai/sales";
+import { getCustomerActivityRollups } from "../../../../lib/customerActivity";
 
 type Channel = "email" | "text" | "linkedin";
 type Goal = "introduction" | "follow_up" | "reactivation" | "availability";
@@ -221,17 +222,9 @@ export async function POST(
       .map((row: any) => String(row.client_id ?? "").trim())
       .filter(Boolean);
 
-    const { data: customerRollups } = customerIds.length
-      ? await supabase
-          .from("customer_activity_rollup")
-          .select("client_id, last_activity_date, crm_job_count, crm_transport_job_count, crm_quote_count, crm_correspondence_count, imported_history_count")
-          .in("client_id", customerIds)
-      : { data: [] as any[] };
-
-    const rollupByCustomerId = new Map<string, any>();
-    for (const row of customerRollups ?? []) {
-      rollupByCustomerId.set(String((row as any).client_id ?? ""), row);
-    }
+    const rollupByCustomerId = customerIds.length
+      ? await getCustomerActivityRollups(supabase, customerIds)
+      : new Map<string, any>();
 
     for (const row of customerLinks ?? []) {
       const customer = safeArray((row as any).clients)[0] ?? null;
