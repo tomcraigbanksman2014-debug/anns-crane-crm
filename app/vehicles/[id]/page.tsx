@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 
@@ -138,9 +139,9 @@ export default async function VehicleDetailPage({
                   <FullWidthField label="Notes" name="notes" defaultValue={vehicle.notes ?? ""} />
 
                   <div>
-                    <button type="submit" style={primaryBtn}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Updating vehicle…">
                       Update vehicle
-                    </button>
+                    </ServerSubmitButton>
                   </div>
                 </form>
               </section>
