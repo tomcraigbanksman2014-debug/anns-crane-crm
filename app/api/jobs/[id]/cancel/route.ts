@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 function resolveCancelStatus(cancelMode: string | null) {
@@ -20,7 +21,8 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createSupabaseServerClient();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
 
     const formData = await req.formData().catch(() => null);
     const cancelMode = formData ? String(formData.get("cancel_mode") ?? "") : "";
