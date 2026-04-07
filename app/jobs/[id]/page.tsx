@@ -6,6 +6,7 @@ import DocumentDeleteButton from "./DocumentDeleteButton";
 import DuplicateJobButton from "./DuplicateJobButton";
 import { redirect } from "next/navigation";
 
+import ServerSubmitButton from "../../components/ServerSubmitButton";
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -429,16 +430,16 @@ export default async function JobDetailPage({
               <>
                 <form action={`/api/jobs/${params.id}/cancel`} method="POST">
                   <input type="hidden" name="cancel_mode" value="provisional" />
-                  <button type="submit" style={secondaryBtn}>
+                  <ServerSubmitButton style={secondaryBtn} pendingText="Working…">
                     Mark provisional
-                  </button>
+                  </ServerSubmitButton>
                 </form>
 
                 <form action={`/api/jobs/${params.id}/cancel`} method="POST">
                   <input type="hidden" name="cancel_mode" value="late_cancelled" />
-                  <button type="submit" style={cancelBtn}>
+                  <ServerSubmitButton style={cancelBtn} pendingText="Working…">
                     Late cancel
-                  </button>
+                  </ServerSubmitButton>
                 </form>
               </>
             ) : null}
@@ -692,9 +693,9 @@ export default async function JobDetailPage({
                   </div>
 
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <button type="submit" style={primaryBtn}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Working…">
                       Create purchase order
-                    </button>
+                    </ServerSubmitButton>
                   </div>
                 </form>
 
