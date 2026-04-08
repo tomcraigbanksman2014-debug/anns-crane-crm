@@ -7,11 +7,12 @@ type DraftRow = {
   target_id: string;
   company_name: string;
   contact_name: string;
-  target_email?: string;
   channel: string;
   subject: string;
   body: string;
   provider?: "openai" | "fallback";
+  target_email?: string | null;
+  target_phone?: string | null;
 };
 
 type SkippedRow = {
@@ -20,15 +21,6 @@ type SkippedRow = {
   company_name: string;
   reason: string;
 };
-
-
-function buildOutlookComposeUrl(draft: DraftRow) {
-  const params = new URLSearchParams();
-  if (draft.target_email) params.set("to", draft.target_email);
-  if (draft.subject) params.set("subject", draft.subject);
-  if (draft.body) params.set("body", draft.body);
-  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
-}
 
 export default function CampaignRunner({
   campaignId,
@@ -45,6 +37,32 @@ export default function CampaignRunner({
   const [channel, setChannel] = useState<string>("email");
   const [goal, setGoal] = useState<string>("introduction");
   const [tone, setTone] = useState<string>("professional");
+
+  function buildOutlookHref(draft: DraftRow) {
+    const to = String(draft.target_email ?? "").trim();
+    if (!to) return "";
+    const url = new URL("https://outlook.office.com/mail/deeplink/compose");
+    url.searchParams.set("to", to);
+    if (draft.subject) url.searchParams.set("subject", draft.subject);
+    if (draft.body) url.searchParams.set("body", draft.body);
+    return url.toString();
+  }
+
+  function openAllInOutlook() {
+    const emailDrafts = drafts.filter((draft) => String(draft.target_email ?? "").trim());
+    if (!emailDrafts.length) {
+      setError("No email-ready drafts available.");
+      return;
+    }
+
+    emailDrafts.forEach((draft, index) => {
+      const href = buildOutlookHref(draft);
+      if (!href) return;
+      window.setTimeout(() => {
+        window.open(href, "_blank", "noopener,noreferrer");
+      }, index * 120);
+    });
+  }
 
   async function generateDrafts() {
     setLoading(true);
@@ -90,7 +108,6 @@ export default function CampaignRunner({
         `Type: ${draft.target_type}`,
         `Company: ${draft.company_name}`,
         draft.contact_name ? `Contact: ${draft.contact_name}` : "",
-        draft.target_email ? `Email: ${draft.target_email}` : "",
         draft.subject ? `Subject: ${draft.subject}` : "",
         "Body:",
         draft.body,
@@ -99,27 +116,6 @@ export default function CampaignRunner({
     });
 
     await copyText(blocks.join("\n\n--------------------\n\n"), "All drafts");
-  }
-
-  function openDraftInOutlook(draft: DraftRow) {
-    if (!draft.target_email) {
-      setError(`No email saved for ${draft.company_name}.`);
-      return;
-    }
-
-    window.open(buildOutlookComposeUrl(draft), "_blank", "noopener,noreferrer");
-  }
-
-  function openAllEmailDraftsInOutlook() {
-    const emailDrafts = drafts.filter((draft) => draft.channel === "email" && draft.target_email);
-    if (!emailDrafts.length) {
-      setError("No email drafts with saved email addresses are ready to open.");
-      return;
-    }
-
-    emailDrafts.forEach((draft) => {
-      window.open(buildOutlookComposeUrl(draft), "_blank", "noopener,noreferrer");
-    });
   }
 
   const leadDrafts = drafts.filter((row) => row.target_type === "lead").length;
@@ -152,16 +148,15 @@ export default function CampaignRunner({
         </button>
 
         {drafts.length > 0 ? (
-          <>
-            <button type="button" onClick={copyCombined} style={secondaryBtn}>
-              Copy all drafts
-            </button>
-            {channel === "email" ? (
-              <button type="button" onClick={openAllEmailDraftsInOutlook} style={secondaryBtn}>
-                Open all in Outlook
-              </button>
-            ) : null}
-          </>
+          <button type="button" onClick={copyCombined} style={secondaryBtn}>
+            Copy all drafts
+          </button>
+        ) : null}
+
+        {channel === "email" && drafts.some((draft) => String(draft.target_email ?? "").trim()) ? (
+          <button type="button" onClick={openAllInOutlook} style={secondaryBtn}>
+            Open all in Outlook
+          </button>
         ) : null}
       </div>
 
@@ -197,7 +192,7 @@ export default function CampaignRunner({
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 900 }}>{draft.company_name}</div>
                     <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                      {draft.target_type.toUpperCase()} • {draft.contact_name || "No contact name"} • {draft.channel}
+                      {draft.target_type.toUpperCase()} • {draft.contact_name || "No contact name"} • {draft.target_email || draft.target_phone || "No destination"} • {draft.channel}
                       {draft.provider ? ` • ${draft.provider}` : ""}
                     </div>
                   </div>
@@ -206,10 +201,10 @@ export default function CampaignRunner({
                     <a href={openHref} style={linkBtn}>
                       Open {draft.target_type}
                     </a>
-                    {draft.channel === "email" && draft.target_email ? (
-                      <button type="button" onClick={() => openDraftInOutlook(draft)} style={secondaryBtn}>
+                    {channel === "email" && draft.target_email ? (
+                      <a href={buildOutlookHref(draft)} target="_blank" rel="noreferrer" style={linkBtn}>
                         Open in Outlook
-                      </button>
+                      </a>
                     ) : null}
                   </div>
                 </div>
