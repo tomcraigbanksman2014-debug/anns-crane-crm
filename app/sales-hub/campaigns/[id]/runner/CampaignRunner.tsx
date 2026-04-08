@@ -7,6 +7,7 @@ type DraftRow = {
   target_id: string;
   company_name: string;
   contact_name: string;
+  target_email?: string;
   channel: string;
   subject: string;
   body: string;
@@ -20,6 +21,15 @@ type SkippedRow = {
   reason: string;
 };
 
+
+function buildOutlookComposeUrl(draft: DraftRow) {
+  const params = new URLSearchParams();
+  if (draft.target_email) params.set("to", draft.target_email);
+  if (draft.subject) params.set("subject", draft.subject);
+  if (draft.body) params.set("body", draft.body);
+  return `https://outlook.office.com/mail/deeplink/compose?${params.toString()}`;
+}
+
 export default function CampaignRunner({
   campaignId,
   campaignName,
@@ -29,7 +39,6 @@ export default function CampaignRunner({
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [skipped, setSkipped] = useState<SkippedRow[]>([]);
@@ -40,7 +49,6 @@ export default function CampaignRunner({
   async function generateDrafts() {
     setLoading(true);
     setError(null);
-    setNotice(null);
 
     try {
       const res = await fetch(`/api/sales-campaigns/${campaignId}/generate-drafts`, {
@@ -54,25 +62,13 @@ export default function CampaignRunner({
         return;
       }
 
-      const nextDrafts = Array.isArray(data?.drafts) ? data.drafts : [];
-      const nextSkipped = Array.isArray(data?.skipped) ? data.skipped : [];
-
-      setDrafts(nextDrafts);
-      setSkipped(nextSkipped);
+      setDrafts(Array.isArray(data?.drafts) ? data.drafts : []);
+      setSkipped(Array.isArray(data?.skipped) ? data.skipped : []);
       setChannel(String(data?.campaign?.channel ?? "email"));
       setGoal(String(data?.campaign?.goal ?? "introduction"));
       setTone(String(data?.campaign?.tone ?? "professional"));
-
-      if (nextDrafts.length > 0) {
-        setNotice(`Generated ${nextDrafts.length} draft${nextDrafts.length === 1 ? "" : "s"}.`);
-      } else if (nextSkipped.length > 0) {
-        setNotice(`No drafts were generated. ${nextSkipped.length} target${nextSkipped.length === 1 ? " was" : "s were"} skipped.`);
-      } else {
-        setNotice("No draftable leads or customers were found in this campaign.");
-      }
     } catch {
       setError("Could not generate drafts.");
-      setNotice(null);
     } finally {
       setLoading(false);
     }
@@ -81,11 +77,10 @@ export default function CampaignRunner({
   async function copyText(value: string, label: string) {
     try {
       await navigator.clipboard.writeText(value);
-      setNotice(`${label} copied.`);
-      setTimeout(() => setNotice(null), 1500);
+      setError(`${label} copied.`);
+      setTimeout(() => setError(null), 1500);
     } catch {
       setError(`Could not copy ${label.toLowerCase()}.`);
-      setNotice(null);
     }
   }
 
@@ -95,6 +90,7 @@ export default function CampaignRunner({
         `Type: ${draft.target_type}`,
         `Company: ${draft.company_name}`,
         draft.contact_name ? `Contact: ${draft.contact_name}` : "",
+        draft.target_email ? `Email: ${draft.target_email}` : "",
         draft.subject ? `Subject: ${draft.subject}` : "",
         "Body:",
         draft.body,
@@ -103,6 +99,27 @@ export default function CampaignRunner({
     });
 
     await copyText(blocks.join("\n\n--------------------\n\n"), "All drafts");
+  }
+
+  function openDraftInOutlook(draft: DraftRow) {
+    if (!draft.target_email) {
+      setError(`No email saved for ${draft.company_name}.`);
+      return;
+    }
+
+    window.open(buildOutlookComposeUrl(draft), "_blank", "noopener,noreferrer");
+  }
+
+  function openAllEmailDraftsInOutlook() {
+    const emailDrafts = drafts.filter((draft) => draft.channel === "email" && draft.target_email);
+    if (!emailDrafts.length) {
+      setError("No email drafts with saved email addresses are ready to open.");
+      return;
+    }
+
+    emailDrafts.forEach((draft) => {
+      window.open(buildOutlookComposeUrl(draft), "_blank", "noopener,noreferrer");
+    });
   }
 
   const leadDrafts = drafts.filter((row) => row.target_type === "lead").length;
@@ -115,8 +132,9 @@ export default function CampaignRunner({
         Generate one set of drafts across all leads and customers linked to <strong>{campaignName}</strong>.
       </p>
 
-      {error ? <div style={errorBox}>{error}</div> : null}
-      {notice ? <div style={successBox}>{notice}</div> : null}
+      {error ? (
+        <div style={error.includes("copied") ? successBox : errorBox}>{error}</div>
+      ) : null}
 
       <div style={summaryGrid}>
         <SummaryCard label="Channel" value={channel} />
@@ -134,9 +152,16 @@ export default function CampaignRunner({
         </button>
 
         {drafts.length > 0 ? (
-          <button type="button" onClick={copyCombined} style={secondaryBtn}>
-            Copy all drafts
-          </button>
+          <>
+            <button type="button" onClick={copyCombined} style={secondaryBtn}>
+              Copy all drafts
+            </button>
+            {channel === "email" ? (
+              <button type="button" onClick={openAllEmailDraftsInOutlook} style={secondaryBtn}>
+                Open all in Outlook
+              </button>
+            ) : null}
+          </>
         ) : null}
       </div>
 
@@ -181,6 +206,11 @@ export default function CampaignRunner({
                     <a href={openHref} style={linkBtn}>
                       Open {draft.target_type}
                     </a>
+                    {draft.channel === "email" && draft.target_email ? (
+                      <button type="button" onClick={() => openDraftInOutlook(draft)} style={secondaryBtn}>
+                        Open in Outlook
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
