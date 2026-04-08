@@ -420,7 +420,7 @@ export default async function SalesCampaignsPage({
       redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead%20or%20customer.");
     }
 
-    const { data: insertedCampaignRows, error: campaignError } = await supabase
+    const { data: campaignRows, error: campaignError } = await supabase
       .from("sales_campaigns")
       .insert({
         name,
@@ -437,19 +437,19 @@ export default async function SalesCampaignsPage({
       })
       .select("id");
 
-    const campaign = Array.isArray(insertedCampaignRows) ? insertedCampaignRows[0] : null;
+    const campaignId = Array.isArray(campaignRows) ? String(campaignRows[0]?.id ?? "").trim() : "";
 
-    if (campaignError || !campaign?.id) {
+    if (campaignError || !campaignId) {
       redirect(`/sales-hub/campaigns?error=${encodeURIComponent(campaignError?.message || "Could not create campaign.")}`);
     }
 
     if (leadIds.length) {
       const { error: linkError } = await supabase
         .from("sales_campaign_leads")
-        .insert(leadIds.map((leadId) => ({ campaign_id: campaign.id, lead_id: leadId })));
+        .insert(leadIds.map((leadId) => ({ campaign_id: campaignId, lead_id: leadId })));
 
       if (linkError) {
-        await supabase.from("sales_campaigns").delete().eq("id", campaign.id);
+        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
         redirect(`/sales-hub/campaigns?error=${encodeURIComponent(linkError.message)}`);
       }
 
@@ -468,11 +468,11 @@ export default async function SalesCampaignsPage({
     if (customerIds.length) {
       const { error: customerLinkError } = await supabase
         .from("sales_campaign_customers")
-        .insert(customerIds.map((clientId) => ({ campaign_id: campaign.id, client_id: clientId })));
+        .insert(customerIds.map((clientId) => ({ campaign_id: campaignId, client_id: clientId })));
 
       if (customerLinkError) {
-        await supabase.from("sales_campaign_leads").delete().eq("campaign_id", campaign.id);
-        await supabase.from("sales_campaigns").delete().eq("id", campaign.id);
+        await supabase.from("sales_campaign_leads").delete().eq("campaign_id", campaignId);
+        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
         redirect(`/sales-hub/campaigns?error=${encodeURIComponent(customerLinkError.message)}`);
       }
 
@@ -493,7 +493,7 @@ export default async function SalesCampaignsPage({
       actor_username: fromAuthEmail(user?.email ?? null) || null,
       action: "sales_campaign_created",
       entity_type: "sales_campaign",
-      entity_id: campaign.id,
+      entity_id: campaignId,
       meta: {
         name,
         channel,
@@ -506,7 +506,7 @@ export default async function SalesCampaignsPage({
       },
     });
 
-    redirect(`/sales-hub/campaigns/${campaign.id}/runner?success=${encodeURIComponent("Campaign created.")}`);
+    redirect(`/sales-hub/campaigns/${campaignId}/runner?success=${encodeURIComponent("Campaign created.")}`);
   }
 
   const [
@@ -863,10 +863,10 @@ export default async function SalesCampaignsPage({
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {(campaigns ?? []).map((campaign: any) => {
-                  const leadCount = leadCountByCampaign.get(String(campaign.id)) ?? 0;
-                  const customerCount = customerCountByCampaign.get(String(campaign.id)) ?? 0;
+                  const leadCount = leadCountByCampaign.get(String(campaignId)) ?? 0;
+                  const customerCount = customerCountByCampaign.get(String(campaignId)) ?? 0;
                   return (
-                    <a key={campaign.id} href={`/sales-hub/campaigns/${campaign.id}/runner`} style={recentCard}>
+                    <a key={campaignId} href={`/sales-hub/campaigns/${campaignId}/runner`} style={recentCard}>
                       <div style={{ fontWeight: 900 }}>{campaign.name}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{campaign.channel} • {campaign.goal} • {campaign.status}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{leadCount} linked leads • {customerCount} linked customers</div>
