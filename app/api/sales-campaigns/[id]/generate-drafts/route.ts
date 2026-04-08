@@ -19,6 +19,85 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
+const SHARED_EMAIL_SIGNATURE = [
+  "Kind regards",
+  "Tom Craig",
+  "Ann’s Crane Hire Ltd",
+  "",
+  "📞 01792 641653",
+  "📧 info@annscranehire.co.uk",
+  "https://www.linkedin.com/company/annscranehire/",
+  "📍 6 Bay Street, Port Tennant, Swansea, SA1 8LB",
+].join("\n");
+
+const PROMPT_LEAK_PATTERNS: RegExp[] = [
+  /This is an existing customer called[^.]*\.?/gi,
+  /This is an existing lead called[^.]*\.?/gi,
+  /Relationship history:[^.]*\.?/gi,
+  /Write as an availability push to an existing customer\.?/gi,
+  /Write as a warm reactivation message for a returning customer\.?/gi,
+  /Write as a professional follow-up for an existing customer, not a cold introduction\.?/gi,
+  /Write as an introduction[^.]*\.?/gi,
+  /Write as a follow-up[^.]*\.?/gi,
+  /Write as a follow up[^.]*\.?/gi,
+  /Write the message like[^.]*\.?/gi,
+  /Keep it commercially useful, warm and professional\.?/gi,
+  /Previous relationship summary:[^.]*\.?/gi,
+  /Most recent crane job:[^.]*\.?/gi,
+  /Most recent transport job:[^.]*\.?/gi,
+  /Most recent logged contact:[^.]*\.?/gi,
+  /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g,
+  /\{\s*[a-zA-Z0-9_]+\s*\}/g,
+];
+
+function cleanWhitespace(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function stripPromptLeakage(value: string) {
+  let output = String(value ?? "");
+
+  for (const pattern of PROMPT_LEAK_PATTERNS) {
+    output = output.replace(pattern, "");
+  }
+
+  return cleanWhitespace(output);
+}
+
+function stripTrailingSignoff(value: string) {
+  return String(value ?? "")
+    .replace(/\n*(kind regards|best regards|regards|many thanks|thanks)[\s\S]*$/i, "")
+    .trim();
+}
+
+function appendSharedEmailSignature(value: string) {
+  const body = stripTrailingSignoff(stripPromptLeakage(value));
+  return cleanWhitespace([body, SHARED_EMAIL_SIGNATURE].filter(Boolean).join("\n\n"));
+}
+
+function finaliseCampaignDraftOutput(args: { channel: Channel; subject: string; body: string }) {
+  const subject = cleanWhitespace(
+    stripPromptLeakage(String(args.subject ?? "")).replace(/^[\{\[]+|[\}\]]+$/g, "")
+  );
+
+  if (args.channel === "email") {
+    return {
+      subject,
+      body: appendSharedEmailSignature(args.body),
+    };
+  }
+
+  return {
+    subject,
+    body: cleanWhitespace(stripPromptLeakage(args.body)),
+  };
+}
+
 function safeArray<T>(value: T | T[] | null | undefined): T[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -92,17 +171,25 @@ function interpolate(
     custom_cta: string | null;
   }
 ) {
-  const raw = String(input ?? "");
-  if (!raw) return "";
+  let output = String(input ?? "");
+  if (!output) return "";
 
-  return raw
-    .replace(/\{company_name\}/gi, companyName(lead))
-    .replace(/\{contact_name\}/gi, clean(lead.contact_name) || companyName(lead))
-    .replace(/\{area\}/gi, clean(lead.area) || "")
-    .replace(/\{industry\}/gi, clean(lead.industry) || "")
-    .replace(/\{service_focus\}/gi, values.service_focus || "")
-    .replace(/\{availability_note\}/gi, values.availability_note || "")
-    .replace(/\{custom_cta\}/gi, values.custom_cta || "");
+  const replacements: Record<string, string> = {
+    company_name: companyName(lead),
+    contact_name: clean(lead.contact_name) || companyName(lead),
+    area: clean(lead.area) || "",
+    industry: clean(lead.industry) || "",
+    service_focus: values.service_focus || "",
+    availability_note: values.availability_note || "",
+    custom_cta: values.custom_cta || "",
+  };
+
+  for (const [key, value] of Object.entries(replacements)) {
+    output = output.replace(new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, "gi"), value);
+    output = output.replace(new RegExp(`\\{\\s*${key}\\s*\\}`, "gi"), value);
+  }
+
+  return cleanWhitespace(output);
 }
 
 function servicePitch(serviceFocus: string | null) {
@@ -320,8 +407,6 @@ function buildQuickCampaignDraft(args: {
     custom_cta: customCta,
   };
 
-  const hintText = interpolate(bodyHint, lead, hintValues);
-
   const lines = [
     `Hi ${contactName(lead)},`,
     "",
@@ -336,11 +421,11 @@ function buildQuickCampaignDraft(args: {
     lines.push("", `Current availability: ${availabilityNote}`);
   }
 
-  if (hintText) {
-    lines.push("", hintText);
-  }
+  lines.push("", ctaLine(goal, channel, customCta));
 
-  lines.push("", ctaLine(goal, channel, customCta), "", closeLine(channel, tone));
+  if (channel !== "email") {
+    lines.push("", closeLine(channel, tone));
+  }
 
   return {
     subject:
@@ -541,14 +626,20 @@ export async function POST(
         ? { draft: buildQuickCampaignDraft(leadArgs), provider: "fallback" as const }
         : await generateSalesDraftWithFallback(leadArgs);
 
+      const finalDraft = finaliseCampaignDraftOutput({
+        channel,
+        subject: draft.subject,
+        body: draft.body,
+      });
+
       drafts.push({
         target_type: "lead",
         target_id: String(lead.id),
         company_name: String(lead.company_name ?? "Unknown lead"),
         contact_name: String(lead.contact_name ?? ""),
         channel,
-        subject: draft.subject,
-        body: draft.body,
+        subject: finalDraft.subject,
+        body: finalDraft.body,
         provider,
         target_email: String(lead.email ?? "").trim() || null,
         target_phone: String(lead.phone ?? "").trim() || null,
@@ -650,14 +741,20 @@ export async function POST(
         ? { draft: buildQuickCampaignDraft(customerArgs), provider: "fallback" as const }
         : await generateSalesDraftWithFallback(customerArgs);
 
+      const finalDraft = finaliseCampaignDraftOutput({
+        channel,
+        subject: draft.subject,
+        body: draft.body,
+      });
+
       drafts.push({
         target_type: "customer",
         target_id: String(customer.id),
         company_name: String(customer.company_name ?? "Unknown customer"),
         contact_name: String(customer.contact_name ?? ""),
         channel,
-        subject: draft.subject,
-        body: draft.body,
+        subject: finalDraft.subject,
+        body: finalDraft.body,
         provider,
         target_email: String(customer.email ?? "").trim() || null,
         target_phone: String(customer.phone ?? "").trim() || null,
