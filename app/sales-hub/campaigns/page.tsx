@@ -863,10 +863,11 @@ export default async function SalesCampaignsPage({
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {(campaigns ?? []).map((campaign: any) => {
-                  const leadCount = leadCountByCampaign.get(String(campaignId)) ?? 0;
-                  const customerCount = customerCountByCampaign.get(String(campaignId)) ?? 0;
+                  const currentCampaignId = String(campaign?.id ?? "");
+                  const leadCount = leadCountByCampaign.get(currentCampaignId) ?? 0;
+                  const customerCount = customerCountByCampaign.get(currentCampaignId) ?? 0;
                   return (
-                    <a key={campaignId} href={`/sales-hub/campaigns/${campaignId}/runner`} style={recentCard}>
+                    <a key={currentCampaignId} href={`/sales-hub/campaigns/${currentCampaignId}/runner`} style={recentCard}>
                       <div style={{ fontWeight: 900 }}>{campaign.name}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{campaign.channel} • {campaign.goal} • {campaign.status}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{leadCount} linked leads • {customerCount} linked customers</div>
