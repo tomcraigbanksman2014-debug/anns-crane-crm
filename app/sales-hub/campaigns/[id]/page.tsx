@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { canCreateCustomers, getAccessContext } from "../../../lib/access";
+import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import CampaignRunner from "./runner/CampaignRunner";
 
 type CampaignRecord = {
@@ -22,39 +23,45 @@ type CampaignRecord = {
 type LinkedLead = {
   id: string;
   lead_id: string;
-  sales_leads?: {
-    id: string;
-    company_name: string | null;
-    contact_name: string | null;
-    status: string | null;
-    email: string | null;
-    phone: string | null;
-  } | Array<{
-    id: string;
-    company_name: string | null;
-    contact_name: string | null;
-    status: string | null;
-    email: string | null;
-    phone: string | null;
-  }> | null;
+  sales_leads?:
+    | {
+        id: string;
+        company_name: string | null;
+        contact_name: string | null;
+        status: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | Array<{
+        id: string;
+        company_name: string | null;
+        contact_name: string | null;
+        status: string | null;
+        email: string | null;
+        phone: string | null;
+      }>
+    | null;
 };
 
 type LinkedCustomer = {
   id: string;
   client_id: string;
-  clients?: {
-    id: string;
-    company_name: string | null;
-    contact_name: string | null;
-    email: string | null;
-    phone: string | null;
-  } | Array<{
-    id: string;
-    company_name: string | null;
-    contact_name: string | null;
-    email: string | null;
-    phone: string | null;
-  }> | null;
+  clients?:
+    | {
+        id: string;
+        company_name: string | null;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }
+    | Array<{
+        id: string;
+        company_name: string | null;
+        contact_name: string | null;
+        email: string | null;
+        phone: string | null;
+      }>
+    | null;
 };
 
 function first<T>(value: T | T[] | null | undefined): T | null {
@@ -78,7 +85,9 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div style={statCard}>
       <div style={{ fontSize: 12, opacity: 0.68, fontWeight: 800 }}>{label}</div>
-      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 900, wordBreak: "break-word" }}>{value}</div>
+      <div style={{ marginTop: 8, fontSize: 20, fontWeight: 900, wordBreak: "break-word" }}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -90,15 +99,39 @@ export default async function CampaignDetailPage({
   params: { id: string };
   searchParams?: { success?: string; error?: string };
 }) {
-  const supabase = createSupabaseServerClient();
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    return (
+      <ClientShell>
+        <div style={pageWrap}>
+          <div style={errorCard}>Not authenticated.</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  if (!canCreateCustomers(access)) {
+    return (
+      <ClientShell>
+        <div style={pageWrap}>
+          <div style={errorCard}>You do not have permission to access campaign details.</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  const admin = createSupabaseAdminClient();
 
   const [campaignRes, leadsRes, customersRes] = await Promise.all([
-    supabase
+    admin
       .from("sales_campaigns")
-      .select("id, name, description, status, channel, goal, tone, service_focus, availability_note, scheduled_for, created_at, updated_at, created_by_username")
+      .select(
+        "id, name, description, status, channel, goal, tone, service_focus, availability_note, scheduled_for, created_at, updated_at, created_by_username"
+      )
       .eq("id", params.id)
-      .single(),
-    supabase
+      .maybeSingle(),
+    admin
       .from("sales_campaign_leads")
       .select(`
         id,
@@ -114,7 +147,7 @@ export default async function CampaignDetailPage({
       `)
       .eq("campaign_id", params.id)
       .order("created_at", { ascending: true }),
-    supabase
+    admin
       .from("sales_campaign_customers")
       .select(`
         id,
@@ -131,11 +164,21 @@ export default async function CampaignDetailPage({
       .order("created_at", { ascending: true }),
   ]);
 
-  if (campaignRes.error || !campaignRes.data) {
+  if (campaignRes.error) {
     return (
       <ClientShell>
         <div style={pageWrap}>
-          <div style={errorCard}>{campaignRes.error?.message || "Campaign not found."}</div>
+          <div style={errorCard}>{campaignRes.error.message}</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  if (!campaignRes.data) {
+    return (
+      <ClientShell>
+        <div style={pageWrap}>
+          <div style={errorCard}>Campaign not found.</div>
         </div>
       </ClientShell>
     );
@@ -157,13 +200,21 @@ export default async function CampaignDetailPage({
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/sales-hub/campaigns" style={secondaryBtn}>← Campaigns</a>
-            <a href={`/sales-hub/campaigns/${campaign.id}/runner`} style={secondaryBtn}>Open runner page</a>
+            <a href="/sales-hub/campaigns" style={secondaryBtn}>
+              ← Campaigns
+            </a>
+            <a href={`/sales-hub/campaigns/${campaign.id}/runner`} style={secondaryBtn}>
+              Open runner page
+            </a>
           </div>
         </div>
 
-        {searchParams?.success ? <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div> : null}
-        {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
+        {searchParams?.success ? (
+          <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div>
+        ) : null}
+        {searchParams?.error ? (
+          <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div>
+        ) : null}
         {leadsRes.error ? <div style={errorCard}>{leadsRes.error.message}</div> : null}
         {customersRes.error ? <div style={errorCard}>{customersRes.error.message}</div> : null}
 
@@ -206,7 +257,9 @@ export default async function CampaignDetailPage({
                     <a key={row.id} href={lead?.id ? `/sales-hub/leads/${lead.id}` : "#"} style={itemCard}>
                       <div style={{ fontWeight: 900 }}>{nice(lead?.company_name, "Unknown lead")}</div>
                       <div style={subText}>{nice(lead?.contact_name, "No contact name")}</div>
-                      <div style={subText}>{nice(lead?.status, "No status")} • {nice(lead?.email, lead?.phone || "No contact details")}</div>
+                      <div style={subText}>
+                        {nice(lead?.status, "No status")} • {nice(lead?.email, lead?.phone || "No contact details")}
+                      </div>
                     </a>
                   );
                 })}
@@ -240,7 +293,7 @@ export default async function CampaignDetailPage({
 }
 
 const pageWrap: CSSProperties = {
-  width: "min(1200px, 95vw)",
+  width: "min(1200px, 96vw)",
   margin: "0 auto",
 };
 
@@ -269,7 +322,7 @@ const statCard: CSSProperties = {
 
 const panelCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 16,
+  padding: 18,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -286,16 +339,16 @@ const itemCard: CSSProperties = {
   display: "block",
   textDecoration: "none",
   color: "#111",
-  padding: 12,
+  padding: 14,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.62)",
+  background: "rgba(255,255,255,0.64)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const subText: CSSProperties = {
   marginTop: 4,
   fontSize: 13,
-  opacity: 0.78,
+  opacity: 0.75,
 };
 
 const secondaryBtn: CSSProperties = {
@@ -322,5 +375,4 @@ const errorCard: CSSProperties = {
   padding: 12,
   borderRadius: 12,
   border: "1px solid rgba(180,0,0,0.18)",
-  marginBottom: 12,
 };
