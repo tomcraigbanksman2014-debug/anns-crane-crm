@@ -1,11 +1,11 @@
 import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { getCustomerActivityRollups } from "../../lib/customerActivity";
+import { createSalesCampaign } from "../../lib/salesCampaigns";
 import { redirect } from "next/navigation";
 
 type LeadRow = {
@@ -399,8 +399,6 @@ export default async function SalesCampaignsPage({
       data: { user },
     } = await authSupabase.auth.getUser();
 
-    const supabase = createSupabaseAdminClient();
-
     const name = String(formData.get("name") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim() || null;
     const templateId = String(formData.get("template_id") ?? "").trim() || null;
@@ -420,93 +418,44 @@ export default async function SalesCampaignsPage({
       redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead%20or%20customer.");
     }
 
-    const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    const { error: campaignError } = await supabase
-      .from("sales_campaigns")
-      .insert({
-        id: campaignId,
+    try {
+      const result = await createSalesCampaign({
         name,
         description,
-        status: "Draft",
+        template_id: templateId,
         channel,
         goal,
         tone,
-        template_id: templateId,
         service_focus: serviceFocus,
         availability_note: availabilityNote,
         created_by_user_id: user?.id ?? null,
         created_by_username: fromAuthEmail(user?.email ?? null) || null,
+        lead_ids: leadIds,
+        customer_ids: customerIds,
       });
 
-    if (campaignError) {
-      redirect(`/sales-hub/campaigns?error=${encodeURIComponent(campaignError?.message || "Could not create campaign.")}`);
+      await writeAuditLog({
+        actor_user_id: user?.id ?? null,
+        actor_username: fromAuthEmail(user?.email ?? null) || null,
+        action: "sales_campaign_created",
+        entity_type: "sales_campaign",
+        entity_id: result.id,
+        meta: {
+          name,
+          channel,
+          goal,
+          tone,
+          template_id: templateId,
+          selected_lead_count: leadIds.length,
+          selected_customer_count: customerIds.length,
+          service_focus: serviceFocus,
+        },
+      });
+
+      redirect(`/sales-hub/campaigns/${result.id}/runner?success=${encodeURIComponent("Campaign created.")}`);
+    } catch (error: any) {
+      redirect(`/sales-hub/campaigns?error=${encodeURIComponent(error?.message || "Could not create campaign.")}`);
     }
-
-    if (leadIds.length) {
-      const { error: linkError } = await supabase
-        .from("sales_campaign_leads")
-        .insert(leadIds.map((leadId) => ({ campaign_id: campaignId, lead_id: leadId })));
-
-      if (linkError) {
-        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
-        redirect(`/sales-hub/campaigns?error=${encodeURIComponent(linkError.message)}`);
-      }
-
-      await supabase.from("sales_lead_activity").insert(
-        Array.from(new Set(leadIds)).map((leadId) => ({
-          lead_id: leadId,
-          entry_type: "campaign",
-          subject: `Added to campaign: ${name}`,
-          message: `Lead added to campaign "${name}" via Sales Hub Campaign Execution.`,
-          created_by_user_id: user?.id ?? null,
-          created_by_username: fromAuthEmail(user?.email ?? null) || null,
-        }))
-      );
-    }
-
-    if (customerIds.length) {
-      const { error: customerLinkError } = await supabase
-        .from("sales_campaign_customers")
-        .insert(customerIds.map((clientId) => ({ campaign_id: campaignId, client_id: clientId })));
-
-      if (customerLinkError) {
-        await supabase.from("sales_campaign_leads").delete().eq("campaign_id", campaignId);
-        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
-        redirect(`/sales-hub/campaigns?error=${encodeURIComponent(customerLinkError.message)}`);
-      }
-
-      await supabase.from("customer_correspondence").insert(
-        Array.from(new Set(customerIds)).map((clientId) => ({
-          client_id: clientId,
-          entry_type: "campaign",
-          subject: `Added to campaign: ${name}`,
-          message: `Customer added to campaign "${name}" via Sales Hub Campaign Execution.`,
-          created_by_user_id: user?.id ?? null,
-          created_by_username: fromAuthEmail(user?.email ?? null) || null,
-        }))
-      );
-    }
-
-    await writeAuditLog({
-      actor_user_id: user?.id ?? null,
-      actor_username: fromAuthEmail(user?.email ?? null) || null,
-      action: "sales_campaign_created",
-      entity_type: "sales_campaign",
-      entity_id: campaignId,
-      meta: {
-        name,
-        channel,
-        goal,
-        tone,
-        template_id: templateId,
-        selected_lead_count: leadIds.length,
-        selected_customer_count: customerIds.length,
-        service_focus: serviceFocus,
-      },
-    });
-
-    redirect(`/sales-hub/campaigns/${campaignId}/runner?success=${encodeURIComponent("Campaign created.")}`);
   }
 
   const [
@@ -863,11 +812,10 @@ export default async function SalesCampaignsPage({
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {(campaigns ?? []).map((campaign: any) => {
-                  const currentCampaignId = String(campaign?.id ?? "");
-                  const leadCount = leadCountByCampaign.get(currentCampaignId) ?? 0;
-                  const customerCount = customerCountByCampaign.get(currentCampaignId) ?? 0;
+                  const leadCount = leadCountByCampaign.get(String(campaignId)) ?? 0;
+                  const customerCount = customerCountByCampaign.get(String(campaignId)) ?? 0;
                   return (
-                    <a key={currentCampaignId} href={`/sales-hub/campaigns/${currentCampaignId}/runner`} style={recentCard}>
+                    <a key={campaignId} href={`/sales-hub/campaigns/${campaignId}/runner`} style={recentCard}>
                       <div style={{ fontWeight: 900 }}>{campaign.name}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{campaign.channel} • {campaign.goal} • {campaign.status}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{leadCount} linked leads • {customerCount} linked customers</div>
