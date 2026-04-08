@@ -244,9 +244,8 @@ function isNoDragTarget(target: EventTarget | null) {
   return Boolean(target.closest("[data-no-drag='true']"));
 }
 
-function stopNoDragEvent(event: { target: EventTarget | null; preventDefault: () => void; stopPropagation: () => void }) {
+function stopNoDragEvent(event: { target: EventTarget | null; stopPropagation: () => void }) {
   if (isNoDragTarget(event.target)) {
-    event.preventDefault();
     event.stopPropagation();
   }
 }
@@ -263,6 +262,7 @@ export default function PlannerBoard() {
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const messageTimerRef = useRef<number | null>(null);
+  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
@@ -537,12 +537,14 @@ export default function PlannerBoard() {
     }
 
     function noDragDown(e: React.MouseEvent | React.PointerEvent) {
-      e.preventDefault();
       e.stopPropagation();
     }
 
     return (
       <div
+        ref={(node) => {
+          menuRefs.current[item.id] = node;
+        }}
         data-no-drag="true"
         data-planner-menu-root="true"
         style={menuWrap}
