@@ -121,6 +121,25 @@ function itemMatchesDay(item: PlannerItem, dayIso: string) {
   return start <= dayIso && end >= dayIso;
 }
 
+function parseDateOnly(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(`${raw}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function differenceInDays(startIso: string | null | undefined, endIso: string | null | undefined) {
+  const start = parseDateOnly(startIso);
+  const end = parseDateOnly(endIso ?? startIso);
+  if (!start || !end) return 0;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 86400000));
+}
+
+function shiftedEndDate(item: PlannerItem, newStartIso: string) {
+  const spanDays = differenceInDays(item.transport_date, item.delivery_date ?? item.transport_date);
+  return isoDateLocal(addDays(new Date(`${newStartIso}T00:00:00`), spanDays));
+}
+
 function getDisplayPrice(item: PlannerItem) {
   const agreed = Number(item.agreed_sell_rate ?? 0);
   if (agreed > 0) return agreed;
@@ -137,6 +156,8 @@ export default function TransportPlannerBoard() {
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
@@ -311,6 +332,63 @@ export default function TransportPlannerBoard() {
     }
   }
 
+  async function moveTransportItem(item: PlannerItem, target: { vehicleId: string | null; dayIso: string | null }) {
+    setActionId(item.job_id);
+    setOpenMenuId(null);
+    setError("");
+    setMessage("");
+    setDropTargetKey(null);
+
+    try {
+      const payload: Record<string, string> = {
+        transport_job_id: item.job_id,
+        vehicle_id: target.vehicleId ?? "",
+      };
+
+      if (target.dayIso) {
+        payload.transport_date = target.dayIso;
+        payload.delivery_date = shiftedEndDate(item, target.dayIso);
+      }
+
+      const res = await fetch("/api/transport-planner/board/update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not move transport job.");
+      }
+
+      setMessage("Transport planner updated.");
+      await loadBoard(weekStart);
+    } catch (e: any) {
+      setError(e?.message || "Could not move transport job.");
+    } finally {
+      setActionId(null);
+      setDraggingId(null);
+    }
+  }
+
+  function onDragStart(e: React.DragEvent<HTMLDivElement>, item: PlannerItem) {
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('[data-no-open="true"]')) {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.effectAllowed = "move";
+    setDraggingId(item.job_id);
+    setOpenMenuId(null);
+  }
+
+  function onDragEnd() {
+    setDraggingId(null);
+    setDropTargetKey(null);
+  }
+
   function openJob(id: string) {
     window.location.href = `/transport-jobs/${id}`;
   }
@@ -323,7 +401,6 @@ export default function TransportPlannerBoard() {
     const isOpen = openMenuId === item.job_id;
 
     function noBubble(e: React.MouseEvent | React.PointerEvent) {
-      e.preventDefault();
       e.stopPropagation();
     }
 
@@ -352,17 +429,17 @@ export default function TransportPlannerBoard() {
 
         {isOpen ? (
           <div style={menuList} onMouseDown={noBubble} onPointerDown={noBubble}>
-            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); openJob(item.job_id); }}>
+            <button type="button" style={menuItemBtn} onClick={(e) => { e.preventDefault(); noBubble(e); openJob(item.job_id); }}>
               Open transport job
             </button>
-            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); openEdit(item.job_id); }}>
+            <button type="button" style={menuItemBtn} onClick={(e) => { e.preventDefault(); noBubble(e); openEdit(item.job_id); }}>
               Edit transport job
             </button>
-            <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); duplicateTransportJob(item); }}>
+            <button type="button" style={menuItemBtn} onClick={(e) => { e.preventDefault(); noBubble(e); duplicateTransportJob(item); }}>
               Duplicate transport job
             </button>
             {item.vehicle_id ? (
-              <button type="button" style={menuItemBtn} onClick={(e) => { noBubble(e); clearVehicleAssignment(item); }}>
+              <button type="button" style={menuItemBtn} onClick={(e) => { e.preventDefault(); noBubble(e); clearVehicleAssignment(item); }}>
                 Remove vehicle assignment
               </button>
             ) : null}
@@ -374,14 +451,18 @@ export default function TransportPlannerBoard() {
 
   function renderJobCard(item: PlannerItem, compact = false) {
     const busy = actionId === item.job_id;
+    const dragging = draggingId === item.job_id;
     return (
       <div
         key={`${item.job_id}-${item.transport_date}-${item.delivery_date}-${compact ? "compact" : "full"}`}
+        draggable={!busy && openMenuId !== item.job_id}
+        onDragStart={(e) => onDragStart(e, item)}
+        onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : jobCardStyle),
           ...statusTone(item.status),
-          opacity: busy ? 0.65 : 1,
-          cursor: busy ? "wait" : "pointer",
+          opacity: busy ? 0.65 : dragging ? 0.45 : 1,
+          cursor: busy ? "wait" : openMenuId === item.job_id ? "default" : "grab",
         }}
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
@@ -489,14 +570,33 @@ export default function TransportPlannerBoard() {
 
       {!loading && !error ? (
         <>
-          {(data?.unallocated_jobs ?? []).length > 0 ? (
-            <section style={sectionCard}>
-              <div style={sectionTitle}>Unassigned transport jobs</div>
-              <div style={{ display: "grid", gap: 10 }}>
-                {sortItemsByStartTime(data?.unallocated_jobs ?? []).map((item) => renderJobCard(item))}
-              </div>
-            </section>
-          ) : null}
+          <section
+            style={{
+              ...sectionCard,
+              ...(draggingId ? dropReadyBox : null),
+              ...(dropTargetKey === "unassigned" ? activeDropReadyBox : null),
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              setDropTargetKey("unassigned");
+            }}
+            onDragLeave={() => {
+              setDropTargetKey((current) => (current === "unassigned" ? null : current));
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const item = (data?.vehicles ?? []).flatMap((row) => row.items).concat(data?.unallocated_jobs ?? []).find((row) => row.job_id === draggingId);
+              if (item) {
+                moveTransportItem(item, { vehicleId: null, dayIso: item.transport_date ?? null });
+              }
+            }}
+          >
+            <div style={sectionTitle}>Unassigned transport jobs</div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {(data?.unallocated_jobs ?? []).length > 0 ? sortItemsByStartTime(data?.unallocated_jobs ?? []).map((item) => renderJobCard(item)) : <div style={emptyState}>Drop a transport job here to remove its vehicle assignment.</div>}
+            </div>
+          </section>
 
           <div style={{ display: "grid", gap: 16 }}>
             {(data?.vehicles ?? []).map((vehicle) => (
@@ -521,6 +621,23 @@ export default function TransportPlannerBoard() {
                       day={activeDay}
                       items={sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, activeDay.key)))}
                       renderItem={(item) => renderJobCard(item, true)}
+                      draggingId={draggingId}
+                      dropActive={dropTargetKey === `${vehicle.id}:${activeDay.key}`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setDropTargetKey(`${vehicle.id}:${activeDay.key}`);
+                      }}
+                      onDragLeave={() => {
+                        setDropTargetKey((current) => (current === `${vehicle.id}:${activeDay.key}` ? null : current));
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        const item = (data?.vehicles ?? []).flatMap((row) => row.items).concat(data?.unallocated_jobs ?? []).find((row) => row.job_id === draggingId);
+                        if (item) {
+                          moveTransportItem(item, { vehicleId: vehicle.id, dayIso: activeDay.key });
+                        }
+                      }}
                     />
                   </div>
                 ) : (
@@ -566,6 +683,23 @@ export default function TransportPlannerBoard() {
                                   border: "1px solid rgba(255,170,0,0.18)",
                                 }
                               : {}),
+                            ...(draggingId ? dropReadyCell : {}),
+                            ...(dropTargetKey === `${vehicle.id}:${day.key}` ? activeDropReadyCell : {}),
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = "move";
+                            setDropTargetKey(`${vehicle.id}:${day.key}`);
+                          }}
+                          onDragLeave={() => {
+                            setDropTargetKey((current) => (current === `${vehicle.id}:${day.key}` ? null : current));
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const item = (data?.vehicles ?? []).flatMap((row) => row.items).concat(data?.unallocated_jobs ?? []).find((row) => row.job_id === draggingId);
+                            if (item) {
+                              moveTransportItem(item, { vehicleId: vehicle.id, dayIso: day.key });
+                            }
                           }}
                         >
                           {dayItems.length === 0 ? (
@@ -593,10 +727,20 @@ function MobileDayCell({
   day,
   items,
   renderItem,
+  draggingId,
+  dropActive,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: {
   day: PlannerDay;
   items: PlannerItem[];
   renderItem: (item: PlannerItem) => React.ReactNode;
+  draggingId: string | null;
+  dropActive: boolean;
+  onDragOver: (event: React.DragEvent<HTMLDivElement>) => void;
+  onDragLeave: () => void;
+  onDrop: (event: React.DragEvent<HTMLDivElement>) => void;
 }) {
   return (
     <div
@@ -608,7 +752,12 @@ function MobileDayCell({
               border: "1px solid rgba(255,170,0,0.18)",
             }
           : {}),
+        ...(draggingId ? dropReadyCell : {}),
+        ...(dropActive ? activeDropReadyCell : {}),
       }}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
     >
       {items.length === 0 ? <div style={emptyState}>Free</div> : <div style={{ display: "grid", gap: 8 }}>{items.map(renderItem)}</div>}
     </div>
@@ -731,6 +880,28 @@ const mobileDayCell: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const dropReadyCell: React.CSSProperties = {
+  outline: "2px dashed rgba(0,120,255,0.35)",
+  outlineOffset: -2,
+};
+
+const activeDropReadyCell: React.CSSProperties = {
+  outline: "2px solid rgba(0,120,255,0.55)",
+  outlineOffset: -2,
+  background: "rgba(0,120,255,0.08)",
+};
+
+const dropReadyBox: React.CSSProperties = {
+  outline: "2px dashed rgba(0,120,255,0.35)",
+  outlineOffset: -4,
+};
+
+const activeDropReadyBox: React.CSSProperties = {
+  outline: "2px solid rgba(0,120,255,0.55)",
+  outlineOffset: -4,
+  background: "rgba(0,120,255,0.08)",
 };
 
 const jobCardStyle: React.CSSProperties = {
