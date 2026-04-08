@@ -4,6 +4,7 @@ import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
 import { writeAuditLog } from "../../../../lib/audit";
 import { generateSalesDraftWithFallback } from "../../../../lib/ai/sales";
 import { getCustomerActivityRollups } from "../../../../lib/customerActivity";
+import { normaliseDraftBody, normaliseDraftSubject } from "../../../../lib/emailSignature";
 
 type Channel = "email" | "text" | "linkedin";
 type Goal = "introduction" | "follow_up" | "reactivation" | "availability";
@@ -19,82 +20,19 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
-const SHARED_EMAIL_SIGNATURE = [
-  "Kind regards",
-  "Tom Craig",
-  "Ann’s Crane Hire Ltd",
-  "",
-  "📞 01792 641653",
-  "📧 info@annscranehire.co.uk",
-  "https://www.linkedin.com/company/annscranehire/",
-  "📍 6 Bay Street, Port Tennant, Swansea, SA1 8LB",
-].join("\n");
-
-const PROMPT_LEAK_PATTERNS: RegExp[] = [
-  /This is an existing customer called[^.]*\.?/gi,
-  /This is an existing lead called[^.]*\.?/gi,
-  /Relationship history:[^.]*\.?/gi,
-  /Write as an availability push to an existing customer\.?/gi,
-  /Write as a warm reactivation message for a returning customer\.?/gi,
-  /Write as a professional follow-up for an existing customer, not a cold introduction\.?/gi,
-  /Write as an introduction[^.]*\.?/gi,
-  /Write as a follow-up[^.]*\.?/gi,
-  /Write as a follow up[^.]*\.?/gi,
-  /Write the message like[^.]*\.?/gi,
-  /Keep it commercially useful, warm and professional\.?/gi,
-  /Previous relationship summary:[^.]*\.?/gi,
-  /Most recent crane job:[^.]*\.?/gi,
-  /Most recent transport job:[^.]*\.?/gi,
-  /Most recent logged contact:[^.]*\.?/gi,
-  /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g,
-  /\{\s*[a-zA-Z0-9_]+\s*\}/g,
-];
-
-function cleanWhitespace(value: string) {
-  return value
-    .replace(/\r\n/g, "\n")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
-
-function stripPromptLeakage(value: string) {
-  let output = String(value ?? "");
-
-  for (const pattern of PROMPT_LEAK_PATTERNS) {
-    output = output.replace(pattern, "");
-  }
-
-  return cleanWhitespace(output);
-}
-
-function stripTrailingSignoff(value: string) {
-  return String(value ?? "")
-    .replace(/\n*(kind regards|best regards|regards|many thanks|thanks)[\s\S]*$/i, "")
-    .trim();
-}
-
-function appendSharedEmailSignature(value: string) {
-  const body = stripTrailingSignoff(stripPromptLeakage(value));
-  return cleanWhitespace([body, SHARED_EMAIL_SIGNATURE].filter(Boolean).join("\n\n"));
-}
-
 function finaliseCampaignDraftOutput(args: { channel: Channel; subject: string; body: string }) {
-  const subject = cleanWhitespace(
-    stripPromptLeakage(String(args.subject ?? "")).replace(/^[\{\[]+|[\}\]]+$/g, "")
-  );
+  const subject = normaliseDraftSubject(String(args.subject ?? ""));
 
   if (args.channel === "email") {
     return {
       subject,
-      body: appendSharedEmailSignature(args.body),
+      body: normaliseDraftBody(args.body),
     };
   }
 
   return {
     subject,
-    body: cleanWhitespace(stripPromptLeakage(args.body)),
+    body: String(args.body ?? "").trim(),
   };
 }
 
