@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../../../ClientShell";
-import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import { canCreateCustomers, getAccessContext } from "../../../../lib/access";
+import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
 import CampaignRunner from "./CampaignRunner";
 
 export default async function CampaignRunnerPage({
@@ -9,33 +11,65 @@ export default async function CampaignRunnerPage({
   params: { id: string };
   searchParams?: { success?: string; error?: string };
 }) {
-  const supabase = createSupabaseServerClient();
+  const access = await getAccessContext();
+
+  if (!access.user) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+          <div style={errorCard}>Not authenticated.</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  if (!canCreateCustomers(access)) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+          <div style={errorCard}>You do not have permission to access campaign runner.</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  const admin = createSupabaseAdminClient();
 
   const [
     { data: campaign, error },
     { count: leadCount },
     { count: customerCount },
   ] = await Promise.all([
-    supabase
+    admin
       .from("sales_campaigns")
-      .select("id, name, status, channel, goal, tone", { count: "exact" })
+      .select("id, name, status, channel, goal, tone")
       .eq("id", params.id)
-      .single(),
-    supabase
+      .maybeSingle(),
+    admin
       .from("sales_campaign_leads")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("campaign_id", params.id),
-    supabase
+    admin
       .from("sales_campaign_customers")
-      .select("*", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true })
       .eq("campaign_id", params.id),
   ]);
 
-  if (error || !campaign) {
+  if (error) {
     return (
       <ClientShell>
         <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
-          <div style={errorCard}>{error?.message || "Campaign not found."}</div>
+          <div style={errorCard}>{error.message}</div>
+        </div>
+      </ClientShell>
+    );
+  }
+
+  if (!campaign) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+          <div style={errorCard}>Campaign not found.</div>
         </div>
       </ClientShell>
     );
@@ -59,8 +93,12 @@ export default async function CampaignRunnerPage({
           </div>
         </div>
 
-        {searchParams?.success ? <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div> : null}
-        {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
+        {searchParams?.success ? (
+          <div style={successCard}>{decodeURIComponent(String(searchParams.success))}</div>
+        ) : null}
+        {searchParams?.error ? (
+          <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div>
+        ) : null}
 
         <div style={statsGrid}>
           <StatCard label="Campaign" value={String((campaign as any).name ?? "-")} />
@@ -95,7 +133,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const topBar: React.CSSProperties = {
+const topBar: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -104,13 +142,13 @@ const topBar: React.CSSProperties = {
   marginBottom: 16,
 };
 
-const statsGrid: React.CSSProperties = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
   gap: 12,
 };
 
-const statCard: React.CSSProperties = {
+const statCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -118,7 +156,7 @@ const statCard: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -129,7 +167,7 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const successCard: React.CSSProperties = {
+const successCard: CSSProperties = {
   background: "rgba(0,160,80,0.14)",
   padding: 12,
   borderRadius: 12,
@@ -137,7 +175,7 @@ const successCard: React.CSSProperties = {
   marginBottom: 12,
 };
 
-const errorCard: React.CSSProperties = {
+const errorCard: CSSProperties = {
   background: "rgba(180,0,0,0.12)",
   padding: 12,
   borderRadius: 12,
