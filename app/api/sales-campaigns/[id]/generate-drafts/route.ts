@@ -4,7 +4,11 @@ import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
 import { writeAuditLog } from "../../../../lib/audit";
 import { generateSalesDraftWithFallback } from "../../../../lib/ai/sales";
 import { getCustomerActivityRollups } from "../../../../lib/customerActivity";
-import { normaliseDraftBody, normaliseDraftSubject } from "../../../../lib/emailSignature";
+import {
+  cleanWhitespace,
+  normaliseDraftBody,
+  normaliseDraftSubject,
+} from "../../../../lib/emailSignature";
 
 type Channel = "email" | "text" | "linkedin";
 type Goal = "introduction" | "follow_up" | "reactivation" | "availability";
@@ -20,7 +24,11 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
-function finaliseCampaignDraftOutput(args: { channel: Channel; subject: string; body: string }) {
+function finaliseCampaignDraftOutput(args: {
+  channel: Channel;
+  subject: string;
+  body: string;
+}) {
   const subject = normaliseDraftSubject(String(args.subject ?? ""));
 
   if (args.channel === "email") {
@@ -66,6 +74,7 @@ function firstService(lead: any) {
 
 function inferCustomerServiceFocus(rollup: any, campaignServiceFocus: string | null) {
   if (campaignServiceFocus) return campaignServiceFocus;
+
   const craneJobs = Number(rollup?.crm_job_count ?? 0);
   const transportJobs = Number(rollup?.crm_transport_job_count ?? 0);
 
@@ -310,7 +319,6 @@ function buildQuickCampaignDraft(args: {
     availabilityNote,
     customCta,
     subjectHint,
-    bodyHint,
   } = args;
 
   if (channel === "text") {
@@ -637,25 +645,10 @@ export async function POST(
           ? "Checking in from AnnS Crane Hire"
           : "Following up from AnnS Crane Hire");
 
-      const relationshipBits = [
-        Number(rollup?.crm_job_count ?? 0) > 0 ? `${rollup?.crm_job_count} crane jobs` : "",
-        Number(rollup?.crm_transport_job_count ?? 0) > 0 ? `${rollup?.crm_transport_job_count} transport jobs` : "",
-        Number(rollup?.imported_history_count ?? 0) > 0 ? `${rollup?.imported_history_count} imported history entries` : "",
-      ]
-        .filter(Boolean)
-        .join(" • ");
-
-      const bodyHint = [
-        `This is an existing customer called ${String(customer.company_name ?? "")}.`,
-        relationshipBits ? `Relationship history: ${relationshipBits}.` : "",
-        goal === "reactivation"
-          ? "Write as a warm reactivation message for a returning customer."
-          : goal === "availability"
-          ? "Write as an availability push to an existing customer."
-          : "Write as a professional follow-up for an existing customer, not a cold introduction.",
-      ]
-        .filter(Boolean)
-        .join(" ");
+      // Deliberately do not pass relationship instruction strings into the AI prompt.
+      // Goal + service focus already give enough context and avoids prompt leakage
+      // appearing in finished customer emails.
+      const bodyHint = null;
 
       const customerArgs = {
         lead: {
