@@ -1,12 +1,9 @@
 import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
-import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { getCustomerActivityRollups } from "../../lib/customerActivity";
-import { createSalesCampaign } from "../../lib/salesCampaigns";
-import { redirect } from "next/navigation";
 
 type LeadRow = {
   id: string;
@@ -384,79 +381,6 @@ export default async function SalesCampaignsPage({
   } = await supabase.auth.getUser();
 
   const canManage = !!access.user && canCreateCustomers(access);
-  const currentUsername = fromAuthEmail(user?.email ?? null);
-
-  async function createCampaign(formData: FormData) {
-    "use server";
-
-    const access = await getAccessContext();
-    if (!access.user || !canCreateCustomers(access)) {
-      redirect("/sales-hub/campaigns?error=You%20do%20not%20have%20permission%20to%20create%20campaigns.");
-    }
-
-    const authSupabase = createSupabaseServerClient();
-    const {
-      data: { user },
-    } = await authSupabase.auth.getUser();
-
-    const name = String(formData.get("name") ?? "").trim();
-    const description = String(formData.get("description") ?? "").trim() || null;
-    const templateId = String(formData.get("template_id") ?? "").trim() || null;
-    const channel = String(formData.get("channel") ?? "email").trim() || "email";
-    const goal = String(formData.get("goal") ?? "introduction").trim() || "introduction";
-    const tone = String(formData.get("tone") ?? "professional").trim() || "professional";
-    const serviceFocus = String(formData.get("service_focus") ?? "").trim() || null;
-    const availabilityNote = String(formData.get("availability_note") ?? "").trim() || null;
-    const leadIds = Array.from(new Set(formData.getAll("lead_ids").map((v) => String(v).trim()).filter(Boolean)));
-    const customerIds = Array.from(new Set(formData.getAll("customer_ids").map((v) => String(v).trim()).filter(Boolean)));
-
-    if (!name) {
-      redirect("/sales-hub/campaigns?error=Campaign%20name%20is%20required.");
-    }
-
-    if (!leadIds.length && !customerIds.length) {
-      redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead%20or%20customer.");
-    }
-
-    try {
-      const result = await createSalesCampaign({
-        name,
-        description,
-        template_id: templateId,
-        channel,
-        goal,
-        tone,
-        service_focus: serviceFocus,
-        availability_note: availabilityNote,
-        created_by_user_id: user?.id ?? null,
-        created_by_username: fromAuthEmail(user?.email ?? null) || null,
-        lead_ids: leadIds,
-        customer_ids: customerIds,
-      });
-
-      await writeAuditLog({
-        actor_user_id: user?.id ?? null,
-        actor_username: fromAuthEmail(user?.email ?? null) || null,
-        action: "sales_campaign_created",
-        entity_type: "sales_campaign",
-        entity_id: result.id,
-        meta: {
-          name,
-          channel,
-          goal,
-          tone,
-          template_id: templateId,
-          selected_lead_count: leadIds.length,
-          selected_customer_count: customerIds.length,
-          service_focus: serviceFocus,
-        },
-      });
-
-      redirect(`/sales-hub/campaigns/${result.id}/runner?success=${encodeURIComponent("Campaign created.")}`);
-    } catch (error: any) {
-      redirect(`/sales-hub/campaigns?error=${encodeURIComponent(error?.message || "Could not create campaign.")}`);
-    }
-  }
 
   const [
     { data: leads, error: leadsError },
@@ -835,7 +759,7 @@ export default async function SalesCampaignsPage({
           ) : !filteredLeads.length && !filteredCustomers.length ? (
             <div style={mutedBox}>No leads or customers match the current targeting filters.</div>
           ) : (
-            <form action={createCampaign}>
+            <form method="post" action="/api/sales-campaigns/create">
               <input type="hidden" name="template_id" value={selectedTemplateId} />
               <input type="hidden" name="channel" value={selectedChannel} />
               <input type="hidden" name="goal" value={selectedGoal} />
