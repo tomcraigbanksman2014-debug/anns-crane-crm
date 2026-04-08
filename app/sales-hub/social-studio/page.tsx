@@ -143,6 +143,15 @@ function getGenerateValue(value: string | string[] | undefined) {
   return String(v ?? "").toLowerCase() === "yes";
 }
 
+function buildLinkedInShareUrl(text: string) {
+  const params = new URLSearchParams({
+    shareActive: "true",
+    text,
+  });
+
+  return `https://www.linkedin.com/feed/?${params.toString()}`;
+}
+
 function hashtagsForPost(
   type: "availability" | "asset" | "services" | "short_notice",
   assetType?: "crane" | "vehicle"
@@ -826,6 +835,14 @@ export default async function SocialStudioPage({
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
                       <CopyTextButton text={fullText} label="Copy full post" />
                       <CopyTextButton text={card.body} label="Copy caption only" />
+                      <a
+                        href={buildLinkedInShareUrl(fullText)}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={secondaryBtn}
+                      >
+                        Open in LinkedIn
+                      </a>
                     </div>
                   </div>
 
