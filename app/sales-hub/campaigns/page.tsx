@@ -767,6 +767,8 @@ export default async function SalesCampaignsPage({
               <input type="hidden" name="tone" value={selectedTone} />
               <input type="hidden" name="service_focus" value={selectedServiceFocus} />
               <input type="hidden" name="availability_note" value={selectedAvailabilityNote} />
+              <input type="hidden" name="all_lead_ids" value={filteredLeads.map((lead) => String(lead.id)).join(",")} />
+              <input type="hidden" name="all_customer_ids" value={filteredCustomers.map((customer) => String(customer.id)).join(",")} />
 
               <div style={createGrid}>
                 <div>
@@ -782,6 +784,12 @@ export default async function SalesCampaignsPage({
               <div style={selectionGrid}>
                 <div>
                   <div style={miniLabel}>Select leads to include</div>
+                  {filteredLeads.length ? (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700 }}>
+                      <input type="checkbox" name="select_all_leads" value="1" />
+                      Include all filtered leads
+                    </label>
+                  ) : null}
                   {!filteredLeads.length ? (
                     <div style={mutedBox}>No leads match the current lead filters.</div>
                   ) : (
@@ -804,6 +812,12 @@ export default async function SalesCampaignsPage({
 
                 <div>
                   <div style={miniLabel}>Select customers to include</div>
+                  {filteredCustomers.length ? (
+                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700 }}>
+                      <input type="checkbox" name="select_all_customers" value="1" />
+                      Include all filtered customers
+                    </label>
+                  ) : null}
                   {!filteredCustomers.length ? (
                     <div style={mutedBox}>No customers match the current customer filters.</div>
                   ) : (
