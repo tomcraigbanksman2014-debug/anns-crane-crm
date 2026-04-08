@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { writeAuditLog } from "../../lib/audit";
 import { getAccessContext, canCreateCustomers } from "../../lib/access";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
@@ -393,10 +394,12 @@ export default async function SalesCampaignsPage({
       redirect("/sales-hub/campaigns?error=You%20do%20not%20have%20permission%20to%20create%20campaigns.");
     }
 
-    const supabase = createSupabaseServerClient();
+    const authSupabase = createSupabaseServerClient();
     const {
       data: { user },
-    } = await supabase.auth.getUser();
+    } = await authSupabase.auth.getUser();
+
+    const supabase = createSupabaseAdminClient();
 
     const name = String(formData.get("name") ?? "").trim();
     const description = String(formData.get("description") ?? "").trim() || null;
