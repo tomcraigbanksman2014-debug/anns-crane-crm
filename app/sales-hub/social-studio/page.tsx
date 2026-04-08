@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import CopyTextButton from "./CopyTextButton";
+import OpenLinkedInButton from "../components/OpenLinkedInButton";
 
 type ToneValue = "professional" | "sales" | "friendly";
 type ModeValue = "all" | "availability" | "asset" | "services" | "short_notice";
@@ -141,15 +142,6 @@ function getDaysValue(value: string | string[] | undefined) {
 function getGenerateValue(value: string | string[] | undefined) {
   const v = Array.isArray(value) ? value[0] : value;
   return String(v ?? "").toLowerCase() === "yes";
-}
-
-function buildLinkedInShareUrl(text: string) {
-  const params = new URLSearchParams({
-    shareActive: "true",
-    text,
-  });
-
-  return `https://www.linkedin.com/feed/?${params.toString()}`;
 }
 
 function hashtagsForPost(
@@ -833,16 +825,9 @@ export default async function SocialStudioPage({
                     </div>
 
                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const }}>
+                      <OpenLinkedInButton text={fullText} />
                       <CopyTextButton text={fullText} label="Copy full post" />
                       <CopyTextButton text={card.body} label="Copy caption only" />
-                      <a
-                        href={buildLinkedInShareUrl(fullText)}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={secondaryBtn}
-                      >
-                        Open in LinkedIn
-                      </a>
                     </div>
                   </div>
 
