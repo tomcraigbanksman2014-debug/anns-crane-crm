@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
 import { writeAuditLog } from "../../../../lib/audit";
 import { generateSalesDraftWithFallback } from "../../../../lib/ai/sales";
 import { getCustomerActivityRollups } from "../../../../lib/customerActivity";
@@ -61,16 +62,17 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const supabase = createSupabaseServerClient();
-
+    const authSupabase = createSupabaseServerClient();
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await authSupabase.auth.getUser();
 
     if (userError || !user) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
+
+    const supabase = createSupabaseAdminClient();
 
     const [
       { data: campaign, error: campaignError },
@@ -155,11 +157,12 @@ export async function POST(
       target_id: string;
       company_name: string;
       contact_name: string;
-      target_email: string;
       channel: Channel;
       subject: string;
       body: string;
       provider: "openai" | "fallback";
+      target_email: string | null;
+      target_phone: string | null;
     }> = [];
 
     const skipped: Array<{
@@ -179,6 +182,26 @@ export async function POST(
           target_id: String(lead.id),
           company_name: String(lead.company_name ?? "Unknown lead"),
           reason: "Lead is marked Do Not Contact.",
+        });
+        continue;
+      }
+
+      if (channel === "email" && !lead.email) {
+        skipped.push({
+          target_type: "lead",
+          target_id: String(lead.id),
+          company_name: String(lead.company_name ?? "Unknown lead"),
+          reason: "Lead has no email saved.",
+        });
+        continue;
+      }
+
+      if (channel === "text" && !lead.phone) {
+        skipped.push({
+          target_type: "lead",
+          target_id: String(lead.id),
+          company_name: String(lead.company_name ?? "Unknown lead"),
+          reason: "Lead has no phone saved.",
         });
         continue;
       }
@@ -212,11 +235,12 @@ export async function POST(
         target_id: String(lead.id),
         company_name: String(lead.company_name ?? "Unknown lead"),
         contact_name: String(lead.contact_name ?? ""),
-        target_email: String(lead.email ?? "").trim(),
         channel,
         subject: draft.subject,
         body: draft.body,
         provider,
+        target_email: String(lead.email ?? "").trim() || null,
+        target_phone: String(lead.phone ?? "").trim() || null,
       });
     }
 
@@ -232,12 +256,22 @@ export async function POST(
       const customer = safeArray((row as any).clients)[0] ?? null;
       if (!customer?.id) continue;
 
-      if (!customer.email && !customer.phone) {
+      if (channel === "email" && !customer.email) {
         skipped.push({
           target_type: "customer",
           target_id: String(customer.id),
           company_name: String(customer.company_name ?? "Unknown customer"),
-          reason: "Customer has no email or phone saved.",
+          reason: "Customer has no email saved.",
+        });
+        continue;
+      }
+
+      if (channel === "text" && !customer.phone) {
+        skipped.push({
+          target_type: "customer",
+          target_id: String(customer.id),
+          company_name: String(customer.company_name ?? "Unknown customer"),
+          reason: "Customer has no phone saved.",
         });
         continue;
       }
@@ -300,11 +334,12 @@ export async function POST(
         target_id: String(customer.id),
         company_name: String(customer.company_name ?? "Unknown customer"),
         contact_name: String(customer.contact_name ?? ""),
-        target_email: String(customer.email ?? "").trim(),
         channel,
         subject: draft.subject,
         body: draft.body,
         provider,
+        target_email: String(customer.email ?? "").trim() || null,
+        target_phone: String(customer.phone ?? "").trim() || null,
       });
     }
 
