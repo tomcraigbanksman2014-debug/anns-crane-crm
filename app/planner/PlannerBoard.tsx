@@ -547,12 +547,9 @@ export default function PlannerBoard() {
         <button
           type="button"
           data-no-drag="true"
-          draggable={false}
           style={menuBtn}
-          onDragStart={(e) => e.preventDefault()}
-          onMouseDown={(e) => {
-            e.stopPropagation();
-          }}
+          onMouseDown={noDragDown}
+          onPointerDown={noDragDown}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -1269,7 +1266,7 @@ const menuList: React.CSSProperties = {
   background: "#fff",
   boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
   overflow: "hidden",
-  zIndex: 99999,
+  zIndex: 2000,
 };
 
 const menuItemLink: React.CSSProperties = {
