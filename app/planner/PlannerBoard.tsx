@@ -301,16 +301,20 @@ export default function PlannerBoard() {
   }, []);
 
   useEffect(() => {
-    function onDocPointerDown(event: PointerEvent) {
+    function onDocPointerDown(event: MouseEvent | TouchEvent) {
       const target = event.target;
-      if (target instanceof Element && target.closest("[data-planner-menu-root='true']")) {
+      if (target instanceof Element && target.closest('[data-planner-menu-root="true"]')) {
         return;
       }
       setOpenMenuId(null);
     }
 
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+    document.addEventListener("mousedown", onDocPointerDown);
+    document.addEventListener("touchstart", onDocPointerDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocPointerDown);
+      document.removeEventListener("touchstart", onDocPointerDown);
+    };
   }, []);
 
   const visibleDays = useMemo(() => {
@@ -546,6 +550,7 @@ export default function PlannerBoard() {
     return (
       <div
         data-no-drag="true"
+        data-planner-menu-root="true"
         style={menuWrap}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={noDragDown}
