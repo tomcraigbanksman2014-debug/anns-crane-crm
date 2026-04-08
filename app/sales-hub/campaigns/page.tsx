@@ -379,6 +379,7 @@ export default async function SalesCampaignsPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const currentUsername = fromAuthEmail(user?.email ?? null);
 
   const canManage = !!access.user && canCreateCustomers(access);
 
