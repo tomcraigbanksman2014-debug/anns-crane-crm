@@ -207,7 +207,7 @@ export default function TransportPlannerBoard() {
   }, []);
 
   useEffect(() => {
-    function onDocPointerDown(event: MouseEvent | TouchEvent) {
+    function onDocMouseDown(event: MouseEvent) {
       const target = event.target;
       if (target instanceof Element && target.closest('[data-transport-menu-root="true"]')) {
         return;
@@ -215,11 +215,9 @@ export default function TransportPlannerBoard() {
       setOpenMenuId(null);
     }
 
-    document.addEventListener("mousedown", onDocPointerDown);
-    document.addEventListener("touchstart", onDocPointerDown);
+    document.addEventListener("mousedown", onDocMouseDown, true);
     return () => {
-      document.removeEventListener("mousedown", onDocPointerDown);
-      document.removeEventListener("touchstart", onDocPointerDown);
+      document.removeEventListener("mousedown", onDocMouseDown, true);
     };
   }, []);
 
@@ -433,16 +431,16 @@ export default function TransportPlannerBoard() {
       <div data-no-open="true" data-transport-menu-root="true" style={menuWrap} onClick={(e) => e.stopPropagation()}>
         <button
           type="button"
+          draggable={false}
           style={menuBtn}
-          onMouseDown={noBubble}
-          onPointerDown={(e) => {
-            e.preventDefault();
+          onDragStart={(e) => e.preventDefault()}
+          onMouseDown={(e) => {
             e.stopPropagation();
-            setOpenMenuId((current) => (current === item.job_id ? null : item.job_id));
           }}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
+            setOpenMenuId((current) => (current === item.job_id ? null : item.job_id));
           }}
         >
           ⋯
@@ -542,8 +540,9 @@ export default function TransportPlannerBoard() {
         }}
         onDrop={(e) => {
           e.preventDefault();
+          const droppedId = draggingId || e.dataTransfer.getData("text/plain");
           const item = [...(data?.unallocated_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
-            (row) => row.job_id === draggingId
+            (row) => row.job_id === droppedId
           );
           if (item) {
             movePlannerItem(item, target);
@@ -641,8 +640,9 @@ export default function TransportPlannerBoard() {
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
+                  const droppedId = draggingId || e.dataTransfer.getData("text/plain");
                   const item = [...(data?.unallocated_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
-                    (row) => row.job_id === draggingId
+                    (row) => row.job_id === droppedId
                   );
                   if (item) {
                     movePlannerItem(item, {
