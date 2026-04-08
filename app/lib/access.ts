@@ -34,9 +34,7 @@ function matchesOperatorLogin(authEmail: string, operator: any) {
   const email = String(authEmail ?? "").trim().toLowerCase();
   const username = email.includes("@") ? email.split("@")[0] : email;
   const operatorEmail = String(operator?.email ?? "").trim().toLowerCase();
-  const operatorEmailUsername = operatorEmail.includes("@")
-    ? operatorEmail.split("@")[0]
-    : operatorEmail;
+  const operatorEmailUsername = operatorEmail.includes("@") ? operatorEmail.split("@")[0] : operatorEmail;
   const operatorName = String(operator?.full_name ?? "").trim().toLowerCase();
 
   return (
@@ -62,30 +60,24 @@ export async function getAccessContext(): Promise<AccessContext> {
     if (isMasterAdminEmail(email)) {
       role = "admin";
     } else {
-      const metadataRole = String((user.user_metadata as any)?.role ?? "")
-        .trim()
-        .toLowerCase() as ResolvedRole;
-
-      if (
-        metadataRole === "admin" ||
-        metadataRole === "staff" ||
-        metadataRole === "operator"
-      ) {
+      const metadataRole = String((user.user_metadata as any)?.role ?? "").trim().toLowerCase() as ResolvedRole;
+      if (metadataRole === "admin" || metadataRole === "staff" || metadataRole === "operator") {
         role = metadataRole;
       }
 
       if (!role) {
-        const { data: profileRows } = await admin
+        const { data: staffRows } = await admin
           .from("staff_profiles")
           .select("role, disabled")
           .eq("user_id", user.id)
           .limit(1);
 
-        const profile = (profileRows ?? [])[0] as { role?: string | null; disabled?: boolean | null } | undefined;
-        const profileRole = String(profile?.role ?? "").trim().toLowerCase() as ResolvedRole;
+        const staffRow = Array.isArray(staffRows) ? staffRows[0] : null;
+        const staffRole = String((staffRow as any)?.role ?? "").trim().toLowerCase();
+        const staffDisabled = Boolean((staffRow as any)?.disabled ?? false);
 
-        if (!profile?.disabled && (profileRole === "admin" || profileRole === "staff" || profileRole === "operator")) {
-          role = profileRole;
+        if (!staffDisabled && (staffRole === "admin" || staffRole === "staff")) {
+          role = staffRole as ResolvedRole;
         }
       }
 
@@ -95,9 +87,7 @@ export async function getAccessContext(): Promise<AccessContext> {
           .select("id, full_name, email, status")
           .eq("status", "active");
 
-        const matchedOperator =
-          (operators ?? []).find((op: any) => matchesOperatorLogin(email, op)) ?? null;
-
+        const matchedOperator = (operators ?? []).find((op: any) => matchesOperatorLogin(email, op)) ?? null;
         if (matchedOperator) {
           role = "operator";
         }
@@ -107,27 +97,18 @@ export async function getAccessContext(): Promise<AccessContext> {
 
   const { data: settingsRows } = await admin
     .from("app_settings")
-    .select(
-      "allow_staff_create_bookings, allow_staff_create_customers, allow_staff_view_invoices"
-    )
+    .select("allow_staff_create_bookings, allow_staff_create_customers, allow_staff_view_invoices")
     .limit(1);
 
-  const settingsRow = (settingsRows ?? [])[0] as {
-    allow_staff_create_bookings?: boolean | null;
-    allow_staff_create_customers?: boolean | null;
-    allow_staff_view_invoices?: boolean | null;
-  } | undefined;
+  const settingsRow = Array.isArray(settingsRows) ? settingsRows[0] : null;
 
   return {
     user,
     role,
     settings: {
-      allow_staff_create_bookings:
-        settingsRow?.allow_staff_create_bookings ?? true,
-      allow_staff_create_customers:
-        settingsRow?.allow_staff_create_customers ?? true,
-      allow_staff_view_invoices:
-        settingsRow?.allow_staff_view_invoices ?? true,
+      allow_staff_create_bookings: settingsRow?.allow_staff_create_bookings ?? true,
+      allow_staff_create_customers: settingsRow?.allow_staff_create_customers ?? true,
+      allow_staff_view_invoices: settingsRow?.allow_staff_view_invoices ?? true,
     },
   };
 }
