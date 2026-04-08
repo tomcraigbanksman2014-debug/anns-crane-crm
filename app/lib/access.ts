@@ -74,7 +74,22 @@ export async function getAccessContext(): Promise<AccessContext> {
         role = metadataRole;
       }
 
-      if (role !== "admin") {
+      if (!role) {
+        const { data: profileRows } = await admin
+          .from("staff_profiles")
+          .select("role, disabled")
+          .eq("user_id", user.id)
+          .limit(1);
+
+        const profile = (profileRows ?? [])[0] as { role?: string | null; disabled?: boolean | null } | undefined;
+        const profileRole = String(profile?.role ?? "").trim().toLowerCase() as ResolvedRole;
+
+        if (!profile?.disabled && (profileRole === "admin" || profileRole === "staff" || profileRole === "operator")) {
+          role = profileRole;
+        }
+      }
+
+      if (role !== "admin" && role !== "operator") {
         const { data: operators } = await admin
           .from("operators")
           .select("id, full_name, email, status")
@@ -90,13 +105,18 @@ export async function getAccessContext(): Promise<AccessContext> {
     }
   }
 
-  const { data: settingsRow } = await admin
+  const { data: settingsRows } = await admin
     .from("app_settings")
     .select(
       "allow_staff_create_bookings, allow_staff_create_customers, allow_staff_view_invoices"
     )
-    .limit(1)
-    .maybeSingle();
+    .limit(1);
+
+  const settingsRow = (settingsRows ?? [])[0] as {
+    allow_staff_create_bookings?: boolean | null;
+    allow_staff_create_customers?: boolean | null;
+    allow_staff_view_invoices?: boolean | null;
+  } | undefined;
 
   return {
     user,
