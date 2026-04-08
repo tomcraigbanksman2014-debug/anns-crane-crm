@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { createSalesCampaign } from "../../../lib/salesCampaigns";
 import { writeAuditLog } from "../../../lib/audit";
 
 const STATUSES = new Set(["Draft", "Active", "Completed", "Cancelled"]);
@@ -47,36 +48,27 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Campaign name is required." }, { status: 400 });
     }
 
-    const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    const { error } = await supabase
-      .from("sales_campaigns")
-      .insert({
-        id: campaignId,
-        name,
-        description,
-        status,
-        channel,
-        goal,
-        tone,
-        template_id,
-        service_focus,
-        availability_note,
-        scheduled_for,
-        created_by_user_id: user.id,
-        created_by_username: fromAuthEmail(user.email ?? null) || null,
-      });
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
+    const result = await createSalesCampaign({
+      name,
+      description,
+      template_id,
+      channel,
+      goal,
+      tone,
+      service_focus,
+      availability_note,
+      created_by_user_id: user.id,
+      created_by_username: fromAuthEmail(user.email ?? null) || null,
+      lead_ids: [],
+      customer_ids: [],
+    });
 
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: fromAuthEmail(user.email ?? null) || null,
       action: "sales_campaign_created",
       entity_type: "sales_campaign",
-      entity_id: campaignId,
+      entity_id: result.id,
       meta: {
         name,
         status,
@@ -84,10 +76,11 @@ export async function POST(req: Request) {
         goal,
         tone,
         template_id,
+        scheduled_for,
       },
     });
 
-    return NextResponse.json({ ok: true, id: campaignId });
+    return NextResponse.json({ ok: true, id: result.id });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Failed to create campaign." },
