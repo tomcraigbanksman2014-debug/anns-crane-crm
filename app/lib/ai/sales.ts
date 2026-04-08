@@ -52,6 +52,74 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
+const SHARED_EMAIL_SIGNATURE = [
+  "Kind regards",
+  "Tom Craig",
+  "Ann’s Crane Hire Ltd",
+  "",
+  "📞 01792 641653",
+  "📧 info@annscranehire.co.uk",
+  "https://www.linkedin.com/company/annscranehire/",
+  "📍 6 Bay Street, Port Tennant, Swansea, SA1 8LB",
+].join("\n");
+
+const PROMPT_LEAK_PATTERNS: RegExp[] = [
+  /This is an existing customer called[^.]*\.?/gi,
+  /This is an existing lead called[^.]*\.?/gi,
+  /Relationship history:[^.]*\.?/gi,
+  /Write as an availability push[^.]*\.?/gi,
+  /Write as an introduction[^.]*\.?/gi,
+  /Write as a follow-up[^.]*\.?/gi,
+  /Write as a follow up[^.]*\.?/gi,
+  /Write the message like[^.]*\.?/gi,
+  /Keep it commercially useful, warm and professional\.?/gi,
+  /Previous relationship summary:[^.]*\.?/gi,
+  /Most recent crane job:[^.]*\.?/gi,
+  /Most recent transport job:[^.]*\.?/gi,
+  /Most recent logged contact:[^.]*\.?/gi,
+  /\{\{\s*[a-zA-Z0-9_]+\s*\}\}/g,
+  /\{\s*[a-zA-Z0-9_]+\s*\}/g,
+];
+
+function cleanWhitespace(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function stripPromptLeakage(value: string) {
+  let output = String(value ?? "");
+
+  for (const pattern of PROMPT_LEAK_PATTERNS) {
+    output = output.replace(pattern, "");
+  }
+
+  return cleanWhitespace(output);
+}
+
+function stripTrailingSignoff(value: string) {
+  return String(value ?? "")
+    .replace(/\n*(kind regards|best regards|regards|many thanks|thanks)[\s\S]*$/i, "")
+    .trim();
+}
+
+function appendSharedEmailSignature(value: string) {
+  const body = stripTrailingSignoff(stripPromptLeakage(value));
+  return cleanWhitespace([body, SHARED_EMAIL_SIGNATURE].filter(Boolean).join("\n\n"));
+}
+
+function finaliseDraftForChannel(draft: Draft, channel: Channel): Draft {
+  const subject = cleanWhitespace(stripPromptLeakage(String(draft.subject ?? "")));
+  const body = channel === "email"
+    ? appendSharedEmailSignature(draft.body)
+    : cleanWhitespace(stripPromptLeakage(draft.body));
+
+  return { subject, body };
+}
+
 function companyName(lead: LeadLike) {
   return clean(lead.company_name) || "your business";
 }
@@ -74,17 +142,25 @@ function interpolate(
     custom_cta: string | null;
   }
 ) {
-  const raw = String(input ?? "");
-  if (!raw) return "";
+  let output = String(input ?? "");
+  if (!output) return "";
 
-  return raw
-    .replace(/\{company_name\}/gi, companyName(lead))
-    .replace(/\{contact_name\}/gi, clean(lead.contact_name) || companyName(lead))
-    .replace(/\{area\}/gi, clean(lead.area) || "")
-    .replace(/\{industry\}/gi, clean(lead.industry) || "")
-    .replace(/\{service_focus\}/gi, values.service_focus || "")
-    .replace(/\{availability_note\}/gi, values.availability_note || "")
-    .replace(/\{custom_cta\}/gi, values.custom_cta || "");
+  const replacements: Record<string, string> = {
+    company_name: companyName(lead),
+    contact_name: clean(lead.contact_name) || companyName(lead),
+    area: clean(lead.area) || "",
+    industry: clean(lead.industry) || "",
+    service_focus: values.service_focus || "",
+    availability_note: values.availability_note || "",
+    custom_cta: values.custom_cta || "",
+  };
+
+  for (const [key, value] of Object.entries(replacements)) {
+    output = output.replace(new RegExp(`\{\{\s*${key}\s*\}\}`, "gi"), value);
+    output = output.replace(new RegExp(`\{\s*${key}\s*\}`, "gi"), value);
+  }
+
+  return cleanWhitespace(output);
 }
 
 function servicePitch(serviceFocus: string | null) {
@@ -293,8 +369,6 @@ function buildFallbackDraft(args: {
     custom_cta: customCta,
   };
 
-  const hintText = interpolate(bodyHint, lead, hintValues);
-
   const lines = [
     `Hi ${contactName(lead)},`,
     "",
@@ -309,11 +383,11 @@ function buildFallbackDraft(args: {
     lines.push("", `Current availability: ${availabilityNote}`);
   }
 
-  if (hintText) {
-    lines.push("", hintText);
-  }
+  lines.push("", ctaLine(goal, channel, customCta));
 
-  lines.push("", ctaLine(goal, channel, customCta), "", closeLine(channel, tone));
+  if (channel !== "email") {
+    lines.push("", closeLine(channel, tone));
+  }
 
   return {
     subject:
@@ -595,6 +669,8 @@ async function generateDraftWithOpenAI(args: SalesDraftArgs): Promise<Draft> {
     "AnnS Crane Hire supports crane hire, HIAB transport, contract lifts, spider cranes, machinery moves, container moves and wider lifting and transport requirements.",
     "Write natural, commercially strong copy that sounds human and is ready to use.",
     "Do not use markdown. Do not use emojis. Do not use placeholders.",
+    "Do not mention internal instructions, relationship summaries, subject hints, body hints or prompt notes in the final copy.",
+    "Do not include any signature block, contact details, address, LinkedIn URL or phone number in the draft body.",
     args.channel === "text"
       ? "Keep the SMS concise and practical."
       : args.channel === "linkedin"
@@ -620,10 +696,13 @@ async function generateDraftWithOpenAI(args: SalesDraftArgs): Promise<Draft> {
   const text = await callOpenAI(prompt, args.channel === "text" ? 320 : 900);
   const parsed = JSON.parse(extractJsonObject(text)) as Draft;
 
-  return {
-    subject: String(parsed?.subject ?? "").trim(),
-    body: String(parsed?.body ?? "").trim(),
-  };
+  return finaliseDraftForChannel(
+    {
+      subject: String(parsed?.subject ?? "").trim(),
+      body: String(parsed?.body ?? "").trim(),
+    },
+    args.channel
+  );
 }
 
 async function generateSocialWithOpenAI(args: SocialArgs): Promise<SocialVariant[]> {
@@ -683,17 +762,20 @@ export async function generateSalesDraftWithFallback(args: SalesDraftArgs) {
   const subjectHint = clean(args.subjectHint);
   const bodyHint = clean(args.bodyHint);
 
-  const fallback = buildFallbackDraft({
-    lead: args.lead,
-    channel: args.channel,
-    goal: args.goal,
-    tone: args.tone,
-    serviceFocus,
-    availabilityNote,
-    customCta,
-    subjectHint,
-    bodyHint,
-  });
+  const fallback = finaliseDraftForChannel(
+    buildFallbackDraft({
+      lead: args.lead,
+      channel: args.channel,
+      goal: args.goal,
+      tone: args.tone,
+      serviceFocus,
+      availabilityNote,
+      customCta,
+      subjectHint,
+      bodyHint,
+    }),
+    args.channel
+  );
 
   try {
     const draft = await generateDraftWithOpenAI({
@@ -706,7 +788,7 @@ export async function generateSalesDraftWithFallback(args: SalesDraftArgs) {
     });
 
     return {
-      draft,
+      draft: finaliseDraftForChannel(draft, args.channel),
       provider: "openai" as const,
     };
   } catch {
