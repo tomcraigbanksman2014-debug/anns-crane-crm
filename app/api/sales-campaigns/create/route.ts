@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import { writeAuditLog } from "../../../lib/audit";
-import { getAccessContext, canCreateCustomers } from "../../../lib/access";
+import { isMasterAdminEmail } from "../../../lib/admin";
 
 const STATUSES = new Set(["Draft", "Active", "Completed", "Cancelled"]);
 const CHANNELS = new Set(["email", "text", "linkedin"]);
@@ -35,17 +35,37 @@ function redirectToRunner(req: Request, campaignId: string, message: string) {
   return NextResponse.redirect(url, { status: 303 });
 }
 
+async function canCreateCampaigns(user: any) {
+  if (!user) return false;
+
+  const email = String(user.email ?? "").trim().toLowerCase();
+  if (isMasterAdminEmail(email)) return true;
+
+  const admin = createSupabaseAdminClient();
+
+  const [{ data: profileRows }, { data: settingsRows }] = await Promise.all([
+    admin
+      .from("staff_profiles")
+      .select("role, disabled")
+      .eq("user_id", user.id)
+      .limit(1),
+    admin
+      .from("app_settings")
+      .select("allow_staff_create_customers")
+      .limit(1),
+  ]);
+
+  const profile = (profileRows ?? [])[0] as { role?: string | null; disabled?: boolean | null } | undefined;
+  const settings = (settingsRows ?? [])[0] as { allow_staff_create_customers?: boolean | null } | undefined;
+  const role = String(profile?.role ?? "").trim().toLowerCase();
+
+  return !profile?.disabled && role === "staff" && (settings?.allow_staff_create_customers ?? true);
+}
+
 export async function POST(req: Request) {
   try {
-    const access = await getAccessContext();
     const contentType = req.headers.get("content-type") || "";
     const isJson = contentType.includes("application/json");
-
-    if (!access.user || !canCreateCustomers(access)) {
-      return isJson
-        ? NextResponse.json({ error: "You do not have permission to create campaigns." }, { status: 403 })
-        : redirectBack(req, "You do not have permission to create campaigns.");
-    }
 
     const authSupabase = createSupabaseServerClient();
     const {
@@ -57,6 +77,13 @@ export async function POST(req: Request) {
       return isJson
         ? NextResponse.json({ error: "Not authenticated" }, { status: 401 })
         : redirectBack(req, "Not authenticated");
+    }
+
+    const allowed = await canCreateCampaigns(user);
+    if (!allowed) {
+      return isJson
+        ? NextResponse.json({ error: "You do not have permission to create campaigns." }, { status: 403 })
+        : redirectBack(req, "You do not have permission to create campaigns.");
     }
 
     let source: any = {};
