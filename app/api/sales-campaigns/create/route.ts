@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { createSalesCampaign } from "../../../lib/salesCampaigns";
+import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import { writeAuditLog } from "../../../lib/audit";
+import { getAccessContext, canCreateCustomers } from "../../../lib/access";
 
 const STATUSES = new Set(["Draft", "Active", "Completed", "Cancelled"]);
 const CHANNELS = new Set(["email", "text", "linkedin"]);
@@ -18,73 +19,196 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
+function uniqueStrings(values: unknown[]) {
+  return Array.from(new Set(values.map((v) => String(v ?? "").trim()).filter(Boolean)));
+}
+
+function redirectBack(req: Request, message: string) {
+  const url = new URL("/sales-hub/campaigns", req.url);
+  url.searchParams.set("error", message);
+  return NextResponse.redirect(url, { status: 303 });
+}
+
+function redirectToRunner(req: Request, campaignId: string, message: string) {
+  const url = new URL(`/sales-hub/campaigns/${campaignId}/runner`, req.url);
+  url.searchParams.set("success", message);
+  return NextResponse.redirect(url, { status: 303 });
+}
+
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
+    const access = await getAccessContext();
+    const contentType = req.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
 
+    if (!access.user || !canCreateCustomers(access)) {
+      return isJson
+        ? NextResponse.json({ error: "You do not have permission to create campaigns." }, { status: 403 })
+        : redirectBack(req, "You do not have permission to create campaigns.");
+    }
+
+    const authSupabase = createSupabaseServerClient();
     const {
       data: { user },
       error: userError,
-    } = await supabase.auth.getUser();
+    } = await authSupabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return isJson
+        ? NextResponse.json({ error: "Not authenticated" }, { status: 401 })
+        : redirectBack(req, "Not authenticated");
     }
 
-    const body = await req.json().catch(() => ({}));
+    let source: any = {};
+    let formData: FormData | null = null;
 
-    const name = clean(body?.name);
-    const description = clean(body?.description);
-    const status = STATUSES.has(String(body?.status ?? "")) ? String(body.status) : "Draft";
-    const channel = CHANNELS.has(String(body?.channel ?? "")) ? String(body.channel) : "email";
-    const goal = GOALS.has(String(body?.goal ?? "")) ? String(body.goal) : "introduction";
-    const tone = TONES.has(String(body?.tone ?? "")) ? String(body.tone) : "professional";
-    const template_id = clean(body?.template_id);
-    const service_focus = clean(body?.service_focus);
-    const availability_note = clean(body?.availability_note);
-    const scheduled_for = clean(body?.scheduled_for);
+    if (isJson) {
+      source = await req.json().catch(() => ({}));
+    } else {
+      formData = await req.formData().catch(() => null);
+      source = formData ?? {};
+    }
+
+    const getValue = (key: string) => {
+      if (formData) return formData.get(key);
+      return source?.[key];
+    };
+
+    const getAllValues = (key: string) => {
+      if (formData) return formData.getAll(key);
+      const raw = source?.[key];
+      return Array.isArray(raw) ? raw : raw == null ? [] : [raw];
+    };
+
+    const name = clean(getValue("name"));
+    const description = clean(getValue("description"));
+    const status = STATUSES.has(String(getValue("status") ?? "")) ? String(getValue("status")) : "Draft";
+    const channel = CHANNELS.has(String(getValue("channel") ?? "")) ? String(getValue("channel")) : "email";
+    const goal = GOALS.has(String(getValue("goal") ?? "")) ? String(getValue("goal")) : "introduction";
+    const tone = TONES.has(String(getValue("tone") ?? "")) ? String(getValue("tone")) : "professional";
+    const templateId = clean(getValue("template_id"));
+    const serviceFocus = clean(getValue("service_focus"));
+    const availabilityNote = clean(getValue("availability_note"));
+    const scheduledFor = clean(getValue("scheduled_for"));
+    const leadIds = uniqueStrings(getAllValues("lead_ids"));
+    const customerIds = uniqueStrings(getAllValues("customer_ids"));
 
     if (!name) {
-      return NextResponse.json({ error: "Campaign name is required." }, { status: 400 });
+      return isJson
+        ? NextResponse.json({ error: "Campaign name is required." }, { status: 400 })
+        : redirectBack(req, "Campaign name is required.");
     }
 
-    const result = await createSalesCampaign({
-      name,
-      description,
-      template_id,
-      channel,
-      goal,
-      tone,
-      service_focus,
-      availability_note,
-      created_by_user_id: user.id,
-      created_by_username: fromAuthEmail(user.email ?? null) || null,
-      lead_ids: [],
-      customer_ids: [],
-    });
+    if (!leadIds.length && !customerIds.length) {
+      return isJson
+        ? NextResponse.json({ error: "Select at least one lead or customer." }, { status: 400 })
+        : redirectBack(req, "Select at least one lead or customer.");
+    }
+
+    const supabase = createSupabaseAdminClient();
+    const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const { error: campaignError } = await supabase.from("sales_campaigns").insert([
+      {
+        id: campaignId,
+        name,
+        description,
+        status,
+        channel,
+        goal,
+        tone,
+        template_id: templateId,
+        service_focus: serviceFocus,
+        availability_note: availabilityNote,
+        scheduled_for: scheduledFor,
+        created_by_user_id: user.id,
+        created_by_username: fromAuthEmail(user.email ?? null) || null,
+      },
+    ]);
+
+    if (campaignError) {
+      return isJson
+        ? NextResponse.json({ error: campaignError.message }, { status: 400 })
+        : redirectBack(req, campaignError.message || "Could not create campaign.");
+    }
+
+    if (leadIds.length) {
+      const { error: linkError } = await supabase
+        .from("sales_campaign_leads")
+        .insert(leadIds.map((leadId) => ({ campaign_id: campaignId, lead_id: leadId })));
+
+      if (linkError) {
+        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
+        return isJson
+          ? NextResponse.json({ error: linkError.message }, { status: 400 })
+          : redirectBack(req, linkError.message || "Could not link leads.");
+      }
+
+      await supabase.from("sales_lead_activity").insert(
+        leadIds.map((leadId) => ({
+          lead_id: leadId,
+          entry_type: "campaign",
+          subject: `Added to campaign: ${name}`,
+          message: `Lead added to campaign "${name}" via Sales Hub Campaign Execution.`,
+          created_by_user_id: user.id,
+          created_by_username: fromAuthEmail(user.email ?? null) || null,
+        }))
+      );
+    }
+
+    if (customerIds.length) {
+      const { error: customerLinkError } = await supabase
+        .from("sales_campaign_customers")
+        .insert(customerIds.map((clientId) => ({ campaign_id: campaignId, client_id: clientId })));
+
+      if (customerLinkError) {
+        await supabase.from("sales_campaign_leads").delete().eq("campaign_id", campaignId);
+        await supabase.from("sales_campaigns").delete().eq("id", campaignId);
+        return isJson
+          ? NextResponse.json({ error: customerLinkError.message }, { status: 400 })
+          : redirectBack(req, customerLinkError.message || "Could not link customers.");
+      }
+
+      await supabase.from("customer_correspondence").insert(
+        customerIds.map((clientId) => ({
+          client_id: clientId,
+          entry_type: "campaign",
+          subject: `Added to campaign: ${name}`,
+          message: `Customer added to campaign "${name}" via Sales Hub Campaign Execution.`,
+          created_by_user_id: user.id,
+          created_by_username: fromAuthEmail(user.email ?? null) || null,
+        }))
+      );
+    }
 
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: fromAuthEmail(user.email ?? null) || null,
       action: "sales_campaign_created",
       entity_type: "sales_campaign",
-      entity_id: result.id,
+      entity_id: campaignId,
       meta: {
         name,
         status,
         channel,
         goal,
         tone,
-        template_id,
-        scheduled_for,
+        template_id: templateId,
+        selected_lead_count: leadIds.length,
+        selected_customer_count: customerIds.length,
+        service_focus: serviceFocus,
       },
     });
 
-    return NextResponse.json({ ok: true, id: result.id });
+    return isJson
+      ? NextResponse.json({ ok: true, id: campaignId })
+      : redirectToRunner(req, campaignId, "Campaign created.");
   } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Failed to create campaign." },
-      { status: 500 }
-    );
+    const contentType = req.headers.get("content-type") || "";
+    const isJson = contentType.includes("application/json");
+    const message = e?.message || "Failed to create campaign.";
+    return isJson
+      ? NextResponse.json({ error: message }, { status: 500 })
+      : redirectBack(req, message);
   }
 }
