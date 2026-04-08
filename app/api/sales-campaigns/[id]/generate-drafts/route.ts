@@ -642,13 +642,8 @@ export async function POST(
         (goal === "availability"
           ? "{{service_focus}} availability from AnnS Crane Hire"
           : goal === "reactivation"
-          ? "Checking in from AnnS Crane Hire"
-          : "Following up from AnnS Crane Hire");
-
-      // Deliberately do not pass relationship instruction strings into the AI prompt.
-      // Goal + service focus already give enough context and avoids prompt leakage
-      // appearing in finished customer emails.
-      const bodyHint = null;
+            ? "Checking in from AnnS Crane Hire"
+            : "Following up from AnnS Crane Hire");
 
       const customerArgs = {
         lead: {
@@ -665,7 +660,7 @@ export async function POST(
         availabilityNote,
         customCta,
         subjectHint,
-        bodyHint,
+        bodyHint: null,
       };
 
       const { draft, provider } = forceFallback
