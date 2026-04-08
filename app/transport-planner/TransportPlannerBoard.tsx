@@ -335,6 +335,10 @@ export default function TransportPlannerBoard() {
       e.preventDefault();
       return;
     }
+    try {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", item.job_id);
+    } catch {}
     setDraggingId(item.job_id);
     setOpenMenuId(null);
   }
@@ -431,11 +435,14 @@ export default function TransportPlannerBoard() {
           type="button"
           style={menuBtn}
           onMouseDown={noBubble}
-          onPointerDown={noBubble}
-          onClick={(e) => {
+          onPointerDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setOpenMenuId((current) => (current === item.job_id ? null : item.job_id));
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
           }}
         >
           ⋯
