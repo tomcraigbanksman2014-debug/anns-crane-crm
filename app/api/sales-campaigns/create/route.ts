@@ -47,9 +47,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Campaign name is required." }, { status: 400 });
     }
 
-    const { data, error } = await supabase
+    const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    const { error } = await supabase
       .from("sales_campaigns")
       .insert({
+        id: campaignId,
         name,
         description,
         status,
@@ -62,9 +65,7 @@ export async function POST(req: Request) {
         scheduled_for,
         created_by_user_id: user.id,
         created_by_username: fromAuthEmail(user.email ?? null) || null,
-      })
-      .select("id")
-      .single();
+      });
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
       actor_username: fromAuthEmail(user.email ?? null) || null,
       action: "sales_campaign_created",
       entity_type: "sales_campaign",
-      entity_id: data?.id ?? null,
+      entity_id: campaignId,
       meta: {
         name,
         status,
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
       },
     });
 
-    return NextResponse.json({ ok: true, id: data?.id ?? null });
+    return NextResponse.json({ ok: true, id: campaignId });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message || "Failed to create campaign." },
