@@ -300,21 +300,16 @@ export default function PlannerBoard() {
     return () => window.removeEventListener("resize", syncMobile);
   }, []);
 
-  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
   useEffect(() => {
     function onDocPointerDown(event: PointerEvent) {
-      if (!openMenuId) return;
-      const activeMenu = menuRefs.current[openMenuId];
-      if (activeMenu && event.target instanceof Node && activeMenu.contains(event.target)) {
-        return;
-      }
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.("[data-planner-menu-root=\"true\"]")) return;
       setOpenMenuId(null);
     }
 
-    document.addEventListener("pointerdown", onDocPointerDown);
-    return () => document.removeEventListener("pointerdown", onDocPointerDown);
-  }, [openMenuId]);
+    document.addEventListener("pointerdown", onDocPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown, true);
+  }, []);
 
   const visibleDays = useMemo(() => {
     if (data?.days?.length) return data.days;
@@ -548,10 +543,8 @@ export default function PlannerBoard() {
 
     return (
       <div
-        ref={(node) => {
-          menuRefs.current[item.id] = node;
-        }}
         data-no-drag="true"
+        data-planner-menu-root="true"
         style={menuWrap}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={noDragDown}
@@ -1284,7 +1277,7 @@ const menuList: React.CSSProperties = {
   background: "#fff",
   boxShadow: "0 12px 30px rgba(0,0,0,0.12)",
   overflow: "hidden",
-  zIndex: 20,
+  zIndex: 2000,
 };
 
 const menuItemLink: React.CSSProperties = {
