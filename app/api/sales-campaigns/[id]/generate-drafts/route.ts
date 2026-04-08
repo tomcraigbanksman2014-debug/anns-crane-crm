@@ -155,6 +155,7 @@ export async function POST(
       target_id: string;
       company_name: string;
       contact_name: string;
+      target_email: string;
       channel: Channel;
       subject: string;
       body: string;
@@ -211,6 +212,7 @@ export async function POST(
         target_id: String(lead.id),
         company_name: String(lead.company_name ?? "Unknown lead"),
         contact_name: String(lead.contact_name ?? ""),
+        target_email: String(lead.email ?? "").trim(),
         channel,
         subject: draft.subject,
         body: draft.body,
@@ -298,6 +300,7 @@ export async function POST(
         target_id: String(customer.id),
         company_name: String(customer.company_name ?? "Unknown customer"),
         contact_name: String(customer.contact_name ?? ""),
+        target_email: String(customer.email ?? "").trim(),
         channel,
         subject: draft.subject,
         body: draft.body,
