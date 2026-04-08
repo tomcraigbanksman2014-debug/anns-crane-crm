@@ -549,11 +549,14 @@ export default function PlannerBoard() {
           data-no-drag="true"
           style={menuBtn}
           onMouseDown={noDragDown}
-          onPointerDown={noDragDown}
-          onClick={(e) => {
+          onPointerDown={(e) => {
             e.preventDefault();
             e.stopPropagation();
             setOpenMenuId((current) => (current === item.id ? null : item.id));
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
           }}
         >
           ⋯
