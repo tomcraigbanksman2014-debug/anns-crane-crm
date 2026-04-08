@@ -420,7 +420,7 @@ export default async function SalesCampaignsPage({
       redirect("/sales-hub/campaigns?error=Select%20at%20least%20one%20lead%20or%20customer.");
     }
 
-    const { data: campaign, error: campaignError } = await supabase
+    const { data: insertedCampaignRows, error: campaignError } = await supabase
       .from("sales_campaigns")
       .insert({
         name,
@@ -435,8 +435,9 @@ export default async function SalesCampaignsPage({
         created_by_user_id: user?.id ?? null,
         created_by_username: fromAuthEmail(user?.email ?? null) || null,
       })
-      .select("id")
-      .single();
+      .select("id");
+
+    const campaign = Array.isArray(insertedCampaignRows) ? insertedCampaignRows[0] : null;
 
     if (campaignError || !campaign?.id) {
       redirect(`/sales-hub/campaigns?error=${encodeURIComponent(campaignError?.message || "Could not create campaign.")}`);
