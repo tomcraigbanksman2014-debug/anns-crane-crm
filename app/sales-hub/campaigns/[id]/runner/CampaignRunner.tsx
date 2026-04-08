@@ -41,11 +41,14 @@ export default function CampaignRunner({
   function buildOutlookHref(draft: DraftRow) {
     const to = String(draft.target_email ?? "").trim();
     if (!to) return "";
-    const url = new URL("https://outlook.office.com/mail/deeplink/compose");
-    url.searchParams.set("to", to);
-    if (draft.subject) url.searchParams.set("subject", draft.subject);
-    if (draft.body) url.searchParams.set("body", draft.body);
-    return url.toString();
+
+    const parts = [
+      `to=${encodeURIComponent(to)}`,
+      draft.subject ? `subject=${encodeURIComponent(draft.subject)}` : "",
+      draft.body ? `body=${encodeURIComponent(draft.body)}` : "",
+    ].filter(Boolean);
+
+    return `https://outlook.office.com/mail/deeplink/compose?${parts.join("&")}`;
   }
 
   function openAllInOutlook() {
