@@ -300,22 +300,21 @@ export default function PlannerBoard() {
     return () => window.removeEventListener("resize", syncMobile);
   }, []);
 
+  const menuRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
   useEffect(() => {
-    function onDocPointerDown(event: MouseEvent | TouchEvent) {
-      const target = event.target;
-      if (target instanceof Element && target.closest('[data-planner-menu-root="true"]')) {
+    function onDocPointerDown(event: PointerEvent) {
+      if (!openMenuId) return;
+      const activeMenu = menuRefs.current[openMenuId];
+      if (activeMenu && event.target instanceof Node && activeMenu.contains(event.target)) {
         return;
       }
       setOpenMenuId(null);
     }
 
-    document.addEventListener("mousedown", onDocPointerDown);
-    document.addEventListener("touchstart", onDocPointerDown);
-    return () => {
-      document.removeEventListener("mousedown", onDocPointerDown);
-      document.removeEventListener("touchstart", onDocPointerDown);
-    };
-  }, []);
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [openMenuId]);
 
   const visibleDays = useMemo(() => {
     if (data?.days?.length) return data.days;
@@ -549,8 +548,10 @@ export default function PlannerBoard() {
 
     return (
       <div
+        ref={(node) => {
+          menuRefs.current[item.id] = node;
+        }}
         data-no-drag="true"
-        data-planner-menu-root="true"
         style={menuWrap}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={noDragDown}
