@@ -1,6 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import {
+  buildFormattedEmailHtml,
+  normaliseDraftBody,
+  normaliseDraftSubject,
+  SHARED_EMAIL_SIGNATURE_TEXT,
+} from "../../../../lib/emailSignature";
 
 type DraftRow = {
   target_type: "lead" | "customer";
@@ -38,17 +44,87 @@ export default function CampaignRunner({
   const [goal, setGoal] = useState<string>("introduction");
   const [tone, setTone] = useState<string>("professional");
 
+  const pageOrigin = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    return window.location.origin;
+  }, []);
+
   function buildOutlookHref(draft: DraftRow) {
     const to = String(draft.target_email ?? "").trim();
     if (!to) return "";
 
     const parts = [
       `to=${encodeURIComponent(to)}`,
-      draft.subject ? `subject=${encodeURIComponent(draft.subject)}` : "",
-      draft.body ? `body=${encodeURIComponent(draft.body)}` : "",
+      draft.subject ? `subject=${encodeURIComponent(normaliseDraftSubject(draft.subject))}` : "",
     ].filter(Boolean);
 
     return `https://outlook.office.com/mail/deeplink/compose?${parts.join("&")}`;
+  }
+
+  function getPlainBody(draft: DraftRow) {
+    return normaliseDraftBody(draft.body);
+  }
+
+  function getPlainBodyWithSignature(draft: DraftRow) {
+    const cleaned = getPlainBody(draft);
+    if (!cleaned) return SHARED_EMAIL_SIGNATURE_TEXT;
+    return `${cleaned}\n\n${SHARED_EMAIL_SIGNATURE_TEXT}`;
+  }
+
+  function getHtmlBody(draft: DraftRow) {
+    return buildFormattedEmailHtml({
+      body: getPlainBody(draft),
+      origin: pageOrigin,
+    });
+  }
+
+  function setFeedback(message: string) {
+    setError(message);
+    window.setTimeout(() => {
+      setError((current) => (current === message ? null : current));
+    }, 2200);
+  }
+
+  async function copyText(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setFeedback(`${label} copied.`);
+    } catch {
+      setError(`Could not copy ${label.toLowerCase()}.`);
+    }
+  }
+
+  async function copyFormattedEmail(draft: DraftRow) {
+    const html = getHtmlBody(draft);
+    const plain = getPlainBodyWithSignature(draft);
+
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/html": new Blob([html], { type: "text/html" }),
+            "text/plain": new Blob([plain], { type: "text/plain" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(plain);
+      }
+
+      setFeedback("Formatted email copied.");
+    } catch {
+      setError("Could not copy formatted email.");
+    }
+  }
+
+  async function openInOutlookAndCopy(draft: DraftRow) {
+    const href = buildOutlookHref(draft);
+    if (!href) {
+      setError("No email address saved for this draft.");
+      return;
+    }
+
+    await copyFormattedEmail(draft);
+    window.open(href, "_blank", "noopener,noreferrer");
   }
 
   function openAllInOutlook() {
@@ -58,13 +134,24 @@ export default function CampaignRunner({
       return;
     }
 
-    emailDrafts.forEach((draft, index) => {
-      const href = buildOutlookHref(draft);
-      if (!href) return;
-      window.setTimeout(() => {
+    const firstDraft = emailDrafts[0];
+    if (!firstDraft) {
+      setError("No email-ready drafts available.");
+      return;
+    }
+
+    copyFormattedEmail(firstDraft).finally(() => {
+      const href = buildOutlookHref(firstDraft);
+      if (href) {
         window.open(href, "_blank", "noopener,noreferrer");
-      }, index * 120);
+      }
     });
+
+    if (emailDrafts.length > 1) {
+      setFeedback(
+        "Browsers only allow one Outlook compose window per click. The first email has been opened and copied with the full AnnS signature and logo. Use ‘Open in Outlook + copy formatted email’ on each draft for the rest."
+      );
+    }
   }
 
   async function generateDrafts() {
@@ -95,25 +182,15 @@ export default function CampaignRunner({
     }
   }
 
-  async function copyText(value: string, label: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setError(`${label} copied.`);
-      setTimeout(() => setError(null), 1500);
-    } catch {
-      setError(`Could not copy ${label.toLowerCase()}.`);
-    }
-  }
-
   async function copyCombined() {
     const blocks = drafts.map((draft) => {
       const parts = [
         `Type: ${draft.target_type}`,
         `Company: ${draft.company_name}`,
         draft.contact_name ? `Contact: ${draft.contact_name}` : "",
-        draft.subject ? `Subject: ${draft.subject}` : "",
+        draft.subject ? `Subject: ${normaliseDraftSubject(draft.subject)}` : "",
         "Body:",
-        draft.body,
+        draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft),
       ].filter(Boolean);
       return parts.join("\n");
     });
@@ -130,9 +207,22 @@ export default function CampaignRunner({
       <p style={{ marginTop: 6, opacity: 0.8 }}>
         Generate one set of drafts across all leads and customers linked to <strong>{campaignName}</strong>.
       </p>
+      <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
+        Outlook deeplinks can prefill the recipient and subject, but they cannot inject the AnnS HTML signature and logo by themselves. Use the formatted-email buttons below so the message opens in Outlook with the branded signature copied and ready to paste.
+      </p>
 
       {error ? (
-        <div style={error.includes("copied") ? successBox : errorBox}>{error}</div>
+        <div
+          style={
+            error.toLowerCase().includes("copied") ||
+            error.toLowerCase().includes("opened") ||
+            error.toLowerCase().includes("first email")
+              ? successBox
+              : errorBox
+          }
+        >
+          {error}
+        </div>
       ) : null}
 
       <div style={summaryGrid}>
@@ -158,7 +248,7 @@ export default function CampaignRunner({
 
         {channel === "email" && drafts.some((draft) => String(draft.target_email ?? "").trim()) ? (
           <button type="button" onClick={openAllInOutlook} style={secondaryBtn}>
-            Open all in Outlook
+            Open first in Outlook + copy formatted email
           </button>
         ) : null}
       </div>
@@ -205,9 +295,14 @@ export default function CampaignRunner({
                       Open {draft.target_type}
                     </a>
                     {channel === "email" && draft.target_email ? (
-                      <a href={buildOutlookHref(draft)} target="_blank" rel="noreferrer" style={linkBtn}>
-                        Open in Outlook
-                      </a>
+                      <>
+                        <button type="button" onClick={() => copyFormattedEmail(draft)} style={secondaryBtn}>
+                          Copy formatted email
+                        </button>
+                        <button type="button" onClick={() => openInOutlookAndCopy(draft)} style={secondaryBtn}>
+                          Open in Outlook + copy email
+                        </button>
+                      </>
                     ) : null}
                   </div>
                 </div>
@@ -215,9 +310,15 @@ export default function CampaignRunner({
                 {draft.subject ? (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>Subject</div>
-                    <div style={{ marginTop: 4, fontWeight: 700, whiteSpace: "pre-wrap" }}>{draft.subject}</div>
+                    <div style={{ marginTop: 4, fontWeight: 700, whiteSpace: "pre-wrap" }}>
+                      {normaliseDraftSubject(draft.subject)}
+                    </div>
                     <div style={{ marginTop: 8 }}>
-                      <button type="button" onClick={() => copyText(draft.subject, "Subject")} style={secondaryBtn}>
+                      <button
+                        type="button"
+                        onClick={() => copyText(normaliseDraftSubject(draft.subject), "Subject")}
+                        style={secondaryBtn}
+                      >
                         Copy subject
                       </button>
                     </div>
@@ -226,11 +327,29 @@ export default function CampaignRunner({
 
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>Body</div>
-                  <textarea readOnly value={draft.body} style={textareaStyle} />
-                  <div style={{ marginTop: 8 }}>
-                    <button type="button" onClick={() => copyText(draft.body, "Body")} style={secondaryBtn}>
+                  <textarea
+                    readOnly
+                    value={draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft)}
+                    style={textareaStyle}
+                  />
+                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        copyText(
+                          draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft),
+                          "Body"
+                        )
+                      }
+                      style={secondaryBtn}
+                    >
                       Copy body
                     </button>
+                    {draft.channel === "email" ? (
+                      <button type="button" onClick={() => copyFormattedEmail(draft)} style={secondaryBtn}>
+                        Copy body with logo signature
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -295,7 +414,7 @@ const skipCard: React.CSSProperties = {
 
 const textareaStyle: React.CSSProperties = {
   width: "100%",
-  minHeight: 220,
+  minHeight: 260,
   padding: "12px 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.15)",
