@@ -90,8 +90,14 @@ export async function POST(req: Request) {
     const serviceFocus = clean(getValue("service_focus"));
     const availabilityNote = clean(getValue("availability_note"));
     const scheduledFor = clean(getValue("scheduled_for"));
-    const leadIds = uniqueStrings(getAllValues("lead_ids"));
-    const customerIds = uniqueStrings(getAllValues("customer_ids"));
+    const selectAllLeads = String(getValue("select_all_leads") ?? "") === "1";
+    const selectAllCustomers = String(getValue("select_all_customers") ?? "") === "1";
+    const leadIds = selectAllLeads
+      ? uniqueStrings(String(getValue("all_lead_ids") ?? "").split(","))
+      : uniqueStrings(getAllValues("lead_ids"));
+    const customerIds = selectAllCustomers
+      ? uniqueStrings(String(getValue("all_customer_ids") ?? "").split(","))
+      : uniqueStrings(getAllValues("customer_ids"));
 
     if (!name) {
       return isJson
