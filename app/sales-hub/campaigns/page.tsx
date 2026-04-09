@@ -462,6 +462,8 @@ export default async function SalesCampaignsPage({
   const selectedAvailabilityNote =
     String(searchParams?.availability_note ?? "").trim() || String(selectedTemplate?.availability_note ?? "");
 
+  const totalLeadCount = allLeads.length;
+
   const ownerOptions: string[] = Array.from(
     new Set(
       allLeads
@@ -486,6 +488,25 @@ export default async function SalesCampaignsPage({
   const industryOptions: string[] = Array.from(
     new Set(allLeads.map((lead) => String(lead.industry ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
+
+  const hasLeadRows = totalLeadCount > 0;
+  const hasActiveTemplates = activeTemplates.length > 0;
+  const ownerFilterDisabled = !hasLeadRows;
+  const serviceFilterDisabled = !hasLeadRows || serviceOptions.length === 0;
+  const areaFilterDisabled = !hasLeadRows || areaOptions.length === 0;
+  const industryFilterDisabled = !hasLeadRows || industryOptions.length === 0;
+  const statusFilterDisabled = !hasLeadRows;
+
+  const missingLeadFilterFields: string[] = [];
+  if (hasLeadRows && serviceOptions.length === 0) missingLeadFilterFields.push("services");
+  if (hasLeadRows && areaOptions.length === 0) missingLeadFilterFields.push("areas");
+  if (hasLeadRows && industryOptions.length === 0) missingLeadFilterFields.push("industries");
+
+  const leadFilterNotice = !hasLeadRows
+    ? "No lead records are currently loaded in Sales Leads, so the lead owner/service/area/industry/status dropdowns will only show their default “All …” options until leads exist. Customer campaign filters still work below."
+    : missingLeadFilterFields.length
+    ? `Lead records are loaded, but none currently have ${missingLeadFilterFields.join(", ")} populated, so those dropdowns will stay on their default “All …” options until those fields are filled on the leads.`
+    : "";
 
   const filteredLeads = allLeads.filter((lead) => {
     if (lead.do_not_contact) return false;
@@ -595,39 +616,65 @@ export default async function SalesCampaignsPage({
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
           <h2 style={sectionTitle}>Targeting and message settings</h2>
+          {leadFilterNotice ? <div style={infoCard}>{leadFilterNotice}</div> : null}
 
           <form method="get" action="/sales-hub/campaigns" style={filterGrid}>
             <div>
               <label style={labelStyle}>Lead owner</label>
-              <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
+              <select
+                name="owner"
+                defaultValue={selectedOwner}
+                disabled={ownerFilterDisabled}
+                style={ownerFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
                 <option value="all">All owners</option>
                 {ownerOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
             <div>
               <label style={labelStyle}>Lead service</label>
-              <select name="service" defaultValue={selectedService} style={inputStyle}>
+              <select
+                name="service"
+                defaultValue={selectedService}
+                disabled={serviceFilterDisabled}
+                style={serviceFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
                 <option value="all">All services</option>
                 {serviceOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
             <div>
               <label style={labelStyle}>Lead area</label>
-              <select name="area" defaultValue={selectedArea} style={inputStyle}>
+              <select
+                name="area"
+                defaultValue={selectedArea}
+                disabled={areaFilterDisabled}
+                style={areaFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
                 <option value="all">All areas</option>
                 {areaOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
             <div>
               <label style={labelStyle}>Lead industry</label>
-              <select name="industry" defaultValue={selectedIndustry} style={inputStyle}>
+              <select
+                name="industry"
+                defaultValue={selectedIndustry}
+                disabled={industryFilterDisabled}
+                style={industryFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
                 <option value="all">All industries</option>
                 {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
             <div>
               <label style={labelStyle}>Lead status</label>
-              <select name="status" defaultValue={selectedStatus} style={inputStyle}>
+              <select
+                name="status"
+                defaultValue={selectedStatus}
+                disabled={statusFilterDisabled}
+                style={statusFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
                 <option value="all">All statuses</option>
                 <option value="New">New</option>
                 <option value="To Contact">To Contact</option>
@@ -659,7 +706,13 @@ export default async function SalesCampaignsPage({
             </div>
             <div>
               <label style={labelStyle}>Template</label>
-              <select name="template_id" defaultValue={selectedTemplateId} style={inputStyle}>
+              <select
+                name="template_id"
+                defaultValue={selectedTemplateId}
+                disabled={!hasActiveTemplates}
+                style={!hasActiveTemplates ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
+              >
+                {!hasActiveTemplates ? <option value="">No active templates</option> : null}
                 {activeTemplates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
             </div>
@@ -982,6 +1035,16 @@ const errorCard: CSSProperties = {
   marginBottom: 12,
 };
 
+const infoCard: CSSProperties = {
+  background: "rgba(0,88,160,0.10)",
+  padding: 12,
+  borderRadius: 12,
+  border: "1px solid rgba(0,88,160,0.18)",
+  marginBottom: 12,
+  fontWeight: 700,
+  lineHeight: 1.45,
+};
+
 const twoColGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
@@ -1046,4 +1109,10 @@ const mutedBox: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   opacity: 0.82,
   fontWeight: 700,
+};
+
+const disabledInputStyle: CSSProperties = {
+  background: "rgba(235,235,235,0.92)",
+  color: "rgba(17,17,17,0.72)",
+  cursor: "not-allowed",
 };
