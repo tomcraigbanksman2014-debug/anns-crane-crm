@@ -246,23 +246,50 @@ export default function LeadForm({
         </Field>
 
         <Field span={4} label="Lead source">
-          <input value={leadSource} onChange={(e) => setLeadSource(e.target.value)} style={input} placeholder="e.g. LinkedIn, cold list, referral" />
+          <input
+            value={leadSource}
+            onChange={(e) => setLeadSource(e.target.value)}
+            style={input}
+            placeholder="e.g. LinkedIn, cold list, referral"
+          />
         </Field>
 
         <Field span={4} label="Assigned to">
-          <input value={assignedToUsername} onChange={(e) => setAssignedToUsername(e.target.value)} style={input} placeholder="e.g. tom" />
+          <input
+            value={assignedToUsername}
+            onChange={(e) => setAssignedToUsername(e.target.value)}
+            style={input}
+            placeholder="e.g. tom"
+          />
         </Field>
 
         <Field span={4} label="Next follow-up">
-          <input type="date" value={nextFollowUpOn} onChange={(e) => setNextFollowUpOn(e.target.value)} style={input} />
+          <input
+            type="date"
+            value={nextFollowUpOn}
+            onChange={(e) => setNextFollowUpOn(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={4} label="Last contacted">
-          <input type="datetime-local" value={lastContactedAt} onChange={(e) => setLastContactedAt(e.target.value)} style={input} />
+          <input
+            type="datetime-local"
+            value={lastContactedAt}
+            onChange={(e) => setLastContactedAt(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={4} label="Lead score">
-          <input type="number" min="0" max="100" value={leadScore} onChange={(e) => setLeadScore(e.target.value)} style={input} />
+          <input
+            type="number"
+            min="0"
+            max="100"
+            value={leadScore}
+            onChange={(e) => setLeadScore(e.target.value)}
+            style={input}
+          />
         </Field>
 
         <Field span={12} label="Address">
@@ -284,7 +311,11 @@ export default function LeadForm({
       </div>
 
       <label style={checkboxRow}>
-        <input type="checkbox" checked={doNotContact} onChange={(e) => setDoNotContact(e.target.checked)} />
+        <input
+          type="checkbox"
+          checked={doNotContact}
+          onChange={(e) => setDoNotContact(e.target.checked)}
+        />
         <span>Do not contact</span>
       </label>
 
@@ -311,7 +342,7 @@ function Field({
   span: number;
 }) {
   return (
-    <div style={{ gridColumn: `span ${span}` }}>
+    <div style={{ gridColumn: `span ${span}`, minWidth: 0 }}>
       <label style={labelStyle}>{label}</label>
       {children}
     </div>
@@ -319,8 +350,10 @@ function Field({
 }
 
 const card: React.CSSProperties = {
-  width: "min(1150px, 95vw)",
-  margin: "0 auto",
+  width: "100%",
+  maxWidth: "100%",
+  minWidth: 0,
+  margin: 0,
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
