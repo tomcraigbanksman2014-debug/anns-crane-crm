@@ -6,6 +6,12 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
+function buildTimestamp(dateValue: string | null, timeValue: string | null, fallbackTime: string) {
+  if (!dateValue) return null;
+  const time = timeValue ?? fallbackTime;
+  return `${dateValue}T${time}:00`;
+}
+
 export async function POST(req: Request) {
   try {
     const { supabase, response } = await requireApiUser();
@@ -23,6 +29,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const allocationId = clean(body.allocation_id);
+    const allocationSource = clean(body.allocation_source) ?? "job_equipment";
     const jobId = clean(body.job_id);
     const operatorId = body.operator_id === "" ? null : clean(body.operator_id);
     const craneId = body.equipment_id === "" ? null : clean(body.equipment_id);
@@ -46,30 +53,74 @@ export async function POST(req: Request) {
     }
 
     if (allocationId) {
-      const allocationPayload: Record<string, any> = {
-        operator_id: operatorId,
-        crane_id: craneId,
-        updated_at: new Date().toISOString(),
-      };
+      let resolvedAllocationSource = allocationSource;
 
-      if (startDate) allocationPayload.start_date = startDate;
-      if (endDate) allocationPayload.end_date = endDate;
-      if (startTime !== null) allocationPayload.start_time = startTime;
-      if (endTime !== null) allocationPayload.end_time = endTime;
+      if (!resolvedAllocationSource) {
+        const [jobAllocationsLookup, jobEquipmentLookup] = await Promise.all([
+          supabase.from("job_allocations").select("id").eq("id", allocationId).maybeSingle(),
+          supabase.from("job_equipment").select("id").eq("id", allocationId).maybeSingle(),
+        ]);
 
-      if (craneId) {
-        allocationPayload.asset_type = "crane";
-      } else if (plannerGroup === "labour_only") {
-        allocationPayload.asset_type = "other";
+        if (jobAllocationsLookup.data?.id) {
+          resolvedAllocationSource = "job_allocations";
+        } else if (jobEquipmentLookup.data?.id) {
+          resolvedAllocationSource = "job_equipment";
+        }
       }
 
-      const { error: allocationError } = await supabase
-        .from("job_equipment")
-        .update(allocationPayload)
-        .eq("id", allocationId);
+      if (resolvedAllocationSource === "job_allocations") {
+        const allocationPayload: Record<string, any> = {
+          operator_id: operatorId,
+          crane_id: craneId,
+        };
 
-      if (allocationError) {
-        return NextResponse.json({ error: allocationError.message }, { status: 400 });
+        if (startDate) {
+          allocationPayload.start_at = buildTimestamp(startDate, startTime, "00:00");
+        }
+        if (endDate) {
+          allocationPayload.end_at = buildTimestamp(endDate, endTime ?? startTime, "23:59");
+        }
+
+        if (craneId) {
+          allocationPayload.asset_type = "crane";
+        } else if (plannerGroup === "labour_only") {
+          allocationPayload.asset_type = "other";
+        }
+
+        const { error: allocationError } = await supabase
+          .from("job_allocations")
+          .update(allocationPayload)
+          .eq("id", allocationId);
+
+        if (allocationError) {
+          return NextResponse.json({ error: allocationError.message }, { status: 400 });
+        }
+      } else {
+        const allocationPayload: Record<string, any> = {
+          operator_id: operatorId,
+          crane_id: craneId,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (startDate) allocationPayload.start_date = startDate;
+        if (endDate) allocationPayload.end_date = endDate;
+        if (startTime !== null) allocationPayload.start_time = startTime;
+        if (endTime !== null) allocationPayload.end_time = endTime;
+
+        if (craneId) {
+          allocationPayload.asset_type = "crane";
+        } else if (plannerGroup === "labour_only") {
+          allocationPayload.asset_type = "other";
+        }
+
+        const { error: allocationError } = await supabase
+          .from("job_equipment")
+          .update(allocationPayload)
+          .eq("id", allocationId);
+
+        if (allocationError) {
+          return NextResponse.json({ error: allocationError.message }, { status: 400 });
+        }
       }
 
       const jobPayload: Record<string, any> = {
