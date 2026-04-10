@@ -12,6 +12,20 @@ function numberOrNull(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normaliseDateBounds(startDate: string | null, endDate: string | null) {
+  if (startDate && endDate && endDate < startDate) {
+    return {
+      start_date: endDate,
+      end_date: startDate,
+    };
+  }
+
+  return {
+    start_date: startDate,
+    end_date: endDate,
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient();
@@ -39,8 +53,9 @@ export async function POST(req: Request) {
     const supplierId = clean(body.supplier_id);
     const purchaseOrderId = clean(body.purchase_order_id);
 
-    const startDate = clean(body.start_date);
-    const endDate = clean(body.end_date);
+    const rawStartDate = clean(body.start_date);
+    const rawEndDate = clean(body.end_date);
+    const { start_date: startDate, end_date: endDate } = normaliseDateBounds(rawStartDate, rawEndDate);
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
     const notes = clean(body.notes);
