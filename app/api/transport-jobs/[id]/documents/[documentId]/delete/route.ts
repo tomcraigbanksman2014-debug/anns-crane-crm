@@ -1,6 +1,23 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../../lib/audit";
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 export async function POST(
   req: Request,
@@ -8,6 +25,7 @@ export async function POST(
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
 
     const {
       data: { user },
@@ -18,7 +36,7 @@ export async function POST(
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
-    const { data: doc, error: docError } = await supabase
+    const { data: doc, error: docError } = await admin
       .from("transport_job_documents")
       .select("id, transport_job_id, file_name, file_path, document_type")
       .eq("id", params.documentId)
@@ -29,7 +47,7 @@ export async function POST(
       return NextResponse.json({ error: "Document not found." }, { status: 404 });
     }
 
-    const { error: storageError } = await supabase.storage
+    const { error: storageError } = await admin.storage
       .from("job-documents")
       .remove([doc.file_path]);
 
@@ -37,7 +55,7 @@ export async function POST(
       return NextResponse.json({ error: storageError.message }, { status: 400 });
     }
 
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await admin
       .from("transport_job_documents")
       .delete()
       .eq("id", params.documentId)
