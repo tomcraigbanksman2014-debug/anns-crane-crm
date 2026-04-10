@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../lib/audit";
 
@@ -12,12 +13,29 @@ const ALLOWED_DOCUMENT_TYPES = new Set([
   "other",
 ]);
 
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
 
     const {
       data: { user },
@@ -27,6 +45,24 @@ export async function POST(
     if (userError || !user) {
       return NextResponse.redirect(
         new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent("Not signed in.")}`, req.url)
+      );
+    }
+
+    const { data: transportJob, error: jobError } = await admin
+      .from("transport_jobs")
+      .select("id")
+      .eq("id", params.id)
+      .maybeSingle();
+
+    if (jobError) {
+      return NextResponse.redirect(
+        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(jobError.message)}`, req.url)
+      );
+    }
+
+    if (!transportJob) {
+      return NextResponse.redirect(
+        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent("Transport job not found.")}`, req.url)
       );
     }
 
@@ -61,7 +97,7 @@ export async function POST(
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
       const filePath = `${params.id}/${Date.now()}-${safeName}`;
 
-      const { error: uploadError } = await supabase.storage
+      const { error: uploadError } = await admin.storage
         .from("job-documents")
         .upload(filePath, buffer, {
           contentType: file.type || "application/octet-stream",
@@ -70,7 +106,7 @@ export async function POST(
 
       if (uploadError) {
         if (uploadedPaths.length > 0) {
-          await supabase.storage.from("job-documents").remove(uploadedPaths);
+          await admin.storage.from("job-documents").remove(uploadedPaths);
         }
         return NextResponse.redirect(
           new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(uploadError.message)}`, req.url)
@@ -89,13 +125,13 @@ export async function POST(
       });
     }
 
-    const { error: insertError } = await supabase
+    const { error: insertError } = await admin
       .from("transport_job_documents")
       .insert(uploadedRows);
 
     if (insertError) {
       if (uploadedPaths.length > 0) {
-        await supabase.storage.from("job-documents").remove(uploadedPaths);
+        await admin.storage.from("job-documents").remove(uploadedPaths);
       }
       return NextResponse.redirect(
         new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(insertError.message)}`, req.url)
