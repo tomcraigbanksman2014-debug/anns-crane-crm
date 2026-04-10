@@ -12,6 +12,20 @@ function numberOrNull(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normaliseDateBounds(startDate: string | null, endDate: string | null) {
+  if (startDate && endDate && endDate < startDate) {
+    return {
+      start_date: endDate,
+      end_date: startDate,
+    };
+  }
+
+  return {
+    start_date: startDate,
+    end_date: endDate,
+  };
+}
+
 export async function PATCH(
   req: Request,
   { params }: { params: { id: string } }
@@ -61,6 +75,12 @@ export async function PATCH(
         ? numberOrNull(body.supplier_cost)
         : existing.supplier_cost ?? agreedCost ?? 0;
 
+    const nextRawStartDate =
+      body.start_date !== undefined ? clean(body.start_date) : (existing.start_date ?? null);
+    const nextRawEndDate =
+      body.end_date !== undefined ? clean(body.end_date) : (existing.end_date ?? null);
+    const dateBounds = normaliseDateBounds(nextRawStartDate, nextRawEndDate);
+
     const updates: Record<string, unknown> = {
       updated_at: new Date().toISOString(),
     };
@@ -73,8 +93,10 @@ export async function PATCH(
     if (body.operator_id !== undefined) updates.operator_id = clean(body.operator_id);
     if (body.supplier_id !== undefined) updates.supplier_id = clean(body.supplier_id);
     if (body.purchase_order_id !== undefined) updates.purchase_order_id = clean(body.purchase_order_id);
-    if (body.start_date !== undefined) updates.start_date = clean(body.start_date);
-    if (body.end_date !== undefined) updates.end_date = clean(body.end_date);
+    if (body.start_date !== undefined || body.end_date !== undefined) {
+      updates.start_date = dateBounds.start_date;
+      updates.end_date = dateBounds.end_date;
+    }
     if (body.start_time !== undefined) updates.start_time = clean(body.start_time);
     if (body.end_time !== undefined) updates.end_time = clean(body.end_time);
     if (body.notes !== undefined) updates.notes = clean(body.notes);
