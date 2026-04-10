@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
@@ -64,6 +63,28 @@ export async function POST(req: Request) {
       if (allocationError) {
         return NextResponse.json({ error: allocationError.message }, { status: 400 });
       }
+
+      const jobPayload: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (startDate) {
+        jobPayload.job_date = startDate;
+        jobPayload.start_date = startDate;
+      }
+      if (endDate) jobPayload.end_date = endDate;
+      if (status) jobPayload.status = status;
+
+      const { error: jobError } = await supabase
+        .from("jobs")
+        .update(jobPayload)
+        .eq("id", jobId);
+
+      if (jobError) {
+        return NextResponse.json({ error: jobError.message }, { status: 400 });
+      }
+
+      return NextResponse.json({ ok: true });
     }
 
     const jobPayload: Record<string, any> = {
@@ -82,7 +103,10 @@ export async function POST(req: Request) {
     if (endTime !== null) jobPayload.end_time = endTime;
     if (status) jobPayload.status = status;
 
-    const { error: jobError } = await supabase.from("jobs").update(jobPayload).eq("id", jobId);
+    const { error: jobError } = await supabase
+      .from("jobs")
+      .update(jobPayload)
+      .eq("id", jobId);
 
     if (jobError) {
       return NextResponse.json({ error: jobError.message }, { status: 400 });
