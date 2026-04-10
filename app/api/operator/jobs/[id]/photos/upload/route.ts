@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from "@next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../../lib/audit";
@@ -160,6 +160,7 @@ export async function POST(
       ]);
 
     if (insertError) {
+      await admin.storage.from("job-documents").remove([filePath]);
       return NextResponse.json({ error: insertError.message }, { status: 400 });
     }
 
