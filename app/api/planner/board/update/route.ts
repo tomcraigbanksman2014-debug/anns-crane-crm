@@ -10,6 +10,7 @@ export async function POST(req: Request) {
   try {
     const { supabase, response } = await requireApiUser();
     if (response) return response;
+
     const {
       data: { user },
       error: userError,
@@ -31,6 +32,7 @@ export async function POST(req: Request) {
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
     const status = clean(body.status);
+    const plannerGroup = clean(body.planner_group);
 
     if (!jobId) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
@@ -54,6 +56,12 @@ export async function POST(req: Request) {
       if (endDate) allocationPayload.end_date = endDate;
       if (startTime !== null) allocationPayload.start_time = startTime;
       if (endTime !== null) allocationPayload.end_time = endTime;
+
+      if (craneId) {
+        allocationPayload.asset_type = "crane";
+      } else if (plannerGroup === "labour_only") {
+        allocationPayload.asset_type = "other";
+      }
 
       const { error: allocationError } = await supabase
         .from("job_equipment")
