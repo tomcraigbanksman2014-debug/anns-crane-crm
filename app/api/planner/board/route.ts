@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
 
@@ -119,22 +118,45 @@ function isPlannerVisibleStatus(status: string | null | undefined) {
   return true;
 }
 
-function classifyUnassignedType(job: any) {
-  const siteName = String(job?.site_name ?? "").trim().toLowerCase();
-  const notes = String(job?.notes ?? "").trim().toLowerCase();
-  const hireType = String(job?.hire_type ?? "").trim().toLowerCase();
-  const liftType = String(job?.lift_type ?? "").trim().toLowerCase();
+function containsLabourKeyword(value: string | null | undefined) {
+  const combined = String(value ?? "").trim().toLowerCase();
+  if (!combined) return false;
 
-  const combined = `${siteName} ${notes} ${hireType} ${liftType}`;
-
-  if (
+  return (
     combined.includes("labour only") ||
     combined.includes("labour-only") ||
     combined.includes("slinger") ||
     combined.includes("lift supervisor") ||
     combined.includes("supervisor only") ||
-    combined.includes("operator only")
-  ) {
+    combined.includes("operator only") ||
+    combined.includes("appointed person")
+  );
+}
+
+function isLabourOnlyAllocation(row: any, job: any) {
+  const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
+  const craneId = String(row?.crane_id ?? "").trim();
+
+  if (craneId) return false;
+  if (assetType === "vehicle" || assetType === "equipment") return false;
+  if (assetType === "other") return true;
+
+  return [
+    row?.item_name,
+    row?.notes,
+    job?.hire_type,
+    job?.lift_type,
+    job?.notes,
+    job?.site_name,
+  ].some((value) => containsLabourKeyword(value));
+}
+
+function classifyUnassignedType(job: any) {
+  const combined = [job?.site_name, job?.notes, job?.hire_type, job?.lift_type]
+    .map((value) => String(value ?? "").trim())
+    .join(" ");
+
+  if (containsLabourKeyword(combined)) {
     return "labour_only";
   }
 
@@ -143,8 +165,7 @@ function classifyUnassignedType(job: any) {
 
 export async function GET(req: Request) {
   try {
-    const { supabase, response } = await requireApiUser();
-    if (response) return response;
+    const supabase = createSupabaseServerClient();
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
@@ -190,7 +211,9 @@ export async function GET(req: Request) {
           cranes:crane_id (id, name, reg_number)
         `)
         .eq("archived", false)
-        .or(`and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`),
+        .or(
+          `and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`
+        ),
 
       supabase
         .from("job_equipment")
@@ -236,11 +259,19 @@ export async function GET(req: Request) {
           ),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, reg_number)
-        `)
-        .eq("asset_type", "crane"),
+        `),
 
-      supabase.from("operators").select("id, full_name").eq("archived", false).order("full_name", { ascending: true }),
-      supabase.from("cranes").select("id, name, reg_number").eq("archived", false).order("name", { ascending: true }),
+      supabase
+        .from("operators")
+        .select("id, full_name")
+        .eq("archived", false)
+        .order("full_name", { ascending: true }),
+
+      supabase
+        .from("cranes")
+        .select("id, name, reg_number")
+        .eq("archived", false)
+        .order("name", { ascending: true }),
     ]);
 
     if (jobsRes.error) {
@@ -307,11 +338,21 @@ export async function GET(req: Request) {
     const activeAllocations = allocations.filter((row: any) => {
       const linkedJob = activeJobs.find((job: any) => job.id === row.job_id);
       if (!linkedJob) return false;
+
+      const isCraneAllocation = Boolean(String(row?.crane_id ?? "").trim());
+      const isLabourAllocation = isLabourOnlyAllocation(row, linkedJob);
+
+      if (!isCraneAllocation && !isLabourAllocation) return false;
+
       const excludeWeekends = Boolean(linkedJob?.exclude_weekends);
 
       return overlapsWorkingWeek(
         row.start_date ?? linkedJob?.start_date ?? linkedJob?.job_date,
-        row.end_date ?? row.start_date ?? linkedJob?.end_date ?? linkedJob?.start_date ?? linkedJob?.job_date,
+        row.end_date ??
+          row.start_date ??
+          linkedJob?.end_date ??
+          linkedJob?.start_date ??
+          linkedJob?.job_date,
         from,
         to,
         excludeWeekends
@@ -326,6 +367,7 @@ export async function GET(req: Request) {
       const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
       const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
       const excludeWeekends = Boolean(job?.exclude_weekends);
+      const labourOnly = isLabourOnlyAllocation(row, job);
 
       return {
         id: `alloc_${row.id}`,
@@ -341,7 +383,7 @@ export async function GET(req: Request) {
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
-        equipment_id: row.crane_id ?? job?.crane_id ?? null,
+        equipment_id: labourOnly ? null : row.crane_id ?? job?.crane_id ?? null,
         item_name: row.item_name ?? null,
         clients: client ? [client] : [],
         operators: operator ? [operator] : [],
@@ -355,14 +397,41 @@ export async function GET(req: Request) {
         working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
         billable_days: countBillableDays(startDate, endDate, excludeWeekends),
         notes: row.notes ?? job?.notes ?? null,
-        planner_group: "allocated",
+        planner_group: labourOnly ? "labour_only" : "allocated",
       };
     });
 
     const allocatedJobIds = new Set(allocationItems.map((item: any) => item.job_id));
+    const allocatedCraneIdsByJob = new Map<string, Set<string>>();
+
+    for (const item of allocationItems) {
+      const jobId = String(item.job_id ?? "").trim();
+      const craneId = String(item.equipment_id ?? "").trim();
+
+      if (!jobId || !craneId) continue;
+
+      if (!allocatedCraneIdsByJob.has(jobId)) {
+        allocatedCraneIdsByJob.set(jobId, new Set<string>());
+      }
+
+      allocatedCraneIdsByJob.get(jobId)?.add(craneId);
+    }
 
     const directJobItems = jobsInRange
-      .filter((job: any) => !allocatedJobIds.has(job.id))
+      .filter((job: any) => {
+        const jobId = String(job?.id ?? "").trim();
+        const primaryCraneId = String(job?.crane_id ?? "").trim();
+
+        const primaryCraneAlreadyShown = primaryCraneId
+          ? allocatedCraneIdsByJob.get(jobId)?.has(primaryCraneId) ?? false
+          : false;
+
+        if (primaryCraneId && !primaryCraneAlreadyShown) {
+          return true;
+        }
+
+        return !allocatedJobIds.has(job.id);
+      })
       .map((job: any) => {
         const client = first(job.clients);
         const operator = first(job.operators);
@@ -370,6 +439,14 @@ export async function GET(req: Request) {
         const startDate = job.start_date ?? job.job_date ?? null;
         const endDate = job.end_date ?? startDate ?? null;
         const excludeWeekends = Boolean(job.exclude_weekends);
+        const primaryCraneId = String(job?.crane_id ?? "").trim();
+
+        const primaryCraneAlreadyShown = primaryCraneId
+          ? allocatedCraneIdsByJob.get(String(job?.id ?? "").trim())?.has(primaryCraneId) ?? false
+          : false;
+
+        const plannerGroup =
+          primaryCraneId && !primaryCraneAlreadyShown ? "allocated" : classifyUnassignedType(job);
 
         return {
           id: `job_${job.id}`,
@@ -385,7 +462,7 @@ export async function GET(req: Request) {
           site_name: job.site_name ?? null,
           site_address: job.site_address ?? null,
           operator_id: job.operator_id ?? null,
-          equipment_id: job.crane_id ?? null,
+          equipment_id: plannerGroup === "allocated" ? job.crane_id ?? null : null,
           item_name: null,
           clients: client ? [client] : [],
           operators: operator ? [operator] : [],
@@ -399,7 +476,7 @@ export async function GET(req: Request) {
           working_dates: activeWorkingDates(startDate, endDate, excludeWeekends),
           billable_days: countBillableDays(startDate, endDate, excludeWeekends),
           notes: job.notes ?? null,
-          planner_group: classifyUnassignedType(job),
+          planner_group: plannerGroup,
         };
       });
 
@@ -418,6 +495,9 @@ export async function GET(req: Request) {
         })) ?? [],
     });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Could not load planner board." }, { status: 400 });
+    return NextResponse.json(
+      { error: e?.message ?? "Could not load planner board." },
+      { status: 400 }
+    );
   }
 }
