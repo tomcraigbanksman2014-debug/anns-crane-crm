@@ -463,6 +463,20 @@ export async function GET(req: Request) {
       activeJobs.map((job: any) => [String(job.id), job])
     );
 
+    const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
+      activeJobById.has(String(row.job_id))
+    );
+
+    const jobsWithAnyAllocationRows = new Set(
+      allAllocationRowsForActiveJobs.map((row: any) => String(row.job_id))
+    );
+
+    const jobsWithAnyCraneAllocationRows = new Set(
+      allAllocationRowsForActiveJobs
+        .filter((row: any) => looksLikeCraneAllocation(row))
+        .map((row: any) => String(row.job_id))
+    );
+
     const jobsInRange = activeJobs
       .filter((job: any) =>
         overlapsWorkingWeek(
@@ -502,7 +516,7 @@ export async function GET(req: Request) {
         };
       });
 
-    const activeAllocations = allocations.filter((row: any) => {
+    const activeAllocations = allAllocationRowsForActiveJobs.filter((row: any) => {
       const linkedJob = activeJobById.get(String(row.job_id));
       if (!linkedJob) return false;
 
@@ -524,16 +538,6 @@ export async function GET(req: Request) {
         excludeWeekends
       );
     });
-
-    const jobsWithAnyAllocationRows = new Set(
-      activeAllocations.map((row: any) => String(row.job_id))
-    );
-
-    const jobsWithAnyCraneAllocationRows = new Set(
-      activeAllocations
-        .filter((row: any) => looksLikeCraneAllocation(row))
-        .map((row: any) => String(row.job_id))
-    );
 
     const craneAllocationRows = activeAllocations.filter((row: any) => looksLikeCraneAllocation(row));
     const labourAllocationRows = activeAllocations.filter((row: any) => {
