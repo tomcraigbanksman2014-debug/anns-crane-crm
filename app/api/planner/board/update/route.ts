@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
 
     const allocationId = clean(body.allocation_id);
-    const allocationSource = clean(body.allocation_source) ?? "job_equipment";
+    const allocationSource = clean(body.allocation_source);
     const jobId = clean(body.job_id);
     const operatorId = body.operator_id === "" ? null : clean(body.operator_id);
     const craneId = body.equipment_id === "" ? null : clean(body.equipment_id);
@@ -68,7 +68,24 @@ export async function POST(req: Request) {
         }
       }
 
+      if (!resolvedAllocationSource) {
+        return NextResponse.json(
+          { error: "Could not determine allocation source." },
+          { status: 400 }
+        );
+      }
+
       if (resolvedAllocationSource === "job_allocations") {
+        if (!craneId && plannerGroup === "labour_only") {
+          return NextResponse.json(
+            {
+              error:
+                "Current schema does not support labour-only rows in job_allocations. Use job_equipment for labour-only allocations.",
+            },
+            { status: 400 }
+          );
+        }
+
         const allocationPayload: Record<string, any> = {
           operator_id: operatorId,
           crane_id: craneId,
@@ -83,8 +100,6 @@ export async function POST(req: Request) {
 
         if (craneId) {
           allocationPayload.asset_type = "crane";
-        } else if (plannerGroup === "labour_only") {
-          allocationPayload.asset_type = "other";
         }
 
         const { error: allocationError } = await supabase
