@@ -140,10 +140,37 @@ function classifyUnassignedType(job: any) {
   return "unassigned_crane";
 }
 
+function looksLikeCraneAllocation(row: any) {
+  const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
+  const craneId = String(row?.crane_id ?? "").trim();
+  const craneRow = first(row?.cranes);
+
+  return Boolean(craneId || craneRow?.id || assetType === "crane");
+}
+
+function looksLikeLabourAllocation(row: any) {
+  if (looksLikeCraneAllocation(row)) return false;
+
+  const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
+  const itemName = String(row?.item_name ?? "").trim().toLowerCase();
+  const notes = String(row?.notes ?? "").trim().toLowerCase();
+
+  if (assetType === "other") return true;
+
+  return (
+    itemName.includes("labour") ||
+    itemName.includes("slinger") ||
+    itemName.includes("lift supervisor") ||
+    notes.includes("labour only") ||
+    notes.includes("labour-only")
+  );
+}
+
 export async function GET(req: Request) {
   try {
     const { supabase, response } = await requireApiUser();
     if (response) return response;
+
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
@@ -189,7 +216,9 @@ export async function GET(req: Request) {
           cranes:crane_id (id, name, reg_number)
         `)
         .eq("archived", false)
-        .or(`and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`),
+        .or(
+          `and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`
+        ),
 
       supabase
         .from("job_equipment")
@@ -235,8 +264,7 @@ export async function GET(req: Request) {
           ),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, reg_number)
-        `)
-        .in("asset_type", ["crane", "other"]),
+        `),
 
       supabase
         .from("operators")
@@ -318,6 +346,7 @@ export async function GET(req: Request) {
     const activeAllocations = allocations.filter((row: any) => {
       const linkedJob = activeJobById.get(String(row.job_id));
       if (!linkedJob) return false;
+
       const excludeWeekends = Boolean(linkedJob.exclude_weekends);
 
       return overlapsWorkingWeek(
@@ -333,25 +362,22 @@ export async function GET(req: Request) {
       );
     });
 
-    const craneAllocationRows = activeAllocations.filter(
-      (row: any) => String(row.asset_type ?? "").toLowerCase() === "crane"
-    );
-
-    const labourAllocationRows = activeAllocations.filter(
-      (row: any) => String(row.asset_type ?? "").toLowerCase() === "other"
-    );
+    const craneAllocationRows = activeAllocations.filter((row: any) => looksLikeCraneAllocation(row));
+    const labourAllocationRows = activeAllocations.filter((row: any) => looksLikeLabourAllocation(row));
 
     const allocationItems = craneAllocationRows.map((row: any) => {
       const job = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
       const operator = first(row.operators);
       const crane = first(row.cranes);
       const client = first(job?.clients);
+
+      const rowCraneId = row.crane_id ?? crane?.id ?? null;
       const startDate = row.start_date ?? job?.start_date ?? job?.job_date ?? null;
       const endDate = row.end_date ?? job?.end_date ?? startDate ?? null;
       const excludeWeekends = Boolean(job?.exclude_weekends);
 
       return {
-        id: `alloc_${row.id}`,
+        id: `alloc_${row.id}_${rowCraneId ?? "none"}`,
         allocation_id: row.id,
         job_id: row.job_id,
         job_number: job?.job_number ?? null,
@@ -364,7 +390,7 @@ export async function GET(req: Request) {
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
-        equipment_id: row.crane_id ?? null,
+        equipment_id: rowCraneId,
         item_name: row.item_name ?? null,
         clients: client ? [client] : [],
         operators: operator ? [operator] : [],
@@ -428,7 +454,7 @@ export async function GET(req: Request) {
       };
     });
 
-    const representedDirectCranePairs = new Set(
+    const representedCranePairs = new Set(
       allocationItems
         .filter((item: any) => item.equipment_id)
         .map((item: any) => `${item.job_id}:${item.equipment_id}`)
@@ -455,7 +481,7 @@ export async function GET(req: Request) {
       if (mainCraneId) {
         const pairKey = `${jobId}:${mainCraneId}`;
 
-        if (!representedDirectCranePairs.has(pairKey)) {
+        if (!representedCranePairs.has(pairKey)) {
           return [
             {
               id: `job_${job.id}_${mainCraneId}`,
