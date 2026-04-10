@@ -40,6 +40,35 @@ function parseDateOnly(value: string | null | undefined) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function dateOnlyFromTimestamp(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  const fallback = raw.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(fallback) ? fallback : null;
+}
+
+function timeOnlyFromTimestamp(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  const match = raw.match(/T(\d{2}:\d{2})/);
+  if (match?.[1]) return match[1];
+
+  const timeMatch = raw.match(/^(\d{2}:\d{2})/);
+  if (timeMatch?.[1]) return timeMatch[1];
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+
+  return `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+}
+
 function isWeekend(date: Date) {
   const day = date.getDay();
   return day === 0 || day === 6;
@@ -200,6 +229,34 @@ function looksLikeLabourAllocation(row: any) {
   );
 }
 
+function normaliseJobEquipmentRow(row: any) {
+  return {
+    ...row,
+    allocation_source: "job_equipment",
+    start_date: row?.start_date ?? null,
+    end_date: row?.end_date ?? row?.start_date ?? null,
+    start_time: row?.start_time ?? null,
+    end_time: row?.end_time ?? null,
+    agreed_sell_rate: row?.agreed_sell_rate ?? 0,
+    supplier_cost: row?.supplier_cost ?? row?.agreed_cost ?? 0,
+    item_name: row?.item_name ?? null,
+  };
+}
+
+function normaliseJobAllocationsRow(row: any) {
+  return {
+    ...row,
+    allocation_source: "job_allocations",
+    start_date: dateOnlyFromTimestamp(row?.start_at),
+    end_date: dateOnlyFromTimestamp(row?.end_at) ?? dateOnlyFromTimestamp(row?.start_at),
+    start_time: timeOnlyFromTimestamp(row?.start_at),
+    end_time: timeOnlyFromTimestamp(row?.end_at),
+    agreed_sell_rate: 0,
+    supplier_cost: row?.agreed_cost ?? 0,
+    item_name: null,
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const { supabase, response } = await requireApiUser();
@@ -217,7 +274,7 @@ export async function GET(req: Request) {
       (h) => h.date >= from && h.date <= to
     );
 
-    const [jobsRes, allocationsRes, operatorsRes, cranesRes] = await Promise.all([
+    const [jobsRes, equipmentAllocationsRes, jobAllocationsRes, operatorsRes, cranesRes] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
@@ -302,6 +359,51 @@ export async function GET(req: Request) {
         `),
 
       supabase
+        .from("job_allocations")
+        .select(`
+          id,
+          job_id,
+          asset_type,
+          crane_id,
+          vehicle_id,
+          equipment_id,
+          operator_id,
+          start_at,
+          end_at,
+          agreed_cost,
+          supplier_reference,
+          notes,
+          jobs:job_id (
+            id,
+            client_id,
+            operator_id,
+            crane_id,
+            job_number,
+            job_date,
+            start_date,
+            end_date,
+            start_time,
+            end_time,
+            status,
+            site_name,
+            site_address,
+            hire_type,
+            lift_type,
+            notes,
+            invoice_subtotal,
+            invoice_amount,
+            total_invoice,
+            price_mode,
+            price_per_day,
+            exclude_weekends,
+            archived,
+            clients:client_id (company_name)
+          ),
+          operators:operator_id (id, full_name),
+          cranes:crane_id (id, name, reg_number)
+        `),
+
+      supabase
         .from("operators")
         .select("id, full_name")
         .eq("archived", false)
@@ -317,8 +419,11 @@ export async function GET(req: Request) {
     if (jobsRes.error) {
       return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
     }
-    if (allocationsRes.error) {
-      return NextResponse.json({ error: allocationsRes.error.message }, { status: 400 });
+    if (equipmentAllocationsRes.error) {
+      return NextResponse.json({ error: equipmentAllocationsRes.error.message }, { status: 400 });
+    }
+    if (jobAllocationsRes.error) {
+      return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
     }
     if (operatorsRes.error) {
       return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
@@ -328,7 +433,10 @@ export async function GET(req: Request) {
     }
 
     const jobs = jobsRes.data ?? [];
-    const allocations = allocationsRes.data ?? [];
+    const allocations = [
+      ...(equipmentAllocationsRes.data ?? []).map(normaliseJobEquipmentRow),
+      ...(jobAllocationsRes.data ?? []).map(normaliseJobAllocationsRow),
+    ];
     const operators = operatorsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
 
@@ -353,20 +461,6 @@ export async function GET(req: Request) {
     const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
     const activeJobById = new Map<string, any>(
       activeJobs.map((job: any) => [String(job.id), job])
-    );
-
-    const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
-      activeJobById.has(String(row.job_id))
-    );
-
-    const jobsWithAnyAllocationRows = new Set(
-      allAllocationRowsForActiveJobs.map((row: any) => String(row.job_id))
-    );
-
-    const jobsWithAnyCraneAllocationRows = new Set(
-      allAllocationRowsForActiveJobs
-        .filter((row: any) => looksLikeCraneAllocation(row))
-        .map((row: any) => String(row.job_id))
     );
 
     const jobsInRange = activeJobs
@@ -408,7 +502,7 @@ export async function GET(req: Request) {
         };
       });
 
-    const activeAllocations = allAllocationRowsForActiveJobs.filter((row: any) => {
+    const activeAllocations = allocations.filter((row: any) => {
       const linkedJob = activeJobById.get(String(row.job_id));
       if (!linkedJob) return false;
 
@@ -431,6 +525,16 @@ export async function GET(req: Request) {
       );
     });
 
+    const jobsWithAnyAllocationRows = new Set(
+      activeAllocations.map((row: any) => String(row.job_id))
+    );
+
+    const jobsWithAnyCraneAllocationRows = new Set(
+      activeAllocations
+        .filter((row: any) => looksLikeCraneAllocation(row))
+        .map((row: any) => String(row.job_id))
+    );
+
     const craneAllocationRows = activeAllocations.filter((row: any) => looksLikeCraneAllocation(row));
     const labourAllocationRows = activeAllocations.filter((row: any) => {
       if (!looksLikeLabourAllocation(row)) return false;
@@ -451,8 +555,9 @@ export async function GET(req: Request) {
       const excludeWeekends = Boolean(job?.exclude_weekends);
 
       return {
-        id: `alloc_${row.id}_${rowCraneId ?? "none"}`,
+        id: `alloc_${row.allocation_source}_${row.id}_${rowCraneId ?? "none"}`,
         allocation_id: row.id,
+        allocation_source: row.allocation_source,
         job_id: row.job_id,
         job_number: job?.job_number ?? null,
         job_date: dateBounds.start || null,
@@ -470,7 +575,7 @@ export async function GET(req: Request) {
         operators: operator ? [operator] : [],
         equipment: crane ? [crane] : [],
         agreed_sell_rate: num(row.agreed_sell_rate),
-        supplier_cost: num(row.supplier_cost ?? row.agreed_cost),
+        supplier_cost: num(row.supplier_cost),
         price_mode: job?.price_mode ?? "full_job",
         price_per_day: num(job?.price_per_day),
         job_price: effectiveJobPrice(job),
@@ -498,8 +603,9 @@ export async function GET(req: Request) {
       const excludeWeekends = Boolean(job?.exclude_weekends);
 
       return {
-        id: `labour_${row.id}`,
+        id: `labour_${row.allocation_source}_${row.id}`,
         allocation_id: row.id,
+        allocation_source: row.allocation_source,
         job_id: row.job_id,
         job_number: job?.job_number ?? null,
         job_date: dateBounds.start || null,
@@ -517,7 +623,7 @@ export async function GET(req: Request) {
         operators: operator ? [operator] : [],
         equipment: [],
         agreed_sell_rate: num(row.agreed_sell_rate),
-        supplier_cost: num(row.supplier_cost ?? row.agreed_cost),
+        supplier_cost: num(row.supplier_cost),
         price_mode: job?.price_mode ?? "full_job",
         price_per_day: num(job?.price_per_day),
         job_price: effectiveJobPrice(job),
@@ -550,6 +656,7 @@ export async function GET(req: Request) {
           {
             id: `job_${job.id}_${mainCraneId}`,
             allocation_id: null,
+            allocation_source: null,
             job_id: job.id,
             job_number: job.job_number ?? null,
             job_date: dateBounds.start || null,
@@ -586,6 +693,7 @@ export async function GET(req: Request) {
         {
           id: `job_${job.id}`,
           allocation_id: null,
+          allocation_source: null,
           job_id: job.id,
           job_number: job.job_number ?? null,
           job_date: dateBounds.start || null,
