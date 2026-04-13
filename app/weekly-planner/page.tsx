@@ -30,6 +30,11 @@ type CraneJob = {
         vehicle: { name: string | null; reg_number: string | null } | { name: string | null; reg_number: string | null }[] | null;
         equipment: { name: string | null; asset_number: string | null } | { name: string | null; asset_number: string | null }[] | null;
         operator: { full_name: string | null } | { full_name: string | null }[] | null;
+        start_date: string | null;
+        end_date: string | null;
+        start_time: string | null;
+        end_time: string | null;
+        agreed_sell_rate: number | null;
       }[]
     | null;
 };
@@ -143,6 +148,41 @@ function countBillableDays(
   excludeWeekends: boolean
 ) {
   return activeWorkingDates(startDate, endDate, excludeWeekends).length;
+}
+
+function allocationWorkingDates(
+  row: {
+    start_date?: string | null;
+    end_date?: string | null;
+  } | null | undefined,
+  job: {
+    start_date?: string | null;
+    end_date?: string | null;
+    job_date?: string | null;
+    exclude_weekends?: boolean | null;
+  }
+) {
+  return activeWorkingDates(
+    row?.start_date ?? job.start_date ?? job.job_date ?? null,
+    row?.end_date ?? row?.start_date ?? job.end_date ?? job.start_date ?? job.job_date ?? null,
+    Boolean(job.exclude_weekends)
+  );
+}
+
+function dayHasAllocation(
+  row: {
+    start_date?: string | null;
+    end_date?: string | null;
+  } | null | undefined,
+  job: {
+    start_date?: string | null;
+    end_date?: string | null;
+    job_date?: string | null;
+    exclude_weekends?: boolean | null;
+  },
+  dayIso: string
+) {
+  return allocationWorkingDates(row, job).includes(dayIso);
 }
 
 function effectiveCraneJobValue(job: CraneJob) {
@@ -284,6 +324,11 @@ export default async function WeeklyPlannerPage({
             asset_type,
             item_name,
             operator_id,
+            start_date,
+            end_date,
+            start_time,
+            end_time,
+            agreed_sell_rate,
             crane:crane_id (
               name,
               reg_number
@@ -378,40 +423,42 @@ export default async function WeeklyPlannerPage({
 
   for (const job of craneRows) {
     const clientName = first(job.client)?.company_name ?? "No customer";
-    const workingDates = activeWorkingDates(
+    const jobWorkingDates = activeWorkingDates(
       job.start_date ?? job.job_date,
       job.end_date ?? job.start_date ?? job.job_date,
       Boolean(job.exclude_weekends)
     ).filter((d) => d >= weekStartIso && d <= weekEndIso);
 
     const allocations = Array.isArray(job.job_equipment) ? job.job_equipment : [];
-    const craneAssets = allocations
-      .filter((row) => {
-        const type = String(row.asset_type ?? "").toLowerCase();
-        return type === "crane" || type === "vehicle";
-      })
-      .map((row) => {
-        const type = String(row.asset_type ?? "").toLowerCase();
-        if (type === "vehicle") {
-          const vehicle = first(row.vehicle);
-          return vehicle?.name ? vehicle.name : row.item_name || "HIAB";
-        }
-        const crane = first(row.crane);
-        return crane?.name ? crane.name : row.item_name || "Unassigned crane";
-      });
+    const craneAllocations = allocations.filter((row) => {
+      const type = String(row.asset_type ?? "").toLowerCase();
+      return type === "crane" || type === "vehicle";
+    });
 
     const labourRows = allocations.filter(
       (row) => String(row.asset_type ?? "").toLowerCase() === "other"
     );
     labourRowsTotal += labourRows.length;
 
-    for (const d of workingDates) {
+    for (const d of jobWorkingDates) {
+      const dayCraneAssets = craneAllocations
+        .filter((row) => dayHasAllocation(row, job, d))
+        .map((row) => {
+          const type = String(row.asset_type ?? "").toLowerCase();
+          if (type === "vehicle") {
+            const vehicle = first(row.vehicle);
+            return vehicle?.name ? vehicle.name : row.item_name || "HIAB";
+          }
+          const crane = first(row.crane);
+          return crane?.name ? crane.name : row.item_name || "Unassigned crane";
+        });
+
       itemsByDay[d].push({
         id: `crane-${job.id}-${d}`,
         href: `/jobs/${job.id}`,
         kind: "crane",
         title: `#${job.job_number ?? ""} ${clientName}`.trim(),
-        assetText: craneAssets.length > 0 ? craneAssets.join(", ") : "Unassigned crane",
+        assetText: dayCraneAssets.length > 0 ? dayCraneAssets.join(", ") : "Unassigned crane",
         siteText: job.site_name || "No site",
         timeText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
         valueText: money(effectiveCraneJobValue(job)),
@@ -422,11 +469,9 @@ export default async function WeeklyPlannerPage({
     for (const labour of labourRows) {
       const operatorName = first(labour.operator)?.full_name ?? "Unassigned";
 
-      const labourDates = activeWorkingDates(
-        job.start_date ?? job.job_date,
-        job.end_date ?? job.start_date ?? job.job_date,
-        Boolean(job.exclude_weekends)
-      ).filter((d) => d >= weekStartIso && d <= weekEndIso);
+      const labourDates = allocationWorkingDates(labour, job).filter(
+        (d) => d >= weekStartIso && d <= weekEndIso
+      );
 
       for (const d of labourDates) {
         itemsByDay[d].push({
@@ -436,9 +481,9 @@ export default async function WeeklyPlannerPage({
           title: `${labour.item_name || "Labour"} ${clientName}`.trim(),
           assetText: operatorName,
           siteText: job.site_name || "No site",
-          timeText: `${job.start_time ?? "—"}-${job.end_time ?? "—"}`,
-          valueText: "",
-          sortTime: job.start_time ?? "99:99",
+          timeText: `${labour.start_time ?? job.start_time ?? "—"}-${labour.end_time ?? job.end_time ?? "—"}`,
+          valueText: labour.agreed_sell_rate ? money(labour.agreed_sell_rate) : "",
+          sortTime: labour.start_time ?? job.start_time ?? "99:99",
         });
       }
     }
