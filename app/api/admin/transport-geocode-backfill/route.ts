@@ -2,8 +2,44 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
 
+const UK_BOUNDS = {
+  minLat: 49.5,
+  maxLat: 61.5,
+  minLng: -8.8,
+  maxLng: 2.5,
+};
+
 function clean(value: any) {
   return String(value ?? "").trim();
+}
+
+function toNumber(value: any) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function hasUkPostcode(value: string) {
+  return /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(clean(value));
+}
+
+function isLikelyUkCoordinate(lat: any, lng: any) {
+  const nextLat = toNumber(lat);
+  const nextLng = toNumber(lng);
+
+  return (
+    nextLat !== null &&
+    nextLng !== null &&
+    nextLat >= UK_BOUNDS.minLat &&
+    nextLat <= UK_BOUNDS.maxLat &&
+    nextLng >= UK_BOUNDS.minLng &&
+    nextLng <= UK_BOUNDS.maxLng
+  );
+}
+
+function shouldRefreshPoint(address: string, lat: any, lng: any) {
+  if (toNumber(lat) === null || toNumber(lng) === null) return true;
+  if (hasUkPostcode(address) && !isLikelyUkCoordinate(lat, lng)) return true;
+  return false;
 }
 
 async function requireAdmin() {
@@ -30,7 +66,7 @@ async function requireAdmin() {
   return { ok: true as const, supabase };
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const auth = await requireAdmin();
     if (!auth.ok) {
@@ -38,6 +74,8 @@ export async function POST() {
     }
 
     const supabase = auth.supabase;
+    const body = await req.json().catch(() => null);
+    const force = body?.force !== false;
 
     const { data: rows, error } = await supabase
       .from("transport_jobs")
@@ -48,18 +86,11 @@ export async function POST() {
         collection_lat,
         collection_lng,
         delivery_lat,
-        delivery_lng
+        delivery_lng,
+        created_at
       `)
-      .or(
-        [
-          "collection_lat.is.null",
-          "collection_lng.is.null",
-          "delivery_lat.is.null",
-          "delivery_lng.is.null",
-        ].join(",")
-      )
       .order("created_at", { ascending: false })
-      .limit(500);
+      .limit(force ? 1000 : 500);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
@@ -73,27 +104,49 @@ export async function POST() {
       const pickupAddress = clean((row as any).collection_address);
       const deliveryAddress = clean((row as any).delivery_address);
 
-      const currentPickupOk =
-        (row as any).collection_lat != null && (row as any).collection_lng != null;
+      const refreshPickup =
+        !!pickupAddress &&
+        (force ||
+          shouldRefreshPoint(
+            pickupAddress,
+            (row as any).collection_lat,
+            (row as any).collection_lng
+          ));
 
-      const currentDeliveryOk =
-        (row as any).delivery_lat != null && (row as any).delivery_lng != null;
+      const refreshDelivery =
+        !!deliveryAddress &&
+        (force ||
+          shouldRefreshPoint(
+            deliveryAddress,
+            (row as any).delivery_lat,
+            (row as any).delivery_lng
+          ));
 
-      const pickupCoords =
-        !currentPickupOk && pickupAddress ? await geocodeAddress(pickupAddress) : null;
+      if (!refreshPickup && !refreshDelivery) {
+        skipped += 1;
+        continue;
+      }
 
-      const deliveryCoords =
-        !currentDeliveryOk && deliveryAddress ? await geocodeAddress(deliveryAddress) : null;
+      const pickupCoords = refreshPickup
+        ? await geocodeAddress(pickupAddress)
+        : null;
+      const deliveryCoords = refreshDelivery
+        ? await geocodeAddress(deliveryAddress)
+        : null;
 
-      const nextCollectionLat =
-        currentPickupOk ? (row as any).collection_lat : pickupCoords?.lat ?? null;
-      const nextCollectionLng =
-        currentPickupOk ? (row as any).collection_lng : pickupCoords?.lng ?? null;
+      const nextCollectionLat = refreshPickup
+        ? pickupCoords?.lat ?? null
+        : (row as any).collection_lat;
+      const nextCollectionLng = refreshPickup
+        ? pickupCoords?.lng ?? null
+        : (row as any).collection_lng;
 
-      const nextDeliveryLat =
-        currentDeliveryOk ? (row as any).delivery_lat : deliveryCoords?.lat ?? null;
-      const nextDeliveryLng =
-        currentDeliveryOk ? (row as any).delivery_lng : deliveryCoords?.lng ?? null;
+      const nextDeliveryLat = refreshDelivery
+        ? deliveryCoords?.lat ?? null
+        : (row as any).delivery_lat;
+      const nextDeliveryLng = refreshDelivery
+        ? deliveryCoords?.lng ?? null
+        : (row as any).delivery_lng;
 
       const changed =
         nextCollectionLat !== (row as any).collection_lat ||
@@ -133,6 +186,7 @@ export async function POST() {
       checked: (rows ?? []).length,
       updated,
       skipped,
+      force,
       failures,
     });
   } catch (e: any) {
