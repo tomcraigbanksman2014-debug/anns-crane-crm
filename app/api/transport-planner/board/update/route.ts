@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { geocodeAddress } from "../../../../lib/geocode";
 
 function clean(value: any) {
   const s = String(value ?? "").trim();
@@ -71,10 +72,20 @@ export async function POST(req: Request) {
 
     if ("collection_address" in body) {
       updatePayload.collection_address = clean(body.collection_address);
+      const pickupCoords = updatePayload.collection_address
+        ? await geocodeAddress(updatePayload.collection_address)
+        : null;
+      updatePayload.collection_lat = pickupCoords?.lat ?? null;
+      updatePayload.collection_lng = pickupCoords?.lng ?? null;
     }
 
     if ("delivery_address" in body) {
       updatePayload.delivery_address = clean(body.delivery_address);
+      const deliveryCoords = updatePayload.delivery_address
+        ? await geocodeAddress(updatePayload.delivery_address)
+        : null;
+      updatePayload.delivery_lat = deliveryCoords?.lat ?? null;
+      updatePayload.delivery_lng = deliveryCoords?.lng ?? null;
     }
 
     if ("load_description" in body) {
@@ -85,13 +96,16 @@ export async function POST(req: Request) {
       updatePayload.notes = clean(body.notes);
     }
 
-    const effectiveTransportDate = updatePayload.transport_date ?? clean(body.transport_date);
-    const effectiveCollectionTime = updatePayload.collection_time ?? clean(body.collection_time);
+    const effectiveTransportDate =
+      updatePayload.transport_date ?? clean(body.transport_date);
+    const effectiveCollectionTime =
+      updatePayload.collection_time ?? clean(body.collection_time);
     const effectiveDeliveryDate =
       updatePayload.delivery_date ??
       clean(body.delivery_date) ??
       effectiveTransportDate;
-    const effectiveDeliveryTime = updatePayload.delivery_time ?? clean(body.delivery_time);
+    const effectiveDeliveryTime =
+      updatePayload.delivery_time ?? clean(body.delivery_time);
 
     const collectionDateTime = parseDateTime(
       effectiveTransportDate,
