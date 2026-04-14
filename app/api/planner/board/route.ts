@@ -459,9 +459,21 @@ export async function GET(req: Request) {
     });
 
     const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
-    const activeJobById = new Map<string, any>(
-      activeJobs.map((job: any) => [String(job.id), job])
-    );
+    const allocationLinkedJobs = allocations
+      .map((row: any) => first(row.jobs))
+      .filter((job: any) => job && isPlannerVisibleStatus(job?.status));
+
+    const activeJobById = new Map<string, any>();
+
+    for (const job of activeJobs) {
+      activeJobById.set(String(job.id), job);
+    }
+
+    for (const job of allocationLinkedJobs) {
+      if (!activeJobById.has(String(job.id))) {
+        activeJobById.set(String(job.id), job);
+      }
+    }
 
     const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
       activeJobById.has(String(row.job_id))
