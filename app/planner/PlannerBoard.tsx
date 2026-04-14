@@ -218,7 +218,7 @@ function formatWorkingDays(item: PlannerItem) {
   return `${dates[0]} → ${dates[dates.length - 1]} • ${dates.length} day${dates.length === 1 ? "" : "s"}`;
 }
 
-function shiftedEndDateForDays(
+function shiftedEndDateByDays(
   newStartIso: string,
   billableDays: number,
   excludeWeekends: boolean
@@ -228,8 +228,9 @@ function shiftedEndDateForDays(
 
   const cursor = new Date(start);
   let counted = 1;
+  const totalDays = Math.max(billableDays, 1);
 
-  while (counted < billableDays) {
+  while (counted < totalDays) {
     cursor.setDate(cursor.getDate() + 1);
     if (!excludeWeekends || !isWeekend(cursor)) {
       counted += 1;
@@ -239,22 +240,23 @@ function shiftedEndDateForDays(
   return isoDateLocal(cursor);
 }
 
-function countMovedDays(item: PlannerItem, sourceDayIso: string) {
-  const workingDates = Array.isArray(item.working_dates) ? item.working_dates : [];
-  if (workingDates.length > 0) {
-    const remaining = workingDates.filter((date) => date >= sourceDayIso);
-    if (remaining.length > 0) return remaining.length;
+function segmentBillableDays(item: PlannerItem, sourceDayIso: string) {
+  const explicitDates = Array.isArray(item.working_dates) ? item.working_dates : [];
+  if (explicitDates.length > 0) {
+    const count = explicitDates.filter((date) => date >= sourceDayIso).length;
+    return Math.max(count, 1);
   }
 
+  const endIso = String(item.end_date ?? item.start_date ?? item.job_date ?? "").trim();
   const start = parseDateOnly(sourceDayIso);
-  const end = parseDateOnly(item.end_date ?? item.start_date ?? item.job_date ?? sourceDayIso);
+  const end = parseDateOnly(endIso);
 
-  if (!start || !end || end < start) {
+  if (!start || !end) {
     return Math.max(Number(item.billable_days ?? 0), 1);
   }
 
-  let count = 0;
   const cursor = new Date(start);
+  let count = 0;
 
   while (cursor <= end) {
     if (!item.exclude_weekends || !isWeekend(cursor)) {
@@ -264,14 +266,6 @@ function countMovedDays(item: PlannerItem, sourceDayIso: string) {
   }
 
   return Math.max(count, 1);
-}
-
-function shiftedEndDate(item: PlannerItem, newStartIso: string, billableDays?: number) {
-  return shiftedEndDateForDays(
-    newStartIso,
-    Math.max(Number(billableDays ?? item.billable_days ?? 0), 1),
-    Boolean(item.exclude_weekends)
-  );
 }
 
 function actionLabel(item: PlannerItem) {
@@ -293,7 +287,7 @@ export default function PlannerBoard() {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [draggingDay, setDraggingDay] = useState<string | null>(null);
+  const [dragSourceDay, setDragSourceDay] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -428,23 +422,40 @@ export default function PlannerBoard() {
     messageTimerRef.current = window.setTimeout(() => setMessage(""), 2500);
   }
 
-  async function movePlannerItem(item: PlannerItem, target: DropTarget, sourceDayOverride?: string | null) {
+  async function movePlannerItem(
+    item: PlannerItem,
+    target: DropTarget,
+    sourceDayOverride?: string | null
+  ) {
     if (movingId) return;
 
-    const sourceDay = String(
-      sourceDayOverride ?? draggingDay ?? item.start_date ?? item.job_date ?? target.dayIso
-    );
-    const movedDays = countMovedDays(item, sourceDay);
+    const sourceDay =
+      String(
+        sourceDayOverride ??
+          dragSourceDay ??
+          item.start_date ??
+          item.job_date ??
+          target.dayIso
+      ).trim() || target.dayIso;
+    const segmentDays = segmentBillableDays(item, sourceDay);
     const nextStart = target.dayIso;
-    const nextEnd = shiftedEndDate(item, nextStart, movedDays);
+    const nextEnd = shiftedEndDateByDays(nextStart, segmentDays, Boolean(item.exclude_weekends));
     const nextEquipmentId = target.equipmentId;
+    const sourceSegmentEnd =
+      Array.isArray(item.working_dates) && item.working_dates.length > 0
+        ? item.working_dates[item.working_dates.length - 1]
+        : String(item.end_date ?? item.start_date ?? item.job_date ?? sourceDay).trim();
 
     const alreadySame =
       String(item.equipment_id ?? "") === String(nextEquipmentId ?? "") &&
-      String(item.start_date ?? item.job_date ?? "") === nextStart &&
-      String(item.end_date ?? item.start_date ?? item.job_date ?? "") === nextEnd;
+      sourceDay === nextStart &&
+      String(sourceSegmentEnd ?? "") === nextEnd;
 
-    if (alreadySame) return;
+    if (alreadySame) {
+      setDraggingId(null);
+      setDragSourceDay(null);
+      return;
+    }
 
     setMovingId(item.id);
     setOpenMenuId(null);
@@ -461,6 +472,7 @@ export default function PlannerBoard() {
           job_id: item.job_id,
           equipment_id: nextEquipmentId ?? "",
           operator_id: item.operator_id ?? "",
+          source_day: sourceDay,
           job_date: nextStart,
           start_date: nextStart,
           end_date: nextEnd,
@@ -468,9 +480,6 @@ export default function PlannerBoard() {
           end_time: item.end_time ?? "",
           status: item.status ?? "",
           planner_group: item.planner_group ?? "",
-          source_day: sourceDay,
-          moved_days: movedDays,
-          exclude_weekends: Boolean(item.exclude_weekends),
         }),
       });
 
@@ -487,7 +496,7 @@ export default function PlannerBoard() {
     } finally {
       setMovingId(null);
       setDraggingId(null);
-      setDraggingDay(null);
+      setDragSourceDay(null);
     }
   }
 
@@ -559,22 +568,22 @@ export default function PlannerBoard() {
   function onDragStart(
     e: React.DragEvent<HTMLDivElement>,
     item: PlannerItem,
-    sourceDayIso?: string | null
+    visibleDayIso?: string | null
   ) {
     if (isNoDragTarget(e.target)) {
       e.preventDefault();
       return;
     }
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/plain", item.id);
     setDraggingId(item.id);
-    setDraggingDay(sourceDayIso ?? item.start_date ?? item.job_date ?? null);
+    setDragSourceDay(
+      String(visibleDayIso ?? item.start_date ?? item.job_date ?? "").trim() || null
+    );
     setOpenMenuId(null);
   }
 
   function onDragEnd() {
     setDraggingId(null);
-    setDraggingDay(null);
+    setDragSourceDay(null);
   }
 
   function renderMenu(item: PlannerItem) {
@@ -645,10 +654,14 @@ export default function PlannerBoard() {
                 onPointerDown={noDragDown}
                 onClick={(e) => {
                   noDragClick(e);
-                  movePlannerItem(item, {
-                    equipmentId: null,
-                    dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
-                  });
+                  movePlannerItem(
+                    item,
+                    {
+                      equipmentId: null,
+                      dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
+                    },
+                    String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart)
+                  );
                 }}
               >
                 Remove crane assignment
@@ -660,14 +673,14 @@ export default function PlannerBoard() {
     );
   }
 
-  function renderCard(item: PlannerItem, compact = false, dragDayIso?: string | null) {
+  function renderCard(item: PlannerItem, compact = false, visibleDayIso?: string | null) {
     return (
       <div
         key={item.id}
         draggable={openMenuId !== item.id && movingId !== item.id}
         onMouseDownCapture={stopNoDragEvent}
         onPointerDownCapture={stopNoDragEvent}
-        onDragStart={(e) => onDragStart(e, item, dragDayIso)}
+        onDragStart={(e) => onDragStart(e, item, visibleDayIso)}
         onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : fullJobCard),
@@ -829,10 +842,14 @@ export default function PlannerBoard() {
                 e.preventDefault();
                 const item = (data?.items ?? []).find((row) => row.id === draggingId);
                 if (item) {
-                  movePlannerItem(item, {
-                    equipmentId: null,
-                    dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
-                  });
+                  movePlannerItem(
+                    item,
+                    {
+                      equipmentId: null,
+                      dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
+                    },
+                    String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart)
+                  );
                 }
               }}
             >
@@ -844,7 +861,7 @@ export default function PlannerBoard() {
                       <div style={pillNeutral}>{formatDateRange(item)}</div>
                       <div style={pillNeutral}>{formatWorkingDays(item)}</div>
                     </div>
-                    {renderCard(item, false, String(item.start_date ?? item.job_date ?? weekStart))}
+                    {renderCard(item, false, activeDay.date)}
                   </div>
                 ))
               ) : (
