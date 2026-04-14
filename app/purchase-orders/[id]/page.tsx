@@ -238,12 +238,18 @@ export default async function PurchaseOrderDetailPage({
         jobs:job_id (
           id,
           job_number,
-          site_name
+          site_name,
+          site_address,
+          job_date
         ),
         transport_jobs:transport_job_id (
           id,
           transport_number,
-          transport_date
+          transport_date,
+          delivery_date,
+          collection_address,
+          delivery_address,
+          job_type
         )
       `)
       .eq("id", params.id)
@@ -276,6 +282,15 @@ export default async function PurchaseOrderDetailPage({
   const supplier = first((po as any)?.suppliers);
   const linkedJob = first((po as any)?.jobs);
   const linkedTransportJob = first((po as any)?.transport_jobs);
+
+  const linkedAddress = linkedJob?.site_address ?? linkedTransportJob?.collection_address ?? "";
+  const linkedDeliveryAddress =
+    linkedTransportJob?.delivery_address && linkedTransportJob.delivery_address !== linkedTransportJob.collection_address
+      ? linkedTransportJob.delivery_address
+      : "";
+  const linkedSiteLabel = linkedJob?.site_name
+    ?? (linkedTransportJob?.job_type === "on_site_hiab" ? "On-site HIAB" : linkedTransportJob ? "Transport job" : "");
+  const linkedDate = linkedJob?.job_date ?? linkedTransportJob?.transport_date ?? linkedTransportJob?.delivery_date ?? "";
 
   const successMessage = searchParams?.success
     ? decodeURIComponent(searchParams.success)
@@ -355,8 +370,24 @@ export default async function PurchaseOrderDetailPage({
           {!po ? (
             <div style={errorBox}>Purchase order not found.</div>
           ) : (
-            <section style={sectionCard}>
-              <form action={updatePurchaseOrder} style={{ display: "grid", gap: 14 }}>
+            <>
+              <section style={{ ...sectionCard, marginBottom: 16 }}>
+                <div style={linkedInfoGrid}>
+                  <InfoCard
+                    label={linkedTransportJob ? "Transport number" : "Job number"}
+                    value={linkedTransportJob?.transport_number ?? linkedJob?.job_number ?? "—"}
+                  />
+                  <InfoCard label="Site" value={linkedSiteLabel || "—"} />
+                  <InfoCard label="Address" value={linkedAddress || "—"} />
+                  <InfoCard
+                    label={linkedTransportJob ? "Delivery address" : "Job date"}
+                    value={linkedTransportJob ? (linkedDeliveryAddress || linkedAddress || "—") : (linkedDate || "—")}
+                  />
+                </div>
+              </section>
+
+                <section style={sectionCard}>
+                <form action={updatePurchaseOrder} style={{ display: "grid", gap: 14 }}>
                 <input type="hidden" name="id" value={po.id} />
                 <input type="hidden" name="po_number_display" value={po.po_number ?? ""} />
 
@@ -456,12 +487,28 @@ export default async function PurchaseOrderDetailPage({
                     Update purchase order
                   </ServerSubmitButton>
                 </div>
-              </form>
-            </section>
+                </form>
+              </section>
+            </>
           )}
         </div>
       </div>
     </ClientShell>
+  );
+}
+
+function InfoCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div style={linkedInfoCard}>
+      <div style={linkedInfoLabel}>{label}</div>
+      <div style={linkedInfoValue}>{value}</div>
+    </div>
   );
 }
 
@@ -593,6 +640,33 @@ const textareaStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
+};
+
+const linkedInfoGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const linkedInfoCard: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.6)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  minHeight: 78,
+};
+
+const linkedInfoLabel: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.7,
+  marginBottom: 6,
+};
+
+const linkedInfoValue: React.CSSProperties = {
+  fontWeight: 700,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
 };
 
 const primaryBtn: React.CSSProperties = {
