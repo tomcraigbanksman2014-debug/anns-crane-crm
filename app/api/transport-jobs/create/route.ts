@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { geocodeAddress } from "../../../lib/geocode";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -59,15 +60,21 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid request body." },
+        { status: 400 }
+      );
     }
 
     const now = new Date();
-    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-      now.getDate()
-    ).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(
-      now.getMinutes()
-    ).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(
+      2,
+      "0"
+    )}${String(now.getDate()).padStart(2, "0")}-${String(
+      now.getHours()
+    ).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(
+      now.getSeconds()
+    ).padStart(2, "0")}`;
 
     const collectionTime = clean(body.collection_time);
     const deliveryTime = clean(body.delivery_time);
@@ -89,15 +96,31 @@ export async function POST(req: Request) {
     }
 
     const agreedSellRate =
-      numberOrNull(body.agreed_sell_rate) ??
-      numberOrNull(body.price) ??
-      0;
+      numberOrNull(body.agreed_sell_rate) ?? numberOrNull(body.price) ?? 0;
 
     const invoiceVat = numberOrNull(body.invoice_vat) ?? 0;
     const invoiceSubtotal =
       numberOrNull(body.invoice_subtotal) ?? agreedSellRate;
     const totalInvoice =
       numberOrNull(body.total_invoice) ?? invoiceSubtotal + invoiceVat;
+
+    const collectionAddress = clean(body.collection_address);
+    const deliveryAddress = clean(body.delivery_address);
+
+    const collectionLat = numberOrNull(body.collection_lat);
+    const collectionLng = numberOrNull(body.collection_lng);
+    const deliveryLat = numberOrNull(body.delivery_lat);
+    const deliveryLng = numberOrNull(body.delivery_lng);
+
+    const collectionCoords =
+      collectionAddress && (collectionLat === null || collectionLng === null)
+        ? await geocodeAddress(collectionAddress)
+        : null;
+
+    const deliveryCoords =
+      deliveryAddress && (deliveryLat === null || deliveryLng === null)
+        ? await geocodeAddress(deliveryAddress)
+        : null;
 
     const payload: Record<string, any> = {
       transport_number: clean(body.transport_number) || `TR-${stamp}`,
@@ -107,8 +130,8 @@ export async function POST(req: Request) {
       vehicle_id: clean(body.vehicle_id),
       operator_id: clean(body.operator_id),
       job_type: clean(body.job_type),
-      collection_address: clean(body.collection_address),
-      delivery_address: clean(body.delivery_address),
+      collection_address: collectionAddress,
+      delivery_address: deliveryAddress,
       transport_date: clean(body.transport_date),
       collection_time: collectionTime,
       delivery_time: deliveryTime,
@@ -127,10 +150,10 @@ export async function POST(req: Request) {
       invoice_subtotal: invoiceSubtotal,
       invoice_vat: invoiceVat,
       total_invoice: totalInvoice,
-      collection_lat: numberOrNull(body.collection_lat),
-      collection_lng: numberOrNull(body.collection_lng),
-      delivery_lat: numberOrNull(body.delivery_lat),
-      delivery_lng: numberOrNull(body.delivery_lng),
+      collection_lat: collectionLat ?? collectionCoords?.lat ?? null,
+      collection_lng: collectionLng ?? collectionCoords?.lng ?? null,
+      delivery_lat: deliveryLat ?? deliveryCoords?.lat ?? null,
+      delivery_lng: deliveryLng ?? deliveryCoords?.lng ?? null,
       archived: false,
       updated_at: new Date().toISOString(),
     };
