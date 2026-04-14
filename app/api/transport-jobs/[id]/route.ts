@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { geocodeAddress } from "../../../lib/geocode";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -62,7 +63,10 @@ export async function PATCH(
 
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid request body." },
+        { status: 400 }
+      );
     }
 
     const existingRes = await supabase
@@ -72,10 +76,63 @@ export async function PATCH(
       .single();
 
     if (existingRes.error || !existingRes.data) {
-      return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Transport job not found." },
+        { status: 404 }
+      );
     }
 
     const existing = existingRes.data;
+
+    const nextCollectionAddress =
+      body.collection_address !== undefined
+        ? clean(body.collection_address)
+        : existing.collection_address;
+
+    const nextDeliveryAddress =
+      body.delivery_address !== undefined
+        ? clean(body.delivery_address)
+        : existing.delivery_address;
+
+    const requestedCollectionLat =
+      body.collection_lat !== undefined
+        ? numberOrNull(body.collection_lat)
+        : existing.collection_lat;
+
+    const requestedCollectionLng =
+      body.collection_lng !== undefined
+        ? numberOrNull(body.collection_lng)
+        : existing.collection_lng;
+
+    const requestedDeliveryLat =
+      body.delivery_lat !== undefined
+        ? numberOrNull(body.delivery_lat)
+        : existing.delivery_lat;
+
+    const requestedDeliveryLng =
+      body.delivery_lng !== undefined
+        ? numberOrNull(body.delivery_lng)
+        : existing.delivery_lng;
+
+    const shouldGeocodeCollection =
+      body.collection_address !== undefined &&
+      body.collection_lat === undefined &&
+      body.collection_lng === undefined;
+
+    const shouldGeocodeDelivery =
+      body.delivery_address !== undefined &&
+      body.delivery_lat === undefined &&
+      body.delivery_lng === undefined;
+
+    const collectionCoords =
+      shouldGeocodeCollection && nextCollectionAddress
+        ? await geocodeAddress(nextCollectionAddress)
+        : null;
+
+    const deliveryCoords =
+      shouldGeocodeDelivery && nextDeliveryAddress
+        ? await geocodeAddress(nextDeliveryAddress)
+        : null;
 
     const nextPayload: Record<string, any> = {
       transport_number:
@@ -88,24 +145,24 @@ export async function PATCH(
           : existing.linked_job_id,
       linked_transport_job_id:
         body.linked_transport_job_id !== undefined
-          ? (clean(body.linked_transport_job_id) === params.id ? null : clean(body.linked_transport_job_id))
+          ? clean(body.linked_transport_job_id) === params.id
+            ? null
+            : clean(body.linked_transport_job_id)
           : existing.linked_transport_job_id,
       client_id:
         body.client_id !== undefined ? clean(body.client_id) : existing.client_id,
       vehicle_id:
-        body.vehicle_id !== undefined ? clean(body.vehicle_id) : existing.vehicle_id,
+        body.vehicle_id !== undefined
+          ? clean(body.vehicle_id)
+          : existing.vehicle_id,
       operator_id:
-        body.operator_id !== undefined ? clean(body.operator_id) : existing.operator_id,
+        body.operator_id !== undefined
+          ? clean(body.operator_id)
+          : existing.operator_id,
       job_type:
         body.job_type !== undefined ? clean(body.job_type) : existing.job_type,
-      collection_address:
-        body.collection_address !== undefined
-          ? clean(body.collection_address)
-          : existing.collection_address,
-      delivery_address:
-        body.delivery_address !== undefined
-          ? clean(body.delivery_address)
-          : existing.delivery_address,
+      collection_address: nextCollectionAddress,
+      delivery_address: nextDeliveryAddress,
       transport_date:
         body.transport_date !== undefined
           ? clean(body.transport_date)
@@ -122,12 +179,15 @@ export async function PATCH(
         body.load_description !== undefined
           ? clean(body.load_description)
           : existing.load_description,
-      notes:
-        body.notes !== undefined ? clean(body.notes) : existing.notes,
+      notes: body.notes !== undefined ? clean(body.notes) : existing.notes,
       price:
-        body.price !== undefined ? numberOrNull(body.price) ?? 0 : existing.price ?? 0,
+        body.price !== undefined
+          ? numberOrNull(body.price) ?? 0
+          : existing.price ?? 0,
       supplier_id:
-        body.supplier_id !== undefined ? clean(body.supplier_id) : existing.supplier_id,
+        body.supplier_id !== undefined
+          ? clean(body.supplier_id)
+          : existing.supplier_id,
       supplier_reference:
         body.supplier_reference !== undefined
           ? clean(body.supplier_reference)
@@ -172,22 +232,10 @@ export async function PATCH(
         body.total_invoice !== undefined
           ? numberOrNull(body.total_invoice)
           : existing.total_invoice,
-      collection_lat:
-        body.collection_lat !== undefined
-          ? numberOrNull(body.collection_lat)
-          : existing.collection_lat,
-      collection_lng:
-        body.collection_lng !== undefined
-          ? numberOrNull(body.collection_lng)
-          : existing.collection_lng,
-      delivery_lat:
-        body.delivery_lat !== undefined
-          ? numberOrNull(body.delivery_lat)
-          : existing.delivery_lat,
-      delivery_lng:
-        body.delivery_lng !== undefined
-          ? numberOrNull(body.delivery_lng)
-          : existing.delivery_lng,
+      collection_lat: requestedCollectionLat ?? collectionCoords?.lat ?? null,
+      collection_lng: requestedCollectionLng ?? collectionCoords?.lng ?? null,
+      delivery_lat: requestedDeliveryLat ?? deliveryCoords?.lat ?? null,
+      delivery_lng: requestedDeliveryLng ?? deliveryCoords?.lng ?? null,
       archived:
         body.archived !== undefined ? !!body.archived : existing.archived,
     };
@@ -275,4 +323,4 @@ export async function DELETE(
       { status: 500 }
     );
   }
-}
+}+
