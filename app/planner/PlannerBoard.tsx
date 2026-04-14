@@ -12,6 +12,7 @@ type PlannerDay = {
 type PlannerItem = {
   id: string;
   allocation_id?: string | null;
+  allocation_source?: string | null;
   job_id: string;
   job_number?: number | string | null;
   job_date?: string | null;
@@ -217,8 +218,11 @@ function formatWorkingDays(item: PlannerItem) {
   return `${dates[0]} → ${dates[dates.length - 1]} • ${dates.length} day${dates.length === 1 ? "" : "s"}`;
 }
 
-function shiftedEndDate(item: PlannerItem, newStartIso: string) {
-  const billableDays = Math.max(Number(item.billable_days ?? 0), 1);
+function shiftedEndDateForDays(
+  newStartIso: string,
+  billableDays: number,
+  excludeWeekends: boolean
+) {
   const start = parseDateOnly(newStartIso);
   if (!start) return newStartIso;
 
@@ -227,12 +231,47 @@ function shiftedEndDate(item: PlannerItem, newStartIso: string) {
 
   while (counted < billableDays) {
     cursor.setDate(cursor.getDate() + 1);
-    if (!item.exclude_weekends || !isWeekend(cursor)) {
+    if (!excludeWeekends || !isWeekend(cursor)) {
       counted += 1;
     }
   }
 
   return isoDateLocal(cursor);
+}
+
+function countMovedDays(item: PlannerItem, sourceDayIso: string) {
+  const workingDates = Array.isArray(item.working_dates) ? item.working_dates : [];
+  if (workingDates.length > 0) {
+    const remaining = workingDates.filter((date) => date >= sourceDayIso);
+    if (remaining.length > 0) return remaining.length;
+  }
+
+  const start = parseDateOnly(sourceDayIso);
+  const end = parseDateOnly(item.end_date ?? item.start_date ?? item.job_date ?? sourceDayIso);
+
+  if (!start || !end || end < start) {
+    return Math.max(Number(item.billable_days ?? 0), 1);
+  }
+
+  let count = 0;
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    if (!item.exclude_weekends || !isWeekend(cursor)) {
+      count += 1;
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return Math.max(count, 1);
+}
+
+function shiftedEndDate(item: PlannerItem, newStartIso: string, billableDays?: number) {
+  return shiftedEndDateForDays(
+    newStartIso,
+    Math.max(Number(billableDays ?? item.billable_days ?? 0), 1),
+    Boolean(item.exclude_weekends)
+  );
 }
 
 function actionLabel(item: PlannerItem) {
@@ -254,6 +293,7 @@ export default function PlannerBoard() {
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [draggingDay, setDraggingDay] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -388,11 +428,15 @@ export default function PlannerBoard() {
     messageTimerRef.current = window.setTimeout(() => setMessage(""), 2500);
   }
 
-  async function movePlannerItem(item: PlannerItem, target: DropTarget) {
+  async function movePlannerItem(item: PlannerItem, target: DropTarget, sourceDayOverride?: string | null) {
     if (movingId) return;
 
+    const sourceDay = String(
+      sourceDayOverride ?? draggingDay ?? item.start_date ?? item.job_date ?? target.dayIso
+    );
+    const movedDays = countMovedDays(item, sourceDay);
     const nextStart = target.dayIso;
-    const nextEnd = shiftedEndDate(item, nextStart);
+    const nextEnd = shiftedEndDate(item, nextStart, movedDays);
     const nextEquipmentId = target.equipmentId;
 
     const alreadySame =
@@ -413,6 +457,7 @@ export default function PlannerBoard() {
         },
         body: JSON.stringify({
           allocation_id: item.allocation_id ?? null,
+          allocation_source: item.allocation_source ?? null,
           job_id: item.job_id,
           equipment_id: nextEquipmentId ?? "",
           operator_id: item.operator_id ?? "",
@@ -422,6 +467,10 @@ export default function PlannerBoard() {
           start_time: item.start_time ?? "",
           end_time: item.end_time ?? "",
           status: item.status ?? "",
+          planner_group: item.planner_group ?? "",
+          source_day: sourceDay,
+          moved_days: movedDays,
+          exclude_weekends: Boolean(item.exclude_weekends),
         }),
       });
 
@@ -438,6 +487,7 @@ export default function PlannerBoard() {
     } finally {
       setMovingId(null);
       setDraggingId(null);
+      setDraggingDay(null);
     }
   }
 
@@ -506,17 +556,25 @@ export default function PlannerBoard() {
     }
   }
 
-  function onDragStart(e: React.DragEvent<HTMLDivElement>, item: PlannerItem) {
+  function onDragStart(
+    e: React.DragEvent<HTMLDivElement>,
+    item: PlannerItem,
+    sourceDayIso?: string | null
+  ) {
     if (isNoDragTarget(e.target)) {
       e.preventDefault();
       return;
     }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", item.id);
     setDraggingId(item.id);
+    setDraggingDay(sourceDayIso ?? item.start_date ?? item.job_date ?? null);
     setOpenMenuId(null);
   }
 
   function onDragEnd() {
     setDraggingId(null);
+    setDraggingDay(null);
   }
 
   function renderMenu(item: PlannerItem) {
@@ -602,14 +660,14 @@ export default function PlannerBoard() {
     );
   }
 
-  function renderCard(item: PlannerItem, compact = false) {
+  function renderCard(item: PlannerItem, compact = false, dragDayIso?: string | null) {
     return (
       <div
         key={item.id}
         draggable={openMenuId !== item.id && movingId !== item.id}
         onMouseDownCapture={stopNoDragEvent}
         onPointerDownCapture={stopNoDragEvent}
-        onDragStart={(e) => onDragStart(e, item)}
+        onDragStart={(e) => onDragStart(e, item, dragDayIso)}
         onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : fullJobCard),
@@ -674,7 +732,7 @@ export default function PlannerBoard() {
           }
         }}
       >
-        {sortItemsByStartTime(items).map((item) => renderCard(item, true))}
+        {sortItemsByStartTime(items).map((item) => renderCard(item, true, target.dayIso))}
       </div>
     );
   }
@@ -786,7 +844,7 @@ export default function PlannerBoard() {
                       <div style={pillNeutral}>{formatDateRange(item)}</div>
                       <div style={pillNeutral}>{formatWorkingDays(item)}</div>
                     </div>
-                    {renderCard(item)}
+                    {renderCard(item, false, String(item.start_date ?? item.job_date ?? weekStart))}
                   </div>
                 ))
               ) : (
@@ -820,7 +878,7 @@ export default function PlannerBoard() {
                     ).map((item) => (
                       <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
                         <div style={pillLabour}>Labour only</div>
-                        {renderCard(item)}
+                        {renderCard(item, false, activeDay.date)}
                       </div>
                     ))}
                     {sortItemsByStartTime(
@@ -910,7 +968,7 @@ export default function PlannerBoard() {
                         }}
                       >
                         {dayItems.length > 0 ? (
-                          dayItems.map((item) => renderCard(item))
+                          dayItems.map((item) => renderCard(item, false, activeDay.date))
                         ) : (
                           <div style={emptyCellText}>No jobs</div>
                         )}
