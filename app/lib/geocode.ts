@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { geocodeAddress } from "../../../lib/geocode";
+export type GeocodeResult = {
+  lat: number;
+  lng: number;
+};
 
 const UK_BOUNDS = {
   minLat: 49.5,
@@ -9,190 +10,166 @@ const UK_BOUNDS = {
   maxLng: 2.5,
 };
 
-function clean(value: any) {
-  return String(value ?? "").trim();
+function cleanAddress(address: string) {
+  return String(address || "")
+    .replace(/[\r\n]+/g, ", ")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .replace(/,{2,}/g, ",")
+    .trim()
+    .replace(/^,+|,+$/g, "");
 }
 
-function toNumber(value: any) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+function normalisePostcode(value: string) {
+  return String(value || "").toUpperCase().replace(/\s+/g, "").trim();
 }
 
-function hasUkPostcode(value: string) {
-  return /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i.test(clean(value));
+function tryExtractPostcode(address: string) {
+  const match = cleanAddress(address).match(
+    /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i
+  );
+  return match ? match[1].toUpperCase().replace(/\s+/g, " ").trim() : "";
 }
 
-function isLikelyUkCoordinate(lat: any, lng: any) {
-  const nextLat = toNumber(lat);
-  const nextLng = toNumber(lng);
-
+function isLikelyUkCoordinate(lat: number, lng: number) {
   return (
-    nextLat !== null &&
-    nextLng !== null &&
-    nextLat >= UK_BOUNDS.minLat &&
-    nextLat <= UK_BOUNDS.maxLat &&
-    nextLng >= UK_BOUNDS.minLng &&
-    nextLng <= UK_BOUNDS.maxLng
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= UK_BOUNDS.minLat &&
+    lat <= UK_BOUNDS.maxLat &&
+    lng >= UK_BOUNDS.minLng &&
+    lng <= UK_BOUNDS.maxLng
   );
 }
 
-function shouldRefreshPoint(address: string, lat: any, lng: any) {
-  if (toNumber(lat) === null || toNumber(lng) === null) return true;
-  if (hasUkPostcode(address) && !isLikelyUkCoordinate(lat, lng)) return true;
-  return false;
+function asResult(lat: unknown, lng: unknown): GeocodeResult | null {
+  const nextLat = Number(lat);
+  const nextLng = Number(lng);
+
+  if (!isLikelyUkCoordinate(nextLat, nextLng)) {
+    return null;
+  }
+
+  return { lat: nextLat, lng: nextLng };
 }
 
-async function requireAdmin() {
-  const supabase = createSupabaseServerClient();
+async function geocodeWithPostcodesIo(
+  postcode: string
+): Promise<GeocodeResult | null> {
+  const normalized = normalisePostcode(postcode);
+  if (!normalized) return null;
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(normalized)}`;
 
-  if (!user) {
-    return { ok: false as const, error: "Not signed in", status: 401 };
-  }
+  const res = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+  }).catch(() => null);
 
-  const role = String((user.user_metadata as any)?.role ?? "").toLowerCase();
-  const email = String(user.email ?? "").toLowerCase();
-  const masterAdminEmail = String(process.env.MASTER_ADMIN_EMAIL ?? "")
-    .trim()
-    .toLowerCase();
+  if (!res || !res.ok) return null;
 
-  if (role !== "admin" && email !== masterAdminEmail) {
-    return { ok: false as const, error: "Admin only", status: 403 };
-  }
-
-  return { ok: true as const, supabase };
+  const json = await res.json().catch(() => null);
+  return asResult(json?.result?.latitude, json?.result?.longitude);
 }
 
-export async function POST(req: Request) {
-  try {
-    const auth = await requireAdmin();
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+async function geocodeWithOpenRouteService(
+  address: string
+): Promise<GeocodeResult | null> {
+  const apiKey = String(process.env.ORS_API_KEY ?? "").trim();
+  if (!apiKey) return null;
 
-    const supabase = auth.supabase;
-    const body = await req.json().catch(() => null);
-    const force = body?.force !== false;
+  const url =
+    "https://api.openrouteservice.org/geocode/search?" +
+    new URLSearchParams({
+      api_key: apiKey,
+      text: address,
+      size: "1",
+      boundary_country: "GB",
+    }).toString();
 
-    const { data: rows, error } = await supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        collection_address,
-        delivery_address,
-        collection_lat,
-        collection_lng,
-        delivery_lat,
-        delivery_lng,
-        created_at
-      `)
-      .order("created_at", { ascending: false })
-      .limit(force ? 1000 : 500);
+  const res = await fetch(url, {
+    method: "GET",
+    cache: "no-store",
+  }).catch(() => null);
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
-    }
+  if (!res || !res.ok) return null;
 
-    let updated = 0;
-    let skipped = 0;
-    const failures: Array<{ id: string; reason: string }> = [];
+  const json = await res.json().catch(() => null);
+  const feature = json?.features?.[0];
+  const coords = feature?.geometry?.coordinates;
 
-    for (const row of rows ?? []) {
-      const pickupAddress = clean((row as any).collection_address);
-      const deliveryAddress = clean((row as any).delivery_address);
+  if (!Array.isArray(coords) || coords.length < 2) return null;
 
-      const refreshPickup =
-        !!pickupAddress &&
-        (force ||
-          shouldRefreshPoint(
-            pickupAddress,
-            (row as any).collection_lat,
-            (row as any).collection_lng
-          ));
+  return asResult(coords[1], coords[0]);
+}
 
-      const refreshDelivery =
-        !!deliveryAddress &&
-        (force ||
-          shouldRefreshPoint(
-            deliveryAddress,
-            (row as any).delivery_lat,
-            (row as any).delivery_lng
-          ));
+async function geocodeWithNominatim(
+  address: string
+): Promise<GeocodeResult | null> {
+  const url =
+    "https://nominatim.openstreetmap.org/search?" +
+    new URLSearchParams({
+      q: address,
+      format: "jsonv2",
+      limit: "1",
+      countrycodes: "gb",
+      addressdetails: "1",
+    }).toString();
 
-      if (!refreshPickup && !refreshDelivery) {
-        skipped += 1;
-        continue;
-      }
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "User-Agent": "anns-crane-crm/1.0",
+    },
+    cache: "no-store",
+  }).catch(() => null);
 
-      const pickupCoords = refreshPickup
-        ? await geocodeAddress(pickupAddress)
-        : null;
-      const deliveryCoords = refreshDelivery
-        ? await geocodeAddress(deliveryAddress)
-        : null;
+  if (!res || !res.ok) return null;
 
-      const nextCollectionLat = refreshPickup
-        ? pickupCoords?.lat ?? null
-        : (row as any).collection_lat;
-      const nextCollectionLng = refreshPickup
-        ? pickupCoords?.lng ?? null
-        : (row as any).collection_lng;
+  const json = await res.json().catch(() => null);
+  const item = Array.isArray(json) ? json[0] : null;
 
-      const nextDeliveryLat = refreshDelivery
-        ? deliveryCoords?.lat ?? null
-        : (row as any).delivery_lat;
-      const nextDeliveryLng = refreshDelivery
-        ? deliveryCoords?.lng ?? null
-        : (row as any).delivery_lng;
+  return asResult(item?.lat, item?.lon);
+}
 
-      const changed =
-        nextCollectionLat !== (row as any).collection_lat ||
-        nextCollectionLng !== (row as any).collection_lng ||
-        nextDeliveryLat !== (row as any).delivery_lat ||
-        nextDeliveryLng !== (row as any).delivery_lng;
+async function geocodeFreeText(address: string): Promise<GeocodeResult | null> {
+  const attempts = Array.from(
+    new Set(
+      [
+        cleanAddress(address),
+        cleanAddress(address).includes("United Kingdom")
+          ? cleanAddress(address)
+          : `${cleanAddress(address)}, United Kingdom`,
+      ].filter(Boolean)
+    )
+  );
 
-      if (!changed) {
-        skipped += 1;
-        continue;
-      }
+  for (const attempt of attempts) {
+    const ors = await geocodeWithOpenRouteService(attempt);
+    if (ors) return ors;
 
-      const { error: updateError } = await supabase
-        .from("transport_jobs")
-        .update({
-          collection_lat: nextCollectionLat,
-          collection_lng: nextCollectionLng,
-          delivery_lat: nextDeliveryLat,
-          delivery_lng: nextDeliveryLng,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", (row as any).id);
-
-      if (updateError) {
-        failures.push({
-          id: String((row as any).id),
-          reason: updateError.message,
-        });
-        continue;
-      }
-
-      updated += 1;
-    }
-
-    return NextResponse.json({
-      success: true,
-      checked: (rows ?? []).length,
-      updated,
-      skipped,
-      force,
-      failures,
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || "Server error" },
-      { status: 500 }
-    );
+    const nominatim = await geocodeWithNominatim(attempt);
+    if (nominatim) return nominatim;
   }
+
+  return null;
+}
+
+export async function geocodeAddress(
+  rawAddress: string
+): Promise<GeocodeResult | null> {
+  const address = cleanAddress(rawAddress);
+  if (!address) return null;
+
+  const postcodeOnly = tryExtractPostcode(address);
+
+  if (postcodeOnly) {
+    const postcodeResult = await geocodeWithPostcodesIo(postcodeOnly);
+    if (postcodeResult) return postcodeResult;
+
+    const postcodeFallback = await geocodeFreeText(postcodeOnly);
+    if (postcodeFallback) return postcodeFallback;
+  }
+
+  return geocodeFreeText(address);
 }
