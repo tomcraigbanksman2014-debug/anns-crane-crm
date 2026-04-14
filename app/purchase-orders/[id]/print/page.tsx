@@ -34,6 +34,14 @@ export default async function PurchaseOrderPrintPage({
           site_name,
           site_address,
           job_date
+        ),
+        transport_jobs:transport_job_id (
+          transport_number,
+          transport_date,
+          delivery_date,
+          collection_address,
+          delivery_address,
+          job_type
         )
       `)
       .eq("id", params.id)
@@ -53,6 +61,26 @@ export default async function PurchaseOrderPrintPage({
   const job = Array.isArray((po as any)?.jobs)
     ? (po as any).jobs[0]
     : (po as any)?.jobs;
+
+  const transportJob = Array.isArray((po as any)?.transport_jobs)
+    ? (po as any).transport_jobs[0]
+    : (po as any)?.transport_jobs;
+
+  const linkedTitle = transportJob
+    ? "Linked transport job"
+    : job
+      ? "Linked crane job"
+      : "Linked job";
+
+  const linkedReference = transportJob?.transport_number ?? job?.job_number ?? "—";
+  const linkedSite = job?.site_name
+    ?? (transportJob?.job_type === "on_site_hiab" ? "On-site HIAB" : transportJob ? "Transport job" : "—");
+  const primaryAddress = job?.site_address ?? transportJob?.collection_address ?? "—";
+  const secondaryAddress = transportJob?.delivery_address
+    && transportJob.delivery_address !== transportJob.collection_address
+      ? transportJob.delivery_address
+      : null;
+  const linkedDate = transportJob?.transport_date ?? transportJob?.delivery_date ?? job?.job_date ?? null;
 
   const total = Number((po as any)?.total_cost ?? 0);
 
@@ -102,11 +130,16 @@ export default async function PurchaseOrderPrintPage({
           </div>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>Linked job</h2>
-            <div><strong>Job number:</strong> {job?.job_number ?? "—"}</div>
-            <div><strong>Site:</strong> {job?.site_name ?? "—"}</div>
-            <div><strong>Address:</strong> {job?.site_address ?? "—"}</div>
-            <div><strong>Job date:</strong> {fmtDate(job?.job_date)}</div>
+            <h2 style={sectionTitle}>{linkedTitle}</h2>
+            <div>
+              <strong>{transportJob ? "Transport number" : "Job number"}:</strong> {linkedReference}
+            </div>
+            <div><strong>Site:</strong> {linkedSite}</div>
+            <div><strong>Address:</strong> {primaryAddress}</div>
+            {secondaryAddress ? (
+              <div><strong>Delivery address:</strong> {secondaryAddress}</div>
+            ) : null}
+            <div><strong>{transportJob ? "Job date" : "Job date"}:</strong> {fmtDate(linkedDate)}</div>
           </section>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
