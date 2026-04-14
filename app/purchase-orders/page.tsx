@@ -23,8 +23,11 @@ function matchesQuery(po: any, query: string) {
     supplier?.company_name,
     job?.job_number ? `job ${job.job_number}` : "",
     job?.site_name,
+    job?.site_address,
     transportJob?.transport_number,
     transportJob?.transport_date,
+    transportJob?.collection_address,
+    transportJob?.delivery_address,
   ]
     .filter(Boolean)
     .join(" ")
@@ -89,12 +92,15 @@ export default async function PurchaseOrdersPage({
       jobs:job_id (
         id,
         job_number,
-        site_name
+        site_name,
+        site_address
       ),
       transport_jobs:transport_job_id (
         id,
         transport_number,
-        transport_date
+        transport_date,
+        collection_address,
+        delivery_address
       )
     `)
     .order("created_at", { ascending: false });
@@ -181,8 +187,12 @@ export default async function PurchaseOrdersPage({
 
                           <div style={{ marginTop: 6, opacity: 0.72 }}>
                             Supplier: {supplier?.company_name ?? "—"}
-                            {job ? ` • Crane Job: ${job.job_number ?? "—"}${job.site_name ? ` • ${job.site_name}` : ""}` : ""}
-                            {transportJob ? ` • Transport Job: ${transportJob.transport_number ?? "—"}${transportJob.transport_date ? ` • ${fmtDate(transportJob.transport_date)}` : ""}` : ""}
+                            {job
+                              ? ` • Crane Job: ${job.job_number ?? "—"}${job.site_name ? ` • ${job.site_name}` : ""}${job.site_address ? ` • ${job.site_address}` : ""}`
+                              : ""}
+                            {transportJob
+                              ? ` • Transport Job: ${transportJob.transport_number ?? "—"}${transportJob.transport_date ? ` • ${fmtDate(transportJob.transport_date)}` : ""}${transportJob.collection_address ? ` • ${transportJob.collection_address}` : ""}${transportJob.delivery_address && transportJob.delivery_address !== transportJob.collection_address ? ` → ${transportJob.delivery_address}` : ""}`
+                              : ""}
                           </div>
                         </div>
 
