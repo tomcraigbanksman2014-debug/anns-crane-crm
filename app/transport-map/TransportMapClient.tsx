@@ -145,8 +145,28 @@ function prettyStopType(value: "pickup" | "delivery") {
   return value === "pickup" ? "Pickup" : "Delivery";
 }
 
+const UK_BOUNDS = {
+  minLat: 49.5,
+  maxLat: 61.5,
+  minLng: -8.8,
+  maxLng: 2.5,
+};
+
+function isLikelyUkPoint(lat: number | null, lng: number | null) {
+  return (
+    typeof lat === "number" &&
+    typeof lng === "number" &&
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= UK_BOUNDS.minLat &&
+    lat <= UK_BOUNDS.maxLat &&
+    lng >= UK_BOUNDS.minLng &&
+    lng <= UK_BOUNDS.maxLng
+  );
+}
+
 function hasCoords(lat: number | null, lng: number | null) {
-  return typeof lat === "number" && typeof lng === "number";
+  return isLikelyUkPoint(lat, lng);
 }
 
 function asLatLng(lat: number, lng: number): LatLngExpression {
@@ -621,7 +641,7 @@ export default function TransportMapClient() {
       }
 
       const live = latestLocationByJob.get(item.id);
-      if (live && hasCoords(Number(live.lat), Number(live.lng))) {
+      if (live && isLikelyUkPoint(Number(live.lat), Number(live.lng))) {
         points.push(asLatLng(Number(live.lat), Number(live.lng)));
       }
     }
@@ -895,7 +915,7 @@ export default function TransportMapClient() {
                   : null;
 
                 const livePoint: LatLngExpression | null =
-                  live && hasCoords(Number(live.lat), Number(live.lng))
+                  live && isLikelyUkPoint(Number(live.lat), Number(live.lng))
                     ? asLatLng(Number(live.lat), Number(live.lng))
                     : null;
 
