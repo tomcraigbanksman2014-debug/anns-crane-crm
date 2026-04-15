@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import StatusBadge from "../../components/StatusBadge";
 import QuoteArchiveButton from "../QuoteArchiveButton";
 import CreateJobFromQuoteButton from "./CreateJobFromQuoteButton";
+import { parseQuoteNotes } from "../quoteTemplate";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -33,7 +34,8 @@ export default async function QuoteDetailPage({
         company_name,
         contact_name,
         phone,
-        email
+        email,
+        address
       )
     `)
     .eq("id", params.id)
@@ -43,9 +45,12 @@ export default async function QuoteDetailPage({
     ? (quote as any).clients[0]
     : (quote as any)?.clients;
 
+  const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
+  const fields = parsed.fields;
+
   return (
     <ClientShell>
-      <div style={{ width: "min(1100px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto" }}>
         <div style={cardStyle}>
           <div style={headerRow}>
             <div>
@@ -53,7 +58,7 @@ export default async function QuoteDetailPage({
                 {(quote as any)?.subject || "Quote"}
               </h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                Review quote details and convert into the next workflow step.
+                Review quote details, print the customer PDF and convert into the next workflow step.
               </p>
             </div>
 
@@ -99,19 +104,20 @@ export default async function QuoteDetailPage({
                   <InfoRow label="Quote date" value={fmtDate((quote as any).quote_date)} />
                   <InfoRow label="Valid until" value={fmtDate((quote as any).valid_until)} />
                   <InfoRow label="Amount" value={fmtMoney((quote as any).amount)} />
-                  <InfoRow
-                    label="Archived"
-                    value={(quote as any).archived ? "Yes" : "No"}
-                  />
-                  <Block label="Notes" value={(quote as any).notes} />
+                  <InfoRow label="Site location" value={fields.siteLocation || "—"} />
+                  <InfoRow label="Location" value={fields.workLocation || client?.address || "—"} />
+                  <InfoRow label="Date(s)" value={fields.workDates || "—"} />
+                  <InfoRow label="Duration" value={fields.duration || "—"} />
+                  <Block label="Cost summary" value={fields.costSummary || "—"} />
                 </section>
 
                 <section style={sectionCard}>
                   <h2 style={sectionTitle}>Customer</h2>
                   <InfoRow label="Company" value={client?.company_name ?? "—"} />
-                  <InfoRow label="Contact" value={client?.contact_name ?? "—"} />
-                  <InfoRow label="Phone" value={client?.phone ?? "—"} />
+                  <InfoRow label="Contact" value={fields.contactName || client?.contact_name || "—"} />
+                  <InfoRow label="Phone" value={fields.contactPhone || client?.phone || "—"} />
                   <InfoRow label="Email" value={client?.email ?? "—"} />
+                  <InfoRow label="Address" value={client?.address ?? "—"} />
 
                   {client?.id ? (
                     <div style={{ marginTop: 12 }}>
@@ -120,6 +126,23 @@ export default async function QuoteDetailPage({
                       </a>
                     </div>
                   ) : null}
+                </section>
+              </div>
+
+              <div style={gridWrap}>
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Scope & supply</h2>
+                  <Block label="Hire type" value={fields.hireType || "—"} />
+                  <Block label="To supply" value={fields.toSupply || "—"} />
+                  <Block label="Scope of work" value={fields.scopeOfWork || parsed.rawNotes || "—"} />
+                </section>
+
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Commercial detail</h2>
+                  <Block label="Project date & time" value={fields.projectDateTime || "—"} />
+                  <Block label="Working hours / pattern" value={fields.workingHours || "—"} />
+                  <Block label="Breakdown" value={fields.breakdown || "—"} />
+                  <Block label="Additional quote notes" value={fields.additionalNotes || "—"} />
                 </section>
               </div>
             </>
@@ -221,6 +244,7 @@ const infoLabel: React.CSSProperties = {
 const infoValue: React.CSSProperties = {
   minWidth: 0,
   wordBreak: "break-word",
+  whiteSpace: "pre-wrap",
 };
 
 const blockStyle: React.CSSProperties = {
