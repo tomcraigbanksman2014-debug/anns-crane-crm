@@ -1,10 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   buildQuoteNotes,
+  DEFAULT_CONTRACT_TERMS_TEXT,
   DEFAULT_HIRE_TERMS_TEXT,
+  DEFAULT_PAYMENT_TERMS,
   getEmptyStructuredQuoteFields,
   parseQuoteNotes,
   StructuredQuoteFields,
@@ -40,13 +43,9 @@ type Props =
 
 export default function QuoteForm(props: Props) {
   const router = useRouter();
-
   const isEdit = props.mode === "edit";
   const quote = isEdit ? props.quote : null;
-  const parsed = useMemo(
-    () => parseQuoteNotes(quote?.notes ?? null),
-    [quote?.notes]
-  );
+  const parsed = useMemo(() => parseQuoteNotes(quote?.notes ?? null), [quote?.notes]);
 
   const [clientId, setClientId] = useState(quote?.client_id ?? "");
   const [status, setStatus] = useState<"Draft" | "Sent" | "Accepted" | "Rejected">(
@@ -56,9 +55,7 @@ export default function QuoteForm(props: Props) {
     quote?.quote_date ?? new Date().toISOString().slice(0, 10)
   );
   const [validUntil, setValidUntil] = useState(quote?.valid_until ?? "");
-  const [amount, setAmount] = useState(
-    quote?.amount != null ? String(quote.amount) : ""
-  );
+  const [amount, setAmount] = useState(quote?.amount != null ? String(quote.amount) : "");
   const [subject, setSubject] = useState(quote?.subject ?? "");
   const [fields, setFields] = useState<StructuredQuoteFields>(
     parsed.fields ?? getEmptyStructuredQuoteFields()
@@ -70,7 +67,7 @@ export default function QuoteForm(props: Props) {
     setFields((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function onSubmit(e: React.FormEvent) {
+  async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
 
@@ -82,17 +79,12 @@ export default function QuoteForm(props: Props) {
     try {
       setSaving(true);
 
-      const url = isEdit
-        ? `/api/quotes/${quote?.id}/update`
-        : `/api/quotes/create`;
-
+      const url = isEdit ? `/api/quotes/${quote?.id}/update` : `/api/quotes/create`;
       const notes = buildQuoteNotes(fields);
 
       const res = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           client_id: clientId,
           status,
@@ -105,7 +97,6 @@ export default function QuoteForm(props: Props) {
       });
 
       const json = await res.json().catch(() => ({}));
-
       if (!res.ok) {
         setError(json?.error ?? "Failed to save quote");
         return;
@@ -125,277 +116,296 @@ export default function QuoteForm(props: Props) {
   }
 
   return (
-    <form onSubmit={onSubmit} style={cardStyle}>
-      <h1 style={{ marginTop: 0, marginBottom: 16, fontSize: 32 }}>
-        {isEdit ? "Edit quote" : "New quote"}
-      </h1>
+    <form onSubmit={onSubmit} style={pageCardStyle}>
+      <div style={headerStyle}>
+        <div>
+          <h1 style={titleStyle}>{isEdit ? "Edit quote" : "New quote"}</h1>
+          <p style={subtitleStyle}>
+            Fill the quote once and the PDF will use the same structure, pricing area and legal terms each time.
+          </p>
+        </div>
+        <div style={pillStyle}>Legal terms added automatically</div>
+      </div>
 
-      {error && <div style={errorBox}>{error}</div>}
+      {error ? <div style={errorBoxStyle}>{error}</div> : null}
 
       {!parsed.isStructured && parsed.rawNotes ? (
-        <div style={infoBox}>
-          This quote was using the old notes-only format. The editor has pulled the existing text into <strong>Additional quote notes</strong> so you can re-save it in the new quote PDF layout.
+        <div style={infoBoxStyle}>
+          This quote was using the old notes-only format. The old text has been carried into
+          <strong> Additional quote notes</strong> so you can tidy it up and save it in the new layout.
         </div>
       ) : null}
 
-      <div style={gridStyle}>
-        <Field label="Customer">
-          <select
-            value={clientId}
-            onChange={(e) => setClientId(e.target.value)}
-            style={inputStyle}
-          >
-            <option value="">Select customer</option>
-            {props.customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.company_name || c.id}
-              </option>
-            ))}
-          </select>
-        </Field>
+      <SectionCard
+        title="1. Basic quote details"
+        description="Core details shown on the quote list, detail page and PDF header."
+      >
+        <div style={compactGridStyle}>
+          <Field label="Customer">
+            <select value={clientId} onChange={(e) => setClientId(e.target.value)} style={inputStyle}>
+              <option value="">Select customer</option>
+              {props.customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.company_name || c.id}
+                </option>
+              ))}
+            </select>
+          </Field>
 
-        <Field label="Status">
-          <select
-            value={status}
-            onChange={(e) =>
-              setStatus(e.target.value as "Draft" | "Sent" | "Accepted" | "Rejected")
-            }
-            style={inputStyle}
-          >
-            <option value="Draft">Draft</option>
-            <option value="Sent">Sent</option>
-            <option value="Accepted">Accepted</option>
-            <option value="Rejected">Rejected</option>
-          </select>
-        </Field>
+          <Field label="Status">
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as "Draft" | "Sent" | "Accepted" | "Rejected")}
+              style={inputStyle}
+            >
+              <option value="Draft">Draft</option>
+              <option value="Sent">Sent</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+          </Field>
 
-        <Field label="Quote date">
-          <input
-            type="date"
-            value={quoteDate}
-            onChange={(e) => setQuoteDate(e.target.value)}
-            style={inputStyle}
-          />
-        </Field>
+          <Field label="Quote date">
+            <input type="date" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} style={inputStyle} />
+          </Field>
 
-        <Field label="Valid until">
-          <input
-            type="date"
-            value={validUntil}
-            onChange={(e) => setValidUntil(e.target.value)}
-            style={inputStyle}
-          />
-        </Field>
+          <Field label="Valid until">
+            <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} style={inputStyle} />
+          </Field>
 
-        <Field label="Amount">
-          <input
-            type="number"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            style={inputStyle}
-            placeholder="0.00"
-          />
-        </Field>
+          <Field label="Amount">
+            <input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={inputStyle}
+              placeholder="0.00"
+            />
+          </Field>
 
-        <Field label="Subject">
-          <input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            style={inputStyle}
-            placeholder="Quote subject"
-          />
-        </Field>
-      </div>
+          <Field label="Subject / quote reference">
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              style={inputStyle}
+              placeholder="Updated quote for Trehafod Culvert"
+            />
+          </Field>
+        </div>
+      </SectionCard>
 
-      <SectionTitle title="Quote layout details" />
-      <div style={gridStyle}>
-        <Field label="Contact name">
-          <input
-            value={fields.contactName}
-            onChange={(e) => updateField("contactName", e.target.value)}
-            style={inputStyle}
-            placeholder="Dan Roberts"
-          />
-        </Field>
+      <SectionCard
+        title="2. Contact and project setup"
+        description="These fields feed the top half of the quote PDF."
+      >
+        <div style={compactGridStyle}>
+          <Field label="Contact name">
+            <input
+              value={fields.contactName}
+              onChange={(e) => updateField("contactName", e.target.value)}
+              style={inputStyle}
+              placeholder="Dan Roberts"
+            />
+          </Field>
 
-        <Field label="Contact tel">
-          <input
-            value={fields.contactPhone}
-            onChange={(e) => updateField("contactPhone", e.target.value)}
-            style={inputStyle}
-            placeholder="Contact number"
-          />
-        </Field>
+          <Field label="Contact tel">
+            <input
+              value={fields.contactPhone}
+              onChange={(e) => updateField("contactPhone", e.target.value)}
+              style={inputStyle}
+              placeholder="07400 000000"
+            />
+          </Field>
 
-        <Field label="Date & time of project">
-          <textarea
-            value={fields.projectDateTime}
-            onChange={(e) => updateField("projectDateTime", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder={"TBC, Minimum 2 day hire\nWeekday working"}
-          />
-        </Field>
+          <Field label="Date & time of project">
+            <textarea
+              value={fields.projectDateTime}
+              onChange={(e) => updateField("projectDateTime", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder={"TBC, Minimum 2 day hire\nWeekday working"}
+            />
+          </Field>
 
-        <Field label="Site location">
-          <textarea
-            value={fields.siteLocation}
-            onChange={(e) => updateField("siteLocation", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="Trehafod Culvert – Updated Quote"
-          />
-        </Field>
+          <Field label="Site location">
+            <textarea
+              value={fields.siteLocation}
+              onChange={(e) => updateField("siteLocation", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="Trehafod Culvert – Updated Quote"
+            />
+          </Field>
 
-        <Field label="Hire type">
-          <textarea
-            value={fields.hireType}
-            onChange={(e) => updateField("hireType", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="Contract lift (subject to CPA contract lift term and conditions)"
-          />
-        </Field>
+          <Field label="Hire type">
+            <textarea
+              value={fields.hireType}
+              onChange={(e) => updateField("hireType", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="Contract lift (subject to CPA contract lift term and conditions)"
+            />
+          </Field>
 
-        <Field label="Location">
-          <textarea
-            value={fields.workLocation}
-            onChange={(e) => updateField("workLocation", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="Actual working location / site address"
-          />
-        </Field>
+          <Field label="Location">
+            <textarea
+              value={fields.workLocation}
+              onChange={(e) => updateField("workLocation", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="Actual working location / site address"
+            />
+          </Field>
 
-        <Field label="Date(s)">
-          <textarea
-            value={fields.workDates}
-            onChange={(e) => updateField("workDates", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="Week commencing 20th April 2026"
-          />
-        </Field>
+          <Field label="Date(s)">
+            <textarea
+              value={fields.workDates}
+              onChange={(e) => updateField("workDates", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="Week commencing 20th April 2026"
+            />
+          </Field>
 
-        <Field label="Duration">
-          <textarea
-            value={fields.duration}
-            onChange={(e) => updateField("duration", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="Min hire of 2 days"
-          />
-        </Field>
+          <Field label="Duration">
+            <textarea
+              value={fields.duration}
+              onChange={(e) => updateField("duration", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="Minimum 2 day hire"
+            />
+          </Field>
 
-        <Field label="Working hours / pattern">
-          <textarea
-            value={fields.workingHours}
-            onChange={(e) => updateField("workingHours", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder={"8 hours per day (including a 30-minute break)\nWeekday working"}
-          />
-        </Field>
+          <Field label="Working pattern">
+            <textarea
+              value={fields.workingHours}
+              onChange={(e) => updateField("workingHours", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder={"8 hours per day (including a 30-minute break)\nWeekday working"}
+            />
+          </Field>
 
-        <Field label="Cost summary">
-          <textarea
-            value={fields.costSummary}
-            onChange={(e) => updateField("costSummary", e.target.value)}
-            rows={3}
-            style={textareaStyle}
-            placeholder="£7,500.00 per day + VAT"
-          />
-        </Field>
-      </div>
+          <Field label="Cost summary shown near the top">
+            <textarea
+              value={fields.costSummary}
+              onChange={(e) => updateField("costSummary", e.target.value)}
+              rows={3}
+              style={textareaShortStyle}
+              placeholder="£7,500.00 per day + VAT"
+            />
+          </Field>
+        </div>
+      </SectionCard>
 
-      <div style={{ ...fieldWrap, marginTop: 12 }}>
-        <label style={labelStyle}>To supply</label>
-        <textarea
-          value={fields.toSupply}
-          onChange={(e) => updateField("toSupply", e.target.value)}
-          rows={5}
-          style={textareaStyle}
-          placeholder="What is being supplied"
-        />
-      </div>
+      <SectionCard
+        title="3. Main quote wording"
+        description="These are the big text sections the customer reads first."
+      >
+        <div style={stackStyle}>
+          <Field label="To supply">
+            <textarea
+              value={fields.toSupply}
+              onChange={(e) => updateField("toSupply", e.target.value)}
+              rows={4}
+              style={textareaStyle}
+              placeholder="What is being supplied"
+            />
+          </Field>
 
-      <div style={{ ...fieldWrap, marginTop: 12 }}>
-        <label style={labelStyle}>Scope of work</label>
-        <textarea
-          value={fields.scopeOfWork}
-          onChange={(e) => updateField("scopeOfWork", e.target.value)}
-          rows={6}
-          style={textareaStyle}
-          placeholder="Full description of the works"
-        />
-      </div>
+          <Field label="Scope of work">
+            <textarea
+              value={fields.scopeOfWork}
+              onChange={(e) => updateField("scopeOfWork", e.target.value)}
+              rows={6}
+              style={textareaStyle}
+              placeholder="Full description of the works"
+            />
+          </Field>
+        </div>
+      </SectionCard>
 
-      <div style={{ ...fieldWrap, marginTop: 12 }}>
-        <label style={labelStyle}>Breakdown of current charges / rates</label>
-        <textarea
-          value={fields.breakdown}
-          onChange={(e) => updateField("breakdown", e.target.value)}
-          rows={6}
-          style={textareaStyle}
-          placeholder={"Use one line per row in this format:\nQty | Description | Rate\n\nExample:\n1x | Cancelled contract lift, Wednesday 8th April – same day cancellation | £2,500.00 Excluding VAT"}
-        />
-      </div>
+      <SectionCard
+        title="4. Rates and extras"
+        description="Use one row per line for the breakdown."
+      >
+        <div style={stackStyle}>
+          <Field label="Breakdown of current charges / rates">
+            <textarea
+              value={fields.breakdown}
+              onChange={(e) => updateField("breakdown", e.target.value)}
+              rows={7}
+              style={textareaStyle}
+              placeholder={"Use one line per row in this format:\nQty | Description | Rate\n\nExample:\n1x | Cancelled contract lift, Wednesday 8th April – same day cancellation | £2,500.00 Excluding VAT"}
+            />
+          </Field>
 
-      <div style={gridStyleWide}>
-        <Field label="Additional equipment & personnel">
-          <textarea
-            value={fields.additionalEquipment}
-            onChange={(e) => updateField("additionalEquipment", e.target.value)}
-            rows={8}
-            style={textareaStyle}
-            placeholder={"One item per line\nAdditional crane mats\nAP / Lifting Supervisor"}
-          />
-        </Field>
+          <div style={twoColStyle}>
+            <Field label="Additional equipment & personnel">
+              <textarea
+                value={fields.additionalEquipment}
+                onChange={(e) => updateField("additionalEquipment", e.target.value)}
+                rows={6}
+                style={textareaStyle}
+                placeholder={"One item per line\nAdditional crane mats\nAP / Lifting Supervisor"}
+              />
+            </Field>
 
-        <Field label="Included under full CPA terms">
-          <textarea
-            value={fields.includedItems}
-            onChange={(e) => updateField("includedItems", e.target.value)}
-            rows={8}
-            style={textareaStyle}
-            placeholder={"One item per line\nAll lifting accessories and rigging\nPlanning and supervision to meet full CPA obligations"}
-          />
-        </Field>
-      </div>
+            <Field label="Included under full CPA terms">
+              <textarea
+                value={fields.includedItems}
+                onChange={(e) => updateField("includedItems", e.target.value)}
+                rows={6}
+                style={textareaStyle}
+                placeholder={"One item per line\nAll lifting accessories and rigging\nPlanning and supervision to meet full CPA obligations"}
+              />
+            </Field>
+          </div>
 
-      <div style={{ ...fieldWrap, marginTop: 12 }}>
-        <label style={labelStyle}>Additional quote notes</label>
-        <textarea
-          value={fields.additionalNotes}
-          onChange={(e) => updateField("additionalNotes", e.target.value)}
-          rows={6}
-          style={textareaStyle}
-          placeholder="Extra wording to appear above the standard terms"
-        />
-      </div>
+          <div style={twoColStyle}>
+            <Field label="Additional quote notes">
+              <textarea
+                value={fields.additionalNotes}
+                onChange={(e) => updateField("additionalNotes", e.target.value)}
+                rows={5}
+                style={textareaStyle}
+                placeholder="Extra wording to appear before the fixed legal terms"
+              />
+            </Field>
 
-      <div style={{ ...fieldWrap, marginTop: 12 }}>
-        <label style={labelStyle}>Payment terms</label>
-        <input
-          value={fields.paymentTerms}
-          onChange={(e) => updateField("paymentTerms", e.target.value)}
-          style={inputStyle}
-          placeholder="30 days from Month End"
-        />
-      </div>
+            <Field label="Payment terms">
+              <input
+                value={fields.paymentTerms}
+                onChange={(e) => updateField("paymentTerms", e.target.value)}
+                style={inputStyle}
+                placeholder={DEFAULT_PAYMENT_TERMS}
+              />
+            </Field>
+          </div>
+        </div>
+      </SectionCard>
 
-      <div style={termsInfoBox}>
-        <div style={{ fontWeight: 900, marginBottom: 8 }}>Standard terms included automatically in every quote PDF</div>
-        <div style={termsPreview}>{DEFAULT_HIRE_TERMS_TEXT}</div>
-      </div>
+      <details style={detailsStyle}>
+        <summary style={summaryStyle}>View the fixed legal wording included in every quote PDF</summary>
+        <div style={legalGridStyle}>
+          <div style={legalBoxStyle}>
+            <div style={legalTitleStyle}>Short-form hire terms</div>
+            <pre style={legalPreStyle}>{DEFAULT_HIRE_TERMS_TEXT}</pre>
+          </div>
+          <div style={legalBoxStyle}>
+            <div style={legalTitleStyle}>Full CPA / contract lifting small print</div>
+            <pre style={legalPreStyle}>{DEFAULT_CONTRACT_TERMS_TEXT}</pre>
+          </div>
+        </div>
+      </details>
 
-      <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-        <button type="submit" disabled={saving} style={buttonStyle}>
+      <div style={buttonRowStyle}>
+        <button type="submit" disabled={saving} style={primaryButtonStyle}>
           {saving ? "Saving..." : isEdit ? "Save quote" : "Create quote"}
         </button>
-
-        <a href={isEdit ? `/quotes/${quote?.id}` : "/quotes"} style={secondaryBtnStyle}>
+        <a href={isEdit ? `/quotes/${quote?.id}` : "/quotes"} style={secondaryButtonStyle}>
           Cancel
         </a>
       </div>
@@ -403,135 +413,239 @@ export default function QuoteForm(props: Props) {
   );
 }
 
-function SectionTitle({ title }: { title: string }) {
-  return <h2 style={{ marginTop: 20, marginBottom: 12, fontSize: 20 }}>{title}</h2>;
-}
-
-function Field({
-  label,
+function SectionCard({
+  title,
+  description,
   children,
 }: {
-  label: string;
-  children: React.ReactNode;
+  title: string;
+  description: string;
+  children: ReactNode;
 }) {
   return (
-    <div style={fieldWrap}>
-      <label style={labelStyle}>{label}</label>
+    <section style={sectionCardStyle}>
+      <div style={sectionHeaderStyle}>
+        <div style={sectionTitleStyle}>{title}</div>
+        <div style={sectionDescriptionStyle}>{description}</div>
+      </div>
       {children}
-    </div>
+    </section>
   );
 }
 
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.18)",
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label style={fieldStyle}>
+      <span style={labelStyle}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const pageCardStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.22)",
   padding: 18,
-  borderRadius: 14,
-  border: "1px solid rgba(255,255,255,0.4)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+  borderRadius: 16,
+  border: "1px solid rgba(255,255,255,0.45)",
+  boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
+  display: "grid",
+  gap: 16,
 };
 
-const gridStyle: React.CSSProperties = {
+const headerStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 14,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 34,
+  lineHeight: 1.1,
+};
+
+const subtitleStyle: CSSProperties = {
+  margin: "8px 0 0 0",
+  color: "#475569",
+  maxWidth: 760,
+  lineHeight: 1.45,
+};
+
+const pillStyle: CSSProperties = {
+  padding: "9px 12px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.6)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 800,
+  fontSize: 13,
+};
+
+const errorBoxStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(239, 68, 68, 0.12)",
+  border: "1px solid rgba(239, 68, 68, 0.28)",
+};
+
+const infoBoxStyle: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.58)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  lineHeight: 1.45,
+};
+
+const sectionCardStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 16,
+  padding: 16,
+  display: "grid",
+  gap: 14,
+};
+
+const sectionHeaderStyle: CSSProperties = {
+  display: "grid",
+  gap: 4,
+};
+
+const sectionTitleStyle: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 900,
+};
+
+const sectionDescriptionStyle: CSSProperties = {
+  color: "#475569",
+  fontSize: 14,
+};
+
+const compactGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 12,
+  alignItems: "start",
+};
+
+const twoColStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
   gap: 12,
   alignItems: "start",
 };
 
-const gridStyleWide: React.CSSProperties = {
+const stackStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))",
   gap: 12,
-  alignItems: "start",
-  marginTop: 12,
 };
 
-const fieldWrap: React.CSSProperties = {
+const fieldStyle: CSSProperties = {
   display: "grid",
   gap: 6,
   minWidth: 0,
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   fontSize: 13,
-  fontWeight: 700,
+  fontWeight: 800,
+  color: "#1f2937",
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minWidth: 0,
   boxSizing: "border-box",
   padding: "10px 12px",
   minHeight: 44,
-  borderRadius: 10,
+  borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.75)",
+  background: "#ffffff",
   fontSize: 14,
 };
 
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   ...inputStyle,
+  minHeight: 120,
   resize: "vertical",
-  minHeight: 96,
   lineHeight: 1.45,
   fontFamily: "inherit",
 };
 
-const buttonStyle: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 10,
+const textareaShortStyle: CSSProperties = {
+  ...textareaStyle,
+  minHeight: 94,
+};
+
+const detailsStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.5)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 16,
+  padding: 14,
+};
+
+const summaryStyle: CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  fontSize: 15,
+};
+
+const legalGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+  gap: 12,
+  marginTop: 14,
+};
+
+const legalBoxStyle: CSSProperties = {
+  background: "#ffffff",
+  borderRadius: 14,
+  border: "1px solid rgba(0,0,0,0.08)",
+  padding: 12,
+  display: "grid",
+  gap: 8,
+};
+
+const legalTitleStyle: CSSProperties = {
+  fontWeight: 900,
+  fontSize: 14,
+};
+
+const legalPreStyle: CSSProperties = {
+  margin: 0,
+  whiteSpace: "pre-wrap",
+  fontFamily: "inherit",
+  fontSize: 12,
+  lineHeight: 1.45,
+  maxHeight: 260,
+  overflow: "auto",
+};
+
+const buttonRowStyle: CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const primaryButtonStyle: CSSProperties = {
+  padding: "11px 16px",
+  borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.45)",
-  color: "#111",
-  fontWeight: 800,
+  background: "rgba(255,255,255,0.85)",
+  color: "#111827",
+  fontWeight: 900,
   cursor: "pointer",
 };
 
-const secondaryBtnStyle: React.CSSProperties = {
+const secondaryButtonStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.25)",
-  color: "#111",
-  fontWeight: 800,
-  textDecoration: "none",
-};
-
-const errorBox: React.CSSProperties = {
-  marginBottom: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
-};
-
-const infoBox: React.CSSProperties = {
-  marginBottom: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.55)",
-  border: "1px solid rgba(0,0,0,0.12)",
-  lineHeight: 1.45,
-};
-
-const termsInfoBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: 14,
+  padding: "11px 16px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.55)",
   border: "1px solid rgba(0,0,0,0.12)",
-};
-
-const termsPreview: React.CSSProperties = {
-  marginTop: 4,
-  maxHeight: 220,
-  overflow: "auto",
-  whiteSpace: "pre-wrap",
-  fontSize: 12,
-  lineHeight: 1.45,
-  background: "rgba(255,255,255,0.7)",
-  borderRadius: 10,
-  padding: 12,
+  background: "rgba(255,255,255,0.5)",
+  color: "#111827",
+  fontWeight: 900,
+  textDecoration: "none",
 };
