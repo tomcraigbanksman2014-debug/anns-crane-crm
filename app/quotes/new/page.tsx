@@ -13,7 +13,7 @@ export default async function NewQuotePage() {
 
   return (
     <ClientShell>
-      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1420px, 98vw)", margin: "0 auto" }}>
         {error ? (
           <div style={errorBox}>{error.message}</div>
         ) : (
