@@ -21,15 +21,33 @@ function safeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function stripCodeFence(value: string) {
-  const trimmed = value.trim();
+function uniqueNonEmpty(values: string[]) {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values.map((item) => clean(item)).filter(Boolean)) {
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(value);
+  }
+  return out;
+}
+
+function titleCase(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
+function stripMarkdownFences(text: string) {
+  const trimmed = text.trim();
   if (!trimmed.startsWith("```")) return trimmed;
-  return trimmed.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  return trimmed.replace(/^```[a-zA-Z0-9_-]*\s*/, "").replace(/\s*```$/, "").trim();
 }
 
 function tryParseJsonObject(text: string) {
-  const cleaned = stripCodeFence(text);
-  const trimmed = cleaned.trim();
+  const trimmed = stripMarkdownFences(text).trim();
   const candidates: string[] = [];
 
   if (trimmed.startsWith("{")) candidates.push(trimmed);
@@ -47,31 +65,6 @@ function tryParseJsonObject(text: string) {
   }
 
   throw new Error("AI response did not contain valid JSON.");
-}
-
-function extractResponseText(payload: any) {
-  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
-    return payload.output_text.trim();
-  }
-
-  const chunks: string[] = [];
-
-  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
-    if (!Array.isArray(item?.content)) continue;
-
-    for (const content of item.content) {
-      const text =
-        typeof content?.text === "string"
-          ? content.text
-          : typeof content?.output_text === "string"
-            ? content.output_text
-            : "";
-
-      if (text) chunks.push(text);
-    }
-  }
-
-  return chunks.join("\n").trim();
 }
 
 function pickFirstMoney(text: string) {
@@ -165,41 +158,66 @@ function extractSignature(lines: string[]) {
     block.find((line) => /^(mr|mrs|ms|miss)\.?\s+/i.test(line)) ||
     "";
 
-  const roleLine = block.find((line) => /(manager|director|engineer|estimator|surveyor|coordinator|buyer|procurement|office)/i.test(line)) || "";
+  const roleLine =
+    block.find((line) => /(manager|director|engineer|estimator|surveyor|coordinator|buyer|procurement|office)/i.test(line)) || "";
 
   return { name: nameLine, role: roleLine, phone };
 }
 
-function extractAddressAndLocations(lines: string[]) {
-  const siteSection = takeSection(lines, /^site details\b/i, /^(thanks|kind regards|regards|many thanks)\b/i);
-  if (!siteSection.length) {
-    return { siteLocation: "", workLocation: "", extraNotes: "" };
+type RouteInfo = {
+  colour: string;
+  from: string;
+  to: string;
+  summary: string;
+};
+
+function normaliseLocationFragment(value: string) {
+  return clean(value)
+    .replace(/^our yard in\s+/i, "")
+    .replace(/^the yard in\s+/i, "")
+    .replace(/[.)]+$/g, "")
+    .trim();
+}
+
+function extractColourRoutes(lines: string[]): RouteInfo[] {
+  const routeLines = lines.filter((line) => /highlighted in\s+(purple|blue|green|red|orange|yellow)/i.test(line));
+  const routes: RouteInfo[] = [];
+
+  for (const line of routeLines) {
+    const colour = clean(line.match(/highlighted in\s+(purple|blue|green|red|orange|yellow)/i)?.[1]);
+    let from = "";
+    let to = "";
+
+    const collected = line.match(/collected from\s+(.+?)\s*(?:&|and)\s*transported to\s+(.+?)(?:\)|$)/i);
+    if (collected) {
+      from = normaliseLocationFragment(collected[1]);
+      to = normaliseLocationFragment(collected[2]);
+    }
+
+    if (!from || !to) {
+      const transported = line.match(/transported from\s+(.+?)\s+to\s+(.+?)(?:\)|$)/i);
+      if (transported) {
+        from = normaliseLocationFragment(transported[1]);
+        to = normaliseLocationFragment(transported[2]);
+      }
+    }
+
+    if (!from || !to) continue;
+    routes.push({
+      colour: colour || "items",
+      from,
+      to,
+      summary: `${titleCase(colour || "Items")} items: ${from} to ${to}`,
+    });
   }
 
-  const collectionLines = siteSection.filter((line) => /wingrave/i.test(line));
-  const deliveryLines = siteSection.filter((line) => !/wingrave/i.test(line) && !/^site details\b/i.test(line));
-
-  const workLocation = deliveryLines.join("\n");
-
-  const siteBits: string[] = [];
-  if (collectionLines.length) siteBits.push(`Collection: ${collectionLines.join(", ")}`);
-  if (deliveryLines.length) siteBits.push(`Delivery: ${deliveryLines.join(", ")}`);
-
-  const extraNotes = collectionLines.some((line) => /attached/i.test(line))
-    ? "Collection drawing / AP attachment referenced for Wingrave."
-    : "";
-
-  return {
-    siteLocation: siteBits.join("\n"),
-    workLocation,
-    extraNotes,
-  };
+  return routes;
 }
 
 function extractRoutes(text: string) {
   const routes: string[] = [];
   const routeRegexes = [
-    /collected from\s+(.+?)\s*&\s*transported to\s+(.+?)(?:\)|\n|$)/gi,
+    /collected from\s+(.+?)\s*(?:&|and)\s*transported to\s+(.+?)(?:\)|\n|$)/gi,
     /transported from\s+(.+?)\s+to\s+(.+?)(?:\)|\n|$)/gi,
     /move\s+(.+?)\s+from\s+(.+?)\s+to\s+(.+?)(?:\.|\n|$)/gi,
   ];
@@ -225,11 +243,53 @@ function extractItemLines(lines: string[]) {
   return itemSection.filter((line) => {
     const lower = line.toLowerCase();
     if (lower.includes("highlighted in purple") || lower.includes("highlighted in blue")) return true;
-    if (lower.startsWith("(") && lower.endsWith(")")) return true;
     if (/\d/.test(line)) return true;
     if (/container|pallet|ducting|sheet|steel|bar|mesh/i.test(line)) return true;
     return false;
   });
+}
+
+function summariseLocation(value: string) {
+  return clean(value).replace(/\s{2,}/g, " ").replace(/\n/g, ", ").replace(/\s+,/g, ",").trim();
+}
+
+function extractAddressAndLocations(lines: string[]) {
+  const siteSection = takeSection(lines, /^site details\b/i, /^(thanks|kind regards|regards|many thanks)\b/i);
+  if (!siteSection.length) {
+    return {
+      collectionSite: "",
+      deliverySite: "",
+      siteLocation: "",
+      workLocation: "",
+      extraNotes: "",
+    };
+  }
+
+  const attachmentLines = siteSection.filter((line) => /attached/i.test(line));
+  const collectionLines = siteSection.filter((line) => /wingrave/i.test(line));
+  const deliveryLines = siteSection.filter(
+    (line) => !/^site details\b/i.test(line) && !/wingrave/i.test(line) && !/attached/i.test(line)
+  );
+
+  const collectionSite = summariseLocation(collectionLines.join("\n"));
+  const deliverySite = summariseLocation(deliveryLines.join("\n"));
+  const siteLocation = collectionSite && deliverySite ? `${collectionSite} to ${deliverySite}` : collectionSite || deliverySite;
+  const workLocation = deliveryLines.join("\n").trim();
+
+  const extraNotes = uniqueNonEmpty(
+    attachmentLines.map((line) => {
+      if (/wingrave/i.test(line)) return `${line}.`;
+      return line;
+    })
+  ).join("\n");
+
+  return {
+    collectionSite,
+    deliverySite,
+    siteLocation,
+    workLocation,
+    extraNotes,
+  };
 }
 
 function makeSubject(hireType: string, routes: string[], siteLocation: string) {
@@ -257,6 +317,165 @@ function buildScopeSummary(datePhrase: string, routes: string[], itemLines: stri
   return parts.join("\n\n").trim();
 }
 
+function looksLikeTransportEnquiry(text: string) {
+  const lower = text.toLowerCase();
+  return (
+    (lower.includes("transport") || lower.includes("move") || lower.includes("haulage")) &&
+    (lower.includes("site details") || lower.includes("collected from") || lower.includes("transported to"))
+  );
+}
+
+function buildTransportHeuristics(text: string) {
+  const raw = normaliseWhitespace(text);
+  const lines = linesOf(raw);
+  const signature = extractSignature(lines);
+  const colourRoutes = extractColourRoutes(lines);
+  const genericRoutes = extractRoutes(raw);
+  const datePhrase = findDatePhrase(raw);
+  const items = extractItemLines(lines);
+  const addressInfo = extractAddressAndLocations(lines);
+
+  const filteredItems = items.filter((line) => !/highlighted in\s+(purple|blue|green|red|orange|yellow)/i.test(line));
+  const routeSummaries = colourRoutes.length ? colourRoutes.map((route) => route.summary) : genericRoutes;
+  const primaryRoute = colourRoutes[0];
+  const secondaryRoutes = colourRoutes.slice(1);
+
+  const siteLocation =
+    addressInfo.siteLocation ||
+    (primaryRoute ? `${primaryRoute.from} to ${primaryRoute.to}` : routeSummaries[0]?.replace(/^From\s+/i, "") || "");
+
+  const workLocation = addressInfo.workLocation || primaryRoute?.to || "";
+  const toSupply = filteredItems.join("\n");
+
+  const scopeParts: string[] = [];
+  if (primaryRoute) {
+    scopeParts.push(
+      `Provide a transport / haulage quotation to move the listed materials from ${primaryRoute.from} to ${primaryRoute.to}${datePhrase ? ` in the ${datePhrase}` : ""}.`
+    );
+  } else if (routeSummaries.length) {
+    scopeParts.push(`Provide a transport / haulage quotation for the requested movement${datePhrase ? ` in the ${datePhrase}` : ""}.`);
+    scopeParts.push(routeSummaries.join("\n"));
+  }
+  if (secondaryRoutes.length) {
+    scopeParts.push(`Possible additional movement: ${secondaryRoutes.map((route) => `${route.from} to ${route.to} (${route.colour} items)`).join("; ")}.`);
+  }
+  if (!scopeParts.length) {
+    scopeParts.push(buildScopeSummary(datePhrase, routeSummaries, items));
+  }
+
+  const notes = uniqueNonEmpty([
+    secondaryRoutes.length
+      ? `Possible further movement requested for ${secondaryRoutes.map((route) => `${route.colour} items from ${route.from} to ${route.to}`).join("; ")}.`
+      : "",
+    addressInfo.extraNotes,
+    signature.role ? `Contact role: ${signature.role}` : "",
+  ]).join("\n\n");
+
+  const subject = makeSubject("Transport / haulage", routeSummaries, siteLocation);
+
+  return {
+    customerName: "",
+    amount: pickFirstMoney(raw),
+    subject,
+    fields: {
+      ...getEmptyStructuredQuoteFields(),
+      contactName: signature.name,
+      contactPhone: signature.phone,
+      projectDateTime: datePhrase,
+      siteLocation,
+      hireType: "Transport / haulage",
+      toSupply,
+      scopeOfWork: scopeParts.filter(Boolean).join("\n\n").trim(),
+      workLocation,
+      workDates: datePhrase,
+      duration: "",
+      workingHours: "",
+      costSummary: pickFirstMoney(raw) ? `£${pickFirstMoney(raw)}` : "",
+      additionalEquipment: "",
+      includedItems: "",
+      breakdown: "",
+      additionalNotes: notes,
+      paymentTerms: getEmptyStructuredQuoteFields().paymentTerms,
+    } as StructuredQuoteFields,
+    missing: ["Customer", "Pricing"],
+  } as QuoteExtractionResult;
+}
+
+function looksLikeRawEmailBlob(value: string) {
+  const lower = value.toLowerCase();
+  return (
+    lower.includes("please can you provide a quote") ||
+    lower.includes("site details") ||
+    lower.includes("thanks ") ||
+    lower.includes("project manager") ||
+    value.split("\n").length >= 8
+  );
+}
+
+function mergeExtractionWithHeuristics(text: string, extraction: QuoteExtractionResult): QuoteExtractionResult {
+  const heuristics = buildTransportHeuristics(text);
+  const transportEnquiry = looksLikeTransportEnquiry(text);
+
+  const next: QuoteExtractionResult = {
+    customerName: extraction.customerName,
+    amount: extraction.amount,
+    subject: extraction.subject,
+    fields: { ...extraction.fields },
+    missing: Array.isArray(extraction.missing) ? [...extraction.missing] : [],
+  };
+
+  const alwaysPreferHeuristic: Array<keyof StructuredQuoteFields> = transportEnquiry
+    ? ["contactName", "contactPhone", "projectDateTime", "siteLocation", "hireType", "toSupply", "scopeOfWork", "workLocation", "workDates", "additionalNotes"]
+    : [];
+
+  for (const key of Object.keys(next.fields) as Array<keyof StructuredQuoteFields>) {
+    const current = clean(next.fields[key]);
+    const heuristicValue = clean(heuristics.fields[key]);
+    if (!heuristicValue) continue;
+
+    if (!current) {
+      next.fields[key] = heuristicValue;
+      continue;
+    }
+
+    if (alwaysPreferHeuristic.includes(key)) {
+      next.fields[key] = heuristicValue;
+      continue;
+    }
+
+    if ((key === "siteLocation" || key === "workLocation") && current.length < heuristicValue.length) {
+      next.fields[key] = heuristicValue;
+      continue;
+    }
+
+    if (key === "hireType" && /contract lift/i.test(current) && /transport/i.test(heuristicValue)) {
+      next.fields[key] = heuristicValue;
+      continue;
+    }
+  }
+
+  if (!clean(next.subject) || looksLikeRawEmailBlob(next.subject)) {
+    next.subject = heuristics.subject || next.subject;
+  }
+
+  if (!clean(next.amount) && clean(heuristics.amount)) {
+    next.amount = heuristics.amount;
+  }
+
+  if (!clean(next.customerName) && clean(heuristics.customerName)) {
+    next.customerName = heuristics.customerName;
+  }
+
+  next.missing = uniqueNonEmpty([
+    !clean(next.customerName) ? "Customer" : "",
+    !clean(next.fields.siteLocation) && !clean(next.fields.workLocation) ? "Site location" : "",
+    !clean(next.fields.workDates) && !clean(next.fields.projectDateTime) ? "Dates" : "",
+    !clean(next.amount) && !clean(next.fields.costSummary) ? "Pricing" : "",
+  ]);
+
+  return next;
+}
+
 function fallbackExtract(text: string): QuoteExtractionResult {
   const raw = normaliseWhitespace(text);
   const fields = getEmptyStructuredQuoteFields();
@@ -267,21 +486,31 @@ function fallbackExtract(text: string): QuoteExtractionResult {
   const datePhrase = findDatePhrase(raw);
   const items = extractItemLines(lines);
   const locationInfo = extractAddressAndLocations(lines);
+  const colourRoutes = extractColourRoutes(lines);
 
   const customerName = pickLineAfterLabel(raw, ["client", "customer", "company"]);
 
   fields.contactName = pickLineAfterLabel(raw, ["contact", "contact name", "attn"]) || signature.name;
   fields.contactPhone = pickLineAfterLabel(raw, ["tel", "phone", "telephone", "mobile"]) || signature.phone;
-  fields.projectDateTime = pickLineAfterLabel(raw, ["date & time of project", "date and time of project", "project date", "date/time"]) || datePhrase;
-  fields.siteLocation = pickLineAfterLabel(raw, ["site location", "site", "project", "job location"]) || locationInfo.siteLocation;
+  fields.projectDateTime =
+    pickLineAfterLabel(raw, ["date & time of project", "date and time of project", "project date", "date/time"]) || datePhrase;
+  fields.siteLocation =
+    pickLineAfterLabel(raw, ["site location", "site", "project", "job location"]) ||
+    locationInfo.siteLocation ||
+    (colourRoutes[0] ? `${colourRoutes[0].from} to ${colourRoutes[0].to}` : "");
   fields.hireType = inferHireType(raw);
-  fields.toSupply = pickLineAfterLabel(raw, ["to supply", "supply", "equipment required"]) || items.filter((line) => !/highlighted/i.test(line)).join("\n");
-  fields.scopeOfWork = pickLineAfterLabel(raw, ["scope of work", "scope", "works", "description"]) || buildScopeSummary(datePhrase, routes, items);
-  fields.workLocation = pickLineAfterLabel(raw, ["location", "work location", "address", "site address"]) || locationInfo.workLocation;
+  fields.toSupply =
+    pickLineAfterLabel(raw, ["to supply", "supply", "equipment required"]) ||
+    items.filter((line) => !/highlighted in/i.test(line)).join("\n");
+  fields.scopeOfWork =
+    pickLineAfterLabel(raw, ["scope of work", "scope", "works", "description"]) || buildScopeSummary(datePhrase, routes, items);
+  fields.workLocation =
+    pickLineAfterLabel(raw, ["location", "work location", "address", "site address"]) || locationInfo.workLocation;
   fields.workDates = pickLineAfterLabel(raw, ["date(s)", "dates", "week commencing"]) || datePhrase;
   fields.duration = pickLineAfterLabel(raw, ["duration", "hire duration", "minimum hire"]);
   fields.workingHours = pickLineAfterLabel(raw, ["working pattern", "working hours", "hours"]);
-  fields.costSummary = pickLineAfterLabel(raw, ["cost", "cost summary", "price", "rate"]) || (pickFirstMoney(raw) ? `£${pickFirstMoney(raw)}` : "");
+  fields.costSummary =
+    pickLineAfterLabel(raw, ["cost", "cost summary", "price", "rate"]) || (pickFirstMoney(raw) ? `£${pickFirstMoney(raw)}` : "");
 
   const extrasBlock = pickLineAfterLabel(raw, ["additional equipment & personnel", "additional equipment", "personnel"]);
   if (extrasBlock) fields.additionalEquipment = extrasBlock;
@@ -292,10 +521,8 @@ function fallbackExtract(text: string): QuoteExtractionResult {
   const notes: string[] = [];
   if (signature.role) notes.push(`Contact role: ${signature.role}`);
   if (locationInfo.extraNotes) notes.push(locationInfo.extraNotes);
-  const colourNotes = items.filter((line) => /highlighted in purple|highlighted in blue/i.test(line));
+  const colourNotes = colourRoutes.slice(1).map((route) => `Possible further route: ${route.from} to ${route.to} (${route.colour} items).`);
   if (colourNotes.length) notes.push(colourNotes.join("\n"));
-  const routeNotes = routes.slice(1);
-  if (routeNotes.length) notes.push(routeNotes.join("\n"));
   fields.additionalNotes = notes.join("\n\n").trim();
 
   const subject =
@@ -308,13 +535,13 @@ function fallbackExtract(text: string): QuoteExtractionResult {
   if (!fields.workDates && !fields.projectDateTime) missing.push("Dates");
   if (!fields.costSummary && !pickFirstMoney(raw)) missing.push("Pricing");
 
-  return {
+  return mergeExtractionWithHeuristics(raw, {
     customerName,
     amount: pickFirstMoney(raw),
     subject,
     fields,
     missing,
-  };
+  });
 }
 
 function sanitizeFields(value: any): StructuredQuoteFields {
@@ -339,6 +566,30 @@ function sanitiseExtraction(payload: any): QuoteExtractionResult {
   };
 }
 
+function extractResponseText(payload: any) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  const chunks: string[] = [];
+
+  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
+    if (!Array.isArray(item?.content)) continue;
+
+    for (const content of item.content) {
+      const text =
+        typeof content?.text === "string"
+          ? content.text
+          : typeof content?.output_text === "string"
+          ? content.output_text
+          : "";
+      if (text) chunks.push(text);
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
 async function callOpenAI(input: string, maxOutputTokens: number) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new Error("Missing OPENAI_API_KEY");
@@ -359,7 +610,7 @@ async function callOpenAI(input: string, maxOutputTokens: number) {
     }),
   });
 
-  const payload = await response.json().catch(() => ({}));
+  const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(payload?.error?.message || "OpenAI request failed.");
   }
@@ -371,19 +622,21 @@ async function callOpenAI(input: string, maxOutputTokens: number) {
 
 async function extractWithOpenAI(sourceText: string): Promise<QuoteExtractionResult> {
   const prompt = [
-    "You extract quote fields from an incoming customer email or enquiry.",
+    "You extract quote fields from an incoming customer email or enquiry for AnnS Crane Hire Ltd.",
     "Return JSON only. Do not include markdown fences.",
     "Only use information that is explicitly present in the source text.",
     "Never invent prices, dates, legal wording, payment terms, or customer details.",
     "If a field is unclear, return an empty string.",
     "For amount, return only the numeric amount without £ or VAT text when a clear total or quoted price exists.",
-    "For breakdown, only include rows when a rate/price is explicitly present.",
-    "For toSupply, use the item list or materials being moved/supplied.",
-    "For scopeOfWork, summarise the requested movement or lifting work in plain business language using only facts from the source text.",
-    "For workLocation, prefer the delivery / working site address block when one is present.",
-    "For siteLocation, combine collection and delivery route details when the enquiry includes a from/to movement.",
-    "For additionalEquipment and includedItems, use one item per line when present.",
-    "For additionalNotes, place any useful leftover context that should be reviewed by staff.",
+    "For transport / haulage enquiries, map collection and delivery carefully:",
+    "- siteLocation = short route summary such as 'Wingrave AP1 to Horton, Cullompton, Devon, EX15 2NH'",
+    "- workLocation = the main delivery / working address block",
+    "- toSupply = clean item list only, one item per line",
+    "- scopeOfWork = concise business summary of the requested move, not the raw email",
+    "- additionalNotes = useful leftover review points such as possible additional routes or attached drawings",
+    "Do not paste the whole email into any field.",
+    "If the company name is not explicitly stated, customerName must be an empty string.",
+    "If no pricing is present, amount and costSummary must be empty strings.",
     "JSON schema:",
     JSON.stringify({
       customerName: "",
@@ -397,7 +650,7 @@ async function extractWithOpenAI(sourceText: string): Promise<QuoteExtractionRes
   ].join("\n\n");
 
   const text = await callOpenAI(prompt, 1800);
-  return sanitiseExtraction(tryParseJsonObject(text));
+  return mergeExtractionWithHeuristics(sourceText, sanitiseExtraction(tryParseJsonObject(text)));
 }
 
 export async function extractQuoteFromTextWithFallback(sourceText: string) {
