@@ -1,5 +1,15 @@
+import Image from "next/image";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import PrintQuoteActions from "./PrintQuoteActions";
+import {
+  DEFAULT_CONTRACT_TERMS_TEXT,
+  DEFAULT_HIRE_TERMS_TEXT,
+  DEFAULT_PAYMENT_TERMS,
+  parseBreakdownRows,
+  parseQuoteNotes,
+  splitBulletLines,
+  splitLines,
+} from "../../quoteTemplate";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -8,33 +18,21 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function fmtLongDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function fmtMoney(value: number | string | null | undefined) {
   const n = Number(value ?? null);
   if (!Number.isFinite(n)) return "—";
-  return `£${n.toLocaleString("en-GB", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function safeText(value: any) {
-  const s = String(value ?? "").trim();
-  return s.length ? s : "—";
-}
-
-function quoteReference(id: string, date: string | null | undefined) {
-  const cleanDate = String(date ?? "").replace(/-/g, "");
-  const suffix = String(id ?? "").replace(/[^a-zA-Z0-9]/g, "").slice(0, 6).toUpperCase();
-  if (cleanDate && suffix) return `QT-${cleanDate}-${suffix}`;
-  if (suffix) return `QT-${suffix}`;
-  return "—";
-}
-
-function splitNotes(value: string | null | undefined) {
-  return String(value ?? "")
-    .split(/\n+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
+  return `£${n.toFixed(2)}`;
 }
 
 export default async function QuotePrintPage({
@@ -44,271 +42,225 @@ export default async function QuotePrintPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: quote }, { data: settings }] = await Promise.all([
-    supabase
-      .from("quotes")
-      .select(`
+  const { data: quote } = await supabase
+    .from("quotes")
+    .select(`
+      *,
+      clients:client_id (
         id,
-        status,
-        quote_date,
-        valid_until,
-        amount,
-        subject,
-        notes,
-        created_at,
-        clients:client_id (
-          company_name,
-          contact_name,
-          phone,
-          email
-        )
-      `)
-      .eq("id", params.id)
-      .single(),
-    supabase.from("app_settings").select("*").limit(1).maybeSingle(),
-  ]);
+        company_name,
+        contact_name,
+        phone,
+        email,
+        address
+      )
+    `)
+    .eq("id", params.id)
+    .single();
 
   const client = Array.isArray((quote as any)?.clients)
-    ? (quote as any).clients[0] ?? null
-    : (quote as any)?.clients ?? null;
+    ? (quote as any).clients[0]
+    : (quote as any)?.clients;
 
-  const businessName = settings?.business_name || "Ann's Crane Hire Ltd";
-  const businessAddress =
-    settings?.business_address || "6 Bay Street, Port Tennant, Swansea, SA1 8LB";
-  const businessPhone = settings?.business_phone || "01792 641653";
-  const businessEmail = settings?.business_email || "info@annscranehire.co.uk";
-  const paymentTermsDays = Number(settings?.payment_terms_days ?? 30) || 30;
-
-  const noteSections = splitNotes((quote as any)?.notes);
-  const scopeSummary = noteSections.length ? noteSections[0] : "—";
-  const supportingNotes = noteSections.slice(1);
+  const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
+  const fields = parsed.fields;
+  const breakdownRows = parseBreakdownRows(fields.breakdown);
+  const additionalEquipment = splitBulletLines(fields.additionalEquipment);
+  const includedItems = splitBulletLines(fields.includedItems);
+  const projectDateTimeLines = splitLines(fields.projectDateTime);
+  const workingHoursLines = splitLines(fields.workingHours);
+  const customNotesLines = splitLines(fields.additionalNotes);
+  const paymentTerms = fields.paymentTerms || DEFAULT_PAYMENT_TERMS;
 
   return (
     <html>
       <head>
-        <title>Quote {quoteReference(params.id, (quote as any)?.quote_date)}</title>
+        <title>{(quote as any)?.subject || "Quote"}</title>
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
+              @page { margin: 14mm; }
+              @media print {
+                .quote-print-hide { display: none !important; }
+                body { background: #fff !important; }
+                .quote-page { box-shadow: none !important; margin: 0 !important; width: auto !important; }
+              }
+            `,
+          }}
+        />
       </head>
       <body style={bodyStyle}>
-        <style>{`
-          @media print {
-            .print-hide {
-              display: none !important;
-            }
-
-            body {
-              background: #fff !important;
-            }
-
-            .quote-page {
-              width: 100% !important;
-              margin: 0 !important;
-              padding: 0 !important;
-              box-shadow: none !important;
-            }
-          }
-        `}</style>
-
         <div className="quote-page" style={pageStyle}>
-          <div className="print-hide" style={topBarStyle}>
+          <div style={topBarStyle}>
             <div>
-              <div style={{ fontSize: 28, fontWeight: 1000 }}>QUOTE</div>
-              <div style={{ marginTop: 6, opacity: 0.75 }}>
-                {quoteReference(params.id, (quote as any)?.quote_date)}
+              <div style={{ fontSize: 36, fontWeight: 1000, letterSpacing: 0.5 }}>QUOTE</div>
+              <div style={{ marginTop: 4, opacity: 0.72 }}>
+                {(quote as any)?.subject ?? client?.company_name ?? "Customer quote"}
               </div>
             </div>
-
             <PrintQuoteActions backHref={`/quotes/${params.id}`} />
           </div>
 
-          <div style={headerStyle}>
-            <div style={{ flex: 1, minWidth: 280 }}>
-              <div style={{ fontSize: 30, fontWeight: 1000, letterSpacing: 0.2 }}>
-                {businessName}
-              </div>
-              <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.45 }}>
-                <div>{businessAddress}</div>
-                <div>Tel: {businessPhone}</div>
-                <div>Email: {businessEmail}</div>
-              </div>
-            </div>
+          <div className="quote-print-hide" style={helpBox}>
+            Use <strong>Print / Save PDF</strong>, then choose <strong>Save as PDF</strong> in the browser print window.
+          </div>
 
-            <div style={{ width: 240, maxWidth: "100%", textAlign: "right" }}>
-              <img
-                src="/logo.png"
-                alt="AnnS Crane Hire"
-                style={{
-                  width: 220,
-                  maxWidth: "100%",
-                  height: "auto",
-                  objectFit: "contain",
-                  display: "block",
-                  marginLeft: "auto",
-                }}
-              />
+          <div style={headerCard}>
+            <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ flex: "0 0 auto" }}>
+                <Image src="/logo.png" alt="Ann's Crane Hire" width={140} height={76} />
+              </div>
+              <div style={{ flex: "1 1 320px" }}>
+                <div style={{ fontWeight: 900, fontSize: 24 }}>Anns Crane Hire Ltd</div>
+                <div style={{ marginTop: 6, lineHeight: 1.5 }}>
+                  6 Bay St, Port Tennant, Swansea, SA1 8LB<br />
+                  Tel: 01792 641653<br />
+                  Email: info@annscranehire.co.uk
+                </div>
+              </div>
+              <div style={{ flex: "0 1 220px", textAlign: "right", fontWeight: 700 }}>
+                {fmtLongDate((quote as any)?.quote_date)}
+              </div>
             </div>
           </div>
 
-          <div style={titleBandStyle}>
-            <div>
-              <div style={{ fontSize: 34, fontWeight: 1000, letterSpacing: 0.4 }}>QUOTE</div>
-              <div style={{ marginTop: 6, fontSize: 15 }}>
-                {quoteReference(params.id, (quote as any)?.quote_date)}
-              </div>
-            </div>
-
-            <div style={{ minWidth: 220 }}>
-              <MetaRow label="Quote date" value={fmtDate((quote as any)?.quote_date)} />
-              <MetaRow label="Valid until" value={fmtDate((quote as any)?.valid_until)} />
-              <MetaRow label="Status" value={safeText((quote as any)?.status)} />
-            </div>
+          <div style={infoTable}>
+            <InfoCell label="Client" value={client?.company_name ?? "—"} />
+            <InfoCell label="Date & time of project" value={fields.projectDateTime || "—"} />
+            <InfoCell label="Contact name" value={fields.contactName || client?.contact_name || "—"} />
+            <InfoCell label="Tel" value={fields.contactPhone || client?.phone || "—"} />
+            <InfoCell label="Site location" value={fields.siteLocation || fields.workLocation || client?.address || "—"} />
+            <InfoCell label="Hire type" value={fields.hireType || "—"} />
           </div>
 
-          <div style={twoColGrid}>
-            <section style={cardStyle}>
-              <h2 style={sectionTitle}>Client</h2>
-              <InfoRow label="Company" value={client?.company_name} />
-              <InfoRow label="Contact" value={client?.contact_name} />
-              <InfoRow label="Phone" value={client?.phone} />
-              <InfoRow label="Email" value={client?.email} />
-            </section>
-
-            <section style={cardStyle}>
-              <h2 style={sectionTitle}>Project / Quote details</h2>
-              <InfoRow label="Subject" value={(quote as any)?.subject} />
-              <InfoRow label="Reference" value={quoteReference(params.id, (quote as any)?.quote_date)} />
-              <InfoRow label="Hire type" value="As quoted" />
-              <InfoRow label="Total quoted" value={fmtMoney((quote as any)?.amount)} />
-            </section>
+          <div style={sectionBox}>
+            <div style={sectionHeading}>To Supply</div>
+            <div style={bodyText}>{fields.toSupply || "—"}</div>
+            <div style={{ ...sectionHeading, marginTop: 14 }}>Scope of Work</div>
+            <div style={bodyText}>{fields.scopeOfWork || parsed.rawNotes || "—"}</div>
           </div>
 
-          <section style={{ ...cardStyle, marginTop: 18 }}>
-            <h2 style={sectionTitle}>Scope of work</h2>
-            <div style={blockStyle}>{scopeSummary}</div>
-          </section>
+          <div style={infoTable}>
+            <InfoCell label="Location" value={fields.workLocation || client?.address || "—"} />
+            <InfoCell label="Date(s)" value={fields.workDates || "—"} />
+            <InfoCell label="Duration" value={fields.duration || formatProjectBlock(projectDateTimeLines) || "—"} />
+            <InfoCell label="Working pattern" value={fields.workingHours || formatProjectBlock(workingHoursLines) || "—"} />
+            <InfoCell label="Cost" value={fields.costSummary || fmtMoney((quote as any)?.amount)} />
+            <InfoCell label="Valid until" value={fmtDate((quote as any)?.valid_until)} />
+          </div>
 
-          <div style={{ ...twoColGrid, marginTop: 18 }}>
-            <section style={cardStyle}>
-              <h2 style={sectionTitle}>Commercial summary</h2>
+          {additionalEquipment.length > 0 ? (
+            <div style={sectionBox}>
+              <div style={sectionHeading}>Additional Equipment & Personnel</div>
+              <ul style={listStyle}>
+                {additionalEquipment.map((item, index) => (
+                  <li key={`${item}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {includedItems.length > 0 ? (
+            <div style={sectionBox}>
+              <div style={sectionHeading}>Included under full CPA terms</div>
+              <ul style={listStyle}>
+                {includedItems.map((item, index) => (
+                  <li key={`${item}-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {breakdownRows.length > 0 ? (
+            <div style={sectionBox}>
+              <div style={sectionHeading}>Breakdown of current charges / rates</div>
               <table style={tableStyle}>
                 <thead>
                   <tr>
+                    <th style={thStyle}>Qty</th>
                     <th style={thStyle}>Description</th>
                     <th style={thStyle}>Rate</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td style={tdStyle}>{safeText((quote as any)?.subject)}</td>
-                    <td style={tdStyle}>{fmtMoney((quote as any)?.amount)}</td>
-                  </tr>
+                  {breakdownRows.map((row, index) => (
+                    <tr key={`${row.description}-${index}`}>
+                      <td style={tdStyle}>{row.qty || "—"}</td>
+                      <td style={tdStyle}>{row.description || "—"}</td>
+                      <td style={tdStyle}>{row.rate || "—"}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
+            </div>
+          ) : null}
 
-              <div style={totalStyle}>Quoted total: {fmtMoney((quote as any)?.amount)}</div>
-            </section>
+          {customNotesLines.length > 0 ? (
+            <div style={sectionBox}>
+              <div style={sectionHeading}>Additional quote notes</div>
+              <div style={bodyText}>{customNotesLines.join("\n")}</div>
+            </div>
+          ) : null}
 
-            <section style={cardStyle}>
-              <h2 style={sectionTitle}>Additional notes</h2>
-              {supportingNotes.length ? (
-                <ul style={bulletListStyle}>
-                  {supportingNotes.map((note, index) => (
-                    <li key={`${index}-${note}`}>{note}</li>
-                  ))}
-                </ul>
-              ) : (
-                <div style={blockStyle}>—</div>
-              )}
-            </section>
+          <div style={termsBox}>
+            <div style={termsPre}>{DEFAULT_HIRE_TERMS_TEXT}</div>
           </div>
 
-          <section style={{ ...cardStyle, marginTop: 18 }}>
-            <h2 style={sectionTitle}>Terms</h2>
-            <div style={{ fontSize: 14, lineHeight: 1.55 }}>
-              <div>• All work is subject to Ann&apos;s Crane Hire Ltd terms and CPA / RHA terms where applicable.</div>
-              <div>• Unless stated otherwise, prices are exclusive of VAT.</div>
-              <div>• This quotation is offered subject to site access, suitable ground conditions and the agreed scope of works.</div>
-              <div>• Delays, aborted visits, waiting time, additional labour or specification changes may result in revised charges.</div>
-              <div>• Quote acceptance should be confirmed in writing with any relevant purchase order reference.</div>
-              <div>• Payment terms: {paymentTermsDays} days from month end unless agreed otherwise in writing.</div>
+          <div style={signatureBox}>
+            <div style={signatureHeading}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk</div>
+            <div style={{ fontWeight: 800, marginTop: 14 }}>FOR AND ON BEHALF OF:</div>
+            <div style={signatureLineRow}>
+              <div style={signatureLine}><span>Name:</span><div style={lineStyle} /></div>
+              <div style={signatureLine}><span>Signed:</span><div style={lineStyle} /></div>
+              <div style={signatureLine}><span>Date:</span><div style={lineStyle} /></div>
             </div>
-          </section>
+            <div style={footerTable}>
+              <div style={footerCell}><strong>Purchase Order No:</strong></div>
+              <div style={footerCell}><strong>PAYMENT TERMS:</strong> {paymentTerms}</div>
+            </div>
+          </div>
 
-          <section style={{ ...cardStyle, marginTop: 18 }}>
-            <h2 style={sectionTitle}>Acceptance</h2>
-            <div style={acceptanceGridStyle}>
-              <SignatureRow label="For and on behalf of" />
-              <SignatureRow label="Name" />
-              <SignatureRow label="Signed" />
-              <SignatureRow label="Date" />
-              <SignatureRow label="Purchase Order No." />
-              <SignatureRow label="Payment terms" value={`${paymentTermsDays} days from month end`} />
-            </div>
-          </section>
+          <div style={{ marginTop: 20, fontSize: 13, fontWeight: 700 }}>
+            Construction Plant-hire Association (CPA) Standard terms and conditions for contract lift services.
+          </div>
+
+          <div style={longTermsBox}>
+            <div style={termsPre}>{DEFAULT_CONTRACT_TERMS_TEXT}</div>
+          </div>
         </div>
       </body>
     </html>
   );
 }
 
-function MetaRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
-  return (
-    <div style={metaRowStyle}>
-      <span style={{ fontWeight: 800 }}>{label}:</span>
-      <span>{value}</span>
-    </div>
-  );
+function formatProjectBlock(lines: string[]) {
+  if (!lines.length) return "";
+  return lines.join("\n");
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: any;
-}) {
+function InfoCell({ label, value }: { label: string; value: string }) {
   return (
-    <div style={infoRowStyle}>
+    <div style={infoCellStyle}>
       <div style={infoLabelStyle}>{label}</div>
-      <div style={infoValueStyle}>{safeText(value)}</div>
-    </div>
-  );
-}
-
-function SignatureRow({
-  label,
-  value,
-}: {
-  label: string;
-  value?: string;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div style={{ fontWeight: 800 }}>{label}</div>
-      <div style={signatureBoxStyle}>{value ?? ""}</div>
+      <div style={infoValueStyle}>{value || "—"}</div>
     </div>
   );
 }
 
 const bodyStyle: React.CSSProperties = {
   margin: 0,
-  background: "#f4f4f4",
-  fontFamily: "Arial, Helvetica, sans-serif",
+  background: "#f5f5f5",
+  fontFamily: "Arial, sans-serif",
   color: "#111",
 };
 
 const pageStyle: React.CSSProperties = {
-  width: "min(1100px, 94vw)",
+  width: "min(980px, 92vw)",
   margin: "20px auto",
   background: "#fff",
   padding: 28,
   boxSizing: "border-box",
-  boxShadow: "0 8px 28px rgba(0,0,0,0.08)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
 const topBarStyle: React.CSSProperties = {
@@ -317,75 +269,62 @@ const topBarStyle: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
-  marginBottom: 18,
 };
 
-const headerStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 24,
-  alignItems: "flex-start",
-  flexWrap: "wrap",
-  paddingBottom: 18,
-  borderBottom: "2px solid #111",
+const helpBox: React.CSSProperties = {
+  marginTop: 14,
+  padding: 12,
+  borderRadius: 10,
+  background: "#f7f7f7",
+  border: "1px solid #ddd",
 };
 
-const titleBandStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 18,
-  flexWrap: "wrap",
-  alignItems: "flex-start",
-  marginTop: 20,
-};
-
-const twoColGrid: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-  gap: 18,
-  marginTop: 18,
-};
-
-const cardStyle: React.CSSProperties = {
-  border: "1px solid #cfcfcf",
+const headerCard: React.CSSProperties = {
+  marginTop: 16,
+  border: "1px solid #111",
   padding: 16,
 };
 
-const sectionTitle: React.CSSProperties = {
-  marginTop: 0,
-  marginBottom: 14,
-  fontSize: 22,
+const infoTable: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  borderLeft: "1px solid #111",
+  borderRight: "1px solid #111",
+  borderBottom: "1px solid #111",
 };
 
-const infoRowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "140px 1fr",
-  gap: 10,
-  padding: "8px 0",
-  borderBottom: "1px solid #ececec",
+const infoCellStyle: React.CSSProperties = {
+  borderTop: "1px solid #111",
+  borderRight: "1px solid #111",
+  padding: 10,
+  minHeight: 62,
+  whiteSpace: "pre-wrap",
 };
 
 const infoLabelStyle: React.CSSProperties = {
   fontWeight: 800,
+  marginBottom: 6,
 };
 
 const infoValueStyle: React.CSSProperties = {
-  whiteSpace: "pre-wrap",
-  wordBreak: "break-word",
+  lineHeight: 1.45,
 };
 
-const metaRowStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  fontSize: 14,
-  padding: "4px 0",
+const sectionBox: React.CSSProperties = {
+  border: "1px solid #111",
+  padding: 12,
+  marginTop: 14,
 };
 
-const blockStyle: React.CSSProperties = {
-  minHeight: 80,
+const sectionHeading: React.CSSProperties = {
+  fontWeight: 900,
+  fontSize: 16,
+  marginBottom: 8,
+};
+
+const bodyText: React.CSSProperties = {
   whiteSpace: "pre-wrap",
-  lineHeight: 1.6,
+  lineHeight: 1.55,
 };
 
 const tableStyle: React.CSSProperties = {
@@ -395,39 +334,81 @@ const tableStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   textAlign: "left",
-  borderBottom: "1px solid #bbb",
+  border: "1px solid #111",
   padding: "10px 8px",
   fontSize: 13,
 };
 
 const tdStyle: React.CSSProperties = {
-  borderBottom: "1px solid #eee",
+  border: "1px solid #111",
   padding: "10px 8px",
   fontSize: 14,
+  verticalAlign: "top",
+  whiteSpace: "pre-wrap",
 };
 
-const totalStyle: React.CSSProperties = {
-  marginTop: 14,
-  textAlign: "right",
-  fontSize: 18,
+const listStyle: React.CSSProperties = {
+  margin: "0 0 0 18px",
+  padding: 0,
+  lineHeight: 1.55,
+};
+
+const termsBox: React.CSSProperties = {
+  border: "1px solid #111",
+  marginTop: 16,
+  padding: 12,
+};
+
+
+const termsPre: React.CSSProperties = {
+  whiteSpace: "pre-wrap",
+  lineHeight: 1.45,
+  fontSize: 12,
+};
+
+const signatureBox: React.CSSProperties = {
+  border: "1px solid #111",
+  marginTop: 16,
+  padding: 12,
+};
+
+const signatureHeading: React.CSSProperties = {
   fontWeight: 900,
+  fontSize: 18,
 };
 
-const bulletListStyle: React.CSSProperties = {
-  margin: 0,
-  paddingLeft: 20,
-  lineHeight: 1.6,
-};
-
-const acceptanceGridStyle: React.CSSProperties = {
+const signatureLineRow: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(220px, 1fr))",
-  gap: 14,
+  gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 14,
 };
 
-const signatureBoxStyle: React.CSSProperties = {
-  minHeight: 44,
-  border: "1px solid #cfcfcf",
-  padding: 10,
-  fontSize: 14,
+const signatureLine: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+  alignItems: "end",
+};
+
+const lineStyle: React.CSSProperties = {
+  borderBottom: "1px solid #111",
+  height: 24,
+};
+
+const footerTable: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  borderTop: "1px solid #111",
+  marginTop: 16,
+};
+
+const footerCell: React.CSSProperties = {
+  padding: "10px 8px 0 0",
+  minHeight: 30,
+};
+
+const longTermsBox: React.CSSProperties = {
+  border: "1px solid #111",
+  marginTop: 16,
+  padding: 12,
 };
