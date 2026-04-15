@@ -77,38 +77,179 @@ function inferHireType(text: string) {
   }
   if (lower.includes("hiab")) return "HIAB hire / transport";
   if (lower.includes("crane hire")) return "Crane hire only";
-  if (lower.includes("transport")) return "Transport / haulage";
+  if (lower.includes("transport") || lower.includes("haulage") || lower.includes("move ")) {
+    return "Transport / haulage";
+  }
   return "";
+}
+
+function linesOf(text: string) {
+  return text
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function findLineIndex(lines: string[], matcher: RegExp) {
+  return lines.findIndex((line) => matcher.test(line));
+}
+
+function takeSection(lines: string[], startMatcher: RegExp, endMatcher?: RegExp) {
+  const startIndex = findLineIndex(lines, startMatcher);
+  if (startIndex < 0) return [] as string[];
+
+  let endIndex = lines.length;
+  if (endMatcher) {
+    const relativeEnd = lines.slice(startIndex + 1).findIndex((line) => endMatcher.test(line));
+    if (relativeEnd >= 0) endIndex = startIndex + 1 + relativeEnd;
+  }
+
+  return lines.slice(startIndex + 1, endIndex).filter(Boolean);
+}
+
+function findDatePhrase(text: string) {
+  const patterns = [
+    /((?:first|second|third|fourth|last)\s+week\s+of\s+[A-Za-z]+)/i,
+    /(week\s+commencing\s+[^\n.]+)/i,
+    /((?:\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})(?:\s*(?:to|-|–)\s*\d{1,2}[\/.-]\d{1,2}[\/.-]\d{2,4})?)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+
+  return "";
+}
+
+function extractSignature(lines: string[]) {
+  const startIndex = lines.findIndex((line) => /^(thanks|kind regards|regards|many thanks)\b/i.test(line));
+  const block = startIndex >= 0 ? lines.slice(startIndex) : lines.slice(Math.max(0, lines.length - 6));
+
+  const phone = pickFirstPhone(block.join("\n"));
+  const nameLine =
+    block.find((line) => /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}$/.test(line)) ||
+    block.find((line) => /^(mr|mrs|ms|miss)\.?\s+/i.test(line)) ||
+    "";
+
+  const roleLine = block.find((line) => /(manager|director|engineer|estimator|surveyor|coordinator|buyer|procurement|office)/i.test(line)) || "";
+
+  return { name: nameLine, role: roleLine, phone };
+}
+
+function extractAddressAndLocations(lines: string[]) {
+  const siteSection = takeSection(lines, /^site details\b/i, /^(thanks|kind regards|regards|many thanks)\b/i);
+  if (!siteSection.length) {
+    return { siteLocation: "", workLocation: "", extraNotes: "" };
+  }
+
+  const collectionLines = siteSection.filter((line) => /wingrave/i.test(line));
+  const deliveryLines = siteSection.filter((line) => !/wingrave/i.test(line) && !/^site details\b/i.test(line));
+
+  const workLocation = deliveryLines.join("\n");
+
+  const siteBits: string[] = [];
+  if (collectionLines.length) siteBits.push(`Collection: ${collectionLines.join(", ")}`);
+  if (deliveryLines.length) siteBits.push(`Delivery: ${deliveryLines.join(", ")}`);
+
+  const extraNotes = collectionLines.some((line) => /attached/i.test(line))
+    ? "Collection drawing / AP attachment referenced for Wingrave."
+    : "";
+
+  return {
+    siteLocation: siteBits.join("\n"),
+    workLocation,
+    extraNotes,
+  };
+}
+
+function extractRoutes(text: string) {
+  const routes: string[] = [];
+  const routeRegexes = [
+    /collected from\s+(.+?)\s*&\s*transported to\s+(.+?)(?:\)|\n|$)/gi,
+    /transported from\s+(.+?)\s+to\s+(.+?)(?:\)|\n|$)/gi,
+    /move\s+(.+?)\s+from\s+(.+?)\s+to\s+(.+?)(?:\.|\n|$)/gi,
+  ];
+
+  for (const regex of routeRegexes) {
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(text))) {
+      if (match.length >= 3) {
+        const from = clean(match[match.length - 2]);
+        const to = clean(match[match.length - 1]);
+        if (from && to) routes.push(`From ${from} to ${to}`);
+      }
+    }
+  }
+
+  return Array.from(new Set(routes));
+}
+
+function extractItemLines(lines: string[]) {
+  const itemSection = takeSection(lines, /^(mesh details|items|materials|load details)\b/i, /^site details\b/i);
+  if (!itemSection.length) return [] as string[];
+
+  return itemSection.filter((line) => {
+    const lower = line.toLowerCase();
+    if (lower.includes("highlighted in purple") || lower.includes("highlighted in blue")) return true;
+    if (lower.startsWith("(") && lower.endsWith(")")) return true;
+    if (/\d/.test(line)) return true;
+    if (/container|pallet|ducting|sheet|steel|bar|mesh/i.test(line)) return true;
+    return false;
+  });
+}
+
+function makeSubject(hireType: string, routes: string[], siteLocation: string) {
+  const prefix = hireType || "Quote request";
+  if (routes.length) {
+    return `${prefix} - ${routes[0].replace(/^From\s+/i, "").replace(/\s+to\s+/i, " to ")}`;
+  }
+  if (siteLocation) {
+    return `${prefix} - ${siteLocation.split("\n")[0].replace(/^Collection:\s*/i, "")}`;
+  }
+  return "";
+}
+
+function buildScopeSummary(datePhrase: string, routes: string[], itemLines: string[]) {
+  const parts: string[] = [];
+  if (datePhrase) parts.push(`Requested timing: ${datePhrase}.`);
+  for (const route of routes) parts.push(route + ".");
+
+  const nonRouteItems = itemLines.filter((line) => !/highlighted in purple|highlighted in blue/i.test(line));
+  if (nonRouteItems.length) {
+    parts.push("Items requested for movement:");
+    parts.push(nonRouteItems.join("\n"));
+  }
+
+  return parts.join("\n\n").trim();
 }
 
 function fallbackExtract(text: string): QuoteExtractionResult {
   const raw = normaliseWhitespace(text);
   const fields = getEmptyStructuredQuoteFields();
-  const lines = raw.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = linesOf(raw);
+
+  const signature = extractSignature(lines);
+  const routes = extractRoutes(raw);
+  const datePhrase = findDatePhrase(raw);
+  const items = extractItemLines(lines);
+  const locationInfo = extractAddressAndLocations(lines);
 
   const customerName = pickLineAfterLabel(raw, ["client", "customer", "company"]);
-  const subject =
-    pickLineAfterLabel(raw, ["subject", "re", "project", "site location"]) ||
-    lines.find((line) => line.length > 8 && !line.includes("@") && !line.startsWith("From:")) ||
-    "";
 
-  fields.contactName = pickLineAfterLabel(raw, ["contact", "contact name", "attn"]) || "";
-  fields.contactPhone = pickLineAfterLabel(raw, ["tel", "phone", "telephone", "mobile"]) || pickFirstPhone(raw);
-  fields.projectDateTime = pickLineAfterLabel(raw, ["date & time of project", "date and time of project", "project date", "date/time"]) || pickLineAfterLabel(raw, ["date"]);
-  fields.siteLocation = pickLineAfterLabel(raw, ["site location", "site", "project", "job location"]);
+  fields.contactName = pickLineAfterLabel(raw, ["contact", "contact name", "attn"]) || signature.name;
+  fields.contactPhone = pickLineAfterLabel(raw, ["tel", "phone", "telephone", "mobile"]) || signature.phone;
+  fields.projectDateTime = pickLineAfterLabel(raw, ["date & time of project", "date and time of project", "project date", "date/time"]) || datePhrase;
+  fields.siteLocation = pickLineAfterLabel(raw, ["site location", "site", "project", "job location"]) || locationInfo.siteLocation;
   fields.hireType = inferHireType(raw);
-  fields.toSupply = pickLineAfterLabel(raw, ["to supply", "supply", "equipment required"]);
-  fields.scopeOfWork = pickLineAfterLabel(raw, ["scope of work", "scope", "works", "description"]) || raw;
-  fields.workLocation = pickLineAfterLabel(raw, ["location", "work location", "address", "site address"]);
-  fields.workDates = pickLineAfterLabel(raw, ["date(s)", "dates", "week commencing"]);
+  fields.toSupply = pickLineAfterLabel(raw, ["to supply", "supply", "equipment required"]) || items.filter((line) => !/highlighted/i.test(line)).join("\n");
+  fields.scopeOfWork = pickLineAfterLabel(raw, ["scope of work", "scope", "works", "description"]) || buildScopeSummary(datePhrase, routes, items);
+  fields.workLocation = pickLineAfterLabel(raw, ["location", "work location", "address", "site address"]) || locationInfo.workLocation;
+  fields.workDates = pickLineAfterLabel(raw, ["date(s)", "dates", "week commencing"]) || datePhrase;
   fields.duration = pickLineAfterLabel(raw, ["duration", "hire duration", "minimum hire"]);
   fields.workingHours = pickLineAfterLabel(raw, ["working pattern", "working hours", "hours"]);
   fields.costSummary = pickLineAfterLabel(raw, ["cost", "cost summary", "price", "rate"]) || (pickFirstMoney(raw) ? `£${pickFirstMoney(raw)}` : "");
-
-  const moneyLines = lines.filter((line) => /£\s?\d|vat/i.test(line)).slice(0, 6);
-  if (moneyLines.length) {
-    fields.breakdown = moneyLines.map((line) => `1x | ${line} | —`).join("\n");
-  }
 
   const extrasBlock = pickLineAfterLabel(raw, ["additional equipment & personnel", "additional equipment", "personnel"]);
   if (extrasBlock) fields.additionalEquipment = extrasBlock;
@@ -116,13 +257,24 @@ function fallbackExtract(text: string): QuoteExtractionResult {
   const includedBlock = pickLineAfterLabel(raw, ["included under full cpa terms", "included", "included items"]);
   if (includedBlock) fields.includedItems = includedBlock;
 
-  fields.additionalNotes = raw;
+  const notes: string[] = [];
+  if (signature.role) notes.push(`Contact role: ${signature.role}`);
+  if (locationInfo.extraNotes) notes.push(locationInfo.extraNotes);
+  const colourNotes = items.filter((line) => /highlighted in purple|highlighted in blue/i.test(line));
+  if (colourNotes.length) notes.push(colourNotes.join("\n"));
+  const routeNotes = routes.slice(1);
+  if (routeNotes.length) notes.push(routeNotes.join("\n"));
+  fields.additionalNotes = notes.join("\n\n").trim();
+
+  const subject =
+    pickLineAfterLabel(raw, ["subject", "re", "project", "site location"]) ||
+    makeSubject(fields.hireType, routes, fields.siteLocation);
 
   const missing: string[] = [];
   if (!customerName) missing.push("Customer");
-  if (!fields.siteLocation) missing.push("Site location");
+  if (!fields.siteLocation && !fields.workLocation) missing.push("Site location");
   if (!fields.workDates && !fields.projectDateTime) missing.push("Dates");
-  if (!fields.costSummary && !fields.breakdown) missing.push("Pricing");
+  if (!fields.costSummary && !pickFirstMoney(raw)) missing.push("Pricing");
 
   return {
     customerName,
@@ -192,7 +344,11 @@ async function extractWithOpenAI(sourceText: string): Promise<QuoteExtractionRes
     "Never invent prices, dates, legal wording, payment terms, or customer details.",
     "If a field is unclear, return an empty string.",
     "For amount, return only the numeric amount without £ or VAT text when a clear total or quoted price exists.",
-    "For breakdown, use one line per row in the format: Qty | Description | Rate.",
+    "For breakdown, only include rows when a rate/price is explicitly present.",
+    "For toSupply, use the item list or materials being moved/supplied.",
+    "For scopeOfWork, summarise the requested movement or lifting work in plain business language using only facts from the source text.",
+    "For workLocation, prefer the delivery / working site address block when one is present.",
+    "For siteLocation, combine collection and delivery route details when the enquiry includes a from/to movement.",
     "For additionalEquipment and includedItems, use one item per line when present.",
     "For additionalNotes, place any useful leftover context that should be reviewed by staff.",
     "JSON schema:",
