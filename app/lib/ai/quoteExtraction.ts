@@ -40,6 +40,27 @@ function titleCase(value: string) {
     .trim();
 }
 
+function stripCourtesyPrefix(value: string) {
+  return clean(value)
+    .replace(/^(thanks|many thanks|kind regards|regards|best regards|best|cheers)[,:\-\s]*/i, "")
+    .trim();
+}
+
+function looksLikePersonName(value: string) {
+  const line = clean(value);
+  if (!line) return false;
+  if (/^(mr|mrs|ms|miss)\.?\s+[A-Z]/i.test(line)) return true;
+  return /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}$/.test(line);
+}
+
+function stripAttachmentWords(value: string) {
+  return clean(value)
+    .replace(/\b(attached|attachment)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s+,/g, ",")
+    .trim();
+}
+
 function stripMarkdownFences(text: string) {
   const trimmed = text.trim();
   if (!trimmed.startsWith("```")) return trimmed;
@@ -149,17 +170,30 @@ function findDatePhrase(text: string) {
 }
 
 function extractSignature(lines: string[]) {
-  const startIndex = lines.findIndex((line) => /^(thanks|kind regards|regards|many thanks)\b/i.test(line));
-  const block = startIndex >= 0 ? lines.slice(startIndex) : lines.slice(Math.max(0, lines.length - 6));
+  const startIndex = lines.findIndex((line) => /^(thanks|kind regards|regards|many thanks|best regards|best|cheers)\b/i.test(line));
+  const block = startIndex >= 0 ? lines.slice(startIndex) : lines.slice(Math.max(0, lines.length - 8));
 
   const phone = pickFirstPhone(block.join("\n"));
-  const nameLine =
-    block.find((line) => /^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}$/.test(line)) ||
-    block.find((line) => /^(mr|mrs|ms|miss)\.?\s+/i.test(line)) ||
-    "";
-
   const roleLine =
     block.find((line) => /(manager|director|engineer|estimator|surveyor|coordinator|buyer|procurement|office)/i.test(line)) || "";
+
+  const cleanedCandidates = block
+    .map((rawLine, index) => ({
+      index,
+      raw: clean(rawLine),
+      cleaned: stripCourtesyPrefix(rawLine),
+    }))
+    .filter((item) => item.cleaned && !/(manager|director|engineer|estimator|surveyor|coordinator|buyer|procurement|office)/i.test(item.raw));
+
+  const fullNameCandidate =
+    cleanedCandidates.find((item) => item.index > 0 && looksLikePersonName(item.cleaned)) ||
+    cleanedCandidates.find((item) => looksLikePersonName(item.cleaned));
+
+  const signoffOnlyCandidate = cleanedCandidates.find(
+    (item) => item.index === 0 && /^(thanks|kind regards|regards|many thanks|best regards|best|cheers)\b/i.test(item.raw)
+  );
+
+  const nameLine = fullNameCandidate?.cleaned || signoffOnlyCandidate?.cleaned || "";
 
   return { name: nameLine, role: roleLine, phone };
 }
@@ -172,7 +206,7 @@ type RouteInfo = {
 };
 
 function normaliseLocationFragment(value: string) {
-  return clean(value)
+  return stripAttachmentWords(value)
     .replace(/^our yard in\s+/i, "")
     .replace(/^the yard in\s+/i, "")
     .replace(/[.)]+$/g, "")
@@ -250,11 +284,11 @@ function extractItemLines(lines: string[]) {
 }
 
 function summariseLocation(value: string) {
-  return clean(value).replace(/\s{2,}/g, " ").replace(/\n/g, ", ").replace(/\s+,/g, ",").trim();
+  return stripAttachmentWords(value).replace(/\s{2,}/g, " ").replace(/\n/g, ", ").replace(/\s+,/g, ",").trim();
 }
 
 function extractAddressAndLocations(lines: string[]) {
-  const siteSection = takeSection(lines, /^site details\b/i, /^(thanks|kind regards|regards|many thanks)\b/i);
+  const siteSection = takeSection(lines, /^site details\b/i, /^(thanks|kind regards|regards|many thanks|best regards|best|cheers)\b/i);
   if (!siteSection.length) {
     return {
       collectionSite: "",
@@ -266,22 +300,19 @@ function extractAddressAndLocations(lines: string[]) {
   }
 
   const attachmentLines = siteSection.filter((line) => /attached/i.test(line));
-  const collectionLines = siteSection.filter((line) => /wingrave/i.test(line));
-  const deliveryLines = siteSection.filter(
-    (line) => !/^site details\b/i.test(line) && !/wingrave/i.test(line) && !/attached/i.test(line)
-  );
+  const rawCollectionLines = siteSection.filter((line) => /wingrave/i.test(line));
+  const collectionLines = rawCollectionLines.map(stripAttachmentWords).filter(Boolean);
+  const deliveryLines = siteSection
+    .filter((line) => !/^site details\b/i.test(line) && !/wingrave/i.test(line) && !/attached/i.test(line))
+    .map(stripAttachmentWords)
+    .filter(Boolean);
 
   const collectionSite = summariseLocation(collectionLines.join("\n"));
   const deliverySite = summariseLocation(deliveryLines.join("\n"));
   const siteLocation = collectionSite && deliverySite ? `${collectionSite} to ${deliverySite}` : collectionSite || deliverySite;
   const workLocation = deliveryLines.join("\n").trim();
 
-  const extraNotes = uniqueNonEmpty(
-    attachmentLines.map((line) => {
-      if (/wingrave/i.test(line)) return `${line}.`;
-      return line;
-    })
-  ).join("\n");
+  const extraNotes = attachmentLines.length ? "Wingrave AP1 attachment referenced." : "";
 
   return {
     collectionSite,
@@ -315,6 +346,45 @@ function buildScopeSummary(datePhrase: string, routes: string[], itemLines: stri
   }
 
   return parts.join("\n\n").trim();
+}
+
+function findDurationPhrase(text: string) {
+  const patterns = [
+    /(minimum\s+\d+\s+day\s+hire)/i,
+    /(min(?:imum)?\s+\d+\s+day\s+hire)/i,
+    /(\d+\s+day\s+hire)/i,
+    /(half\s+day|full\s+day)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return clean(match[1]);
+  }
+
+  return "";
+}
+
+function findWorkingHoursPhrase(text: string) {
+  const parts = uniqueNonEmpty([
+    clean(text.match(/(\d+\s*hours?\s+per\s+day(?:\s*\([^\n)]+\))?)/i)?.[1] || ""),
+    clean(text.match(/(weekday\s+working)/i)?.[1] || ""),
+    clean(text.match(/(weekend\s+working)/i)?.[1] || ""),
+    clean(text.match(/(night\s+working)/i)?.[1] || ""),
+  ]);
+
+  return parts.join("\n");
+}
+
+function hasExplicitPricing(text: string) {
+  return !!pickFirstMoney(text);
+}
+
+function hasExplicitDuration(text: string) {
+  return !!findDurationPhrase(text);
+}
+
+function hasExplicitWorkingHours(text: string) {
+  return !!findWorkingHoursPhrase(text);
 }
 
 function looksLikeTransportEnquiry(text: string) {
@@ -388,8 +458,8 @@ function buildTransportHeuristics(text: string) {
       scopeOfWork: scopeParts.filter(Boolean).join("\n\n").trim(),
       workLocation,
       workDates: datePhrase,
-      duration: "",
-      workingHours: "",
+      duration: findDurationPhrase(raw),
+      workingHours: findWorkingHoursPhrase(raw),
       costSummary: pickFirstMoney(raw) ? `£${pickFirstMoney(raw)}` : "",
       additionalEquipment: "",
       includedItems: "",
@@ -425,7 +495,21 @@ function mergeExtractionWithHeuristics(text: string, extraction: QuoteExtraction
   };
 
   const alwaysPreferHeuristic: Array<keyof StructuredQuoteFields> = transportEnquiry
-    ? ["contactName", "contactPhone", "projectDateTime", "siteLocation", "hireType", "toSupply", "scopeOfWork", "workLocation", "workDates", "additionalNotes"]
+    ? [
+        "contactName",
+        "contactPhone",
+        "projectDateTime",
+        "siteLocation",
+        "hireType",
+        "toSupply",
+        "scopeOfWork",
+        "workLocation",
+        "workDates",
+        "duration",
+        "workingHours",
+        "costSummary",
+        "additionalNotes",
+      ]
     : [];
 
   for (const key of Object.keys(next.fields) as Array<keyof StructuredQuoteFields>) {
@@ -464,6 +548,20 @@ function mergeExtractionWithHeuristics(text: string, extraction: QuoteExtraction
 
   if (!clean(next.customerName) && clean(heuristics.customerName)) {
     next.customerName = heuristics.customerName;
+  }
+
+  if (transportEnquiry && !hasExplicitPricing(text)) {
+    next.amount = "";
+    next.fields.costSummary = "";
+    next.fields.breakdown = "";
+  }
+
+  if (transportEnquiry && !hasExplicitDuration(text)) {
+    next.fields.duration = "";
+  }
+
+  if (transportEnquiry && !hasExplicitWorkingHours(text)) {
+    next.fields.workingHours = "";
   }
 
   next.missing = uniqueNonEmpty([
