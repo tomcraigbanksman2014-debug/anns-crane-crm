@@ -1,3 +1,4 @@
+
 import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import PrintQuoteActions from "./PrintQuoteActions";
@@ -62,6 +63,42 @@ function chunkByApproxChars(items: string[], maxChars: number) {
 
   if (current.length > 0) pages.push(current);
   return pages;
+}
+
+function splitRouteLocation(value: string) {
+  const text = String(value || "").replace(/\r\n/g, "\n").trim();
+  if (!text) {
+    return { collection: "", delivery: "" };
+  }
+
+  if (/\s+to\s+/i.test(text)) {
+    const parts = text.split(/\s+to\s+/i);
+    const collection = (parts.shift() || "").trim();
+    const delivery = parts.join(" to ").trim();
+    return { collection, delivery };
+  }
+
+  return { collection: "", delivery: text };
+}
+
+function pullContactRole(lines: string[]) {
+  let contactRole = "";
+  const cleaned: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    const match = trimmed.match(/^contact role\s*:\s*(.+)$/i);
+    if (match) {
+      contactRole = match[1].trim();
+      continue;
+    }
+
+    cleaned.push(trimmed);
+  }
+
+  return { contactRole, cleanedNotes: cleaned };
 }
 
 function markdownishNodes(text: string) {
@@ -152,20 +189,34 @@ export default async function QuotePrintPage({
 
   const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
   const fields = parsed.fields;
+
   const breakdownRows = parseBreakdownRows(fields.breakdown);
   const additionalEquipment = splitBulletLines(fields.additionalEquipment);
   const includedItems = splitBulletLines(fields.includedItems);
   const additionalNotes = splitLines(fields.additionalNotes);
+  const { contactRole, cleanedNotes } = pullContactRole(additionalNotes);
   const paymentTerms = fields.paymentTerms || DEFAULT_PAYMENT_TERMS;
-  const longTermPages = chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 7600);
+  const longTermPages = chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 9300);
+  const route = splitRouteLocation(fields.workLocation || "");
+
+  const detailRows = [
+    { label: "Date & time of project", value: fields.projectDateTime || "—" },
+    { label: "Hire type", value: fields.hireType || "—" },
+    ...(route.collection ? [{ label: "Collection", value: route.collection }] : []),
+    { label: route.collection ? "Delivery" : "Location", value: route.delivery || fields.workLocation || "—" },
+    { label: "Date(s)", value: fields.workDates || "—" },
+    { label: "Duration", value: fields.duration || "—" },
+    { label: "Working pattern", value: fields.workingHours || "—" },
+    { label: "Valid until", value: fmtDate((quote as any)?.valid_until) },
+    { label: "Amount", value: fields.costSummary || fmtMoney((quote as any)?.amount) },
+  ];
 
   const hasCommercialContent =
     breakdownRows.length > 0 ||
     additionalEquipment.length > 0 ||
     includedItems.length > 0 ||
-    additionalNotes.length > 0 ||
-    Boolean(fields.costSummary) ||
-    Boolean((quote as any)?.amount);
+    cleanedNotes.length > 0 ||
+    Boolean(contactRole);
 
   return (
     <html>
@@ -240,9 +291,9 @@ export default async function QuotePrintPage({
             </div>
           </div>
 
-          <div style={heroRowStyle}>
-            <div style={heroTitleStyle}>QUOTE</div>
-            <div style={heroRefStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
+          <div style={summaryHeaderStyle}>
+            <div style={summaryTitleStyle}>Quote</div>
+            <div style={summarySubjectStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
           </div>
 
           <div style={topGridStyle}>
@@ -251,53 +302,58 @@ export default async function QuotePrintPage({
               <DataRow label="Contact name" value={fields.contactName || client?.contact_name || "—"} />
               <DataRow label="Tel" value={fields.contactPhone || client?.phone || "—"} />
               <DataRow label="Site location" value={fields.siteLocation || client?.address || "—"} />
+              {contactRole ? <DataRow label="Contact role" value={contactRole} /> : null}
             </Panel>
+
             <Panel title="Quote details">
-              <DataRow label="Date & time of project" value={fields.projectDateTime || "—"} />
-              <DataRow label="Hire type" value={fields.hireType || "—"} />
-              <DataRow label="Location" value={fields.workLocation || "—"} />
-              <DataRow label="Date(s)" value={fields.workDates || "—"} />
-              <DataRow label="Duration" value={fields.duration || "—"} />
-              <DataRow label="Working pattern" value={fields.workingHours || "—"} />
-              <DataRow label="Valid until" value={fmtDate((quote as any)?.valid_until)} />
-              <DataRow label="Amount" value={fields.costSummary || fmtMoney((quote as any)?.amount)} />
+              {detailRows.map((row) => (
+                <DataRow key={row.label} label={row.label} value={row.value} />
+              ))}
             </Panel>
           </div>
 
-          <div style={bodyGridStyle}>
+          <div style={stackStyle}>
             <Panel title="To Supply">
               <div style={preLineTextStyle}>{fields.toSupply || "—"}</div>
             </Panel>
+
             <Panel title="Scope of Work">
               <div style={preLineTextStyle}>{fields.scopeOfWork || parsed.rawNotes || "—"}</div>
             </Panel>
           </div>
+        </div>
 
-          {hasCommercialContent ? (
-            <div style={compactCommercialWrapStyle}>
-              {breakdownRows.length > 0 ? (
-                <Panel title="Breakdown of current charges / rates">
-                  <table style={tableStyle}>
-                    <thead>
-                      <tr>
-                        <th style={{ ...thStyle, width: 70 }}>Qty</th>
-                        <th style={thStyle}>Description</th>
-                        <th style={{ ...thStyle, width: 180 }}>Rate</th>
+        <div className="quote-sheet" style={sheetStyle}>
+          <div style={pageHeaderStyle}>
+            <div style={pageHeaderTitleStyle}>Commercial details</div>
+            <div style={pageHeaderSubStyle}>{(quote as any)?.subject || client?.company_name || "Quote"}</div>
+          </div>
+
+          <div style={stackStyle}>
+            {breakdownRows.length > 0 ? (
+              <Panel title="Breakdown of current charges / rates">
+                <table style={tableStyle}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...thStyle, width: 70 }}>Qty</th>
+                      <th style={thStyle}>Description</th>
+                      <th style={{ ...thStyle, width: 180 }}>Rate</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {breakdownRows.map((row, index) => (
+                      <tr key={`${row.description}-${index}`}>
+                        <td style={tdStyle}>{row.qty || "—"}</td>
+                        <td style={tdStyle}>{row.description || "—"}</td>
+                        <td style={tdStyle}>{row.rate || "—"}</td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {breakdownRows.map((row, index) => (
-                        <tr key={`${row.description}-${index}`}>
-                          <td style={tdStyle}>{row.qty || "—"}</td>
-                          <td style={tdStyle}>{row.description || "—"}</td>
-                          <td style={tdStyle}>{row.rate || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </Panel>
-              ) : null}
+                    ))}
+                  </tbody>
+                </table>
+              </Panel>
+            ) : null}
 
+            {(additionalEquipment.length > 0 || includedItems.length > 0) ? (
               <div style={smallGridStyle}>
                 {additionalEquipment.length > 0 ? (
                   <Panel title="Additional equipment & personnel">
@@ -319,20 +375,18 @@ export default async function QuotePrintPage({
                   </Panel>
                 ) : null}
               </div>
+            ) : null}
 
-              {additionalNotes.length > 0 ? (
-                <Panel title="Additional quote notes">
-                  <div style={preLineTextStyle}>{additionalNotes.join("\n")}</div>
-                </Panel>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+            {cleanedNotes.length > 0 ? (
+              <Panel title="Additional quote notes">
+                <div style={preLineTextStyle}>{cleanedNotes.join("\n")}</div>
+              </Panel>
+            ) : null}
+          </div>
 
-        <div className="quote-sheet" style={sheetStyle}>
           <div style={pageHeaderStyle}>
             <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
-            <div style={pageHeaderSubStyle}>{(quote as any)?.subject || client?.company_name || "Quote"}</div>
+            <div style={pageHeaderSubStyle}>Short-form hire terms and acceptance</div>
           </div>
 
           <div style={termsCardStyle}>{markdownishNodes(DEFAULT_HIRE_TERMS_TEXT)}</div>
@@ -425,6 +479,11 @@ const sheetStyle: CSSProperties = {
   gap: 12,
 };
 
+const stackStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
 const actionBarStyle: CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
@@ -447,7 +506,7 @@ const screenSubStyle: CSSProperties = {
 
 const mastheadStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "120px 1fr 220px",
+  gridTemplateColumns: "118px 1fr 220px",
   gap: 16,
   alignItems: "center",
   borderBottom: "2px solid #0f172a",
@@ -482,7 +541,7 @@ const companyNameStyle: CSSProperties = {
 
 const companyLineStyle: CSSProperties = {
   fontSize: 13,
-  lineHeight: 1.4,
+  lineHeight: 1.35,
 };
 
 const metaBlockStyle: CSSProperties = {
@@ -506,45 +565,28 @@ const metaValueStyle: CSSProperties = {
   lineHeight: 1.35,
 };
 
-const heroRowStyle: CSSProperties = {
+const summaryHeaderStyle: CSSProperties = {
   display: "grid",
   gap: 2,
-  alignItems: "end",
 };
 
-const heroTitleStyle: CSSProperties = {
-  fontSize: 30,
+const summaryTitleStyle: CSSProperties = {
+  fontSize: 27,
   fontWeight: 900,
-  letterSpacing: 0.6,
+  letterSpacing: 0.5,
+  textTransform: "uppercase",
 };
 
-const heroRefStyle: CSSProperties = {
-  fontSize: 16,
-  color: "#334155",
+const summarySubjectStyle: CSSProperties = {
+  fontSize: 15,
   fontWeight: 700,
+  color: "#334155",
 };
 
 const topGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
   gap: 12,
-};
-
-const bodyGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 12,
-};
-
-const compactCommercialWrapStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-};
-
-const smallGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
 };
 
 const panelStyle: CSSProperties = {
@@ -578,13 +620,13 @@ const dataLabelStyle: CSSProperties = {
 
 const dataValueStyle: CSSProperties = {
   fontSize: 13,
-  lineHeight: 1.45,
+  lineHeight: 1.42,
   whiteSpace: "pre-line",
 };
 
 const preLineTextStyle: CSSProperties = {
   fontSize: 13,
-  lineHeight: 1.5,
+  lineHeight: 1.48,
   whiteSpace: "pre-line",
 };
 
@@ -608,15 +650,21 @@ const tdStyle: CSSProperties = {
   padding: "8px 6px",
   fontSize: 12.5,
   verticalAlign: "top",
-  lineHeight: 1.45,
+  lineHeight: 1.4,
   whiteSpace: "pre-line",
+};
+
+const smallGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
 };
 
 const cleanListStyle: CSSProperties = {
   margin: 0,
   paddingLeft: 18,
   fontSize: 12.5,
-  lineHeight: 1.5,
+  lineHeight: 1.45,
   display: "grid",
   gap: 4,
 };
@@ -668,7 +716,7 @@ const termsMinorHeadingStyle: CSSProperties = {
 const termsTextStyle: CSSProperties = {
   margin: 0,
   fontSize: 12,
-  lineHeight: 1.45,
+  lineHeight: 1.42,
 };
 
 const termsListStyle: CSSProperties = {
@@ -680,12 +728,12 @@ const termsListStyle: CSSProperties = {
 
 const termsListItemStyle: CSSProperties = {
   fontSize: 12,
-  lineHeight: 1.45,
+  lineHeight: 1.42,
 };
 
 const termsNestedListItemStyle: CSSProperties = {
   fontSize: 11.5,
-  lineHeight: 1.4,
+  lineHeight: 1.38,
   marginLeft: 8,
 };
 
@@ -744,27 +792,27 @@ const signatureFooterCellStyle: CSSProperties = {
 const footerStyle: CSSProperties = {
   marginTop: "auto",
   fontSize: 11,
-  lineHeight: 1.45,
+  lineHeight: 1.4,
   color: "#475569",
   textAlign: "center",
 };
 
 const longTermsStyle: CSSProperties = {
   display: "grid",
-  gap: 6,
+  gap: 5,
 };
 
 const longTermParagraphStyle: CSSProperties = {
   margin: 0,
-  fontSize: 10,
-  lineHeight: 1.36,
+  fontSize: 9.6,
+  lineHeight: 1.3,
   textAlign: "left",
 };
 
 const footerTightStyle: CSSProperties = {
   marginTop: "auto",
-  fontSize: 10.5,
-  lineHeight: 1.35,
+  fontSize: 10.2,
+  lineHeight: 1.3,
   color: "#475569",
   textAlign: "center",
 };
