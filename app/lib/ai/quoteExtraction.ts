@@ -21,8 +21,15 @@ function safeString(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function stripCodeFence(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("```")) return trimmed;
+  return trimmed.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+}
+
 function tryParseJsonObject(text: string) {
-  const trimmed = text.trim();
+  const cleaned = stripCodeFence(text);
+  const trimmed = cleaned.trim();
   const candidates: string[] = [];
 
   if (trimmed.startsWith("{")) candidates.push(trimmed);
@@ -40,6 +47,31 @@ function tryParseJsonObject(text: string) {
   }
 
   throw new Error("AI response did not contain valid JSON.");
+}
+
+function extractResponseText(payload: any) {
+  if (typeof payload?.output_text === "string" && payload.output_text.trim()) {
+    return payload.output_text.trim();
+  }
+
+  const chunks: string[] = [];
+
+  for (const item of Array.isArray(payload?.output) ? payload.output : []) {
+    if (!Array.isArray(item?.content)) continue;
+
+    for (const content of item.content) {
+      const text =
+        typeof content?.text === "string"
+          ? content.text
+          : typeof content?.output_text === "string"
+            ? content.output_text
+            : "";
+
+      if (text) chunks.push(text);
+    }
+  }
+
+  return chunks.join("\n").trim();
 }
 
 function pickFirstMoney(text: string) {
@@ -321,17 +353,18 @@ async function callOpenAI(input: string, maxOutputTokens: number) {
     },
     body: JSON.stringify({
       model,
+      temperature: 0.2,
       input,
       max_output_tokens: maxOutputTokens,
     }),
   });
 
-  const payload = await response.json().catch(() => null);
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload?.error?.message || "OpenAI request failed.");
   }
 
-  const text = String(payload?.output_text ?? "").trim();
+  const text = extractResponseText(payload);
   if (!text) throw new Error("OpenAI returned no text.");
   return text;
 }
