@@ -6,11 +6,10 @@ export default function PrintQuoteActions({
   backHref: string;
 }) {
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+    <div className="quote-print-hide" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
       <button type="button" onClick={() => window.print()} style={printBtn}>
         Print / Save PDF
       </button>
-
       <a href={backHref} style={backBtn}>
         Back to quote
       </a>
