@@ -88,9 +88,33 @@ export default async function PurchaseOrderPrintPage({
     <html>
       <head>
         <title>Purchase Order {(po as any)?.po_number ?? ""}</title>
+        <style>{`
+          @page {
+            size: A4;
+            margin: 12mm;
+          }
+
+          @media print {
+            html, body {
+              background: #fff !important;
+            }
+
+            .po-print-actions,
+            .po-print-help {
+              display: none !important;
+            }
+
+            .po-print-page {
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              box-shadow: none !important;
+            }
+          }
+        `}</style>
       </head>
       <body style={bodyStyle}>
-        <div style={pageStyle}>
+        <div style={pageStyle} className="po-print-page">
           <div style={topBarStyle}>
             <div>
               <div style={{ fontSize: 28, fontWeight: 1000 }}>PURCHASE ORDER</div>
@@ -99,10 +123,12 @@ export default async function PurchaseOrderPrintPage({
               </div>
             </div>
 
-            <PrintPOActions backHref={`/purchase-orders/${params.id}`} />
+            <div className="po-print-actions">
+              <PrintPOActions backHref={`/purchase-orders/${params.id}`} />
+            </div>
           </div>
 
-          <div style={helpBox}>
+          <div style={helpBox} className="po-print-help">
             Use <strong>Print / Save PDF</strong>, then choose <strong>Save as PDF</strong> in the browser print window.
           </div>
 
@@ -139,7 +165,7 @@ export default async function PurchaseOrderPrintPage({
             {secondaryAddress ? (
               <div><strong>Delivery address:</strong> {secondaryAddress}</div>
             ) : null}
-            <div><strong>{transportJob ? "Job date" : "Job date"}:</strong> {fmtDate(linkedDate)}</div>
+            <div><strong>Job date:</strong> {fmtDate(linkedDate)}</div>
           </section>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
