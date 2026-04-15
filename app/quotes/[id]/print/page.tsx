@@ -13,14 +13,14 @@ import {
 } from "../../quoteTemplate";
 
 function fmtDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("en-GB");
 }
 
 function fmtLongDate(value: string | null | undefined) {
-  if (!value) return "—";
+  if (!value) return "";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString("en-GB", {
@@ -31,7 +31,7 @@ function fmtLongDate(value: string | null | undefined) {
 }
 
 function fmtMoney(value: number | string | null | undefined) {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") return "";
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
   return `£${n.toFixed(2)}`;
@@ -43,62 +43,6 @@ function toParagraphs(text: string) {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-function chunkByApproxChars(items: string[], maxChars: number) {
-  const pages: string[][] = [];
-  let current: string[] = [];
-  let currentChars = 0;
-
-  for (const item of items) {
-    const itemSize = item.length + 1;
-    if (current.length > 0 && currentChars + itemSize > maxChars) {
-      pages.push(current);
-      current = [];
-      currentChars = 0;
-    }
-    current.push(item);
-    currentChars += itemSize;
-  }
-
-  if (current.length > 0) pages.push(current);
-  return pages;
-}
-
-function splitRouteLocation(value: string) {
-  const text = String(value || "").replace(/\r\n/g, "\n").trim();
-  if (!text) {
-    return { collection: "", delivery: "" };
-  }
-
-  if (/\s+to\s+/i.test(text)) {
-    const parts = text.split(/\s+to\s+/i);
-    const collection = (parts.shift() || "").trim();
-    const delivery = parts.join(" to ").trim();
-    return { collection, delivery };
-  }
-
-  return { collection: "", delivery: text };
-}
-
-function pullContactRole(lines: string[]) {
-  let contactRole = "";
-  const cleaned: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const match = trimmed.match(/^contact role\s*:\s*(.+)$/i);
-    if (match) {
-      contactRole = match[1].trim();
-      continue;
-    }
-
-    cleaned.push(trimmed);
-  }
-
-  return { contactRole, cleanedNotes: cleaned };
 }
 
 function markdownishNodes(text: string) {
@@ -160,6 +104,28 @@ function markdownishNodes(text: string) {
   return nodes;
 }
 
+function cleanScopeText(scope: string) {
+  if (!scope) return "";
+  return scope
+    .replace(/\nLOCATION:\s*[\s\S]*$/i, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function splitCollectionDelivery(location: string) {
+  if (!location) return { collection: "", delivery: "" };
+  const match = location.match(/^(.*?)\s+to\s+([\s\S]+)$/i);
+  if (!match) return { collection: "", delivery: "" };
+  return {
+    collection: match[1].trim(),
+    delivery: match[2].trim(),
+  };
+}
+
+function hasText(value: string | null | undefined) {
+  return Boolean(value && value.trim());
+}
+
 export default async function QuotePrintPage({
   params,
 }: {
@@ -189,34 +155,24 @@ export default async function QuotePrintPage({
 
   const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
   const fields = parsed.fields;
-
   const breakdownRows = parseBreakdownRows(fields.breakdown);
   const additionalEquipment = splitBulletLines(fields.additionalEquipment);
   const includedItems = splitBulletLines(fields.includedItems);
   const additionalNotes = splitLines(fields.additionalNotes);
-  const { contactRole, cleanedNotes } = pullContactRole(additionalNotes);
   const paymentTerms = fields.paymentTerms || DEFAULT_PAYMENT_TERMS;
-  const longTermPages = chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 9300);
-  const route = splitRouteLocation(fields.workLocation || "");
+  const longTerms = toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT);
 
-  const detailRows = [
-    { label: "Date & time of project", value: fields.projectDateTime || "—" },
-    { label: "Hire type", value: fields.hireType || "—" },
-    ...(route.collection ? [{ label: "Collection", value: route.collection }] : []),
-    { label: route.collection ? "Delivery" : "Location", value: route.delivery || fields.workLocation || "—" },
-    { label: "Date(s)", value: fields.workDates || "—" },
-    { label: "Duration", value: fields.duration || "—" },
-    { label: "Working pattern", value: fields.workingHours || "—" },
-    { label: "Valid until", value: fmtDate((quote as any)?.valid_until) },
-    { label: "Amount", value: fields.costSummary || fmtMoney((quote as any)?.amount) },
-  ];
+  const costSummary = fields.costSummary || fmtMoney((quote as any)?.amount);
+  const validUntil = fmtDate((quote as any)?.valid_until);
+  const scopeText = cleanScopeText(fields.scopeOfWork || parsed.rawNotes || "");
+  const { collection, delivery } = splitCollectionDelivery(fields.workLocation || "");
 
   const hasCommercialContent =
     breakdownRows.length > 0 ||
     additionalEquipment.length > 0 ||
     includedItems.length > 0 ||
-    cleanedNotes.length > 0 ||
-    Boolean(contactRole);
+    additionalNotes.length > 0 ||
+    Boolean(costSummary);
 
   return (
     <html>
@@ -232,7 +188,6 @@ export default async function QuotePrintPage({
               .quote-hide-print { display: block; }
               .quote-sheet {
                 width: 190mm;
-                min-height: 277mm;
                 margin: 10px auto;
                 background: #fff;
                 border: 1px solid #dbe2ea;
@@ -245,6 +200,10 @@ export default async function QuotePrintPage({
                 page-break-after: auto;
                 break-after: auto;
               }
+              .quote-avoid-break {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
               .terms-page p, .terms-page li, .terms-page h1, .terms-page h2, .terms-page h3 {
                 break-inside: avoid;
                 page-break-inside: avoid;
@@ -254,11 +213,9 @@ export default async function QuotePrintPage({
                 .quote-hide-print { display: none !important; }
                 .quote-sheet {
                   width: auto;
-                  min-height: auto;
                   margin: 0;
                   border: none;
                   box-shadow: none;
-                  padding: 0;
                 }
               }
             `,
@@ -286,14 +243,13 @@ export default async function QuotePrintPage({
               <div style={companyLineStyle}>Email: info@annscranehire.co.uk</div>
             </div>
             <div style={metaBlockStyle}>
-              <MetaLine label="Date" value={fmtLongDate((quote as any)?.quote_date)} />
-              <MetaLine label="Quote" value={(quote as any)?.subject || "—"} />
+              <MetaLine label="Date" value={fmtLongDate((quote as any)?.quote_date) || "—"} />
             </div>
           </div>
 
-          <div style={summaryHeaderStyle}>
-            <div style={summaryTitleStyle}>Quote</div>
-            <div style={summarySubjectStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
+          <div style={heroRowStyle}>
+            <div style={heroTitleStyle}>QUOTE</div>
+            <div style={heroRefStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
           </div>
 
           <div style={topGridStyle}>
@@ -301,59 +257,67 @@ export default async function QuotePrintPage({
               <DataRow label="Company" value={client?.company_name ?? "—"} />
               <DataRow label="Contact name" value={fields.contactName || client?.contact_name || "—"} />
               <DataRow label="Tel" value={fields.contactPhone || client?.phone || "—"} />
-              <DataRow label="Site location" value={fields.siteLocation || client?.address || "—"} />
-              {contactRole ? <DataRow label="Contact role" value={contactRole} /> : null}
+              {hasText(fields.contactRole) ? <DataRow label="Contact role" value={fields.contactRole} /> : null}
+              {hasText(fields.siteLocation) ? <DataRow label="Site location" value={fields.siteLocation} /> : null}
             </Panel>
 
             <Panel title="Quote details">
-              {detailRows.map((row) => (
-                <DataRow key={row.label} label={row.label} value={row.value} />
-              ))}
+              {hasText(fields.projectDateTime) ? <DataRow label="Date & time of project" value={fields.projectDateTime} /> : null}
+              {hasText(fields.hireType) ? <DataRow label="Hire type" value={fields.hireType} /> : null}
+              {hasText(collection) ? <DataRow label="Collection" value={collection} /> : null}
+              {hasText(delivery) ? <DataRow label="Delivery" value={delivery} /> : null}
+              {!hasText(collection) && !hasText(delivery) && hasText(fields.workLocation) ? (
+                <DataRow label="Location" value={fields.workLocation} />
+              ) : null}
+              {hasText(fields.workDates) ? <DataRow label="Date(s)" value={fields.workDates} /> : null}
+              {hasText(fields.duration) ? <DataRow label="Duration" value={fields.duration} /> : null}
+              {hasText(fields.workingHours) ? <DataRow label="Working pattern" value={fields.workingHours} /> : null}
+              {hasText(validUntil) ? <DataRow label="Valid until" value={validUntil} /> : null}
+              {hasText(costSummary) ? <DataRow label="Amount" value={costSummary} /> : null}
             </Panel>
           </div>
 
-          <div style={stackStyle}>
+          <div style={bodyGridStyle}>
             <Panel title="To Supply">
               <div style={preLineTextStyle}>{fields.toSupply || "—"}</div>
             </Panel>
-
             <Panel title="Scope of Work">
-              <div style={preLineTextStyle}>{fields.scopeOfWork || parsed.rawNotes || "—"}</div>
+              <div style={preLineTextStyle}>{scopeText || "—"}</div>
             </Panel>
           </div>
         </div>
 
         <div className="quote-sheet" style={sheetStyle}>
-          <div style={pageHeaderStyle}>
-            <div style={pageHeaderTitleStyle}>Commercial details</div>
-            <div style={pageHeaderSubStyle}>{(quote as any)?.subject || client?.company_name || "Quote"}</div>
-          </div>
+          {hasCommercialContent ? (
+            <div style={compactCommercialWrapStyle}>
+              <div style={pageHeaderStyle}>
+                <div style={pageHeaderTitleStyle}>Commercial details</div>
+                <div style={pageHeaderSubStyle}>{(quote as any)?.subject || client?.company_name || "Quote"}</div>
+              </div>
 
-          <div style={stackStyle}>
-            {breakdownRows.length > 0 ? (
-              <Panel title="Breakdown of current charges / rates">
-                <table style={tableStyle}>
-                  <thead>
-                    <tr>
-                      <th style={{ ...thStyle, width: 70 }}>Qty</th>
-                      <th style={thStyle}>Description</th>
-                      <th style={{ ...thStyle, width: 180 }}>Rate</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {breakdownRows.map((row, index) => (
-                      <tr key={`${row.description}-${index}`}>
-                        <td style={tdStyle}>{row.qty || "—"}</td>
-                        <td style={tdStyle}>{row.description || "—"}</td>
-                        <td style={tdStyle}>{row.rate || "—"}</td>
+              {breakdownRows.length > 0 ? (
+                <Panel title="Breakdown of current charges / rates">
+                  <table style={tableStyle}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...thStyle, width: 70 }}>Qty</th>
+                        <th style={thStyle}>Description</th>
+                        <th style={{ ...thStyle, width: 180 }}>Rate</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </Panel>
-            ) : null}
+                    </thead>
+                    <tbody>
+                      {breakdownRows.map((row, index) => (
+                        <tr key={`${row.description}-${index}`}>
+                          <td style={tdStyle}>{row.qty || "—"}</td>
+                          <td style={tdStyle}>{row.description || "—"}</td>
+                          <td style={tdStyle}>{row.rate || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Panel>
+              ) : null}
 
-            {(additionalEquipment.length > 0 || includedItems.length > 0) ? (
               <div style={smallGridStyle}>
                 {additionalEquipment.length > 0 ? (
                   <Panel title="Additional equipment & personnel">
@@ -375,21 +339,23 @@ export default async function QuotePrintPage({
                   </Panel>
                 ) : null}
               </div>
-            ) : null}
 
-            {cleanedNotes.length > 0 ? (
-              <Panel title="Additional quote notes">
-                <div style={preLineTextStyle}>{cleanedNotes.join("\n")}</div>
-              </Panel>
-            ) : null}
+              {additionalNotes.length > 0 ? (
+                <Panel title="Additional quote notes">
+                  <div style={preLineTextStyle}>{additionalNotes.join("\n")}</div>
+                </Panel>
+              ) : null}
+            </div>
+          ) : (
+            <div style={pageHeaderStyle}>
+              <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
+            </div>
+          )}
+
+          <div style={termsCardStyle}>
+            <div style={termsSectionHeaderStyle}>Short-form hire terms and acceptance</div>
+            {markdownishNodes(DEFAULT_HIRE_TERMS_TEXT)}
           </div>
-
-          <div style={pageHeaderStyle}>
-            <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
-            <div style={pageHeaderSubStyle}>Short-form hire terms and acceptance</div>
-          </div>
-
-          <div style={termsCardStyle}>{markdownishNodes(DEFAULT_HIRE_TERMS_TEXT)}</div>
 
           <div style={signatureBoxStyle}>
             <div style={signatureTitleStyle}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk</div>
@@ -412,26 +378,24 @@ export default async function QuotePrintPage({
           </div>
         </div>
 
-        {longTermPages.map((page, index) => (
-          <div key={`long-terms-${index}`} className="quote-sheet terms-page" style={sheetStyle}>
-            <div style={pageHeaderStyle}>
-              <div style={pageHeaderTitleStyle}>Construction Plant-hire Association (CPA)</div>
-              <div style={pageHeaderSubStyle}>Standard terms and conditions for contract lift services</div>
-            </div>
-
-            <div style={longTermsStyle}>
-              {page.map((paragraph, paragraphIndex) => (
-                <p key={`p-${index}-${paragraphIndex}`} style={longTermParagraphStyle}>
-                  {paragraph}
-                </p>
-              ))}
-            </div>
-
-            <div style={footerTightStyle}>
-              Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
-            </div>
+        <div className="quote-sheet terms-page" style={sheetStyle}>
+          <div style={pageHeaderStyle}>
+            <div style={pageHeaderTitleStyle}>Construction Plant-hire Association (CPA)</div>
+            <div style={pageHeaderSubStyle}>Standard terms and conditions for contract lift services</div>
           </div>
-        ))}
+
+          <div style={longTermsStyle}>
+            {longTerms.map((paragraph, paragraphIndex) => (
+              <p key={`p-${paragraphIndex}`} style={longTermParagraphStyle}>
+                {paragraph}
+              </p>
+            ))}
+          </div>
+
+          <div style={footerTightStyle}>
+            Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
+          </div>
+        </div>
       </body>
     </html>
   );
@@ -439,7 +403,7 @@ export default async function QuotePrintPage({
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section style={panelStyle}>
+    <section style={panelStyle} className="quote-avoid-break">
       <div style={panelTitleStyle}>{title}</div>
       {children}
     </section>
@@ -479,11 +443,6 @@ const sheetStyle: CSSProperties = {
   gap: 12,
 };
 
-const stackStyle: CSSProperties = {
-  display: "grid",
-  gap: 10,
-};
-
 const actionBarStyle: CSSProperties = {
   display: "flex",
   alignItems: "flex-start",
@@ -506,7 +465,7 @@ const screenSubStyle: CSSProperties = {
 
 const mastheadStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "118px 1fr 220px",
+  gridTemplateColumns: "150px 1fr 140px",
   gap: 16,
   alignItems: "center",
   borderBottom: "2px solid #0f172a",
@@ -514,7 +473,7 @@ const mastheadStyle: CSSProperties = {
 };
 
 const logoBlockStyle: CSSProperties = {
-  minHeight: 72,
+  minHeight: 96,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -522,8 +481,8 @@ const logoBlockStyle: CSSProperties = {
 
 const logoStyle: CSSProperties = {
   width: "100%",
-  maxWidth: 108,
-  maxHeight: 72,
+  maxWidth: 150,
+  maxHeight: 96,
   objectFit: "contain",
   display: "block",
 };
@@ -534,21 +493,20 @@ const companyBlockStyle: CSSProperties = {
 };
 
 const companyNameStyle: CSSProperties = {
-  fontSize: 26,
+  fontSize: 24,
   fontWeight: 900,
   lineHeight: 1.05,
 };
 
 const companyLineStyle: CSSProperties = {
-  fontSize: 13,
+  fontSize: 12.5,
   lineHeight: 1.35,
 };
 
 const metaBlockStyle: CSSProperties = {
   display: "grid",
   gap: 10,
-  borderLeft: "1px solid #cbd5e1",
-  paddingLeft: 14,
+  justifyItems: "end",
 };
 
 const metaLabelStyle: CSSProperties = {
@@ -563,49 +521,69 @@ const metaValueStyle: CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
   lineHeight: 1.35,
+  textAlign: "right",
 };
 
-const summaryHeaderStyle: CSSProperties = {
+const heroRowStyle: CSSProperties = {
   display: "grid",
   gap: 2,
+  alignItems: "end",
+  paddingTop: 2,
 };
 
-const summaryTitleStyle: CSSProperties = {
-  fontSize: 27,
+const heroTitleStyle: CSSProperties = {
+  fontSize: 28,
   fontWeight: 900,
-  letterSpacing: 0.5,
-  textTransform: "uppercase",
+  letterSpacing: 0.6,
 };
 
-const summarySubjectStyle: CSSProperties = {
-  fontSize: 15,
-  fontWeight: 700,
+const heroRefStyle: CSSProperties = {
+  fontSize: 18,
   color: "#334155",
+  fontWeight: 700,
+  lineHeight: 1.25,
 };
 
 const topGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1fr",
-  gap: 12,
+  gap: 10,
+};
+
+const bodyGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1.1fr 0.9fr",
+  gap: 10,
+};
+
+const compactCommercialWrapStyle: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const smallGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 10,
 };
 
 const panelStyle: CSSProperties = {
   border: "1px solid #d8dee8",
   borderRadius: 10,
-  padding: 12,
+  padding: 10,
   display: "grid",
-  gap: 8,
+  gap: 7,
 };
 
 const panelTitleStyle: CSSProperties = {
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 900,
   letterSpacing: 0.2,
 };
 
 const dataRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "122px 1fr",
+  gridTemplateColumns: "112px 1fr",
   gap: 8,
   alignItems: "start",
 };
@@ -614,19 +592,19 @@ const dataLabelStyle: CSSProperties = {
   fontSize: 10.5,
   fontWeight: 800,
   textTransform: "uppercase",
-  letterSpacing: 0.4,
+  letterSpacing: 0.35,
   color: "#64748b",
 };
 
 const dataValueStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: 1.42,
+  fontSize: 12.5,
+  lineHeight: 1.4,
   whiteSpace: "pre-line",
 };
 
 const preLineTextStyle: CSSProperties = {
-  fontSize: 13,
-  lineHeight: 1.48,
+  fontSize: 12.2,
+  lineHeight: 1.45,
   whiteSpace: "pre-line",
 };
 
@@ -648,22 +626,16 @@ const thStyle: CSSProperties = {
 const tdStyle: CSSProperties = {
   borderBottom: "1px solid #e2e8f0",
   padding: "8px 6px",
-  fontSize: 12.5,
+  fontSize: 12.2,
   verticalAlign: "top",
   lineHeight: 1.4,
   whiteSpace: "pre-line",
 };
 
-const smallGridStyle: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 10,
-};
-
 const cleanListStyle: CSSProperties = {
   margin: 0,
   paddingLeft: 18,
-  fontSize: 12.5,
+  fontSize: 12.2,
   lineHeight: 1.45,
   display: "grid",
   gap: 4,
@@ -694,6 +666,13 @@ const termsCardStyle: CSSProperties = {
   gap: 6,
 };
 
+const termsSectionHeaderStyle: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 900,
+  color: "#0f172a",
+  marginBottom: 2,
+};
+
 const termsPrimaryHeadingStyle: CSSProperties = {
   marginTop: 4,
   fontSize: 14,
@@ -715,8 +694,8 @@ const termsMinorHeadingStyle: CSSProperties = {
 
 const termsTextStyle: CSSProperties = {
   margin: 0,
-  fontSize: 12,
-  lineHeight: 1.42,
+  fontSize: 11.6,
+  lineHeight: 1.4,
 };
 
 const termsListStyle: CSSProperties = {
@@ -727,13 +706,13 @@ const termsListStyle: CSSProperties = {
 };
 
 const termsListItemStyle: CSSProperties = {
-  fontSize: 12,
-  lineHeight: 1.42,
+  fontSize: 11.6,
+  lineHeight: 1.4,
 };
 
 const termsNestedListItemStyle: CSSProperties = {
-  fontSize: 11.5,
-  lineHeight: 1.38,
+  fontSize: 11.2,
+  lineHeight: 1.35,
   marginLeft: 8,
 };
 
@@ -745,7 +724,7 @@ const signatureBoxStyle: CSSProperties = {
 };
 
 const signatureTitleStyle: CSSProperties = {
-  fontSize: 15,
+  fontSize: 14,
   fontWeight: 900,
 };
 
@@ -786,13 +765,13 @@ const signatureFooterStyle: CSSProperties = {
 };
 
 const signatureFooterCellStyle: CSSProperties = {
-  fontSize: 12.5,
+  fontSize: 12.2,
 };
 
 const footerStyle: CSSProperties = {
   marginTop: "auto",
-  fontSize: 11,
-  lineHeight: 1.4,
+  fontSize: 10.5,
+  lineHeight: 1.35,
   color: "#475569",
   textAlign: "center",
 };
@@ -804,13 +783,13 @@ const longTermsStyle: CSSProperties = {
 
 const longTermParagraphStyle: CSSProperties = {
   margin: 0,
-  fontSize: 9.6,
-  lineHeight: 1.3,
+  fontSize: 10.15,
+  lineHeight: 1.34,
   textAlign: "left",
 };
 
 const footerTightStyle: CSSProperties = {
-  marginTop: "auto",
+  marginTop: 8,
   fontSize: 10.2,
   lineHeight: 1.3,
   color: "#475569",
