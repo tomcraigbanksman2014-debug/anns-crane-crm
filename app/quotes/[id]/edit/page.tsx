@@ -27,7 +27,7 @@ export default async function EditQuotePage({
 
   return (
     <ClientShell>
-      <div style={{ width: "min(980px, 95vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1420px, 98vw)", margin: "0 auto" }}>
         {errorMessage ? (
           <div style={errorBox}>{errorMessage}</div>
         ) : !quote ? (
