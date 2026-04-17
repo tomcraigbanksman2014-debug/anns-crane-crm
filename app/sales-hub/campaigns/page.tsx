@@ -62,6 +62,59 @@ type TemplateRow = {
   is_active: boolean;
 };
 
+const SALES_LEAD_SELECT = `
+        id,
+        company_name,
+        contact_name,
+        email,
+        phone,
+        area,
+        industry,
+        lead_source,
+        status,
+        services,
+        assigned_to_username,
+        archived,
+        do_not_contact,
+        opportunity_value,
+        probability_percent,
+        expected_close_date,
+        next_follow_up_on,
+        updated_at
+      `;
+
+const SALES_LEAD_BATCH_SIZE = 1000;
+
+async function fetchAllActiveSalesLeads(supabase: any) {
+  const rows: LeadRow[] = [];
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from("sales_leads")
+      .select(SALES_LEAD_SELECT)
+      .eq("archived", false)
+      .order("updated_at", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + SALES_LEAD_BATCH_SIZE - 1);
+
+    if (error) {
+      return { data: null, error };
+    }
+
+    const batch = ((data ?? []) as LeadRow[]).filter(Boolean);
+    rows.push(...batch);
+
+    if (batch.length < SALES_LEAD_BATCH_SIZE) {
+      break;
+    }
+
+    from += SALES_LEAD_BATCH_SIZE;
+  }
+
+  return { data: rows, error: null };
+}
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -391,30 +444,7 @@ export default async function SalesCampaignsPage({
     { data: campaignLeadLinks },
     { data: campaignCustomerLinks },
   ] = await Promise.all([
-    supabase
-      .from("sales_leads")
-      .select(`
-        id,
-        company_name,
-        contact_name,
-        email,
-        phone,
-        area,
-        industry,
-        lead_source,
-        status,
-        services,
-        assigned_to_username,
-        archived,
-        do_not_contact,
-        opportunity_value,
-        probability_percent,
-        expected_close_date,
-        next_follow_up_on,
-        updated_at
-      `)
-      .eq("archived", false)
-      .order("updated_at", { ascending: false }),
+    fetchAllActiveSalesLeads(supabase),
     supabase
       .from("clients")
       .select("id, company_name, contact_name, email, phone, notes, archived, created_at")
