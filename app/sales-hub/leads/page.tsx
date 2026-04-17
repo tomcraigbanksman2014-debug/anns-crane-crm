@@ -24,8 +24,48 @@ type LeadsPageProps = {
     q?: string;
     status?: string;
     view?: string;
+    page?: string;
   };
 };
+
+const PAGE_SIZE = 100;
+
+function applyLeadFilters<T extends any>(query: T, args: { q: string; status: string; view: string }) {
+  let nextQuery = query;
+
+  if (args.view === "archived") {
+    nextQuery = nextQuery.eq("archived", true);
+  } else if (args.view === "all") {
+    // no archive filter
+  } else {
+    nextQuery = nextQuery.eq("archived", false);
+  }
+
+  if (args.status) {
+    nextQuery = nextQuery.eq("status", args.status);
+  }
+
+  if (args.q) {
+    const escaped = args.q.replace(/,/g, " ");
+    nextQuery = nextQuery.or(
+      `company_name.ilike.%${escaped}%,contact_name.ilike.%${escaped}%,phone.ilike.%${escaped}%,email.ilike.%${escaped}%,area.ilike.%${escaped}%,industry.ilike.%${escaped}%`
+    );
+  }
+
+  return nextQuery;
+}
+
+function buildLeadsHref(args: { view: string; q: string; status: string; page: number }) {
+  const params = new URLSearchParams();
+
+  if (args.view) params.set("view", args.view);
+  if (args.q) params.set("q", args.q);
+  if (args.status) params.set("status", args.status);
+  if (args.page > 1) params.set("page", String(args.page));
+
+  const query = params.toString();
+  return `/sales-hub/leads${query ? `?${query}` : ""}`;
+}
 
 export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
   const supabase = createSupabaseServerClient();
@@ -34,31 +74,10 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
   const status = String(searchParams?.status ?? "").trim();
   const view = String(searchParams?.view ?? "active").trim().toLowerCase();
 
-  let query = supabase
-    .from("sales_leads")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (view === "archived") {
-    query = query.eq("archived", true);
-  } else if (view === "all") {
-    // no archive filter
-  } else {
-    query = query.eq("archived", false);
-  }
-
-  if (status) {
-    query = query.eq("status", status);
-  }
-
-  if (q) {
-    const escaped = q.replace(/,/g, " ");
-    query = query.or(
-      `company_name.ilike.%${escaped}%,contact_name.ilike.%${escaped}%,phone.ilike.%${escaped}%,email.ilike.%${escaped}%,area.ilike.%${escaped}%,industry.ilike.%${escaped}%`
-    );
-  }
-
-  const { data: leads, error } = await query;
+  const rawPage = Number(searchParams?.page ?? "1");
+  const page = Number.isFinite(rawPage) && rawPage > 0 ? Math.floor(rawPage) : 1;
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE - 1;
 
   const statuses = [
     "New",
@@ -70,6 +89,45 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
     "Lost",
     "Dormant",
   ];
+
+  const countQuery = applyLeadFilters(
+    supabase.from("sales_leads").select("id", { count: "exact", head: true }),
+    { q, status, view }
+  );
+
+  const leadsQuery = applyLeadFilters(
+    supabase
+      .from("sales_leads")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(from, to),
+    { q, status, view }
+  );
+
+  const [{ count, error: countError }, { data: leads, error }] = await Promise.all([
+    countQuery,
+    leadsQuery,
+  ]);
+
+  const totalCount = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const showingFrom = totalCount === 0 ? 0 : from + 1;
+  const showingTo = totalCount === 0 ? 0 : Math.min(from + PAGE_SIZE, totalCount);
+
+  const prevHref = buildLeadsHref({
+    view,
+    q,
+    status,
+    page: Math.max(1, safePage - 1),
+  });
+
+  const nextHref = buildLeadsHref({
+    view,
+    q,
+    status,
+    page: Math.min(totalPages, safePage + 1),
+  });
 
   return (
     <ClientShell>
@@ -93,9 +151,24 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
         </div>
 
         <div style={tabsRow}>
-          <a href={`/sales-hub/leads?view=active${q ? `&q=${encodeURIComponent(q)}` : ""}${status ? `&status=${encodeURIComponent(status)}` : ""}`} style={view === "active" ? activeTabBtn : tabBtn}>Active</a>
-          <a href={`/sales-hub/leads?view=archived${q ? `&q=${encodeURIComponent(q)}` : ""}${status ? `&status=${encodeURIComponent(status)}` : ""}`} style={view === "archived" ? activeTabBtn : tabBtn}>Archived</a>
-          <a href={`/sales-hub/leads?view=all${q ? `&q=${encodeURIComponent(q)}` : ""}${status ? `&status=${encodeURIComponent(status)}` : ""}`} style={view === "all" ? activeTabBtn : tabBtn}>All</a>
+          <a
+            href={buildLeadsHref({ view: "active", q, status, page: 1 })}
+            style={view === "active" ? activeTabBtn : tabBtn}
+          >
+            Active
+          </a>
+          <a
+            href={buildLeadsHref({ view: "archived", q, status, page: 1 })}
+            style={view === "archived" ? activeTabBtn : tabBtn}
+          >
+            Archived
+          </a>
+          <a
+            href={buildLeadsHref({ view: "all", q, status, page: 1 })}
+            style={view === "all" ? activeTabBtn : tabBtn}
+          >
+            All
+          </a>
         </div>
 
         <section style={{ ...cardStyle, marginTop: 16 }}>
@@ -120,63 +193,120 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
             </select>
 
             <button type="submit" style={primaryBtnStyle}>Search</button>
-            <a href={`/sales-hub/leads?view=${view}`} style={secondaryBtnStyle}>Clear</a>
+            <a href={buildLeadsHref({ view, q: "", status: "", page: 1 })} style={secondaryBtnStyle}>
+              Clear
+            </a>
           </form>
         </section>
 
         <section style={{ ...cardStyle, marginTop: 16 }}>
           {error ? <div style={errorBox}>{error.message}</div> : null}
+          {countError ? <div style={errorBox}>{countError.message}</div> : null}
+
+          <div style={resultsHeader}>
+            <div style={{ fontWeight: 800 }}>
+              {totalCount === 0
+                ? "No leads to show"
+                : `Showing ${showingFrom}-${showingTo} of ${totalCount} leads`}
+            </div>
+
+            {totalCount > PAGE_SIZE ? (
+              <div style={pagerWrap}>
+                <a
+                  href={safePage > 1 ? prevHref : "#"}
+                  style={safePage > 1 ? secondaryBtnStyle : disabledBtnStyle}
+                  aria-disabled={safePage <= 1}
+                >
+                  ← Previous
+                </a>
+                <span style={pageMeta}>
+                  Page {safePage} of {totalPages}
+                </span>
+                <a
+                  href={safePage < totalPages ? nextHref : "#"}
+                  style={safePage < totalPages ? secondaryBtnStyle : disabledBtnStyle}
+                  aria-disabled={safePage >= totalPages}
+                >
+                  Next →
+                </a>
+              </div>
+            ) : null}
+          </div>
 
           {!leads || leads.length === 0 ? (
             <p style={{ margin: 0 }}>{q || status ? "No leads matched your filters." : "No leads yet."}</p>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
-                  <tr>
-                    <th align="left" style={thStyle}>Company</th>
-                    <th align="left" style={thStyle}>Contact</th>
-                    <th align="left" style={thStyle}>Phone</th>
-                    <th align="left" style={thStyle}>Email</th>
-                    <th align="left" style={thStyle}>Area</th>
-                    <th align="left" style={thStyle}>Industry</th>
-                    <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Next follow-up</th>
-                    <th align="left" style={thStyle}>Score</th>
-                    <th align="left" style={thStyle}>DNC</th>
-                    <th align="left" style={thStyle}>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((lead: any) => {
-                    const meta = statusMeta(lead.status);
-                    return (
-                      <tr key={lead.id}>
-                        <td style={tdStyle}>{lead.company_name ?? "-"}</td>
-                        <td style={tdStyle}>{lead.contact_name ?? "-"}</td>
-                        <td style={tdStyle}>{lead.phone ?? "-"}</td>
-                        <td style={tdStyle}>{lead.email ?? "-"}</td>
-                        <td style={tdStyle}>{lead.area ?? "-"}</td>
-                        <td style={tdStyle}>{lead.industry ?? "-"}</td>
-                        <td style={tdStyle}>
-                          <span style={{ ...pillStyle, background: meta.bg, color: meta.color }}>
-                            {lead.status ?? "New"}
-                          </span>
-                        </td>
-                        <td style={tdStyle}>{fmtDate(lead.next_follow_up_on)}</td>
-                        <td style={tdStyle}>{Number(lead.lead_score ?? 0)}</td>
-                        <td style={tdStyle}>{lead.do_not_contact ? "Yes" : "No"}</td>
-                        <td style={tdStyle}>
-                          <a href={`/sales-hub/leads/${lead.id}`} style={miniBtn}>
-                            Open
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr>
+                      <th align="left" style={thStyle}>Company</th>
+                      <th align="left" style={thStyle}>Contact</th>
+                      <th align="left" style={thStyle}>Phone</th>
+                      <th align="left" style={thStyle}>Email</th>
+                      <th align="left" style={thStyle}>Area</th>
+                      <th align="left" style={thStyle}>Industry</th>
+                      <th align="left" style={thStyle}>Status</th>
+                      <th align="left" style={thStyle}>Next follow-up</th>
+                      <th align="left" style={thStyle}>Score</th>
+                      <th align="left" style={thStyle}>DNC</th>
+                      <th align="left" style={thStyle}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {leads.map((lead: any) => {
+                      const meta = statusMeta(lead.status);
+                      return (
+                        <tr key={lead.id}>
+                          <td style={tdStyle}>{lead.company_name ?? "-"}</td>
+                          <td style={tdStyle}>{lead.contact_name ?? "-"}</td>
+                          <td style={tdStyle}>{lead.phone ?? "-"}</td>
+                          <td style={tdStyle}>{lead.email ?? "-"}</td>
+                          <td style={tdStyle}>{lead.area ?? "-"}</td>
+                          <td style={tdStyle}>{lead.industry ?? "-"}</td>
+                          <td style={tdStyle}>
+                            <span style={{ ...pillStyle, background: meta.bg, color: meta.color }}>
+                              {lead.status ?? "New"}
+                            </span>
+                          </td>
+                          <td style={tdStyle}>{fmtDate(lead.next_follow_up_on)}</td>
+                          <td style={tdStyle}>{Number(lead.lead_score ?? 0)}</td>
+                          <td style={tdStyle}>{lead.do_not_contact ? "Yes" : "No"}</td>
+                          <td style={tdStyle}>
+                            <a href={`/sales-hub/leads/${lead.id}`} style={miniBtn}>
+                              Open
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {totalCount > PAGE_SIZE ? (
+                <div style={bottomPager}>
+                  <a
+                    href={safePage > 1 ? prevHref : "#"}
+                    style={safePage > 1 ? secondaryBtnStyle : disabledBtnStyle}
+                    aria-disabled={safePage <= 1}
+                  >
+                    ← Previous
+                  </a>
+                  <span style={pageMeta}>
+                    Page {safePage} of {totalPages}
+                  </span>
+                  <a
+                    href={safePage < totalPages ? nextHref : "#"}
+                    style={safePage < totalPages ? secondaryBtnStyle : disabledBtnStyle}
+                    aria-disabled={safePage >= totalPages}
+                  >
+                    Next →
+                  </a>
+                </div>
+              ) : null}
+            </>
           )}
         </section>
       </div>
@@ -212,6 +342,36 @@ const tabsRow: React.CSSProperties = {
   gap: 10,
   flexWrap: "wrap",
   marginTop: 16,
+};
+
+const resultsHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+
+const pagerWrap: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+};
+
+const bottomPager: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "center",
+  gap: 10,
+  flexWrap: "wrap",
+  marginTop: 16,
+};
+
+const pageMeta: React.CSSProperties = {
+  fontWeight: 800,
+  opacity: 0.8,
 };
 
 const tabBtn: React.CSSProperties = {
@@ -264,6 +424,12 @@ const secondaryBtnStyle: React.CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const disabledBtnStyle: React.CSSProperties = {
+  ...secondaryBtnStyle,
+  opacity: 0.45,
+  pointerEvents: "none",
 };
 
 const miniBtn: React.CSSProperties = {
