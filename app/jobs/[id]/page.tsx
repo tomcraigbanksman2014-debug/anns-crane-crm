@@ -423,6 +423,9 @@ export default async function JobDetailPage({
             <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
               Edit job
             </a>
+            <a href={`/jobs/${params.id}/lift-plan`} style={secondaryBtn}>
+              Lift plan / RAMS
+            </a>
             <DuplicateJobButton jobId={params.id} />
             {![("cancelled"), ("late_cancelled"), ("provisional")].includes(
               String((job as any)?.status ?? "").toLowerCase()
