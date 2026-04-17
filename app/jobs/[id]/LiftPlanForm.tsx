@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
 
 type LiftPlanData = {
@@ -34,6 +35,14 @@ type LiftPlanData = {
   finalised_at?: string | null;
   paperwork_locked?: boolean;
 };
+
+function toInputDateTime(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
 
 export default function LiftPlanForm({
   jobId,
@@ -76,8 +85,8 @@ export default function LiftPlanForm({
   });
 
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [msg, setMsg] = useState("");
-
   const locked = !!form.paperwork_locked;
 
   function update(key: keyof LiftPlanData, value: any) {
@@ -88,24 +97,54 @@ export default function LiftPlanForm({
   async function postForm(payload: LiftPlanData) {
     const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
     const data = await res.json().catch(() => ({}));
-
     if (!res.ok) {
       throw new Error(data?.error || "Error saving lift plan.");
     }
-
     return data;
+  }
+
+  async function generateDraft() {
+    if (locked) return;
+    setGenerating(true);
+    setMsg("");
+
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || "Could not generate draft.");
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        ...data?.draft,
+        paperwork_locked: prev.paperwork_locked,
+        approved_by: prev.approved_by,
+        approved_at: prev.approved_at,
+        approval_notes: prev.approval_notes,
+        customer_signed_by: prev.customer_signed_by,
+        operator_signed_by: prev.operator_signed_by,
+        office_signed_by: prev.office_signed_by,
+        finalised_at: prev.finalised_at,
+      }));
+
+      setMsg(`AI draft generated (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before saving.`);
+    } catch (e: any) {
+      setMsg(e?.message || "Could not generate draft.");
+    } finally {
+      setGenerating(false);
+    }
   }
 
   async function save() {
     if (locked) return;
-
     setSaving(true);
     setMsg("");
 
@@ -122,32 +161,26 @@ export default function LiftPlanForm({
   function approveNow() {
     if (locked) return;
     const now = new Date().toISOString();
-
     setForm((prev) => ({
       ...prev,
       approved_at: now,
-      lift_plan_complete: true,
       rams_complete: true,
+      lift_plan_complete: true,
     }));
   }
 
   async function finaliseNow() {
     if (locked) return;
-
     setSaving(true);
     setMsg("");
 
     try {
-      const now = new Date().toISOString();
-
       const finalPayload: LiftPlanData = {
         ...form,
-        finalised_at: now,
+        finalised_at: new Date().toISOString(),
         paperwork_locked: true,
       };
-
       await postForm(finalPayload);
-
       setForm(finalPayload);
       setMsg("Paperwork finalised and locked.");
     } catch (e: any) {
@@ -159,284 +192,89 @@ export default function LiftPlanForm({
 
   return (
     <div style={wrapStyle}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 10,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
-        <h2 style={{ margin: 0, fontSize: 22 }}>Lift Plan & RAMS</h2>
-
-        <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={printBtn}>
-          Open printable lift plan
-        </a>
-      </div>
-
-      {locked ? (
-        <div style={lockedBoxStyle}>
-          Paperwork is locked and cannot be edited.
-        </div>
-      ) : null}
-
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>Lift Details</div>
-        <div style={gridStyle}>
-          <Field
-            label="Load description"
-            value={form.load_description ?? ""}
-            onChange={(v) => update("load_description", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Load weight (kg)"
-            type="number"
-            step="0.01"
-            value={form.load_weight ?? ""}
-            onChange={(v) => update("load_weight", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Lift radius (m)"
-            type="number"
-            step="0.01"
-            value={form.lift_radius ?? ""}
-            onChange={(v) => update("lift_radius", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Lift height (m)"
-            type="number"
-            step="0.01"
-            value={form.lift_height ?? ""}
-            onChange={(v) => update("lift_height", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Sling type"
-            value={form.sling_type ?? ""}
-            onChange={(v) => update("sling_type", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Lifting accessories"
-            value={form.lifting_accessories ?? ""}
-            onChange={(v) => update("lifting_accessories", v)}
-            disabled={locked}
-          />
-        </div>
-      </div>
-
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>Setup & Site Conditions</div>
-        <TextAreaField
-          label="Crane configuration"
-          value={form.crane_configuration ?? ""}
-          onChange={(v) => update("crane_configuration", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Outrigger setup"
-          value={form.outrigger_setup ?? ""}
-          onChange={(v) => update("outrigger_setup", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Ground conditions"
-          value={form.ground_conditions ?? ""}
-          onChange={(v) => update("ground_conditions", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Exclusion zone details"
-          value={form.exclusion_zone_details ?? ""}
-          onChange={(v) => update("exclusion_zone_details", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Weather limitations"
-          value={form.weather_limitations ?? ""}
-          onChange={(v) => update("weather_limitations", v)}
-          disabled={locked}
-        />
-      </div>
-
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>RAMS</div>
-        <TextAreaField
-          label="Method statement"
-          value={form.method_statement ?? ""}
-          onChange={(v) => update("method_statement", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Risk assessment"
-          value={form.risk_assessment ?? ""}
-          onChange={(v) => update("risk_assessment", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Site hazards"
-          value={form.site_hazards ?? ""}
-          onChange={(v) => update("site_hazards", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Control measures"
-          value={form.control_measures ?? ""}
-          onChange={(v) => update("control_measures", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="PPE required"
-          value={form.ppe_required ?? ""}
-          onChange={(v) => update("ppe_required", v)}
-          disabled={locked}
-        />
-        <TextAreaField
-          label="Emergency procedures"
-          value={form.emergency_procedures ?? ""}
-          onChange={(v) => update("emergency_procedures", v)}
-          disabled={locked}
-        />
-      </div>
-
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>Personnel & Approval</div>
-        <div style={gridStyle}>
-          <Field
-            label="Lift supervisor"
-            value={form.lift_supervisor ?? ""}
-            onChange={(v) => update("lift_supervisor", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Appointed person"
-            value={form.appointed_person ?? ""}
-            onChange={(v) => update("appointed_person", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Crane operator"
-            value={form.crane_operator ?? ""}
-            onChange={(v) => update("crane_operator", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Approved by"
-            value={form.approved_by ?? ""}
-            onChange={(v) => update("approved_by", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Approved at"
-            type="datetime-local"
-            value={form.approved_at ? String(form.approved_at).slice(0, 16) : ""}
-            onChange={(v) => update("approved_at", v ? new Date(v).toISOString() : "")}
-            disabled={locked}
-          />
+      <div style={topRow}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 24 }}>Lift Plan & RAMS</h2>
+          <div style={helperText}>Generate a draft, review it, then save and finalise manually.</div>
         </div>
 
-        <TextAreaField
-          label="Approval notes"
-          value={form.approval_notes ?? ""}
-          onChange={(v) => update("approval_notes", v)}
-          disabled={locked}
-        />
-
-        <div style={checkGridStyle}>
-          <label style={checkLabelStyle}>
-            <input
-              type="checkbox"
-              checked={!!form.lift_plan_complete}
-              onChange={(e) => update("lift_plan_complete", e.target.checked)}
-              disabled={locked}
-            />
-            <span>Lift plan complete</span>
-          </label>
-
-          <label style={checkLabelStyle}>
-            <input
-              type="checkbox"
-              checked={!!form.rams_complete}
-              onChange={(e) => update("rams_complete", e.target.checked)}
-              disabled={locked}
-            />
-            <span>RAMS complete</span>
-          </label>
-        </div>
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-          <button type="button" onClick={approveNow} style={secondaryBtn} disabled={locked || saving}>
-            Mark approved now
+        <div style={buttonRow}>
+          <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={secondaryBtn}>
+            Printable version
+          </a>
+          <button type="button" onClick={generateDraft} disabled={locked || generating || saving} style={secondaryBtn}>
+            {generating ? "Generating…" : "Generate AI draft"}
+          </button>
+          <button type="button" onClick={save} disabled={locked || generating || saving} style={primaryBtn}>
+            {saving ? "Saving…" : "Save draft"}
+          </button>
+          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving} style={dangerBtn}>
+            Finalise & lock
           </button>
         </div>
       </div>
 
-      <div style={sectionStyle}>
-        <div style={sectionTitleStyle}>Sign-Off & Final Lock</div>
+      {locked ? <div style={lockedBox}>Paperwork is locked and cannot be edited.</div> : null}
+      {msg ? <div style={msgBox}>{msg}</div> : null}
 
-        <div style={gridStyle}>
-          <Field
-            label="Customer signed by"
-            value={form.customer_signed_by ?? ""}
-            onChange={(v) => update("customer_signed_by", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Operator signed by"
-            value={form.operator_signed_by ?? ""}
-            onChange={(v) => update("operator_signed_by", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Office signed by"
-            value={form.office_signed_by ?? ""}
-            onChange={(v) => update("office_signed_by", v)}
-            disabled={locked}
-          />
-          <Field
-            label="Finalised at"
-            type="datetime-local"
-            value={form.finalised_at ? String(form.finalised_at).slice(0, 16) : ""}
-            onChange={(v) => update("finalised_at", v ? new Date(v).toISOString() : "")}
-            disabled={locked}
-          />
+      <Section title="Lift details">
+        <div style={grid2}>
+          <Field label="Load description" value={form.load_description ?? ""} onChange={(v) => update("load_description", v)} disabled={locked} />
+          <Field label="Load weight (kg)" type="number" step="0.01" value={form.load_weight ?? ""} onChange={(v) => update("load_weight", v)} disabled={locked} />
+          <Field label="Lift radius (m)" type="number" step="0.01" value={form.lift_radius ?? ""} onChange={(v) => update("lift_radius", v)} disabled={locked} />
+          <Field label="Lift height (m)" type="number" step="0.01" value={form.lift_height ?? ""} onChange={(v) => update("lift_height", v)} disabled={locked} />
+          <Field label="Sling type" value={form.sling_type ?? ""} onChange={(v) => update("sling_type", v)} disabled={locked} />
+          <Field label="Lifting accessories" value={form.lifting_accessories ?? ""} onChange={(v) => update("lifting_accessories", v)} disabled={locked} />
         </div>
+      </Section>
 
-        <label style={{ ...checkLabelStyle, marginTop: 12 }}>
-          <input
-            type="checkbox"
-            checked={!!form.paperwork_locked}
-            readOnly
-            disabled
-          />
-          <span>Paperwork locked</span>
-        </label>
+      <Section title="Setup & site conditions">
+        <TextAreaField label="Crane configuration" value={form.crane_configuration ?? ""} onChange={(v) => update("crane_configuration", v)} disabled={locked} />
+        <TextAreaField label="Outrigger setup" value={form.outrigger_setup ?? ""} onChange={(v) => update("outrigger_setup", v)} disabled={locked} />
+        <TextAreaField label="Ground conditions" value={form.ground_conditions ?? ""} onChange={(v) => update("ground_conditions", v)} disabled={locked} />
+        <TextAreaField label="Exclusion zone details" value={form.exclusion_zone_details ?? ""} onChange={(v) => update("exclusion_zone_details", v)} disabled={locked} />
+        <TextAreaField label="Weather limitations" value={form.weather_limitations ?? ""} onChange={(v) => update("weather_limitations", v)} disabled={locked} />
+      </Section>
 
-        {!locked ? (
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
-            <button
-              type="button"
-              onClick={finaliseNow}
-              style={finaliseBtn}
-              disabled={saving}
-            >
-              {saving ? "Finalising..." : "Finalise & lock paperwork"}
-            </button>
-          </div>
-        ) : null}
-      </div>
+      <Section title="RAMS wording">
+        <TextAreaField label="Method statement" value={form.method_statement ?? ""} onChange={(v) => update("method_statement", v)} disabled={locked} rows={6} />
+        <TextAreaField label="Risk assessment" value={form.risk_assessment ?? ""} onChange={(v) => update("risk_assessment", v)} disabled={locked} rows={6} />
+        <TextAreaField label="Site hazards" value={form.site_hazards ?? ""} onChange={(v) => update("site_hazards", v)} disabled={locked} rows={4} />
+        <TextAreaField label="Control measures" value={form.control_measures ?? ""} onChange={(v) => update("control_measures", v)} disabled={locked} rows={4} />
+        <TextAreaField label="PPE required" value={form.ppe_required ?? ""} onChange={(v) => update("ppe_required", v)} disabled={locked} rows={3} />
+        <TextAreaField label="Emergency procedures" value={form.emergency_procedures ?? ""} onChange={(v) => update("emergency_procedures", v)} disabled={locked} rows={4} />
+      </Section>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-        <button onClick={save} disabled={saving || locked} style={saveBtn}>
-          {saving ? "Saving..." : locked ? "Paperwork locked" : "Save Lift Plan & RAMS"}
-        </button>
-      </div>
+      <Section title="Personnel & approval">
+        <div style={grid2}>
+          <Field label="Lift supervisor" value={form.lift_supervisor ?? ""} onChange={(v) => update("lift_supervisor", v)} disabled={locked} />
+          <Field label="Appointed person" value={form.appointed_person ?? ""} onChange={(v) => update("appointed_person", v)} disabled={locked} />
+          <Field label="Crane operator" value={form.crane_operator ?? ""} onChange={(v) => update("crane_operator", v)} disabled={locked} />
+          <Field label="Approved by" value={form.approved_by ?? ""} onChange={(v) => update("approved_by", v)} disabled={locked} />
+          <Field label="Approved at" type="datetime-local" value={toInputDateTime(form.approved_at)} onChange={(v) => update("approved_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
+          <Field label="Finalised at" type="datetime-local" value={toInputDateTime(form.finalised_at)} onChange={(v) => update("finalised_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
+        </div>
+        <TextAreaField label="Approval notes" value={form.approval_notes ?? ""} onChange={(v) => update("approval_notes", v)} disabled={locked} rows={3} />
+        <div style={grid2}>
+          <Field label="Customer signed by" value={form.customer_signed_by ?? ""} onChange={(v) => update("customer_signed_by", v)} disabled={locked} />
+          <Field label="Operator signed by" value={form.operator_signed_by ?? ""} onChange={(v) => update("operator_signed_by", v)} disabled={locked} />
+          <Field label="Office signed by" value={form.office_signed_by ?? ""} onChange={(v) => update("office_signed_by", v)} disabled={locked} />
+        </div>
+        <div style={tickRow}>
+          <label style={tickLabel}><input type="checkbox" checked={!!form.rams_complete} onChange={(e) => update("rams_complete", e.target.checked)} disabled={locked} /> RAMS complete</label>
+          <label style={tickLabel}><input type="checkbox" checked={!!form.lift_plan_complete} onChange={(e) => update("lift_plan_complete", e.target.checked)} disabled={locked} /> Lift plan complete</label>
+          <button type="button" onClick={approveNow} disabled={locked || saving || generating} style={secondaryBtn}>Mark approved now</button>
+        </div>
+      </Section>
+    </div>
+  );
+}
 
-      {msg ? <div style={msgStyle}>{msg}</div> : null}
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={sectionStyle}>
+      <div style={sectionTitle}>{title}</div>
+      <div style={{ display: "grid", gap: 12 }}>{children}</div>
     </div>
   );
 }
@@ -447,7 +285,7 @@ function Field({
   onChange,
   type = "text",
   step,
-  disabled = false,
+  disabled,
 }: {
   label: string;
   value: string | number;
@@ -457,17 +295,10 @@ function Field({
   disabled?: boolean;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <input
-        type={type}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={inputStyle}
-        disabled={disabled}
-      />
-    </div>
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} />
+    </label>
   );
 }
 
@@ -475,147 +306,38 @@ function TextAreaField({
   label,
   value,
   onChange,
-  disabled = false,
+  disabled,
+  rows = 4,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   disabled?: boolean;
+  rows?: number;
 }) {
   return (
-    <div style={{ display: "grid", gap: 6, marginTop: 12 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={4}
-        style={textAreaStyle}
-        disabled={disabled}
-      />
-    </div>
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} />
+    </label>
   );
 }
 
-const wrapStyle: React.CSSProperties = {
-  marginTop: 18,
-  padding: 18,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const lockedBoxStyle: React.CSSProperties = {
-  marginTop: 12,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.08)",
-  border: "1px solid rgba(255,0,0,0.18)",
-  color: "#b00020",
-  fontWeight: 800,
-};
-
-const sectionStyle: React.CSSProperties = {
-  marginTop: 16,
-  paddingTop: 12,
-  borderTop: "1px solid rgba(0,0,0,0.08)",
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 900,
-  marginBottom: 8,
-};
-
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
-  marginTop: 12,
-};
-
-const checkGridStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 16,
-  flexWrap: "wrap",
-  marginTop: 14,
-};
-
-const checkLabelStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  fontWeight: 700,
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.78,
-  fontWeight: 800,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  height: 42,
-  padding: "0 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
-  boxSizing: "border-box",
-};
-
-const textAreaStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.90)",
-  boxSizing: "border-box",
-  resize: "vertical",
-};
-
-const saveBtn: React.CSSProperties = {
-  padding: "10px 16px",
-  background: "#111",
-  color: "#fff",
-  borderRadius: 10,
-  border: "none",
-  cursor: "pointer",
-  fontWeight: 800,
-};
-
-const secondaryBtn: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "rgba(255,255,255,0.7)",
-  color: "#111",
-  fontWeight: 800,
-  cursor: "pointer",
-};
-
-const finaliseBtn: React.CSSProperties = {
-  padding: "10px 14px",
-  borderRadius: 10,
-  border: "1px solid rgba(0,180,120,0.20)",
-  background: "rgba(0,180,120,0.12)",
-  color: "#0b7a4b",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const printBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "10px 12px",
-  textDecoration: "none",
-  borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.70)",
-  color: "#111",
-  fontWeight: 800,
-};
-
-const msgStyle: React.CSSProperties = {
-  marginTop: 10,
-  fontSize: 13,
-  fontWeight: 700,
-};
+const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
+const topRow: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" };
+const buttonRow: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
+const helperText: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.75 };
+const sectionStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 16 };
+const sectionTitle: CSSProperties = { fontWeight: 900, marginBottom: 12 };
+const grid2: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };
+const fieldWrap: CSSProperties = { display: "grid", gap: 6 };
+const fieldLabel: CSSProperties = { fontSize: 13, fontWeight: 800, opacity: 0.82 };
+const inputStyle: CSSProperties = { width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff" };
+const textAreaStyle: CSSProperties = { width: "100%", borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: 12, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
+const msgBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)" };
+const lockedBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", fontWeight: 800 };
+const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" };
+const tickLabel: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 700 };
+const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
+const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
+const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
