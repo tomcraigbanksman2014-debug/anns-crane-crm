@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
@@ -30,7 +31,10 @@ type LeadsPageProps = {
 
 const PAGE_SIZE = 100;
 
-function applyLeadFilters<T extends any>(query: T, args: { q: string; status: string; view: string }) {
+function applyLeadFilters(
+  query: any,
+  args: { q: string; status: string; view: string }
+) {
   let nextQuery = query;
 
   if (args.view === "archived") {
@@ -55,7 +59,12 @@ function applyLeadFilters<T extends any>(query: T, args: { q: string; status: st
   return nextQuery;
 }
 
-function buildLeadsHref(args: { view: string; q: string; status: string; page: number }) {
+function buildLeadsHref(args: {
+  view: string;
+  q: string;
+  status: string;
+  page: number;
+}) {
   const params = new URLSearchParams();
 
   if (args.view) params.set("view", args.view);
@@ -192,7 +201,9 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
               ))}
             </select>
 
-            <button type="submit" style={primaryBtnStyle}>Search</button>
+            <button type="submit" style={primaryBtnStyle}>
+              Search
+            </button>
             <a href={buildLeadsHref({ view, q: "", status: "", page: 1 })} style={secondaryBtnStyle}>
               Clear
             </a>
@@ -314,7 +325,7 @@ export default async function SalesLeadsPage({ searchParams }: LeadsPageProps) {
   );
 }
 
-const headerRow: React.CSSProperties = {
+const headerRow: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -322,14 +333,14 @@ const headerRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const filtersGrid: React.CSSProperties = {
+const filtersGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(260px, 1fr) minmax(180px, 220px) auto auto",
   gap: 10,
   alignItems: "center",
 };
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -337,14 +348,14 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const tabsRow: React.CSSProperties = {
+const tabsRow: CSSProperties = {
   display: "flex",
   gap: 10,
   flexWrap: "wrap",
   marginTop: 16,
 };
 
-const resultsHeader: React.CSSProperties = {
+const resultsHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -353,14 +364,14 @@ const resultsHeader: React.CSSProperties = {
   marginBottom: 14,
 };
 
-const pagerWrap: React.CSSProperties = {
+const pagerWrap: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 10,
   flexWrap: "wrap",
 };
 
-const bottomPager: React.CSSProperties = {
+const bottomPager: CSSProperties = {
   display: "flex",
   justifyContent: "flex-end",
   alignItems: "center",
@@ -369,12 +380,12 @@ const bottomPager: React.CSSProperties = {
   marginTop: 16,
 };
 
-const pageMeta: React.CSSProperties = {
+const pageMeta: CSSProperties = {
   fontWeight: 800,
   opacity: 0.8,
 };
 
-const tabBtn: React.CSSProperties = {
+const tabBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 999,
@@ -385,14 +396,14 @@ const tabBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const activeTabBtn: React.CSSProperties = {
+const activeTabBtn: CSSProperties = {
   ...tabBtn,
   background: "#111",
   color: "#fff",
   border: "1px solid #111",
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 44,
   padding: "0 14px",
@@ -404,7 +415,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const primaryBtnStyle: React.CSSProperties = {
+const primaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -415,7 +426,7 @@ const primaryBtnStyle: React.CSSProperties = {
   border: "none",
 };
 
-const secondaryBtnStyle: React.CSSProperties = {
+const secondaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -426,13 +437,13 @@ const secondaryBtnStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const disabledBtnStyle: React.CSSProperties = {
+const disabledBtnStyle: CSSProperties = {
   ...secondaryBtnStyle,
   opacity: 0.45,
   pointerEvents: "none",
 };
 
-const miniBtn: React.CSSProperties = {
+const miniBtn: CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 8,
@@ -443,7 +454,7 @@ const miniBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const errorBox: React.CSSProperties = {
+const errorBox: CSSProperties = {
   marginBottom: 12,
   padding: "10px 12px",
   borderRadius: 10,
@@ -451,7 +462,7 @@ const errorBox: React.CSSProperties = {
   border: "1px solid rgba(180,0,0,0.16)",
 };
 
-const thStyle: React.CSSProperties = {
+const thStyle: CSSProperties = {
   padding: "12px 10px",
   fontSize: 12,
   opacity: 0.75,
@@ -459,13 +470,13 @@ const thStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const tdStyle: React.CSSProperties = {
+const tdStyle: CSSProperties = {
   padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.06)",
   verticalAlign: "top",
 };
 
-const pillStyle: React.CSSProperties = {
+const pillStyle: CSSProperties = {
   display: "inline-block",
   padding: "6px 10px",
   borderRadius: 999,
