@@ -613,6 +613,9 @@ export default async function TransportJobDetailPage({
               <a href="/transport-jobs" style={secondaryBtn}>
                 ← Back
               </a>
+              <a href={`/transport-jobs/${params.id}/lift-plan`} style={secondaryBtn}>
+                Lift plan / RAMS
+              </a>
               <DuplicateTransportJobButton jobId={params.id} />
             </div>
           </div>
