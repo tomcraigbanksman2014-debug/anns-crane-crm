@@ -1,9 +1,6 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-
-function countWhere(rows: any[], predicate: (row: any) => boolean) {
-  return rows.filter(predicate).length;
-}
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -16,70 +13,169 @@ function normaliseDateOnly(value: string | null | undefined) {
   return String(value ?? "").slice(0, 10);
 }
 
+async function getExactCount(query: any) {
+  const { count, error } = await query;
+  return {
+    count: count ?? 0,
+    error: error ? String(error.message ?? error) : null,
+  };
+}
+
 export default async function SalesHubPage() {
   const supabase = createSupabaseServerClient();
   const today = new Date().toISOString().slice(0, 10);
 
   const [
-    { data: leads, error },
-    { data: templates },
-    { data: campaigns },
-    { data: tasks },
+    liveLeadsResult,
+    newLeadsResult,
+    toContactResult,
+    followUpResult,
+    quotedResult,
+    wonResult,
+    dormantResult,
+    dueTodayResult,
+    activeTemplatesResult,
+    activeCampaignsResult,
+    openTasksResult,
+    overdueTasksResult,
+    nextFiveResponse,
+    nextCampaignsResponse,
   ] = await Promise.all([
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "New")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "To Contact")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "Follow Up")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "Quoted")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "Won")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .eq("status", "Dormant")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_leads")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .not("next_follow_up_on", "is", null)
+        .lte("next_follow_up_on", today)
+    ),
+    getExactCount(
+      supabase
+        .from("sales_templates")
+        .select("id", { count: "exact", head: true })
+        .eq("is_active", true)
+    ),
+    getExactCount(
+      supabase
+        .from("sales_campaigns")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "Active")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_workflow_tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open")
+    ),
+    getExactCount(
+      supabase
+        .from("sales_workflow_tasks")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open")
+        .not("due_on", "is", null)
+        .lt("due_on", today)
+    ),
     supabase
       .from("sales_leads")
-      .select("id, company_name, status, archived, do_not_contact, next_follow_up_on, created_at, updated_at")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("sales_templates")
-      .select("id, is_active")
-      .order("created_at", { ascending: false }),
+      .select("id, company_name, status, next_follow_up_on")
+      .eq("archived", false)
+      .not("next_follow_up_on", "is", null)
+      .order("next_follow_up_on", { ascending: true })
+      .limit(5),
     supabase
       .from("sales_campaigns")
-      .select("id, name, status, scheduled_for, created_at")
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("sales_workflow_tasks")
-      .select("id, status, due_on, created_at, completed_at")
-      .order("created_at", { ascending: false }),
+      .select("id, name, status, scheduled_for")
+      .not("scheduled_for", "is", null)
+      .order("scheduled_for", { ascending: true })
+      .limit(4),
   ]);
 
-  const rows = (leads ?? []).filter((row: any) => !row.archived);
+  const errors = [
+    liveLeadsResult.error,
+    newLeadsResult.error,
+    toContactResult.error,
+    followUpResult.error,
+    quotedResult.error,
+    wonResult.error,
+    dormantResult.error,
+    dueTodayResult.error,
+    activeTemplatesResult.error,
+    activeCampaignsResult.error,
+    openTasksResult.error,
+    overdueTasksResult.error,
+    nextFiveResponse.error ? String(nextFiveResponse.error.message ?? nextFiveResponse.error) : null,
+    nextCampaignsResponse.error
+      ? String(nextCampaignsResponse.error.message ?? nextCampaignsResponse.error)
+      : null,
+  ].filter(Boolean);
 
-  const newLeads = countWhere(rows, (row) => String(row.status ?? "") === "New");
-  const toContact = countWhere(rows, (row) => String(row.status ?? "") === "To Contact");
-  const followUp = countWhere(rows, (row) => String(row.status ?? "") === "Follow Up");
-  const quoted = countWhere(rows, (row) => String(row.status ?? "") === "Quoted");
-  const won = countWhere(rows, (row) => String(row.status ?? "") === "Won");
-  const dormant = countWhere(rows, (row) => String(row.status ?? "") === "Dormant");
-  const doNotContact = countWhere(rows, (row) => row.do_not_contact === true);
-  const dueToday = countWhere(
-    rows,
-    (row) => row.next_follow_up_on && normaliseDateOnly(row.next_follow_up_on) <= today
+  const liveLeads = liveLeadsResult.count;
+  const newLeads = newLeadsResult.count;
+  const toContact = toContactResult.count;
+  const followUp = followUpResult.count;
+  const quoted = quotedResult.count;
+  const won = wonResult.count;
+  const dormant = dormantResult.count;
+  const dueToday = dueTodayResult.count;
+  const activeTemplates = activeTemplatesResult.count;
+  const activeCampaigns = activeCampaignsResult.count;
+  const openTasks = openTasksResult.count;
+  const overdueTasks = overdueTasksResult.count;
+
+  const nextFive = (nextFiveResponse.data ?? []).sort((a: any, b: any) =>
+    String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""))
   );
 
-  const nextFive = [...rows]
-    .filter((row: any) => row.next_follow_up_on)
-    .sort((a: any, b: any) =>
-      String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""))
-    )
-    .slice(0, 5);
-
-  const activeTemplates = countWhere(templates ?? [], (row) => row.is_active === true);
-  const activeCampaigns = countWhere(campaigns ?? [], (row) => String(row.status ?? "") === "Active");
-
-  const nextCampaigns = [...(campaigns ?? [])]
-    .filter((row: any) => row.scheduled_for)
-    .sort((a: any, b: any) =>
-      String(a.scheduled_for ?? "").localeCompare(String(b.scheduled_for ?? ""))
-    )
-    .slice(0, 4);
-
-  const workflowRows = tasks ?? [];
-  const openTasks = countWhere(workflowRows, (row) => String(row.status ?? "") === "open");
-  const overdueTasks = countWhere(
-    workflowRows,
-    (row) => String(row.status ?? "") === "open" && row.due_on && normaliseDateOnly(row.due_on) < today
+  const nextCampaigns = (nextCampaignsResponse.data ?? []).sort((a: any, b: any) =>
+    String(a.scheduled_for ?? "").localeCompare(String(b.scheduled_for ?? ""))
   );
 
   return (
@@ -114,10 +210,12 @@ export default async function SalesHubPage() {
           </div>
         </div>
 
-        {error ? <div style={errorBox}>{error.message}</div> : null}
+        {errors.length > 0 ? (
+          <div style={errorBox}>{errors.join(" | ")}</div>
+        ) : null}
 
         <div style={statsGrid}>
-          <StatCard label="Live leads" value={String(rows.length)} />
+          <StatCard label="Live leads" value={String(liveLeads)} />
           <StatCard label="New" value={String(newLeads)} />
           <StatCard label="To contact" value={String(toContact)} />
           <StatCard label="Follow up" value={String(followUp)} />
@@ -244,21 +342,21 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-const statsGrid: React.CSSProperties = {
+const statsGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
   gap: 12,
   marginTop: 16,
 };
 
-const twoColGrid: React.CSSProperties = {
+const twoColGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
   marginTop: 16,
 };
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -266,7 +364,7 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const statCardStyle: React.CSSProperties = {
+const statCardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 16,
   borderRadius: 14,
@@ -274,12 +372,12 @@ const statCardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   fontSize: 22,
 };
 
-const primaryBtnStyle: React.CSSProperties = {
+const primaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -289,7 +387,7 @@ const primaryBtnStyle: React.CSSProperties = {
   textDecoration: "none",
 };
 
-const secondaryBtnStyle: React.CSSProperties = {
+const secondaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -300,7 +398,7 @@ const secondaryBtnStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const errorBox: React.CSSProperties = {
+const errorBox: CSSProperties = {
   marginTop: 16,
   padding: "10px 12px",
   borderRadius: 10,
@@ -308,7 +406,7 @@ const errorBox: React.CSSProperties = {
   border: "1px solid rgba(180,0,0,0.16)",
 };
 
-const followUpCard: React.CSSProperties = {
+const followUpCard: CSSProperties = {
   display: "block",
   textDecoration: "none",
   color: "#111",
@@ -318,7 +416,7 @@ const followUpCard: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const toolCardLink: React.CSSProperties = {
+const toolCardLink: CSSProperties = {
   display: "block",
   textDecoration: "none",
   color: "#111",
@@ -328,7 +426,7 @@ const toolCardLink: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const toolCardSub: React.CSSProperties = {
+const toolCardSub: CSSProperties = {
   marginTop: 4,
   fontSize: 13,
   opacity: 0.75,
