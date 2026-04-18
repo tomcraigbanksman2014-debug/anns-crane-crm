@@ -15,16 +15,11 @@ function safeName(value: string) {
 }
 
 function parsePageNumbers(value: string) {
-  try {
-    const parsed = JSON.parse(value);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((item) => Number(item))
-      .filter((item) => Number.isFinite(item) && item > 0)
-      .map((item) => Math.trunc(item));
-  } catch {
-    return [];
-  }
+  return value
+    .split(",")
+    .map((item) => Number(item.trim()))
+    .filter((item) => Number.isFinite(item) && item > 0)
+    .map((item) => Math.trunc(item));
 }
 
 export async function POST(
@@ -65,7 +60,6 @@ export async function POST(
     const includeInPack = parseBool(formData.get("include_in_pack"));
     const appendixOrder = Number(clean(formData.get("appendix_order")) || "10");
     const previewPageNumbers = parsePageNumbers(clean(formData.get("preview_page_numbers")));
-    const previewFiles = formData.getAll("preview_files").filter((item): item is File => item instanceof File);
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No PDF uploaded." }, { status: 400 });
@@ -95,7 +89,7 @@ export async function POST(
         vehicle_id: params.id,
         title: title || file.name.replace(/\.pdf$/i, ""),
         document_type: documentType,
-        file_url: null,
+        file_url: storagePath,
         file_name: file.name,
         storage_path: storagePath,
         mime_type: file.type,
@@ -105,68 +99,25 @@ export async function POST(
         preview_page_numbers: previewPageNumbers,
         uploaded_by: user.id,
       })
-      .select("id, title, document_type, file_name, file_url, storage_path, uploaded_at, include_in_pack, appendix_order, preview_page_numbers")
+      .select(
+        "id, title, document_type, file_name, file_url, storage_path, uploaded_at, include_in_pack, appendix_order, preview_page_numbers"
+      )
       .single();
 
     if (insertError || !document) {
       await admin.storage.from("asset-documents").remove([storagePath]);
-      return NextResponse.json({ error: insertError?.message || "Could not save document metadata." }, { status: 400 });
-    }
-
-    const previewPaths: string[] = [];
-
-    if (includeInPack && previewFiles.length > 0) {
-      for (let index = 0; index < previewFiles.length; index += 1) {
-        const previewFile = previewFiles[index];
-        const pageNumber = previewPageNumbers[index] ?? index + 1;
-        const previewPath = `vehicles/${params.id}/${document.id}/page-${pageNumber}.png`;
-        previewPaths.push(previewPath);
-
-        const previewBuffer = Buffer.from(await previewFile.arrayBuffer());
-        const { error: previewUploadError } = await admin.storage
-          .from("asset-doc-previews")
-          .upload(previewPath, previewBuffer, {
-            contentType: previewFile.type || "image/png",
-            upsert: false,
-          });
-
-        if (previewUploadError) {
-          await admin.from("vehicle_documents").delete().eq("id", document.id);
-          await admin.storage.from("asset-documents").remove([storagePath]);
-          if (previewPaths.length) {
-            await admin.storage.from("asset-doc-previews").remove(previewPaths);
-          }
-          return NextResponse.json({ error: previewUploadError.message }, { status: 400 });
-        }
-
-        const { error: previewInsertError } = await admin.from("asset_document_previews").insert({
-          vehicle_document_id: document.id,
-          page_number: pageNumber,
-          preview_storage_path: previewPath,
-          preview_file_name: previewFile.name,
-          title:
-            previewFiles.length > 1
-              ? `${document.title} – page ${pageNumber}`
-              : document.title,
-          appendix_order: Number.isFinite(appendixOrder) ? appendixOrder : 10,
-        });
-
-        if (previewInsertError) {
-          await admin.from("vehicle_documents").delete().eq("id", document.id);
-          await admin.storage.from("asset-documents").remove([storagePath]);
-          if (previewPaths.length) {
-            await admin.storage.from("asset-doc-previews").remove(previewPaths);
-          }
-          return NextResponse.json({ error: previewInsertError.message }, { status: 400 });
-        }
-      }
+      return NextResponse.json(
+        { error: insertError?.message || "Could not save document metadata." },
+        { status: 400 }
+      );
     }
 
     let openUrl: string | null = null;
     if (document.storage_path) {
       const { data: signed } = await admin.storage
         .from("asset-documents")
-        .createSignedUrl(document.storage_path, 60 * 60);
+        .createSignedUrl(String(document.storage_path), 60 * 60);
+
       openUrl = signed?.signedUrl ?? null;
     }
 
@@ -177,17 +128,23 @@ export async function POST(
         title: String(document.title ?? "Document"),
         document_type: String(document.document_type ?? "other"),
         file_name: document.file_name ? String(document.file_name) : null,
-        file_url: null,
+        file_url: document.file_url ? String(document.file_url) : null,
         storage_path: document.storage_path ? String(document.storage_path) : null,
         uploaded_at: document.uploaded_at ? String(document.uploaded_at) : null,
         include_in_pack: !!document.include_in_pack,
-        appendix_order: document.appendix_order == null ? null : Number(document.appendix_order),
-        preview_page_numbers: Array.isArray(document.preview_page_numbers) ? document.preview_page_numbers : [],
-        preview_count: previewFiles.length,
+        appendix_order:
+          document.appendix_order == null ? null : Number(document.appendix_order),
+        preview_page_numbers: Array.isArray(document.preview_page_numbers)
+          ? document.preview_page_numbers
+          : [],
+        preview_count: 0,
         open_url: openUrl,
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Could not upload document." }, { status: 400 });
+    return NextResponse.json(
+      { error: error?.message || "Could not upload document." },
+      { status: 400 }
+    );
   }
 }
