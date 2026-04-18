@@ -242,6 +242,7 @@ export default async function CraneLiftPlanPackPage({
     supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
   ]);
 
+  const sections = ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
   const client = flatten((job as any)?.clients)[0] ?? null;
   const primary = getPrimaryCraneContext(job as any);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
@@ -258,18 +259,19 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const projectName = (job as any)?.site_name || `Job ${(job as any)?.job_number ?? ""}`.trim();
+  const projectName = sections.cover_project || (job as any)?.site_name || `Job ${(job as any)?.job_number ?? ""}`.trim();
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
   const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
   const craneName = craneLabel(crane, allocation);
   const craneCapacity = formatCapacity(equipmentProfile, crane);
   const loadWeight = liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—";
   const grossAccessories = liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—";
-  const boomConfig = liftPlan?.crane_configuration || "Main boom";
-  const boomLength =
+  const boomConfig = sections.boom_configuration || liftPlan?.crane_configuration || "Main boom";
+  const boomLength = sections.boom_length || (
     equipmentProfile?.maxHydraulicOutreachM
       ? `${equipmentProfile.maxHydraulicOutreachM} m headline boom / outreach reference`
-      : "To be confirmed against selected chart";
+      : "To be confirmed against selected chart"
+  );
   const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
   const scopeFallback = `Lifting operation for ${client?.company_name || "the client"} at ${projectName}. The planned load is ${liftPlan?.load_description || "to be confirmed"} with a stated load weight of ${loadWeight}. The crane will be set up, operated and supervised in accordance with the approved lifting plan, current legislation and site requirements.`;
 
@@ -313,7 +315,7 @@ export default async function CraneLiftPlanPackPage({
             ["Site Contact", (job as any)?.contact_name],
             ["Appointed Person", appointedPerson],
             ["Prepared on behalf of:", "ANNS CRANE HIRE LTD"],
-            ["Lift Classification", (job as any)?.hire_type || "Basic"],
+            ["Lift Classification", sections.lift_classification || (job as any)?.hire_type || "Basic"],
             ["Crane(s)", craneName],
             ["Boom configuration", boomConfig],
             ["Boom length", boomLength],
@@ -354,7 +356,7 @@ export default async function CraneLiftPlanPackPage({
         <HeaderBand title="1. Introduction" />
         <SectionTitle>1. Introduction</SectionTitle>
         <BoxedParagraph title="Method Statement – CPA Contract Lift">
-          This Method Statement has been prepared based on information provided by our client, together with site-specific details held within the CRM and the selected lifting equipment profile. This lift is undertaken under CPA Contract Lift conditions where requested and is to be carried out in accordance with current legislation, BS 7121, LOLER, PUWER, and applicable manufacturer guidance.
+{para(sections.introduction, "This Method Statement has been prepared based on information provided by our client, together with site-specific details held within the CRM and the selected lifting equipment profile. This lift is undertaken under CPA Contract Lift conditions where requested and is to be carried out in accordance with current legislation, BS 7121, LOLER, PUWER, and applicable manufacturer guidance.")}
         </BoxedParagraph>
 
         <BoxedParagraph title="Site Inspection">
@@ -385,16 +387,16 @@ export default async function CraneLiftPlanPackPage({
 
         <SectionTitle>3. Client Responsibilities and General Conditions</SectionTitle>
         <BoxedParagraph>
-          The client shall ensure that accurate load information, safe access / egress, suitable crane standing area, traffic management, lighting where required, and site induction / emergency arrangements are in place. The client remains responsible for the integrity of the load and for providing accurate information regarding underground services, voids, restrictions, permits and any other conditions that may affect the lifting operation.
+{para(sections.client_responsibilities, "The client shall ensure that accurate load information, safe access / egress, suitable crane standing area, traffic management, lighting where required, and site induction / emergency arrangements are in place. The client remains responsible for the integrity of the load and for providing accurate information regarding underground services, voids, restrictions, permits and any other conditions that may affect the lifting operation.")}
         </BoxedParagraph>
 
         <SectionTitle>4. The Contract Lift and Arrival on Site</SectionTitle>
         <BoxedParagraph>
-          Upon arrival, the crane and associated lifting personnel will report to the agreed site contact, complete any required induction, and proceed to the designated lifting position under supervision. The crane will be rigged in accordance with the manufacturer’s instructions, the selected configuration and this lifting plan. No lifting operation will commence until the Lift Supervisor has confirmed that the site set-up, communications, exclusion zones and controls are in place.
+{para(sections.contract_lift_arrival, "Upon arrival, the crane and associated lifting personnel will report to the agreed site contact, complete any required induction, and proceed to the designated lifting position under supervision. The crane will be rigged in accordance with the manufacturer’s instructions, the selected configuration and this lifting plan. No lifting operation will commence until the Lift Supervisor has confirmed that the site set-up, communications, exclusion zones and controls are in place.")}
         </BoxedParagraph>
 
         <SectionTitle>5. Brief Scope of Works</SectionTitle>
-        <BoxedParagraph>{para(liftPlan?.load_description, scopeFallback)}</BoxedParagraph>
+        <BoxedParagraph>{para(sections.scope_of_works || liftPlan?.load_description, scopeFallback)}</BoxedParagraph>
       </Page>
 
       <Page>
@@ -415,30 +417,31 @@ export default async function CraneLiftPlanPackPage({
             ["Two-way Radios supplied by Anns Crane Hire Ltd", "No / if required by site"],
             ["Two-way Radios supplied by the Client", "No / if required by site"],
             ["Hand Signals", "Yes"],
+            ["Communication notes", sections.communication || "—"],
           ]}
         />
 
         <SectionTitle>8. Weather Conditions</SectionTitle>
         <BoxedParagraph>
           {para(
-            liftPlan?.weather_limitations,
+            sections.weather_conditions || liftPlan?.weather_limitations,
             "Lifting operations must be suspended during adverse weather, including high winds, lightning, heavy rain or poor visibility. Final permissible wind speed must be checked against the selected crane chart, current configuration, the load characteristics, and prevailing site conditions."
           )}
         </BoxedParagraph>
 
         <SectionTitle>9. Site Access and Egress</SectionTitle>
         <BoxedParagraph>
-          The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must be suitable for the size and weight of the crane and any delivery / collection vehicles associated with the lift.
+{para(sections.site_access_egress, "The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must be suitable for the size and weight of the crane and any delivery / collection vehicles associated with the lift.")}
         </BoxedParagraph>
 
         <SectionTitle>10. Ground Conditions</SectionTitle>
-        <BoxedParagraph>{para(liftPlan?.ground_conditions, "Ground conditions to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load, and outrigger reactions. Additional ground protection is to be used where required.")}</BoxedParagraph>
+        <BoxedParagraph>{para(sections.ground_conditions || liftPlan?.ground_conditions, "Ground conditions to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load, and outrigger reactions. Additional ground protection is to be used where required.")}</BoxedParagraph>
 
         <SectionTitle>11. Overhead Obstructions and Slewing Restrictions</SectionTitle>
-        <BoxedParagraph>{para(liftPlan?.site_hazards, "All overhead obstructions, structures, plant, power lines and slewing restrictions must be identified and controlled before lifting operations commence.")}</BoxedParagraph>
+        <BoxedParagraph>{para(sections.overhead_obstructions || liftPlan?.site_hazards, "All overhead obstructions, structures, plant, power lines and slewing restrictions must be identified and controlled before lifting operations commence.")}</BoxedParagraph>
 
         <SectionTitle>12. Traffic and Pedestrian Management</SectionTitle>
-        <BoxedParagraph>{para(liftPlan?.exclusion_zone_details, "The work area must be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone. Client traffic and pedestrian management requirements must be implemented before works commence.")}</BoxedParagraph>
+        <BoxedParagraph>{para(sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details, "The work area must be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone. Client traffic and pedestrian management requirements must be implemented before works commence.")}</BoxedParagraph>
       </Page>
 
       <Page>
@@ -448,7 +451,7 @@ export default async function CraneLiftPlanPackPage({
           rows={[
             ["Sling type", liftPlan?.sling_type],
             ["Lifting accessories", liftPlan?.lifting_accessories],
-            ["LOLER / certification", "All lifting tackle to hold current certification and be inspected before use"],
+            ["LOLER / certification", sections.lifting_equipment_certification || "All lifting tackle to hold current certification and be inspected before use"],
           ]}
         />
 
@@ -468,7 +471,7 @@ export default async function CraneLiftPlanPackPage({
         />
 
         <BoxedParagraph title="Crane specifications">
-          {equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."}
+          {sections.crane_details || equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."}
         </BoxedParagraph>
 
         <BoxedParagraph title="Load chart note">
@@ -521,19 +524,21 @@ export default async function CraneLiftPlanPackPage({
         />
 
         <SectionTitle>17. Crane Set up Procedure</SectionTitle>
-        <BoxedParagraph>{para(liftPlan?.crane_configuration, "Crane to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the planned lift arrangement.")}</BoxedParagraph>
+        <BoxedParagraph>{para(sections.crane_setup_procedure || liftPlan?.crane_configuration, "Crane to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the planned lift arrangement.")}</BoxedParagraph>
         <BoxedParagraph>{para(liftPlan?.outrigger_setup, "Outriggers to be deployed as required by the selected configuration and site restrictions. Suitable mats / spreaders to be used where necessary.")}</BoxedParagraph>
 
         <SectionTitle>18. Lifting Procedure</SectionTitle>
         <BoxedParagraph>
-          {methodStatementLines.length
+          {sections.lifting_procedure
+            ? sections.lifting_procedure
+            : methodStatementLines.length
             ? methodStatementLines.join("\n")
             : "1. Position crane and establish exclusion zone.\n2. Brief all personnel and confirm communication method.\n3. Inspect accessories and connect as planned.\n4. Take up slack and complete test lift.\n5. Hoist, slew and land load under direction of the designated signaller.\n6. Remove lifting accessories and prepare for next operation."}
         </BoxedParagraph>
 
         <SectionTitle>19. De-Rig Procedure</SectionTitle>
         <BoxedParagraph>
-          On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.
+          {para(sections.de_rig_procedure, "On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.")}
         </BoxedParagraph>
       </Page>
 
@@ -542,14 +547,16 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>20. Emergency Procedure</SectionTitle>
         <BoxedParagraph>
           {para(
-            liftPlan?.emergency_procedures,
+            sections.emergency_procedure || liftPlan?.emergency_procedures,
             "In the event of an emergency, lifting operations will stop immediately. The load will be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation will recommence until the situation has been resolved and the area declared safe."
           )}
         </BoxedParagraph>
 
         <SectionTitle>21. Risk Assessments</SectionTitle>
         <BoxedParagraph title="Risk assessment summary">
-          {riskLines.length
+          {sections.risk_assessment_summary
+            ? sections.risk_assessment_summary
+            : riskLines.length
             ? riskLines.join("\n")
             : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone."}
         </BoxedParagraph>
@@ -617,6 +624,15 @@ export default async function CraneLiftPlanPackPage({
         </div>
 
         <div style={{ marginTop: 14 }}>
+          {sections.toolbox_notes ? (
+            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}>{sections.toolbox_notes}</div>
+          ) : null}
+          {sections.emergency_contacts ? (
+            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}><strong>Emergency contacts</strong><br />{sections.emergency_contacts}</div>
+          ) : null}
+          {sections.equipment_list ? (
+            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}><strong>Equipment list</strong><br />{sections.equipment_list}</div>
+          ) : null}
           <div style={{ fontWeight: 800, marginBottom: 8 }}>Wind speed record sheet</div>
           <table style={tableStyle}>
             <thead>
