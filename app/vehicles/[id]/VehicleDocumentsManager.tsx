@@ -1,17 +1,22 @@
 "use client";
 
 import AssetDocumentManager, { type AssetDocumentItem } from "../../components/AssetDocumentManager";
+import type { AssetProfileInput } from "../../lib/assetAppendixPresets";
 
 export default function VehicleDocumentsManager({
   vehicleId,
+  assetProfile,
   initialDocuments,
 }: {
   vehicleId: string;
+  assetProfile?: AssetProfileInput | null;
   initialDocuments: AssetDocumentItem[];
 }) {
   return (
     <AssetDocumentManager
       assetLabel="Vehicle / HIAB"
+      assetType="vehicle"
+      assetProfile={assetProfile}
       uploadUrl={`/api/vehicles/${vehicleId}/documents/upload`}
       deleteUrlPrefix={`/api/vehicles/${vehicleId}/documents`}
       initialDocuments={initialDocuments}
