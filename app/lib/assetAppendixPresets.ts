@@ -63,6 +63,24 @@ function hasAny(text: string, terms: string[]) {
   return terms.some((term) => text.includes(term));
 }
 
+function stripNegativePlatformMentions(text: string) {
+  return text
+    .replace(/do not use\s+(the\s+)?basket/g, " ")
+    .replace(/do not use\s+(the\s+)?platform/g, " ")
+    .replace(/do not use\s+mewp/g, " ")
+    .replace(/not use\s+(the\s+)?basket/g, " ")
+    .replace(/not use\s+(the\s+)?platform/g, " ")
+    .replace(/not use\s+mewp/g, " ")
+    .replace(/no basket/g, " ")
+    .replace(/no platform/g, " ")
+    .replace(/without basket/g, " ")
+    .replace(/without platform/g, " ")
+    .replace(/not for basket/g, " ")
+    .replace(/not for platform/g, " ")
+    .replace(/not in basket mode/g, " ")
+    .replace(/not in platform mode/g, " ");
+}
+
 function supportModeFromText(text: string) {
   if (hasAny(text, ["variable stabiliser", "variable stabilizer", "hpsc"])) {
     return "variable_hpsc";
@@ -188,7 +206,12 @@ export function buildCraneAppendixFacts(
     context?.notes
   );
 
-  const liftingPersons = hasAny(source, ["basket", "platform", "mewp", "man basket", "personnel basket", "lifting persons", "people lifting"]);
+  const platformSignalSource = stripNegativePlatformMentions(source);
+  const explicitCraneLift = hasAny(source, ["crane lift", "contract lift", "standard lifting", "lifting operation"]);
+  const explicitGlazing = hasAny(source, ["glazing", "glass", "vacuum lifter"]);
+  const liftingPersons =
+    hasAny(platformSignalSource, ["basket", "platform", "mewp", "man basket", "personnel basket", "lifting persons", "people lifting"]) &&
+    !explicitCraneLift;
   const restrictedAccess = hasAny(source, ["restricted access", "tight access", "narrow access", "confined", "limited access", "restricted setup"]);
   const stabilityClass = ["j0", "j1", "j5", "j6", "j7"].find((item) => source.includes(item))?.toUpperCase() ?? null;
 
@@ -205,7 +228,7 @@ export function buildCraneAppendixFacts(
 
   let operatingMode = "crane_lift";
   if (liftingPersons) operatingMode = "platform_or_basket";
-  else if (hasAny(source, ["glazing", "glass", "vacuum lifter"])) operatingMode = "glazing";
+  else if (explicitGlazing) operatingMode = "glazing";
 
   return {
     operating_mode: operatingMode,
