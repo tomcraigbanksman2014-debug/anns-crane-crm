@@ -44,6 +44,31 @@ type TransportLiftPlanData = {
   paperwork_locked?: boolean;
 };
 
+
+function hasDraftValue(value: unknown) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
+  return true;
+}
+
+function mergeGeneratedDraft<T extends Record<string, any>>(prev: T, draft: Partial<T> | null | undefined, preserveKeys: string[]) {
+  const next: Record<string, any> = { ...prev };
+  const preserve = new Set(preserveKeys);
+
+  for (const [key, value] of Object.entries(draft ?? {})) {
+    if (preserve.has(key) && hasDraftValue(prev[key])) {
+      continue;
+    }
+    if (hasDraftValue(value)) {
+      next[key] = value;
+    }
+  }
+
+  return next as T;
+}
+
 function toInputDateTime(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -131,18 +156,20 @@ export default function TransportLiftPlanForm({
       const res = await fetch(`/api/transport-jobs/${transportJobId}/lift-plan/generate`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
-      setForm((prev) => ({
-        ...prev,
-        ...data?.draft,
-        paperwork_locked: prev.paperwork_locked,
-        approved_by: prev.approved_by,
-        approved_at: prev.approved_at,
-        approval_notes: prev.approval_notes,
-        customer_signed_by: prev.customer_signed_by,
-        operator_signed_by: prev.operator_signed_by,
-        office_signed_by: prev.office_signed_by,
-        finalised_at: prev.finalised_at,
-      }));
+      setForm((prev) => {
+        const merged = mergeGeneratedDraft(prev, data?.draft, ['job_summary', 'load_description', 'load_weight', 'lift_radius', 'lift_height', 'lifting_accessories', 'route_notes', 'access_notes']);
+        return {
+          ...merged,
+          paperwork_locked: prev.paperwork_locked,
+          approved_by: prev.approved_by,
+          approved_at: prev.approved_at,
+          approval_notes: prev.approval_notes,
+          customer_signed_by: prev.customer_signed_by,
+          operator_signed_by: prev.operator_signed_by,
+          office_signed_by: prev.office_signed_by,
+          finalised_at: prev.finalised_at,
+        };
+      });
       setMsg(`AI draft generated (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before saving.`);
     } catch (e: any) {
       setMsg(e?.message || "Could not generate draft.");
