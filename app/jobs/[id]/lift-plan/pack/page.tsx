@@ -767,9 +767,7 @@ export default async function CraneLiftPlanPackPage({
 
         <BoxedParagraph title="Configuration / outrigger note">
           {equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
-          {"
-
-"}
+          {"\n\n"}
           {equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}
         </BoxedParagraph>
 
