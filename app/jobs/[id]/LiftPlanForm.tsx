@@ -89,6 +89,7 @@ export default function LiftPlanForm({
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
   const [msg, setMsg] = useState("");
   const locked = !!form.paperwork_locked;
 
@@ -176,6 +177,28 @@ export default function LiftPlanForm({
     }
   }
 
+  async function unlockNow() {
+    setUnlocking(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/unlock`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not unlock paperwork.");
+
+      setForm((prev) => ({
+        ...prev,
+        paperwork_locked: false,
+        finalised_at: "",
+      }));
+
+      setMsg("Paperwork unlocked. Make your changes and finalise it again when ready.");
+    } catch (e: any) {
+      setMsg(e?.message || "Could not unlock paperwork.");
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
   return (
     <div style={wrapStyle}>
       <div style={topRow}>
@@ -185,14 +208,19 @@ export default function LiftPlanForm({
         </div>
         <div style={buttonRow}>
           <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={secondaryBtn}>Printable version</a>
-          <button type="button" onClick={generateDraft} disabled={locked || generating || saving} style={secondaryBtn}>{generating ? "Generating…" : "Generate AI draft"}</button>
-          <button type="button" onClick={save} disabled={locked || generating || saving} style={primaryBtn}>{saving ? "Saving…" : "Save draft"}</button>
-          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving} style={dangerBtn}>Finalise & lock</button>
+          {locked ? (
+            <button type="button" onClick={unlockNow} disabled={unlocking || generating || saving} style={warningBtn}>
+              {unlocking ? "Unlocking…" : "Unlock for edits"}
+            </button>
+          ) : null}
+          <button type="button" onClick={generateDraft} disabled={locked || generating || saving || unlocking} style={secondaryBtn}>{generating ? "Generating…" : "Generate AI draft"}</button>
+          <button type="button" onClick={save} disabled={locked || generating || saving || unlocking} style={primaryBtn}>{saving ? "Saving…" : "Save draft"}</button>
+          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving || unlocking} style={dangerBtn}>Finalise & lock</button>
         </div>
       </div>
 
       {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
-      {locked ? <div style={lockedBox}>Paperwork is locked and cannot be edited.</div> : null}
+      {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
       <Section title="Lift details">
@@ -296,3 +324,4 @@ const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.8)", border
 const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
 const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
+const warningBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#c77d00", color: "#fff", fontWeight: 900, cursor: "pointer" };
