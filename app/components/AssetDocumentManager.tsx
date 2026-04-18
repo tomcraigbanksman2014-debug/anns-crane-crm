@@ -37,15 +37,23 @@ function parsePageNumbers(input: string) {
 
 async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://unpkg.com/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs";
+  }
+
   const data = new Uint8Array(await file.arrayBuffer());
+
   const loadingTask = pdfjsLib.getDocument({
     data,
-    disableWorker: true,
     useSystemFonts: true,
   });
 
   const pdf = await loadingTask.promise;
-  const validPages = pageNumbers.filter((pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages);
+  const validPages = pageNumbers.filter(
+    (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
+  );
 
   if (!validPages.length) {
     throw new Error(`No valid PDF pages selected. This PDF has ${pdf.numPages} page(s).`);
@@ -118,7 +126,9 @@ export default function AssetDocumentManager({
   const [message, setMessage] = useState("");
 
   const helperText = useMemo(() => {
-    if (!includeInPack) return "This PDF will be stored on the asset record but not included in lift plan packs.";
+    if (!includeInPack) {
+      return "This PDF will be stored on the asset record but not included in lift plan packs.";
+    }
     return "Enter the page numbers the CRM should pull from the uploaded PDF, e.g. 1 or 2,5.";
   }, [includeInPack]);
 
@@ -132,7 +142,9 @@ export default function AssetDocumentManager({
       }
 
       const selectedPages = includeInPack ? parsePageNumbers(pageInput || "1") : [];
-      const previewFiles = includeInPack ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1]) : [];
+      const previewFiles = includeInPack
+        ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1])
+        : [];
 
       const formData = new FormData();
       formData.append("file", file);
@@ -188,6 +200,7 @@ export default function AssetDocumentManager({
       const response = await fetch(`${deleteUrlPrefix}/${id}/delete`, {
         method: "POST",
       });
+
       const result = await response.json();
 
       if (!response.ok) {
@@ -222,7 +235,11 @@ export default function AssetDocumentManager({
         </Field>
 
         <Field label="Document type">
-          <select value={documentType} onChange={(e) => setDocumentType(e.target.value)} style={inputStyle}>
+          <select
+            value={documentType}
+            onChange={(e) => setDocumentType(e.target.value)}
+            style={inputStyle}
+          >
             {documentTypeOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -290,7 +307,10 @@ export default function AssetDocumentManager({
                   {doc.document_type} • {fmtDate(doc.uploaded_at)}
                 </div>
                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                  Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order: {doc.appendix_order ?? "—"} • Preview pages: {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} • Generated preview pages: {doc.preview_count}
+                  Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order:{" "}
+                  {doc.appendix_order ?? "—"} • Preview pages:{" "}
+                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} •
+                  {" "}Generated preview pages: {doc.preview_count}
                 </div>
               </div>
 
@@ -300,7 +320,12 @@ export default function AssetDocumentManager({
                     Open PDF
                   </a>
                 ) : null}
-                <button type="button" onClick={() => void handleDelete(doc.id)} style={dangerBtn} disabled={busy}>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(doc.id)}
+                  style={dangerBtn}
+                  disabled={busy}
+                >
                   Delete
                 </button>
               </div>
@@ -312,7 +337,13 @@ export default function AssetDocumentManager({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
