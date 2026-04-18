@@ -524,7 +524,7 @@ const wrapper: CSSProperties = {
 };
 
 const toolbar: CSSProperties = {
-  maxWidth: "210mm",
+  maxWidth: "190mm",
   margin: "0 auto 16px auto",
   display: "flex",
   justifyContent: "space-between",
@@ -544,8 +544,8 @@ const buttonStyle: CSSProperties = {
 };
 
 const pageStyle: CSSProperties = {
-  width: "210mm",
-  minHeight: "297mm",
+  width: "190mm",
+  minHeight: "277mm",
   margin: "0 auto 16px auto",
   background: "#fff",
   boxSizing: "border-box",
@@ -708,7 +708,7 @@ const signatureBox: CSSProperties = {
 const appendixFrame: CSSProperties = {
   border: "1px solid #333",
   padding: 8,
-  minHeight: 700,
+  minHeight: 620,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -719,5 +719,5 @@ const appendixImage: CSSProperties = {
   width: "100%",
   height: "100%",
   objectFit: "contain",
-  maxHeight: 720,
+  maxHeight: 620,
 };
