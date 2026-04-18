@@ -78,6 +78,31 @@ export async function POST(
           full_name,
           phone,
           email
+        ),
+        job_equipment (
+          id,
+          asset_type,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          item_name,
+          crane_id,
+          operator_id,
+          cranes:crane_id (
+            id,
+            name,
+            make,
+            model,
+            capacity,
+            reg_number
+          ),
+          operators:operator_id (
+            id,
+            full_name,
+            phone,
+            email
+          )
         )
       `)
       .eq("id", params.id)
