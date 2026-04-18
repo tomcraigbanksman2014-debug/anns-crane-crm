@@ -483,13 +483,36 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null, {
-    liftType: (job as any)?.lift_type,
-    craneConfiguration: sections.boom_configuration || liftPlan?.crane_configuration,
-    outriggerSetup: liftPlan?.outrigger_setup,
-    loadDescription: liftPlan?.load_description,
-    notes: `${(job as any)?.notes ?? ""} ${(job as any)?.site_name ?? ""}`.trim(),
-  });
+  const appendixAssets = await getCraneAppendixAssetsForPack(
+    primary?.crane?.id ?? crane?.id ?? null,
+    {
+      liftType: (job as any)?.lift_type || sections.lift_classification || null,
+      craneConfiguration: [
+        sections.boom_configuration,
+        liftPlan?.crane_configuration,
+        sections.crane_setup_procedure,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      outriggerSetup: [
+        liftPlan?.outrigger_setup,
+        sections.outrigger_setup,
+        sections.ground_conditions,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      loadDescription: liftPlan?.load_description || null,
+      notes: [
+        (job as any)?.notes,
+        sections.scope_of_works,
+        sections.risk_assessment_summary,
+        sections.overhead_obstructions,
+        sections.weather_conditions,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }
+  );
 
   const clientName = client?.company_name || "the client";
   const projectName =
