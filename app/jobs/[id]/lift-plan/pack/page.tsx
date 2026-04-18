@@ -483,7 +483,13 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
+  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null, {
+    liftType: (job as any)?.lift_type,
+    craneConfiguration: sections.boom_configuration || liftPlan?.crane_configuration,
+    outriggerSetup: liftPlan?.outrigger_setup,
+    loadDescription: liftPlan?.load_description,
+    notes: `${(job as any)?.notes ?? ""} ${(job as any)?.site_name ?? ""}`.trim(),
+  });
 
   const clientName = client?.company_name || "the client";
   const projectName =
