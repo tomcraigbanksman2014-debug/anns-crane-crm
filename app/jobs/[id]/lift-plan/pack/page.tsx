@@ -1,9 +1,12 @@
 import type { CSSProperties, ReactNode } from "react";
+import fs from "fs";
+import path from "path";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import {
   getPrimaryCraneContext,
   matchCraneJobEquipmentProfile,
 } from "../../../../lib/ai/matchEquipmentProfile";
+import { getPackAppendixAssets, type PackAppendixAsset } from "../../../../lib/ai/packAppendixAssets";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -85,8 +88,7 @@ function para(value: string | null | undefined, fallback: string) {
 }
 
 function sentenceCase(value: string | null | undefined, fallback: string) {
-  const text = para(value, fallback).trim();
-  return text;
+  return para(value, fallback).trim();
 }
 
 function tidyWhitespace(value: string | null | undefined) {
@@ -107,6 +109,7 @@ function shortBoomConfiguration(
   if (!source) {
     if (equipmentProfile?.machineType === "truck_crane") return "Main boom";
     if (equipmentProfile?.machineType === "crane") return "Main boom";
+    if (equipmentProfile?.machineType === "spider") return "Main boom";
     return "Planned configuration";
   }
 
@@ -150,6 +153,12 @@ function fallbackCommunication(siteContact: string) {
 
 function coverAddress(job: any) {
   return [job?.site_name, job?.site_address].filter(Boolean).join(", ");
+}
+
+function existingAppendixAssets(profileId: string | null | undefined) {
+  return getPackAppendixAssets(profileId).filter((asset) =>
+    fs.existsSync(path.join(process.cwd(), "public", asset.publicPath.replace(/^\//, "")))
+  );
 }
 
 function PageShell({
@@ -322,6 +331,42 @@ function BlankTable({
   );
 }
 
+function SignatureRow({
+  title,
+  name,
+}: {
+  title: string;
+  name?: string | null;
+}) {
+  return (
+    <div style={signatureBox}>
+      <div style={{ fontWeight: 800 }}>{title}</div>
+      <div style={{ marginTop: 18, borderBottom: "1px solid #333", minHeight: 26 }} />
+      <div style={{ marginTop: 6, fontSize: 12 }}>
+        Name: {name || "________________"} &nbsp;&nbsp; Date: ________________
+      </div>
+    </div>
+  );
+}
+
+function AppendixPage({
+  asset,
+  index,
+}: {
+  asset: PackAppendixAsset;
+  index: number;
+}) {
+  return (
+    <PageShell sectionTitle={`Appendix ${index}`}>
+      <SectionTitle>{asset.title}</SectionTitle>
+      {asset.description ? <div style={{ marginBottom: 12, opacity: 0.82 }}>{asset.description}</div> : null}
+      <div style={appendixFrame}>
+        <img src={asset.publicPath} alt={asset.title} style={appendixImage} />
+      </div>
+    </PageShell>
+  );
+}
+
 export default async function CraneLiftPlanPackPage({
   params,
 }: {
@@ -414,6 +459,8 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
+  const appendixAssets = existingAppendixAssets(equipmentProfile?.id);
+
   const clientName = client?.company_name || "the client";
   const projectName =
     sections.cover_project ||
@@ -441,6 +488,10 @@ export default async function CraneLiftPlanPackPage({
   const emergencyContacts = splitLines(sections.emergency_contacts || "").join("\n");
   const equipmentList = splitLines(sections.equipment_list || "").join("\n");
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
+
+  const outreachRef =
+    equipmentProfile?.maxHydraulicOutreachM ? `${equipmentProfile.maxHydraulicOutreachM} m` : "—";
+  const jibRef = equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—";
 
   return (
     <div style={wrapper}>
@@ -530,6 +581,9 @@ export default async function CraneLiftPlanPackPage({
               {item}
             </div>
           ))}
+          {appendixAssets.length ? (
+            <div style={tocItem}>Appendix – Selected machine specification and chart pages</div>
+          ) : null}
         </div>
       </PageShell>
 
@@ -560,7 +614,8 @@ export default async function CraneLiftPlanPackPage({
           Project: {projectName}{"\n"}
           Crane: {craneName}{"\n"}
           Lift Type: {(job as any)?.lift_type || "—"}{"\n"}
-          Site Contact: {(job as any)?.contact_name || "—"}
+          Site Contact: {(job as any)?.contact_name || "—"}{"\n"}
+          Job Notes: {(job as any)?.notes || "—"}
         </BoxedParagraph>
       </PageShell>
 
@@ -617,7 +672,7 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>8. Weather Conditions</SectionTitle>
         <BoxedParagraph>
           {sentenceCase(
-            sections.weather_conditions || liftPlan?.weather_limitations,
+            sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote,
             `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
           )}
         </BoxedParagraph>
@@ -679,16 +734,8 @@ export default async function CraneLiftPlanPackPage({
               liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—",
             ],
             ["Boom configuration", boomConfig],
-            [
-              "Boom / outreach reference",
-              equipmentProfile?.maxHydraulicOutreachM
-                ? `${equipmentProfile.maxHydraulicOutreachM} m`
-                : "—",
-            ],
-            [
-              "Jib / max outreach",
-              equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—",
-            ],
+            ["Boom / outreach reference", outreachRef],
+            ["Jib / max outreach", jibRef],
             ["Max capacity", craneCapacity],
             ["Crane utilisation %", utilisation],
           ]}
@@ -700,6 +747,12 @@ export default async function CraneLiftPlanPackPage({
             equipmentProfile?.summary ||
               "Selected crane profile to be checked against the current manufacturer specification and load chart."
           )}
+        </BoxedParagraph>
+
+        <BoxedParagraph title="Configuration / outrigger note">
+          {equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
+          {"\n\n"}
+          {equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}
         </BoxedParagraph>
 
         <BoxedParagraph title="Load chart note">
@@ -739,13 +792,13 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
         <BoxedParagraph>
           {sentenceCase(
-            sections.crane_setup_procedure || liftPlan?.crane_configuration,
+            sections.crane_setup_procedure || liftPlan?.crane_configuration || equipmentProfile?.configurationNote,
             `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
           )}
         </BoxedParagraph>
         <BoxedParagraph compact>
           {sentenceCase(
-            liftPlan?.outrigger_setup,
+            liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
             `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
           )}
         </BoxedParagraph>
@@ -768,7 +821,7 @@ export default async function CraneLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="20–22. Emergency, Risk & Sign Off" breakAfter={false}>
+      <PageShell sectionTitle="20–22. Emergency, Risk & Sign Off" breakAfter={!appendixAssets.length}>
         <SectionTitle>20. Emergency Procedure</SectionTitle>
         <BoxedParagraph>
           {sentenceCase(
@@ -823,7 +876,7 @@ export default async function CraneLiftPlanPackPage({
 
         <div style={avoidBreak}>
           <div style={subHeading}>Attendance Record</div>
-          <BlankTable headers={["Name", "Employer", "Signature"]} rows={5} />
+          <BlankTable headers={["Name", "Employer", "Signature"]} rows={6} />
         </div>
 
         <div style={avoidBreak}>
@@ -835,6 +888,13 @@ export default async function CraneLiftPlanPackPage({
               ["Crane Operator", liftPlan?.crane_operator || operator?.full_name],
             ]}
           />
+        </div>
+
+        <div style={signatureGrid}>
+          <SignatureRow title="Appointed Person signature" name={appointedPerson} />
+          <SignatureRow title="Lift Supervisor signature" name={liftSupervisor} />
+          <SignatureRow title="Crane Operator signature" name={liftPlan?.crane_operator || operator?.full_name} />
+          <SignatureRow title="Client completion sign-off" name={(job as any)?.contact_name} />
         </div>
 
         {toolboxNotes ? (
@@ -851,9 +911,21 @@ export default async function CraneLiftPlanPackPage({
 
         <div style={avoidBreak}>
           <div style={subHeading}>Wind speed record sheet</div>
-          <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)"]} rows={10} />
+          <InfoTable
+            rows={[
+              ["Project", projectName],
+              ["Lift Supervisor", liftSupervisor],
+              ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            ]}
+          />
+          <div style={{ height: 8 }} />
+          <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)", "Notes"]} rows={12} />
         </div>
       </PageShell>
+
+      {appendixAssets.map((asset, index) => (
+        <AppendixPage key={asset.publicPath} asset={asset} index={index + 1} />
+      ))}
     </div>
   );
 }
@@ -1062,4 +1134,33 @@ const tickCell: CSSProperties = {
 const avoidBreak: CSSProperties = {
   breakInside: "avoid",
   pageBreakInside: "avoid",
+};
+
+const signatureGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+  marginTop: 14,
+};
+
+const signatureBox: CSSProperties = {
+  border: "1px solid #333",
+  padding: 12,
+  breakInside: "avoid",
+};
+
+const appendixFrame: CSSProperties = {
+  border: "1px solid #333",
+  padding: 10,
+  minHeight: 620,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const appendixImage: CSSProperties = {
+  width: "100%",
+  height: "auto",
+  objectFit: "contain",
+  maxHeight: 640,
 };
