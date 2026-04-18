@@ -1,6 +1,8 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
 import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { getCraneDocumentsForManager } from "../../../lib/assetDocuments";
 import { redirect } from "next/navigation";
 import CraneDocumentsManager from "../CraneDocumentsManager";
 
@@ -103,13 +105,9 @@ export default async function EditCranePage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: crane, error }, { data: docs }] = await Promise.all([
+  const [{ data: crane, error }, docs] = await Promise.all([
     supabase.from("cranes").select("*").eq("id", params.id).single(),
-    supabase
-      .from("crane_documents")
-      .select("*")
-      .eq("crane_id", params.id)
-      .order("uploaded_at", { ascending: false }),
+    getCraneDocumentsForManager(params.id),
   ]);
 
   const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
@@ -121,7 +119,7 @@ export default async function EditCranePage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Edit Crane</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Update fleet, service, inspection and LOLER information.
+              Update fleet, service, inspection and appendix PDF information.
             </p>
           </div>
 
@@ -177,12 +175,7 @@ export default async function EditCranePage({
                   <Field label="LOLER due" name="loler_due_on" type="date" defaultValue={crane.loler_due_on ?? ""} />
                 </div>
 
-                <TextAreaField
-                  label="Notes"
-                  name="notes"
-                  rows={5}
-                  defaultValue={crane.notes ?? ""}
-                />
+                <TextAreaField label="Notes" name="notes" rows={5} defaultValue={crane.notes ?? ""} />
 
                 <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                   <ServerSubmitButton style={primaryBtn} pendingText="Updating crane…">
@@ -203,7 +196,7 @@ export default async function EditCranePage({
             </div>
 
             <div style={{ marginTop: 18 }}>
-              <CraneDocumentsManager craneId={crane.id} initialDocuments={docs ?? []} />
+              <CraneDocumentsManager craneId={crane.id} initialDocuments={docs} />
             </div>
           </>
         ) : null}
@@ -231,30 +224,6 @@ function Field({
   );
 }
 
-function TextAreaField({
-  label,
-  name,
-  defaultValue,
-  rows,
-}: {
-  label: string;
-  name: string;
-  defaultValue?: string;
-  rows: number;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <label style={labelStyle}>{label}</label>
-      <textarea
-        name={name}
-        defaultValue={defaultValue}
-        rows={rows}
-        style={textareaStyle}
-      />
-    </div>
-  );
-}
-
 function SelectField({
   label,
   name,
@@ -270,9 +239,9 @@ function SelectField({
     <div style={{ display: "grid", gap: 6 }}>
       <label style={labelStyle}>{label}</label>
       <select name={name} defaultValue={defaultValue} style={inputStyle}>
-        {options.map((option) => (
-          <option key={`${name}-${option.value}`} value={option.value}>
-            {option.label}
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
           </option>
         ))}
       </select>
@@ -280,7 +249,26 @@ function SelectField({
   );
 }
 
-const pageHeader: React.CSSProperties = {
+function TextAreaField({
+  label,
+  name,
+  defaultValue,
+  rows,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string;
+  rows?: number;
+}) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <label style={labelStyle}>{label}</label>
+      <textarea name={name} defaultValue={defaultValue} rows={rows ?? 4} style={textareaStyle} />
+    </div>
+  );
+}
+
+const pageHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -289,27 +277,27 @@ const pageHeader: React.CSSProperties = {
   marginBottom: 18,
 };
 
-const pageCard: React.CSSProperties = {
+const pageCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
-  padding: 20,
-  borderRadius: 16,
+  padding: 18,
+  borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const grid3: React.CSSProperties = {
+const grid3: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   gap: 12,
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  opacity: 0.75,
+  opacity: 0.78,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   height: 42,
   padding: "0 12px",
@@ -319,51 +307,49 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   width: "100%",
-  padding: "10px 12px",
+  padding: 12,
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
   resize: "vertical",
+  boxSizing: "border-box",
 };
 
-const primaryBtn: React.CSSProperties = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
+  textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  padding: "8px 10px",
   borderRadius: 10,
+  textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
   color: "#111",
   fontWeight: 800,
   border: "1px solid rgba(0,0,0,0.10)",
-  textDecoration: "none",
 };
 
-const dangerBtn: React.CSSProperties = {
+const dangerBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  color: "#8b0000",
+  background: "#8b1e1e",
+  color: "#fff",
   fontWeight: 900,
-  border: "1px solid rgba(255,0,0,0.20)",
-  cursor: "pointer",
+  border: "none",
 };
 
-const errorBox: React.CSSProperties = {
-  marginTop: 14,
+const errorBox: CSSProperties = {
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
