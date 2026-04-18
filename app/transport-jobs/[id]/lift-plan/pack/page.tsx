@@ -299,7 +299,14 @@ export default async function TransportLiftPlanPackPage({
   const sections: StringMap = ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const appendixAssets = await getVehicleAppendixAssetsForPack(vehicle?.id ?? null);
+  const appendixAssets = await getVehicleAppendixAssetsForPack(vehicle?.id ?? null, {
+    jobType: (job as any)?.job_type,
+    vehicleConfiguration: sections.vehicle_configuration || liftPlan?.vehicle_configuration,
+    hiabConfiguration: sections.hiab_configuration || liftPlan?.hiab_configuration,
+    outriggerSetup: liftPlan?.outrigger_setup,
+    loadDescription: liftPlan?.load_description || (job as any)?.load_description,
+    notes: `${(job as any)?.notes ?? ""} ${(job as any)?.delivery_address ?? ""}`.trim(),
+  });
 
   const projectName = sections.cover_project || (job as any)?.load_description || `Transport ${(job as any)?.transport_number ?? ""}`.trim();
   const clientName = client?.company_name || "the client";
