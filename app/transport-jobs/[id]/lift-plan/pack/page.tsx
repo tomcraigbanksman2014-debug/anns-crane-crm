@@ -1,6 +1,4 @@
 import type { CSSProperties, ReactNode } from "react";
-import fs from "fs";
-import path from "path";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
 import { getPackAppendixAssets, type PackAppendixAsset } from "../../../../lib/ai/packAppendixAssets";
@@ -47,9 +45,7 @@ function splitLines(value: string | null | undefined) {
 }
 
 function existingAppendixAssets(profileId: string | null | undefined) {
-  return getPackAppendixAssets(profileId).filter((asset) =>
-    fs.existsSync(path.join(process.cwd(), "public", asset.publicPath.replace(/^\//, "")))
-  );
+  return getPackAppendixAssets(profileId);
 }
 
 function yesNo(value: boolean | null | undefined) {
@@ -555,8 +551,6 @@ const pageStyle: CSSProperties = {
   boxSizing: "border-box",
   padding: 16,
   boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
-  display: "flex",
-  flexDirection: "column",
 };
 
 const pageHeader: CSSProperties = {
@@ -569,13 +563,12 @@ const pageHeader: CSSProperties = {
 };
 
 const pageBody: CSSProperties = {
-  flex: 1,
   paddingTop: 12,
 };
 
 const pageFooter: CSSProperties = {
   paddingTop: 10,
-  marginTop: 10,
+  marginTop: 16,
   borderTop: "1px solid #bcbcbc",
   fontSize: 11,
   textAlign: "center",
