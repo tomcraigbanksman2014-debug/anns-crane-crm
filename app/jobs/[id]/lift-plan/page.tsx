@@ -13,66 +13,96 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function craneLabel(crane: any, allocation: any) {
-  const parts = [crane?.name, crane?.make, crane?.model, crane?.capacity].filter(Boolean);
-  const base = parts.join(" ").trim();
-  if (!base) return "—";
-
-  const dates = [allocation?.start_date, allocation?.end_date].filter(Boolean).join(" to ");
-  const startTime = allocation?.start_time ? `Start ${allocation.start_time}` : "";
-  const meta = [dates, startTime].filter(Boolean).join(" • ");
-  return meta ? `${base} (${meta})` : base;
-}
-
 export default async function JobLiftPlanPage({ params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }] = await Promise.all([
-    supabase.from("jobs").select(`
-      id,
-      job_number,
-      site_name,
-      site_address,
-      contact_name,
-      contact_phone,
-      start_date,
-      end_date,
-      job_date,
-      start_time,
-      end_time,
-      hire_type,
-      lift_type,
-      notes,
-      clients:client_id (company_name, contact_name, phone, email),
-      cranes:crane_id (name, make, model, capacity),
-      operators:operator_id (full_name),
-      main_operator:main_operator_id (full_name),
-      job_equipment (
-        id,
-        asset_type,
-        start_date,
-        end_date,
-        start_time,
-        end_time,
-        item_name,
-        crane_id,
-        operator_id,
-        cranes:crane_id (id, name, make, model, capacity, reg_number),
-        operators:operator_id (id, full_name)
-      )
-    `).eq("id", params.id).maybeSingle(),
-    supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
-  ]);
+  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }] =
+    await Promise.all([
+      supabase
+        .from("jobs")
+        .select(`
+          id,
+          job_number,
+          site_name,
+          site_address,
+          contact_name,
+          contact_phone,
+          start_date,
+          end_date,
+          job_date,
+          start_time,
+          end_time,
+          hire_type,
+          lift_type,
+          notes,
+          clients:client_id (
+            company_name,
+            contact_name,
+            phone,
+            email
+          ),
+          cranes:crane_id (
+            id,
+            name,
+            make,
+            model,
+            capacity,
+            reg_number
+          ),
+          operators:operator_id (
+            id,
+            full_name
+          ),
+          main_operator:main_operator_id (
+            id,
+            full_name
+          ),
+          job_equipment (
+            id,
+            asset_type,
+            source_type,
+            item_name,
+            start_date,
+            end_date,
+            start_time,
+            end_time,
+            crane_id,
+            operator_id,
+            cranes:crane_id (
+              id,
+              name,
+              make,
+              model,
+              capacity,
+              reg_number
+            ),
+            operators:operator_id (
+              id,
+              full_name
+            )
+          )
+        `)
+        .eq("id", params.id)
+        .maybeSingle(),
+      supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
+    ]);
 
-  const client = one((job as any)?.clients) as any;
+  const client = one((job as any)?.clients) as
+    | { company_name?: string | null; contact_name?: string | null; phone?: string | null; email?: string | null }
+    | null;
+
   const primary = getPrimaryCraneContext(job as any);
-  const crane = primary.crane as any;
-  const allocation = primary.allocation as any;
-  const operator = primary.operator as any;
-  const pageOperator = one((job as any)?.operators) as any;
-  const mainOperator = one((job as any)?.main_operator) as any;
-  const equipmentProfile = matchCraneJobEquipmentProfile({ ...(job as any), cranes: crane ? [crane] : [] });
+  const crane = primary?.crane ?? (one((job as any)?.cranes) as
+    | { name?: string | null; make?: string | null; model?: string | null; capacity?: string | null }
+    | null);
+  const operator = primary?.operator ??
+    (one((job as any)?.main_operator) as { full_name?: string | null } | null) ??
+    (one((job as any)?.operators) as { full_name?: string | null } | null);
+
+  const equipmentProfile = matchCraneJobEquipmentProfile(job as any);
   const errorMessage = jobError?.message || liftPlanError?.message || "";
+
+  const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
 
   return (
     <ClientShell>
@@ -80,11 +110,20 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
         <div style={topRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Crane Lift Plan</h1>
-            <div style={{ marginTop: 6, opacity: 0.8 }}>Create and review lift plan / RAMS paperwork for crane jobs.</div>
+            <div style={{ marginTop: 6, opacity: 0.8 }}>
+              Create and review lift plan / RAMS paperwork for crane jobs.
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href={`/jobs/${params.id}`} style={secondaryBtn}>← Back to job</a>
-            <a href={`/jobs/${params.id}/lift-plan/print`} target="_blank" style={secondaryBtn}>Printable version</a>
+            <a href={`/jobs/${params.id}`} style={secondaryBtn}>
+              ← Back to job
+            </a>
+            <a href={`/jobs/${params.id}/lift-plan/print`} target="_blank" style={secondaryBtn}>
+              Printable version
+            </a>
+            <a href={`/jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>
+              Full lift plan pack
+            </a>
           </div>
         </div>
 
@@ -98,30 +137,112 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
               line("Client", client?.company_name),
               line("Site", (job as any)?.site_name),
               line("Address", (job as any)?.site_address),
-              line("Dates", `${(job as any)?.start_date ?? (job as any)?.job_date ?? "—"} to ${(job as any)?.end_date ?? (job as any)?.job_date ?? "—"}`),
+              line(
+                "Dates",
+                `${(job as any)?.start_date ?? (job as any)?.job_date ?? "—"} to ${
+                  (job as any)?.end_date ?? (job as any)?.job_date ?? "—"
+                }`
+              ),
               line("Times", `${(job as any)?.start_time ?? "—"} to ${(job as any)?.end_time ?? "—"}`),
               line("Hire type", (job as any)?.hire_type),
               line("Lift type", (job as any)?.lift_type),
-              line("Crane", craneLabel(crane, allocation)),
-              line("Main operator", operator?.full_name || mainOperator?.full_name || pageOperator?.full_name),
-            ].map((item) => <div key={item.label} style={summaryItem}><div style={summaryLabel}>{item.label}</div><div style={summaryValue}>{item.value}</div></div>)}
+              line("Crane", craneLabel),
+              line("Main operator", operator?.full_name),
+            ].map((item) => (
+              <div key={item.label} style={summaryItem}>
+                <div style={summaryLabel}>{item.label}</div>
+                <div style={summaryValue}>{item.value}</div>
+              </div>
+            ))}
           </div>
-          {(job as any)?.notes ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Job notes</div><div style={notesBox}>{(job as any).notes}</div></div> : null}
+
+          {(job as any)?.notes ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={summaryLabel}>Job notes</div>
+              <div style={notesBox}>{(job as any).notes}</div>
+            </div>
+          ) : null}
         </div>
 
-        <LiftPlanForm jobId={params.id} initial={(liftPlan as any) ?? null} equipmentProfile={equipmentProfile} />
+        <LiftPlanForm
+          jobId={params.id}
+          initial={(liftPlan as any) ?? null}
+          equipmentProfile={equipmentProfile ?? null}
+        />
       </div>
     </ClientShell>
   );
 }
 
-const topRow: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" };
-const summaryCard: CSSProperties = { background: "rgba(255,255,255,0.18)", padding: 18, borderRadius: 14, border: "1px solid rgba(255,255,255,0.4)", boxShadow: "0 8px 30px rgba(0,0,0,0.08)" };
-const summaryTitle: CSSProperties = { fontSize: 20, fontWeight: 900, marginBottom: 12 };
-const summaryGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };
-const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12 };
-const summaryLabel: CSSProperties = { fontSize: 12, fontWeight: 800, opacity: 0.7 };
-const summaryValue: CSSProperties = { marginTop: 6, fontWeight: 800 };
-const notesBox: CSSProperties = { marginTop: 6, background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12, whiteSpace: "pre-wrap" };
-const errorBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.12)", border: "1px solid rgba(180,0,0,0.16)" };
-const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.82)", color: "#111", fontWeight: 800, textDecoration: "none", border: "1px solid rgba(0,0,0,0.10)" };
+const topRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const summaryCard: CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const summaryTitle: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 900,
+  marginBottom: 12,
+};
+
+const summaryGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const summaryItem: CSSProperties = {
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+};
+
+const summaryLabel: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.7,
+};
+
+const summaryValue: CSSProperties = {
+  marginTop: 6,
+  fontWeight: 800,
+};
+
+const notesBox: CSSProperties = {
+  marginTop: 6,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+  whiteSpace: "pre-wrap",
+};
+
+const errorBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(180,0,0,0.12)",
+  border: "1px solid rgba(180,0,0,0.16)",
+};
+
+const secondaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  fontWeight: 800,
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
