@@ -1,3 +1,10 @@
+import {
+  detectAssetAppendixPreset,
+  selectCraneBundleTitlesForContext,
+  selectVehicleBundleTitlesForContext,
+  type CraneAppendixSelectionContext,
+  type VehicleAppendixSelectionContext,
+} from "./assetAppendixPresets";
 import { createSupabaseAdminClient } from "./supabase/admin";
 
 export type AssetDocumentManagerItem = {
@@ -73,6 +80,21 @@ async function signPaths(bucket: string, paths: string[]) {
     }
   });
   return map;
+}
+
+function normaliseTitle(value: string | null | undefined) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function filterDocsByTitles<T extends { title?: string | null }>(docs: T[], titles: string[] | null) {
+  if (!titles || !titles.length) return docs;
+  const wanted = new Set(titles.map((title) => normaliseTitle(title)));
+  const matched = docs.filter((doc) => wanted.has(normaliseTitle(doc.title)));
+  return matched.length ? matched : docs;
 }
 
 export async function getCraneDocumentsForManager(craneId: string) {
@@ -183,28 +205,40 @@ export async function getVehicleDocumentsForManager(vehicleId: string) {
   })) satisfies AssetDocumentManagerItem[];
 }
 
-export async function getCraneAppendixAssetsForPack(craneId: string | null | undefined) {
+export async function getCraneAppendixAssetsForPack(
+  craneId: string | null | undefined,
+  context?: CraneAppendixSelectionContext | null
+) {
   if (!craneId) return [];
 
   const admin = createSupabaseAdminClient();
 
-  const { data: docs, error } = await admin
-    .from("crane_documents")
-    .select("id, title, document_type, appendix_order")
-    .eq("crane_id", craneId)
-    .eq("include_in_pack", true)
-    .order("appendix_order", { ascending: true })
-    .order("uploaded_at", { ascending: true });
+  const [{ data: crane }, { data: docs, error }] = await Promise.all([
+    admin.from("cranes").select("name, make, model, capacity").eq("id", craneId).maybeSingle(),
+    admin
+      .from("crane_documents")
+      .select("id, title, document_type, appendix_order")
+      .eq("crane_id", craneId)
+      .eq("include_in_pack", true)
+      .order("appendix_order", { ascending: true })
+      .order("uploaded_at", { ascending: true }),
+  ]);
 
   if (error || !docs || !docs.length) {
     return [];
   }
 
-  const docMap = new Map<string, any>(docs.map((doc: any) => [String(doc.id), doc]));
+  const preset = detectAssetAppendixPreset("crane", crane ?? null);
+  const chosenDocs = filterDocsByTitles(
+    docs,
+    preset ? selectCraneBundleTitlesForContext(crane ?? null, context ?? null) : null
+  );
+
+  const docMap = new Map<string, any>(chosenDocs.map((doc: any) => [String(doc.id), doc]));
   const { data: previews } = await admin
     .from("asset_document_previews")
     .select("id, crane_document_id, page_number, title, preview_storage_path")
-    .in("crane_document_id", docs.map((doc: any) => doc.id))
+    .in("crane_document_id", chosenDocs.map((doc: any) => doc.id))
     .order("page_number", { ascending: true });
 
   if (!previews || !previews.length) {
@@ -241,28 +275,43 @@ export async function getCraneAppendixAssetsForPack(craneId: string | null | und
     .sort((a: any, b: any) => a.appendix_order - b.appendix_order || a.page_number - b.page_number);
 }
 
-export async function getVehicleAppendixAssetsForPack(vehicleId: string | null | undefined) {
+export async function getVehicleAppendixAssetsForPack(
+  vehicleId: string | null | undefined,
+  context?: VehicleAppendixSelectionContext | null
+) {
   if (!vehicleId) return [];
 
   const admin = createSupabaseAdminClient();
 
-  const { data: docs, error } = await admin
-    .from("vehicle_documents")
-    .select("id, title, document_type, appendix_order")
-    .eq("vehicle_id", vehicleId)
-    .eq("include_in_pack", true)
-    .order("appendix_order", { ascending: true })
-    .order("uploaded_at", { ascending: true });
+  const [{ data: vehicle }, { data: docs, error }] = await Promise.all([
+    admin.from("vehicles").select("name, vehicle_type, trailer_type, capacity").eq("id", vehicleId).maybeSingle(),
+    admin
+      .from("vehicle_documents")
+      .select("id, title, document_type, appendix_order")
+      .eq("vehicle_id", vehicleId)
+      .eq("include_in_pack", true)
+      .order("appendix_order", { ascending: true })
+      .order("uploaded_at", { ascending: true }),
+  ]);
 
   if (error || !docs || !docs.length) {
     return [];
   }
 
-  const docMap = new Map<string, any>(docs.map((doc: any) => [String(doc.id), doc]));
+  const profile = vehicle
+    ? { name: vehicle.name, make: vehicle.vehicle_type, model: vehicle.trailer_type, vehicleType: vehicle.vehicle_type, capacity: vehicle.capacity }
+    : null;
+  const preset = detectAssetAppendixPreset("vehicle", profile);
+  const chosenDocs = filterDocsByTitles(
+    docs,
+    preset ? selectVehicleBundleTitlesForContext(profile, context ?? null) : null
+  );
+
+  const docMap = new Map<string, any>(chosenDocs.map((doc: any) => [String(doc.id), doc]));
   const { data: previews } = await admin
     .from("asset_document_previews")
     .select("id, vehicle_document_id, page_number, title, preview_storage_path")
-    .in("vehicle_document_id", docs.map((doc: any) => doc.id))
+    .in("vehicle_document_id", chosenDocs.map((doc: any) => doc.id))
     .order("page_number", { ascending: true });
 
   if (!previews || !previews.length) {
