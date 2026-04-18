@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 import {
   detectAssetAppendixPreset,
   listAssetAppendixPresetBundles,
@@ -26,6 +27,30 @@ type Option = { value: string; label: string };
 
 type RenderedPreview = { pageNumber: number; file: File };
 
+type PreparedUploadTarget = {
+  bucket: string;
+  path: string;
+  token: string;
+  file_name: string;
+  content_type: string;
+  page_number?: number;
+};
+
+type PreparedUploadPayload = {
+  document_id: string;
+  title: string;
+  document_type: string;
+  include_in_pack: boolean;
+  appendix_order: number;
+  original_file_name: string;
+  original_file_type: string;
+  original_file_size: number;
+  preview_page_numbers: number[];
+  storage_path: string;
+  file_upload: PreparedUploadTarget;
+  preview_uploads: PreparedUploadTarget[];
+};
+
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -48,7 +73,7 @@ async function readJsonResponse(response: Response) {
   try {
     return text ? JSON.parse(text) : {};
   } catch {
-    throw new Error(text || `Upload failed (${response.status}).`);
+    throw new Error(text || `Request failed (${response.status}).`);
   }
 }
 
@@ -116,7 +141,21 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   return rendered;
 }
 
-async function uploadDocumentRequest({
+async function uploadToSignedTarget(
+  target: PreparedUploadTarget,
+  file: File
+) {
+  const supabase = createSupabaseBrowserClient();
+  const { error } = await supabase.storage
+    .from(target.bucket)
+    .uploadToSignedUrl(target.path, target.token, file);
+
+  if (error) {
+    throw new Error(error.message || `Could not upload ${file.name}.`);
+  }
+}
+
+async function createDocumentWithDirectUploads({
   uploadUrl,
   file,
   title,
@@ -133,33 +172,91 @@ async function uploadDocumentRequest({
   appendixOrder: number;
   previewFiles: RenderedPreview[];
 }) {
-  const formData = new FormData();
-  formData.append("file", file);
-  formData.append("title", title.trim() || file.name.replace(/\.pdf$/i, ""));
-  formData.append("document_type", documentType);
-  formData.append("include_in_pack", includeInPack ? "true" : "false");
-  formData.append("appendix_order", String(appendixOrder || 10));
-  formData.append(
-    "preview_page_numbers",
-    previewFiles.map((item) => item.pageNumber).join(",")
-  );
-
-  for (const preview of previewFiles) {
-    formData.append("preview_files", preview.file, preview.file.name);
-  }
-
-  const response = await fetch(uploadUrl, {
+  const initResponse = await fetch(uploadUrl, {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title,
+      document_type: documentType,
+      include_in_pack: includeInPack,
+      appendix_order: appendixOrder,
+      original_file_name: file.name,
+      original_file_type: file.type || "application/pdf",
+      original_file_size: file.size,
+      preview_page_numbers: previewFiles.map((item) => item.pageNumber),
+      preview_uploads: previewFiles.map((item) => ({
+        page_number: item.pageNumber,
+        file_name: item.file.name,
+        content_type: item.file.type || "image/jpeg",
+      })),
+    }),
   });
 
-  const result = await readJsonResponse(response);
+  const initResult = await readJsonResponse(initResponse);
 
-  if (!response.ok) {
-    throw new Error(result?.error || `Upload failed (${response.status}).`);
+  if (!initResponse.ok) {
+    throw new Error(initResult?.error || `Upload preparation failed (${initResponse.status}).`);
   }
 
-  return result;
+  const upload = initResult?.upload as PreparedUploadPayload | undefined;
+
+  if (!upload?.document_id || !upload?.file_upload?.token) {
+    throw new Error("Upload preparation response was incomplete.");
+  }
+
+  await uploadToSignedTarget(upload.file_upload, file);
+
+  const previewTargets = new Map<number, PreparedUploadTarget>();
+  for (const target of upload.preview_uploads ?? []) {
+    if (typeof target.page_number === "number") {
+      previewTargets.set(target.page_number, target);
+    }
+  }
+
+  for (const preview of previewFiles) {
+    const target = previewTargets.get(preview.pageNumber);
+    if (!target) {
+      throw new Error(`Missing upload target for preview page ${preview.pageNumber}.`);
+    }
+    await uploadToSignedTarget(target, preview.file);
+  }
+
+  const finalizeResponse = await fetch(`${uploadUrl}/finalize`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      document_id: upload.document_id,
+      title: upload.title,
+      document_type: upload.document_type,
+      include_in_pack: upload.include_in_pack,
+      appendix_order: upload.appendix_order,
+      original_file_name: upload.original_file_name,
+      original_file_type: upload.original_file_type,
+      original_file_size: upload.original_file_size,
+      storage_path: upload.storage_path,
+      preview_page_numbers: upload.preview_page_numbers,
+      preview_uploads: upload.preview_uploads.map((target) => ({
+        page_number: target.page_number,
+        preview_storage_path: target.path,
+        preview_file_name: target.file_name,
+        content_type: target.content_type,
+      })),
+    }),
+  });
+
+  const finalizeResult = await readJsonResponse(finalizeResponse);
+
+  if (!finalizeResponse.ok) {
+    throw new Error(
+      finalizeResult?.error || `Upload finalisation failed (${finalizeResponse.status}).`
+    );
+  }
+
+  return finalizeResult;
 }
 
 export default function AssetDocumentManager({
@@ -192,6 +289,7 @@ export default function AssetDocumentManager({
     () => detectAssetAppendixPreset(assetType, assetProfile ?? null),
     [assetType, assetProfile]
   );
+
   const presetBundles = useMemo(
     () => listAssetAppendixPresetBundles(assetType, assetProfile ?? null),
     [assetType, assetProfile]
@@ -218,7 +316,7 @@ export default function AssetDocumentManager({
         ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1])
         : [];
 
-      const result = await uploadDocumentRequest({
+      const result = await createDocumentWithDirectUploads({
         uploadUrl,
         file,
         title: title.trim() || file.name.replace(/\.pdf$/i, ""),
@@ -263,10 +361,13 @@ export default function AssetDocumentManager({
 
       for (let index = 0; index < presetBundles.length; index += 1) {
         const bundle = presetBundles[index];
-        setMessage(`Building ${preset.label} bundle ${index + 1} of ${presetBundles.length}: ${bundle.title}`);
+        setMessage(
+          `Building ${preset.label} bundle ${index + 1} of ${presetBundles.length}: ${bundle.title}`
+        );
 
         const previewFiles = await renderPreviewFiles(file, bundle.pages);
-        const result = await uploadDocumentRequest({
+
+        const result = await createDocumentWithDirectUploads({
           uploadUrl,
           file,
           title: bundle.title,
@@ -329,13 +430,16 @@ export default function AssetDocumentManager({
       {preset ? (
         <>
           <div style={helperBox}>
-            <strong>Detected machine preset:</strong> {preset.label}. Upload the full manual once and the CRM will create the default appendix bundles automatically.
+            <strong>Detected machine preset:</strong> {preset.label}. Upload the full manual once
+            and the CRM will create the default appendix bundles automatically.
           </div>
           <div style={autoBox}>
             <div style={{ display: "grid", gap: 8 }}>
               <div style={{ fontWeight: 900 }}>Automatic appendix bundles</div>
               <div style={{ fontSize: 13, opacity: 0.78 }}>
-                {presetBundles.map((bundle) => `${bundle.title} (pages ${bundle.pages.join(",")})`).join(" • ")}
+                {presetBundles
+                  .map((bundle) => `${bundle.title} (pages ${bundle.pages.join(",")})`)
+                  .join(" • ")}
               </div>
             </div>
             <div>
@@ -442,8 +546,8 @@ export default function AssetDocumentManager({
                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                   Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order:{" "}
                   {doc.appendix_order ?? "—"} • Preview pages:{" "}
-                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} • Generated preview pages:{" "}
-                  {doc.preview_count}
+                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} •
+                  {" "}Generated preview pages: {doc.preview_count}
                 </div>
               </div>
 
@@ -499,6 +603,16 @@ const sectionTitle: CSSProperties = {
   fontSize: 22,
 };
 
+const autoBox: CSSProperties = {
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.38)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  display: "grid",
+  gap: 12,
+};
+
 const uploadGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -528,16 +642,6 @@ const helperBox: CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   lineHeight: 1.5,
-};
-
-const autoBox: CSSProperties = {
-  marginBottom: 12,
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(0,0,0,0.04)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  display: "grid",
-  gap: 12,
 };
 
 const messageBox: CSSProperties = {
