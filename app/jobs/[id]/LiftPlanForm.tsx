@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
+import type { EquipmentProfile } from "../../../lib/ai/equipmentProfiles";
 
 type LiftPlanData = {
   load_description?: string | null;
@@ -47,9 +48,11 @@ function toInputDateTime(value: string | null | undefined) {
 export default function LiftPlanForm({
   jobId,
   initial,
+  equipmentProfile,
 }: {
   jobId: string;
   initial: LiftPlanData | null;
+  equipmentProfile?: EquipmentProfile | null;
 }) {
   const [form, setForm] = useState<LiftPlanData>({
     load_description: initial?.load_description ?? "",
@@ -102,9 +105,7 @@ export default function LiftPlanForm({
     });
 
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(data?.error || "Error saving lift plan.");
-    }
+    if (!res.ok) throw new Error(data?.error || "Error saving lift plan.");
     return data;
   }
 
@@ -114,13 +115,9 @@ export default function LiftPlanForm({
     setMsg("");
 
     try {
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(data?.error || "Could not generate draft.");
-      }
+      if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
 
       setForm((prev) => ({
         ...prev,
@@ -147,7 +144,6 @@ export default function LiftPlanForm({
     if (locked) return;
     setSaving(true);
     setMsg("");
-
     try {
       await postForm(form);
       setMsg("Lift plan / RAMS saved.");
@@ -161,25 +157,15 @@ export default function LiftPlanForm({
   function approveNow() {
     if (locked) return;
     const now = new Date().toISOString();
-    setForm((prev) => ({
-      ...prev,
-      approved_at: now,
-      rams_complete: true,
-      lift_plan_complete: true,
-    }));
+    setForm((prev) => ({ ...prev, approved_at: now, rams_complete: true, lift_plan_complete: true }));
   }
 
   async function finaliseNow() {
     if (locked) return;
     setSaving(true);
     setMsg("");
-
     try {
-      const finalPayload: LiftPlanData = {
-        ...form,
-        finalised_at: new Date().toISOString(),
-        paperwork_locked: true,
-      };
+      const finalPayload: LiftPlanData = { ...form, finalised_at: new Date().toISOString(), paperwork_locked: true };
       await postForm(finalPayload);
       setForm(finalPayload);
       setMsg("Paperwork finalised and locked.");
@@ -197,23 +183,15 @@ export default function LiftPlanForm({
           <h2 style={{ margin: 0, fontSize: 24 }}>Lift Plan & RAMS</h2>
           <div style={helperText}>Generate a draft, review it, then save and finalise manually.</div>
         </div>
-
         <div style={buttonRow}>
-          <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={secondaryBtn}>
-            Printable version
-          </a>
-          <button type="button" onClick={generateDraft} disabled={locked || generating || saving} style={secondaryBtn}>
-            {generating ? "Generating…" : "Generate AI draft"}
-          </button>
-          <button type="button" onClick={save} disabled={locked || generating || saving} style={primaryBtn}>
-            {saving ? "Saving…" : "Save draft"}
-          </button>
-          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving} style={dangerBtn}>
-            Finalise & lock
-          </button>
+          <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={secondaryBtn}>Printable version</a>
+          <button type="button" onClick={generateDraft} disabled={locked || generating || saving} style={secondaryBtn}>{generating ? "Generating…" : "Generate AI draft"}</button>
+          <button type="button" onClick={save} disabled={locked || generating || saving} style={primaryBtn}>{saving ? "Saving…" : "Save draft"}</button>
+          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving} style={dangerBtn}>Finalise & lock</button>
         </div>
       </div>
 
+      {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
       {locked ? <div style={lockedBox}>Paperwork is locked and cannot be edited.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
@@ -270,64 +248,39 @@ export default function LiftPlanForm({
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function EquipmentProfileCard({ profile }: { profile: EquipmentProfile }) {
   return (
-    <div style={sectionStyle}>
-      <div style={sectionTitle}>{title}</div>
-      <div style={{ display: "grid", gap: 12 }}>{children}</div>
+    <div style={profileCard}>
+      <div style={sectionTitle}>Selected equipment profile</div>
+      <div style={profileTitle}>{profile.title}</div>
+      <div style={profileSummary}>{profile.summary}</div>
+      <div style={grid2}>
+        <ReadOnlyFact label="Machine type" value={profile.machineType} />
+        <ReadOnlyFact label="Max capacity" value={profile.maxCapacityKg ? `${profile.maxCapacityKg.toLocaleString()} kg` : profile.maxCapacityTonnes ? `${profile.maxCapacityTonnes} t` : "—"} />
+        <ReadOnlyFact label="Boom / hydraulic outreach" value={profile.maxBoomLengthM ? `${profile.maxBoomLengthM} m` : profile.maxHydraulicOutreachM ? `${profile.maxHydraulicOutreachM} m` : "—"} />
+        <ReadOnlyFact label="Jib / max outreach" value={profile.maxJibOutreachM ? `${profile.maxJibOutreachM} m` : profile.maxRadiusM ? `${profile.maxRadiusM} m radius` : "—"} />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={fieldLabel}>Key warnings</div>
+        <ul style={warningList}>{profile.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+      </div>
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  step,
-  disabled,
-}: {
-  label: string;
-  value: string | number;
-  onChange: (value: string) => void;
-  type?: string;
-  step?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <label style={fieldWrap}>
-      <span style={fieldLabel}>{label}</span>
-      <input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} />
-    </label>
-  );
-}
-
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  disabled,
-  rows = 4,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  rows?: number;
-}) {
-  return (
-    <label style={fieldWrap}>
-      <span style={fieldLabel}>{label}</span>
-      <textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} />
-    </label>
-  );
-}
+function ReadOnlyFact({ label, value }: { label: string; value: string }) { return <div style={summaryItem}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div></div>; }
+function Section({ title, children }: { title: string; children: ReactNode }) { return <div style={sectionStyle}><div style={sectionTitle}>{title}</div><div style={{ display: "grid", gap: 12 }}>{children}</div></div>; }
+function Field({ label, value, onChange, type = "text", step, disabled }: { label: string; value: string | number; onChange: (value: string) => void; type?: string; step?: string; disabled?: boolean; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} /></label>; }
+function TextAreaField({ label, value, onChange, disabled, rows = 4 }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; rows?: number; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} /></label>; }
 
 const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
 const topRow: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" };
 const buttonRow: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
 const helperText: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.75 };
 const sectionStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 16 };
+const profileCard: CSSProperties = { ...sectionStyle, background: "rgba(255,248,225,0.8)" };
+const profileTitle: CSSProperties = { fontSize: 18, fontWeight: 900 };
+const profileSummary: CSSProperties = { marginTop: 6, opacity: 0.82 };
 const sectionTitle: CSSProperties = { fontWeight: 900, marginBottom: 12 };
 const grid2: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };
 const fieldWrap: CSSProperties = { display: "grid", gap: 6 };
@@ -338,6 +291,8 @@ const msgBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, backgrou
 const lockedBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", fontWeight: 800 };
 const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" };
 const tickLabel: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 700 };
+const warningList: CSSProperties = { margin: "8px 0 0 18px", padding: 0, display: "grid", gap: 6 };
+const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.8)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12 };
 const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
 const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
