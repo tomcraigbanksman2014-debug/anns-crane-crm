@@ -356,7 +356,7 @@ function SignatureRow({
   return (
     <div style={signatureBox}>
       <div style={{ fontWeight: 800 }}>{title}</div>
-      <div style={{ marginTop: 18, borderBottom: "1px solid #333", minHeight: 26 }} />
+      <div style={{ marginTop: 12, borderBottom: "1px solid #333", minHeight: 22 }} />
       <div style={{ marginTop: 6, fontSize: 12 }}>
         Name: {name || "________________"} &nbsp;&nbsp; Date: ________________
       </div>
@@ -372,13 +372,13 @@ function AppendixPage({
   index: number;
 }) {
   return (
-    <section style={{ pageBreakBefore: "always", breakBefore: "page" }}><PageShell sectionTitle={`Appendix ${index}`}>
+    <PageShell sectionTitle={`Appendix ${index}`}>
       <SectionTitle>{asset.title}</SectionTitle>
       {asset.description ? <div style={{ marginBottom: 12, opacity: 0.82 }}>{asset.description}</div> : null}
       <div style={appendixFrame}>
         <img src={asset.publicPath} alt={asset.title} style={appendixImage} />
       </div>
-    </PageShell></section>
+    </PageShell>
   );
 }
 
@@ -718,7 +718,7 @@ export default async function CraneLiftPlanPackPage({
         />
       </PageShell>
 
-      <PageShell sectionTitle="13–14. Equipment & Crane Details">
+      <PageShell sectionTitle="13. Equipment & Certification">
         <SectionTitle>13. Lifting Equipment to be used & Certification</SectionTitle>
         <InfoTable
           rows={[
@@ -731,7 +731,9 @@ export default async function CraneLiftPlanPackPage({
             ],
           ]}
         />
+      </PageShell>
 
+      <PageShell sectionTitle="14. Crane Details">
         <SectionTitle>14. Crane Details</SectionTitle>
         <InfoTable
           rows={[
@@ -765,7 +767,9 @@ export default async function CraneLiftPlanPackPage({
 
         <BoxedParagraph title="Configuration / outrigger note">
           {equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
-          {"\n\n"}
+          {"
+
+"}
           {equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}
         </BoxedParagraph>
 
@@ -774,7 +778,7 @@ export default async function CraneLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="15–17. Variation, Toolbox & Set-up">
+      <PageShell sectionTitle="15–16. Variation & Toolbox">
         <SectionTitle>15. Variation from Method Statement</SectionTitle>
         <BlankTable
           headers={["Variation Details", "Time / Date", "AP Contact", "Initials"]}
@@ -802,7 +806,9 @@ export default async function CraneLiftPlanPackPage({
             ]}
           />
         </div>
+      </PageShell>
 
+      <PageShell sectionTitle="17. Crane Set-up Procedure">
         <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
         <BoxedParagraph>
           {sentenceCase(
@@ -880,7 +886,7 @@ export default async function CraneLiftPlanPackPage({
         />
       </PageShell>
 
-      <PageShell sectionTitle="22. Check Lists, Sign Offs & Wind Sheet" breakAfter={true}>
+      <PageShell sectionTitle="22. Check Lists & Sign Offs">
         <SectionTitle>22. Check Lists and Sign Offs</SectionTitle>
         <InfoTable
           rows={[
@@ -894,7 +900,7 @@ export default async function CraneLiftPlanPackPage({
 
         <div style={avoidBreak}>
           <div style={subHeading}>Attendance Record</div>
-          <BlankTable headers={["Name", "Employer", "Signature"]} rows={6} />
+          <BlankTable headers={["Name", "Employer", "Signature"]} rows={4} />
         </div>
 
         <div style={avoidBreak}>
@@ -926,19 +932,19 @@ export default async function CraneLiftPlanPackPage({
         {equipmentList ? (
           <BoxedParagraph title="Equipment list">{equipmentList}</BoxedParagraph>
         ) : null}
+      </PageShell>
 
-        <div style={avoidBreak}>
-          <div style={subHeading}>Wind speed record sheet</div>
-          <InfoTable
-            rows={[
-              ["Project", projectName],
-              ["Lift Supervisor", liftSupervisor],
-              ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
-            ]}
-          />
-          <div style={{ height: 8 }} />
-          <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)", "Notes"]} rows={12} />
-        </div>
+      <PageShell sectionTitle="Wind Speed Record Sheet" breakAfter={true}>
+        <SectionTitle>Wind speed record sheet</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Project", projectName],
+            ["Lift Supervisor", liftSupervisor],
+            ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+          ]}
+        />
+        <div style={{ height: 8 }} />
+        <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)", "Notes"]} rows={12} />
       </PageShell>
 
       {appendixAssets.map((asset, index) => (
@@ -1163,7 +1169,7 @@ const signatureGrid: CSSProperties = {
 
 const signatureBox: CSSProperties = {
   border: "1px solid #333",
-  padding: 12,
+  padding: 10,
   breakInside: "avoid",
 };
 
@@ -1175,11 +1181,13 @@ const appendixFrame: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   overflow: "hidden",
+  background: "#fff",
 };
 
 const appendixImage: CSSProperties = {
+  display: "block",
   width: "100%",
-  height: "100%",
+  height: "auto",
   objectFit: "contain",
   maxHeight: 620,
 };
