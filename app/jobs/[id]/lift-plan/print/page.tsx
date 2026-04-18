@@ -1,4 +1,6 @@
+import type { CSSProperties } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
 import PrintLiftPlanButton from "./PrintLiftPlanButton";
 
 function fmtDate(value: string | null | undefined) {
@@ -23,6 +25,38 @@ function yesNo(value: boolean | null | undefined) {
   return value ? "Yes" : "No";
 }
 
+function flatten<T>(value: T | T[] | null | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function formatCapacity(profile: any, crane: any) {
+  if (profile?.maxCapacityKg) {
+    const kg = Number(profile.maxCapacityKg);
+    const tonnes =
+      profile?.maxCapacityTonnes ??
+      (Number.isFinite(kg) ? Number((kg / 1000).toFixed(1)) : null);
+
+    const kgText = Number.isFinite(kg) ? `${kg.toLocaleString("en-GB")} kg` : "";
+    const tonneText = tonnes ? `${tonnes} t` : "";
+
+    return [kgText, tonneText].filter(Boolean).join(" / ");
+  }
+
+  return crane?.capacity || "—";
+}
+
+function craneLabel(crane: any, allocation: any) {
+  const parts = [crane?.name, crane?.make, crane?.model].filter(Boolean);
+  const base = parts.join(" ").trim() || crane?.name || allocation?.item_name || "—";
+
+  const dates = [allocation?.start_date, allocation?.end_date].filter(Boolean).join(" to ");
+  const startTime = allocation?.start_time ? `Start ${allocation.start_time}` : "";
+  const meta = [dates, startTime].filter(Boolean).join(" • ");
+
+  return meta && base !== "—" ? `${base} (${meta})` : base;
+}
+
 export default async function LiftPlanPrintPage({
   params,
 }: {
@@ -37,16 +71,61 @@ export default async function LiftPlanPrintPage({
         id,
         job_number,
         job_date,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
         site_name,
         site_address,
         contact_name,
         contact_phone,
+        hire_type,
+        lift_type,
+        crane_id,
+        operator_id,
+        main_operator_id,
         clients:client_id (
           company_name
         ),
-        equipment:equipment_id (
+        cranes:crane_id (
+          id,
           name,
-          capacity
+          make,
+          model,
+          capacity,
+          reg_number
+        ),
+        operators:operator_id (
+          id,
+          full_name
+        ),
+        main_operator:main_operator_id (
+          id,
+          full_name
+        ),
+        job_equipment (
+          id,
+          asset_type,
+          source_type,
+          item_name,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          crane_id,
+          operator_id,
+          cranes:crane_id (
+            id,
+            name,
+            make,
+            model,
+            capacity,
+            reg_number
+          ),
+          operators:operator_id (
+            id,
+            full_name
+          )
         )
       `)
       .eq("id", params.id)
@@ -59,13 +138,21 @@ export default async function LiftPlanPrintPage({
       .maybeSingle(),
   ]);
 
-  const client = Array.isArray((job as any)?.clients)
-    ? (job as any).clients[0] ?? null
-    : (job as any)?.clients ?? null;
+  const client = flatten((job as any)?.clients)[0] ?? null;
+  const primary = getPrimaryCraneContext(job as any);
+  const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
+  const allocation = primary?.allocation ?? null;
+  const operator =
+    primary?.operator ??
+    flatten((job as any)?.main_operator)[0] ??
+    flatten((job as any)?.operators)[0] ??
+    null;
 
-  const equipment = Array.isArray((job as any)?.equipment)
-    ? (job as any).equipment[0] ?? null
-    : (job as any)?.equipment ?? null;
+  const equipmentProfile = matchCraneJobEquipmentProfile({
+    ...(job as any),
+    cranes: crane ? [crane] : flatten((job as any)?.cranes),
+    job_equipment: (job as any)?.job_equipment ?? [],
+  });
 
   return (
     <div
@@ -108,16 +195,36 @@ export default async function LiftPlanPrintPage({
         <PrintGrid
           rows={[
             ["Job #", (job as any)?.job_number],
-            ["Job date", fmtDate((job as any)?.job_date)],
+            ["Job date", fmtDate((job as any)?.job_date ?? (job as any)?.start_date)],
             ["Customer", client?.company_name],
-            ["Crane", equipment?.name],
-            ["Capacity", equipment?.capacity],
+            ["Crane", craneLabel(crane, allocation)],
+            ["Capacity", formatCapacity(equipmentProfile, crane)],
             ["Site name", (job as any)?.site_name],
             ["Site address", (job as any)?.site_address],
             ["Site contact", (job as any)?.contact_name],
             ["Site phone", (job as any)?.contact_phone],
+            ["Hire type", (job as any)?.hire_type],
+            ["Lift type", (job as any)?.lift_type],
+            ["Crane operator", operator?.full_name],
           ]}
         />
+
+        {equipmentProfile ? (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ fontWeight: 800, opacity: 0.78, marginBottom: 6 }}>Selected equipment profile</div>
+            <div
+              style={{
+                padding: 12,
+                borderRadius: 10,
+                border: "1px solid rgba(0,0,0,0.12)",
+                background: "#faf7e8",
+              }}
+            >
+              <div style={{ fontWeight: 800 }}>{equipmentProfile.title}</div>
+              <div style={{ marginTop: 4, fontSize: 14 }}>{equipmentProfile.summary}</div>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section style={printCard}>
@@ -159,7 +266,7 @@ export default async function LiftPlanPrintPage({
           rows={[
             ["Lift supervisor", liftPlan?.lift_supervisor],
             ["Appointed person", liftPlan?.appointed_person],
-            ["Crane operator", liftPlan?.crane_operator],
+            ["Crane operator", liftPlan?.crane_operator || operator?.full_name],
           ]}
         />
       </section>
@@ -227,7 +334,7 @@ function PrintBlock({
   );
 }
 
-const printCard: React.CSSProperties = {
+const printCard: CSSProperties = {
   marginTop: 16,
   border: "1px solid rgba(0,0,0,0.12)",
   borderRadius: 12,
@@ -235,7 +342,7 @@ const printCard: React.CSSProperties = {
   breakInside: "avoid",
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   marginBottom: 12,
 };
