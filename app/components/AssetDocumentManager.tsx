@@ -1,7 +1,13 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import {
+  detectAssetAppendixPreset,
+  listAssetAppendixPresetBundles,
+  type AssetPresetKind,
+  type AssetProfileInput,
+} from "../lib/assetAppendixPresets";
 
 export type AssetDocumentItem = {
   id: string;
@@ -17,6 +23,8 @@ export type AssetDocumentItem = {
 };
 
 type Option = { value: string; label: string };
+
+type RenderedPreview = { pageNumber: number; file: File };
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -35,6 +43,15 @@ function parsePageNumbers(input: string) {
   return Array.from(new Set(values)).sort((a, b) => a - b);
 }
 
+async function readJsonResponse(response: Response) {
+  const text = await response.text();
+  try {
+    return text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(text || `Upload failed (${response.status}).`);
+  }
+}
+
 async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
@@ -44,13 +61,9 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   }
 
   const data = new Uint8Array(await file.arrayBuffer());
-
-  const loadingTask = pdfjsLib.getDocument({
-    data,
-    useSystemFonts: true,
-  });
-
+  const loadingTask = pdfjsLib.getDocument({ data, useSystemFonts: true });
   const pdf = await loadingTask.promise;
+
   const validPages = pageNumbers.filter(
     (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
   );
@@ -59,11 +72,11 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
     throw new Error(`No valid PDF pages selected. This PDF has ${pdf.numPages} page(s).`);
   }
 
-  const rendered: Array<{ pageNumber: number; file: File }> = [];
+  const rendered: RenderedPreview[] = [];
 
   for (const pageNumber of validPages) {
     const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.5 });
+    const viewport = page.getViewport({ scale: 1.05 });
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
 
@@ -85,14 +98,14 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
           if (value) resolve(value);
           else reject(new Error(`Could not render PDF page ${pageNumber}.`));
         },
-        "image/png",
-        0.92
+        "image/jpeg",
+        0.78
       );
     });
 
     rendered.push({
       pageNumber,
-      file: new File([blob], `page-${pageNumber}.png`, { type: "image/png" }),
+      file: new File([blob], `page-${pageNumber}.jpg`, { type: "image/jpeg" }),
     });
   }
 
@@ -103,14 +116,64 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   return rendered;
 }
 
+async function uploadDocumentRequest({
+  uploadUrl,
+  file,
+  title,
+  documentType,
+  includeInPack,
+  appendixOrder,
+  previewFiles,
+}: {
+  uploadUrl: string;
+  file: File;
+  title: string;
+  documentType: string;
+  includeInPack: boolean;
+  appendixOrder: number;
+  previewFiles: RenderedPreview[];
+}) {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("title", title.trim() || file.name.replace(/\.pdf$/i, ""));
+  formData.append("document_type", documentType);
+  formData.append("include_in_pack", includeInPack ? "true" : "false");
+  formData.append("appendix_order", String(appendixOrder || 10));
+  formData.append(
+    "preview_page_numbers",
+    previewFiles.map((item) => item.pageNumber).join(",")
+  );
+
+  for (const preview of previewFiles) {
+    formData.append("preview_files", preview.file, preview.file.name);
+  }
+
+  const response = await fetch(uploadUrl, {
+    method: "POST",
+    body: formData,
+  });
+
+  const result = await readJsonResponse(response);
+
+  if (!response.ok) {
+    throw new Error(result?.error || `Upload failed (${response.status}).`);
+  }
+
+  return result;
+}
+
 export default function AssetDocumentManager({
   assetLabel,
+  assetType,
+  assetProfile,
   uploadUrl,
   deleteUrlPrefix,
   initialDocuments,
   documentTypeOptions,
 }: {
   assetLabel: string;
+  assetType: AssetPresetKind;
+  assetProfile?: AssetProfileInput | null;
   uploadUrl: string;
   deleteUrlPrefix: string;
   initialDocuments: AssetDocumentItem[];
@@ -124,6 +187,15 @@ export default function AssetDocumentManager({
   const [pageInput, setPageInput] = useState("1");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+
+  const preset = useMemo(
+    () => detectAssetAppendixPreset(assetType, assetProfile ?? null),
+    [assetType, assetProfile]
+  );
+  const presetBundles = useMemo(
+    () => listAssetAppendixPresetBundles(assetType, assetProfile ?? null),
+    [assetType, assetProfile]
+  );
 
   const helperText = useMemo(() => {
     if (!includeInPack) {
@@ -146,33 +218,15 @@ export default function AssetDocumentManager({
         ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1])
         : [];
 
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("title", title.trim() || file.name.replace(/\.pdf$/i, ""));
-      formData.append("document_type", documentType);
-      formData.append("include_in_pack", includeInPack ? "true" : "false");
-      formData.append("appendix_order", appendixOrder.trim() || "10");
-
-      // IMPORTANT: backend expects plain comma string, not JSON
-      formData.append(
-        "preview_page_numbers",
-        previewFiles.map((item) => item.pageNumber).join(",")
-      );
-
-      for (const preview of previewFiles) {
-        formData.append("preview_files", preview.file, preview.file.name);
-      }
-
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        body: formData,
+      const result = await uploadDocumentRequest({
+        uploadUrl,
+        file,
+        title: title.trim() || file.name.replace(/\.pdf$/i, ""),
+        documentType,
+        includeInPack,
+        appendixOrder: Number(appendixOrder || "10") || 10,
+        previewFiles,
       });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result?.error || "Upload failed.");
-      }
 
       if (result?.document) {
         setDocuments((prev) => [result.document as AssetDocumentItem, ...prev]);
@@ -191,6 +245,54 @@ export default function AssetDocumentManager({
     }
   }
 
+  async function handleAutoBundleUpload(file: File) {
+    if (!preset || !presetBundles.length) {
+      setMessage("No automatic appendix preset exists for this machine yet.");
+      return;
+    }
+
+    setBusy(true);
+    setMessage("");
+
+    try {
+      if (file.type !== "application/pdf") {
+        throw new Error("Only PDF files are allowed.");
+      }
+
+      const created: AssetDocumentItem[] = [];
+
+      for (let index = 0; index < presetBundles.length; index += 1) {
+        const bundle = presetBundles[index];
+        setMessage(`Building ${preset.label} bundle ${index + 1} of ${presetBundles.length}: ${bundle.title}`);
+
+        const previewFiles = await renderPreviewFiles(file, bundle.pages);
+        const result = await uploadDocumentRequest({
+          uploadUrl,
+          file,
+          title: bundle.title,
+          documentType: bundle.documentType,
+          includeInPack: true,
+          appendixOrder: bundle.appendixOrder,
+          previewFiles,
+        });
+
+        if (result?.document) {
+          created.push(result.document as AssetDocumentItem);
+        }
+      }
+
+      if (created.length) {
+        setDocuments((prev) => [...created.reverse(), ...prev]);
+      }
+
+      setMessage(`${preset.label} default appendix bundles created.`);
+    } catch (error: any) {
+      setMessage(error?.message || "Automatic bundle upload failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     const ok = window.confirm("Delete this PDF and its generated appendix previews?");
     if (!ok) return;
@@ -203,7 +305,7 @@ export default function AssetDocumentManager({
         method: "POST",
       });
 
-      const result = await response.json();
+      const result = await readJsonResponse(response);
 
       if (!response.ok) {
         throw new Error(result?.error || "Delete failed.");
@@ -223,6 +325,35 @@ export default function AssetDocumentManager({
       <h2 style={sectionTitle}>Asset PDFs</h2>
 
       {message ? <div style={messageBox}>{message}</div> : null}
+
+      {preset ? (
+        <>
+          <div style={helperBox}>
+            <strong>Detected machine preset:</strong> {preset.label}. Upload the full manual once and the CRM will create the default appendix bundles automatically.
+          </div>
+          <div style={autoBox}>
+            <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ fontWeight: 900 }}>Automatic appendix bundles</div>
+              <div style={{ fontSize: 13, opacity: 0.78 }}>
+                {presetBundles.map((bundle) => `${bundle.title} (pages ${bundle.pages.join(",")})`).join(" • ")}
+              </div>
+            </div>
+            <div>
+              <input
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void handleAutoBundleUpload(file);
+                  e.currentTarget.value = "";
+                }}
+                disabled={busy}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+        </>
+      ) : null}
 
       <div style={helperBox}>{helperText}</div>
 
@@ -282,7 +413,7 @@ export default function AssetDocumentManager({
           </label>
         </div>
 
-        <Field label="Upload PDF">
+        <Field label="Manual / one-off upload">
           <input
             type="file"
             accept="application/pdf"
@@ -311,8 +442,8 @@ export default function AssetDocumentManager({
                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                   Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order:{" "}
                   {doc.appendix_order ?? "—"} • Preview pages:{" "}
-                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} •{" "}
-                  Generated preview pages: {doc.preview_count}
+                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} • Generated preview pages:{" "}
+                  {doc.preview_count}
                 </div>
               </div>
 
@@ -344,7 +475,7 @@ function Field({
   children,
 }: {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -397,6 +528,16 @@ const helperBox: CSSProperties = {
   background: "rgba(255,255,255,0.45)",
   border: "1px solid rgba(0,0,0,0.08)",
   lineHeight: 1.5,
+};
+
+const autoBox: CSSProperties = {
+  marginBottom: 12,
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(0,0,0,0.04)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  display: "grid",
+  gap: 12,
 };
 
 const messageBox: CSSProperties = {
