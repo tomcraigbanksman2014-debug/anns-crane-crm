@@ -190,7 +190,7 @@ export default async function VehicleDetailPage({
               </div>
 
               <div style={{ marginTop: 18 }}>
-                <VehicleDocumentsManager vehicleId={vehicle.id} initialDocuments={docs} />
+                <VehicleDocumentsManager vehicleId={vehicle.id} assetProfile={{ name: vehicle.name, make: vehicle.vehicle_type, model: vehicle.trailer_type, vehicleType: vehicle.vehicle_type, capacity: vehicle.capacity }} initialDocuments={docs} />
               </div>
             </>
           )}
