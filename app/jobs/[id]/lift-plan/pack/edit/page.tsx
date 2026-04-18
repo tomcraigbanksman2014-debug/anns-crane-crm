@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
-import ClientShell from "../../../../ClientShell";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import PackSectionsForm from "./PackSectionsForm";
+import ClientShell from "../../../../../ClientShell";
+import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
+import PackSelectionsForm from "./PackSelectionsForm";
 
 function one<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -47,7 +47,8 @@ export default async function PackSectionsEditorPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Lift plan pack editor</h1>
             <div style={{ marginTop: 6, opacity: 0.8 }}>
-              Job {(job as any)?.job_number ? `#${(job as any).job_number}` : "—"} • {client?.company_name || "—"} • {(job as any)?.site_name || "—"}
+              Job {(job as any)?.job_number ? `#${(job as any).job_number}` : "—"} •{" "}
+              {client?.company_name || "—"} • {(job as any)?.site_name || "—"}
             </div>
           </div>
 
@@ -63,7 +64,7 @@ export default async function PackSectionsEditorPage({
 
         {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-        <PackSectionsForm
+        <PackSelectionsForm
           jobId={params.id}
           initialSections={((liftPlan as any)?.pack_sections as Record<string, string> | null) ?? null}
         />
