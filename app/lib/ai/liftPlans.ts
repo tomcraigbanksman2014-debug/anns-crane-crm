@@ -1,3 +1,6 @@
+import { matchCraneJobEquipmentProfile, matchTransportJobEquipmentProfile } from "./matchEquipmentProfile";
+import type { EquipmentProfile } from "./equipmentProfiles";
+
 export type CraneLiftPlanDraft = {
   load_description?: string | null;
   load_weight?: number | null;
@@ -55,6 +58,11 @@ export type TransportLiftPlanDraft = {
   lift_plan_complete?: boolean;
 };
 
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
   return text || "";
@@ -68,6 +76,26 @@ function numberOrNull(value: unknown) {
 
 function joinParts(parts: Array<string | null | undefined>) {
   return parts.map((part) => clean(part)).filter(Boolean).join(" ").trim();
+}
+
+function equipmentHeadline(profile: EquipmentProfile | null) {
+  if (!profile) return "";
+  const parts = [profile.title];
+  if (profile.maxCapacityKg) parts.push(`max capacity ${profile.maxCapacityKg.toLocaleString()} kg`);
+  if (profile.maxBoomLengthM) parts.push(`boom ${profile.maxBoomLengthM} m`);
+  else if (profile.maxHydraulicOutreachM) parts.push(`hydraulic outreach ${profile.maxHydraulicOutreachM} m`);
+  if (profile.maxJibOutreachM) parts.push(`jib / max outreach ${profile.maxJibOutreachM} m`);
+  if (profile.maxRadiusM) parts.push(`radius approx ${profile.maxRadiusM} m`);
+  return parts.join(", ");
+}
+
+function equipmentWarnings(profile: EquipmentProfile | null) {
+  if (!profile) {
+    return [
+      "Final capacity must be checked against the correct manufacturer chart, actual setup, radius and accessories before the lift is approved.",
+    ];
+  }
+  return profile.warnings;
 }
 
 function extractResponseText(payload: any): string {
@@ -206,85 +234,93 @@ function parseTransportDraft(text: string): TransportLiftPlanDraft {
   };
 }
 
-function fallbackCraneDraft(job: any): CraneLiftPlanDraft {
-  const clientName = clean(job?.clients?.company_name) || "the client";
+function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
+  const client = one(job?.clients);
+  const crane = one(job?.cranes);
+  const operator = one(job?.operators);
+  const mainOperator = one(job?.main_operator);
+  const clientName = clean(client?.company_name) || "the client";
   const craneName = joinParts([
-    job?.cranes?.name,
-    job?.cranes?.make,
-    job?.cranes?.model,
-    job?.cranes?.capacity ? `(${job.cranes.capacity})` : "",
-  ]) || "the allocated crane";
-  const operatorName = clean(job?.main_operator?.full_name) || clean(job?.operators?.full_name) || "Allocated operator";
+    crane?.name,
+    crane?.make,
+    crane?.model,
+    crane?.capacity ? `(${crane.capacity})` : "",
+  ]) || profile?.title || "the allocated crane";
+  const operatorName = clean(mainOperator?.full_name) || clean(operator?.full_name) || "Allocated operator";
   const liftType = clean(job?.lift_type) || "planned lift";
   const hireType = clean(job?.hire_type) || "crane hire";
   const siteName = clean(job?.site_name) || "site";
   const siteAddress = clean(job?.site_address) || "site address to be confirmed";
   const loadDescription = clean(job?.notes) || `${hireType} for ${clientName}`;
+  const machineFacts = equipmentHeadline(profile);
+  const warningText = equipmentWarnings(profile).join(" ");
 
   return {
     load_description: loadDescription,
     load_weight: null,
     lift_radius: null,
     lift_height: null,
-    crane_configuration: `${craneName} to be configured in line with manufacturer guidance, site constraints and the agreed lift plan for ${siteName}. Final boom configuration, counterweight and operating radius to be confirmed on site before lifting starts.`,
-    outrigger_setup: `Outriggers to be fully deployed where possible on suitable mats or spreader support. Setup area to be checked for underground services, voids, chambers, kerbs and edge risks before load is taken.`,
-    ground_conditions: `Ground conditions at ${siteName} / ${siteAddress} to be visually inspected before setup. Crane not to be operated until the appointed person / supervisor is satisfied that the ground is suitable for the planned configuration.`,
+    crane_configuration: `${craneName} to be configured in line with manufacturer guidance, site constraints and the agreed lift plan for ${siteName}. ${machineFacts || "Final boom configuration, counterweight and operating radius to be confirmed on site before lifting starts."}`,
+    outrigger_setup: `${profile?.outriggersNote || "Outriggers to be fully deployed where possible on suitable mats or spreader support."} Setup area to be checked for underground services, voids, chambers, kerbs and edge risks before load is taken.`,
+    ground_conditions: `Ground conditions at ${siteName} / ${siteAddress} to be visually inspected before setup. Crane not to be operated until the appointed person / supervisor is satisfied that the ground is suitable for the planned configuration and any outrigger loading.`,
     sling_type: `Correct certified slings and lifting accessories to be selected to suit the load, centre of gravity and lifting points.`,
     lifting_accessories: `Certified chains / slings / shackles / lifting beam as required by the load and lift arrangement. Pre-use checks to be completed before lifting.`,
-    method_statement: `Attend site, sign in and brief all involved personnel. Confirm load details, lift route, landing area, exclusion zone and communication method. Position ${craneName}, deploy outriggers on suitable support, complete pre-lift checks and test lift if required. Carry out the lift under the direction of the lift supervisor using agreed signals. Land the load safely, release accessories and leave the work area in a safe condition.`,
-    risk_assessment: `Main risks include overturning, inadequate ground support, striking overhead services, trapping / crushing, load instability, poor communication, public interface and weather changes. Works must stop if conditions become unsafe or the actual lift differs from the agreed plan.`,
-    site_hazards: `Overhead obstructions, underground services, restricted access, moving site traffic, pedestrians, uneven ground, changing weather and pinch points around the load / landing area.`,
-    control_measures: `Brief all personnel, use trained staff only, establish an exclusion zone, keep non-essential persons clear, confirm the load weight and lifting points, use suitable accessories, check the setup area, maintain clear communication and stop work if anything changes.`,
-    ppe_required: `Minimum PPE: hard hat, hi-vis, safety boots and gloves. Additional PPE to suit site rules and the specific lift.`,
-    exclusion_zone_details: `A suitable exclusion zone to be maintained around the crane, suspended load and landing area. Only essential personnel directly involved in the lift to enter the zone.`,
-    weather_limitations: `Lifting operations to stop during excessive wind, lightning, poor visibility or any weather condition outside the crane chart / site safe limits.`,
-    emergency_procedures: `Stop operations immediately, make the area safe, lower / secure the load if possible, contact emergency services if needed and report the incident to the office / appointed person.`,
-    lift_supervisor: clean(job?.main_operator?.full_name) || clean(job?.operators?.full_name) || null,
-    appointed_person: "Office / Appointed Person to confirm",
+    method_statement: `Attend site, sign in and brief all involved personnel. Confirm load details, lift route, landing area, exclusion zone and communication method. Position ${craneName}, deploy outriggers on suitable support, complete pre-lift checks and test lift if required. Carry out the ${liftType} under the direction of the lift supervisor using agreed signals. Land the load safely, release accessories and leave the work area in a safe condition. ${warningText}`,
+    risk_assessment: `Main risks include overturning, inadequate ground support, striking overhead services, trapping / crushing, load instability, suspended load movement, personnel entering the lift zone and poor communication. ${warningText}`,
+    site_hazards: `Possible overhead lines, underground services, weak ground, basements / chambers, nearby structures, traffic / pedestrians, weather exposure and restricted access around ${siteName}.`,
+    control_measures: `Use trained personnel only. Establish exclusion zone. Check ground and support arrangement before setup. Verify load weight, radius and attachment method. Use standard hand signals / agreed radio communication. Stop work in unsafe wind or weather conditions. Final chart / setup check to be completed before lifting.`,
+    ppe_required: `Hard hat, hi-vis, gloves, safety boots and any site-specific PPE identified during briefing.`,
+    exclusion_zone_details: `Barrier off the lifting area, slewing area and landing zone. No unauthorised persons to enter the exclusion zone while the load is suspended or the crane is being set up.`,
+    weather_limitations: `Lift not to proceed in unsafe wind, lightning or weather conditions affecting visibility, load control or ground stability. Refer to the applicable machine chart / manual and site risk assessment.`,
+    emergency_procedures: `Stop lifting immediately if unsafe conditions develop. Make load safe where possible, isolate the area, report to site management and follow emergency arrangements for injury, equipment failure or contact with services.`,
+    lift_supervisor: clean(mainOperator?.full_name) || clean(operator?.full_name) || null,
+    appointed_person: null,
     crane_operator: operatorName,
     rams_complete: false,
     lift_plan_complete: false,
   };
 }
 
-function fallbackTransportDraft(job: any, linkedJob?: any): TransportLiftPlanDraft {
-  const clientName = clean(job?.clients?.company_name) || "the client";
-  const vehicleName = joinParts([
-    job?.vehicles?.name,
-    job?.vehicles?.vehicle_type,
-    job?.vehicles?.reg_number,
-  ]) || "allocated HIAB vehicle";
-  const operatorName = clean(job?.operators?.full_name) || "Allocated operator";
-  const collectionAddress = clean(job?.collection_address) || "collection address to be confirmed";
-  const deliveryAddress = clean(job?.delivery_address) || "delivery address to be confirmed";
-  const loadDescription = clean(job?.load_description) || clean(linkedJob?.site_name) || `${clean(job?.job_type) || "HIAB"} load for ${clientName}`;
+function fallbackTransportDraft(job: any, linkedJob: any, profile: EquipmentProfile | null): TransportLiftPlanDraft {
+  const client = one(job?.clients);
+  const vehicle = one(job?.vehicles);
+  const operator = one(job?.operators);
+  const clientName = clean(client?.company_name) || "the client";
+  const operatorName = clean(operator?.full_name) || "Allocated operator";
+  const vehicleName = joinParts([vehicle?.name, vehicle?.vehicle_type, vehicle?.reg_number]) || profile?.title || "allocated HIAB vehicle";
+  const collection = clean(job?.collection_address) || "collection address to be confirmed";
+  const delivery = clean(job?.delivery_address) || "delivery address to be confirmed";
+  const loadDescription = clean(job?.load_description) || clean(linkedJob?.notes) || `HIAB / transport work for ${clientName}`;
+  const routeDate = clean(job?.transport_date) || "planned date";
+  const machineFacts = equipmentHeadline(profile);
+  const warningText = equipmentWarnings(profile).join(" ");
 
   return {
-    job_summary: `HIAB transport / lifting operation for ${clientName} from ${collectionAddress} to ${deliveryAddress}.`,
+    job_summary: `Transport / HIAB movement for ${clientName} from ${collection} to ${delivery} on ${routeDate}. ${machineFacts}`,
     load_description: loadDescription,
     load_weight: null,
     lift_radius: null,
     lift_height: null,
-    vehicle_configuration: `${vehicleName} to attend with stabilisers / outriggers deployed in line with manufacturer guidance and site constraints. Vehicle position to allow safe loading or unloading without overreaching where reasonably possible.`,
-    hiab_configuration: `HIAB to be operated within rated capacity for the working radius and boom configuration. Final setup to be confirmed on arrival after checking access, ground and load details.`,
-    outrigger_setup: `Outriggers / stabilisers to be deployed on suitable spreader pads or mats where required. Area to be checked for services, covers, weak ground, edge risks and obstructions before lift starts.`,
-    ground_conditions: `Ground at collection and delivery points to be assessed before setup. Work must not proceed until the operator is satisfied the vehicle can be positioned and supported safely.`,
-    pickup_method: `Arrive, assess the collection point, establish a safe work area, check the load, confirm lifting points / securing arrangement and load onto the vehicle using the HIAB or agreed loading method.`,
-    delivery_method: `Assess the delivery point, establish a safe exclusion zone, position the vehicle safely, deploy stabilisers and unload / place the load using the HIAB in line with the agreed method and site conditions.`,
-    route_notes: `Route to be suitable for the vehicle and load dimensions / weight. Any abnormal restrictions, timed access, bridge limits or site booking requirements to be confirmed before departure.`,
-    access_notes: `Collection and delivery access to be checked for width, height, ground bearing, slope, overhead obstructions, parked vehicles, pedestrians and public interface risks.`,
-    exclusion_zone_details: `A suitable exclusion zone to be maintained around the HIAB, suspended load, slewing area and landing area. Keep members of the public and non-essential site staff clear.`,
-    traffic_management: `Use a banksman where visibility or public interface requires it. Cones / barriers / temporary traffic control to be used if the unloading area affects live traffic or pedestrian routes.`,
-    load_securing_method: `Load to be secured using suitable rated straps, chains or other securing equipment appropriate to the load. Security of the load to be checked before departure and after any significant journey interruption.`,
-    lifting_accessories: `Use suitable certified lifting accessories appropriate to the load and lifting points. All accessories to be visually checked before use.`,
-    site_hazards: `Restricted access, overhead services, unstable / sloping ground, vehicle movements, public interface, pinch points, shifting loads, poor landing areas and changing weather conditions.`,
-    control_measures: `Use trained competent personnel only, check the route and site access, confirm the load details, position the vehicle safely, deploy outriggers correctly, maintain exclusion zones, use a banksman where needed and stop work if the safe system cannot be followed.`,
-    ppe_required: `Minimum PPE: hard hat, hi-vis, safety boots and gloves. Additional PPE to match site rules and the load being handled.`,
-    weather_limitations: `Stop HIAB lifting during excessive wind, lightning, poor visibility or any condition that makes the vehicle setup or load control unsafe.`,
-    emergency_procedures: `Stop work, make the area safe, lower / secure the load if possible, contact emergency services if required and report the incident to the office immediately.`,
-    method_statement: `Attend collection point, complete arrival checks and brief any assisting personnel. Inspect the load, confirm weight / lifting points where available and establish a safe loading area. Load and secure the item, travel to delivery, assess the delivery point, deploy stabilisers, create an exclusion zone and unload / position the load safely. Complete any final checks and leave the area safe.`,
-    risk_assessment: `Main risks include overturning, inadequate ground support, striking overhead obstructions, trapping / crushing, load swing, unstable loads, traffic interaction, poor access and public interface. Work must stop if actual conditions differ from the agreed plan.`,
-    appointed_person: "Office / Appointed Person to confirm",
+    vehicle_configuration: `${vehicleName} to be positioned to allow safe pickup / set-down, suitable support area and safe traffic interface. Vehicle / loader crane setup to follow manufacturer guidance and site conditions.`,
+    hiab_configuration: `${profile?.title || vehicleName} to be used within the correct chart, extension stage and stabiliser arrangement for the planned lift. Final configuration to be confirmed on site before loading or unloading.`,
+    outrigger_setup: `${profile?.outriggersNote || "Deploy stabilisers / outriggers to the required working position on suitable support pads or mats."} Ensure the vehicle is level and support area is suitable before taking the load.`,
+    ground_conditions: `Check collection and delivery ground conditions for voids, basements, soft ground, kerbs, service covers, edge risks and slope. HIAB work not to proceed until the setup area is confirmed suitable.`,
+    pickup_method: `Arrive at collection point, brief involved personnel, inspect load and lifting points, position ${vehicleName}, deploy outriggers, attach certified lifting gear, complete a controlled pickup and secure the load for transport.`,
+    delivery_method: `Assess delivery area, traffic interface and landing zone. Position ${vehicleName} safely, deploy outriggers, release transport restraints in a controlled manner, lift and place the load using agreed signals and make the load safe at final position.`,
+    route_notes: `Travel route to be checked for restrictions, access, abnormal dimensions if applicable, bridge / weight issues and safe arrival / departure arrangements.`,
+    access_notes: `Confirm access width, turning space, overhead obstructions, service lines, parked vehicles, pedestrians and ground bearing suitability at both collection and delivery locations.`,
+    exclusion_zone_details: `Establish a clear exclusion zone around the HIAB setup, slewing area, suspended load path and landing zone. No unauthorised personnel to enter during loading or unloading.`,
+    traffic_management: `Use banksman / traffic marshal where required. Manage reversing, public interface and local traffic hazards in line with site conditions.`,
+    load_securing_method: `Load to be secured using suitable rated restraints, edge protection and transport securing method appropriate to the item being moved. Re-check restraints before travel and after arrival if required.`,
+    lifting_accessories: `Use certified chains / slings / shackles / lifting beam or proprietary attachments as required by the load and lifting points. Complete pre-use checks before the lift.`,
+    site_hazards: `Risks include vehicle instability, inadequate outrigger support, load swing, trapping / crushing, overhead obstructions, public interface, traffic movement, unsuitable loading area and incorrect restraint release. ${warningText}`,
+    control_measures: `Use trained personnel only, confirm load weight and lifting points, check chart and stabiliser setup, use mats / pads, establish exclusion zone, use agreed communication and stop work if weather, access or setup becomes unsafe.`,
+    ppe_required: `Hard hat, hi-vis, gloves, safety boots and any additional site-specific PPE required for collection or delivery points.`,
+    weather_limitations: `Do not proceed if wind, lightning, poor visibility or weather conditions make load control, vehicle stability or site access unsafe.`,
+    emergency_procedures: `Stop work immediately if unsafe conditions develop. Make the load safe where possible, isolate the area, inform site management and follow emergency arrangements for injury, service strike, instability or equipment failure.`,
+    method_statement: `Complete pre-start checks, brief personnel, confirm load details and lifting sequence, position ${vehicleName}, deploy outriggers on suitable support, complete controlled loading, secure the load, travel safely to site, then unload / place using agreed signals and an exclusion zone. ${warningText}`,
+    risk_assessment: `Main risks include overturning due to poor support or overreach, suspended load movement, trapping / crushing, overhead service contact, poor communication, unsecured load, road risks between sites and unsafe unloading area. ${warningText}`,
+    appointed_person: null,
     lift_supervisor: operatorName,
     operator_name: operatorName,
     rams_complete: false,
@@ -292,85 +328,120 @@ function fallbackTransportDraft(job: any, linkedJob?: any): TransportLiftPlanDra
   };
 }
 
+function buildCranePrompt(job: any, profile: EquipmentProfile | null) {
+  const client = one(job?.clients);
+  const crane = one(job?.cranes);
+  const operator = one(job?.operators);
+  const mainOperator = one(job?.main_operator);
+
+  return `You are helping draft a crane lift plan and RAMS document for an internal crane hire CRM.
+Return ONLY valid JSON with these keys:
+load_description, load_weight, lift_radius, lift_height, crane_configuration, outrigger_setup, ground_conditions, sling_type, lifting_accessories, method_statement, risk_assessment, site_hazards, control_measures, ppe_required, exclusion_zone_details, weather_limitations, emergency_procedures, lift_supervisor, appointed_person, crane_operator, rams_complete, lift_plan_complete.
+
+Rules:
+- This is a DRAFT only. Never say the lift is approved or fully checked.
+- Do not invent exact load weights, radius or height if not provided. Use null for unknown numbers.
+- Reference the selected machine profile if one is provided.
+- Make it practical and specific for UK lifting operations.
+- Always include a clear warning that final capacity must be checked against the current manufacturer chart, actual setup, accessories and site conditions before approval.
+- Keep rams_complete and lift_plan_complete false.
+
+Job data:
+${JSON.stringify({
+  job_number: job?.job_number ?? null,
+  client: client?.company_name ?? null,
+  site_name: job?.site_name ?? null,
+  site_address: job?.site_address ?? null,
+  contact_name: job?.contact_name ?? null,
+  contact_phone: job?.contact_phone ?? null,
+  start_date: job?.start_date ?? job?.job_date ?? null,
+  end_date: job?.end_date ?? job?.job_date ?? null,
+  start_time: job?.start_time ?? null,
+  end_time: job?.end_time ?? null,
+  hire_type: job?.hire_type ?? null,
+  lift_type: job?.lift_type ?? null,
+  notes: job?.notes ?? null,
+  crane: crane ?? null,
+  operator: mainOperator ?? operator ?? null,
+}, null, 2)}
+
+Selected machine profile:
+${JSON.stringify(profile, null, 2)}`;
+}
+
+function buildTransportPrompt(job: any, linkedJob: any, profile: EquipmentProfile | null) {
+  const client = one(job?.clients);
+  const vehicle = one(job?.vehicles);
+  const operator = one(job?.operators);
+
+  return `You are helping draft a transport / HIAB lift plan and RAMS document for an internal crane hire CRM.
+Return ONLY valid JSON with these keys:
+job_summary, load_description, load_weight, lift_radius, lift_height, vehicle_configuration, hiab_configuration, outrigger_setup, ground_conditions, pickup_method, delivery_method, route_notes, access_notes, exclusion_zone_details, traffic_management, load_securing_method, lifting_accessories, site_hazards, control_measures, ppe_required, weather_limitations, emergency_procedures, method_statement, risk_assessment, appointed_person, lift_supervisor, operator_name, rams_complete, lift_plan_complete.
+
+Rules:
+- This is a DRAFT only. Never say the lift is approved or fully checked.
+- Do not invent exact load weights, radius or height if not provided. Use null for unknown numbers.
+- Use the selected HIAB / machine profile if available.
+- Include loading, travel and unloading risks.
+- Always include a clear warning that final capacity must be checked against the current manufacturer chart, actual stabiliser setup, accessories and site conditions before approval.
+- Keep rams_complete and lift_plan_complete false.
+
+Transport job data:
+${JSON.stringify({
+  transport_number: job?.transport_number ?? null,
+  client: client?.company_name ?? null,
+  job_type: job?.job_type ?? null,
+  collection_address: job?.collection_address ?? null,
+  delivery_address: job?.delivery_address ?? null,
+  transport_date: job?.transport_date ?? null,
+  delivery_date: job?.delivery_date ?? null,
+  collection_time: job?.collection_time ?? null,
+  delivery_time: job?.delivery_time ?? null,
+  load_description: job?.load_description ?? null,
+  notes: job?.notes ?? null,
+  vehicle: vehicle ?? null,
+  operator: operator ?? null,
+  linked_job: linkedJob ?? null,
+}, null, 2)}
+
+Selected machine profile:
+${JSON.stringify(profile, null, 2)}`;
+}
+
 export async function generateCraneLiftPlanDraft(job: any) {
-  const fallback = fallbackCraneDraft(job);
+  const profile = matchCraneJobEquipmentProfile(job);
 
   try {
-    const prompt = [
-      "You are preparing a draft UK crane lift plan and RAMS for AnnS Crane Hire Ltd.",
-      "Return only valid JSON. No markdown. No commentary.",
-      "Write like an experienced appointed person producing a professional first draft for office review.",
-      "Do not invent exact weights, radii or heights unless they are explicitly supplied. Use null for unknown numeric values.",
-      'Return JSON with exactly these keys: {"load_description":string|null,"load_weight":number|null,"lift_radius":number|null,"lift_height":number|null,"crane_configuration":string|null,"outrigger_setup":string|null,"ground_conditions":string|null,"sling_type":string|null,"lifting_accessories":string|null,"method_statement":string|null,"risk_assessment":string|null,"site_hazards":string|null,"control_measures":string|null,"ppe_required":string|null,"exclusion_zone_details":string|null,"weather_limitations":string|null,"emergency_procedures":string|null,"lift_supervisor":string|null,"appointed_person":string|null,"crane_operator":string|null,"rams_complete":boolean,"lift_plan_complete":boolean}',
-      "Keep the text practical, job-specific where possible, and suitable for editing and approval by office staff.",
-      "",
-      `Job number: ${clean(job?.job_number) || "Unknown"}`,
-      `Client: ${clean(job?.clients?.company_name) || "Unknown"}`,
-      `Site name: ${clean(job?.site_name) || "Unknown"}`,
-      `Site address: ${clean(job?.site_address) || "Unknown"}`,
-      `Contact: ${clean(job?.contact_name) || clean(job?.clients?.contact_name) || "Unknown"}`,
-      `Dates: ${clean(job?.start_date) || clean(job?.job_date) || "Unknown"} to ${clean(job?.end_date) || clean(job?.job_date) || "Unknown"}`,
-      `Times: ${clean(job?.start_time) || "Unknown"} to ${clean(job?.end_time) || "Unknown"}`,
-      `Hire type: ${clean(job?.hire_type) || "Unknown"}`,
-      `Lift type: ${clean(job?.lift_type) || "Unknown"}`,
-      `Crane: ${joinParts([job?.cranes?.name, job?.cranes?.make, job?.cranes?.model, job?.cranes?.capacity]) || "Unknown"}`,
-      `Main operator: ${clean(job?.main_operator?.full_name) || clean(job?.operators?.full_name) || "Unknown"}`,
-      `Job notes: ${clean(job?.notes) || "None"}`,
-      `Fallback context: ${JSON.stringify(fallback)}`,
-    ].join("\n");
-
-    const text = await callOpenAI(prompt, 2200);
+    const text = await callOpenAI(buildCranePrompt(job, profile), 2200);
     return {
       provider: "openai" as const,
       draft: parseCraneDraft(text),
+      equipmentProfile: profile,
     };
   } catch {
     return {
       provider: "fallback" as const,
-      draft: fallback,
+      draft: fallbackCraneDraft(job, profile),
+      equipmentProfile: profile,
     };
   }
 }
 
-export async function generateTransportLiftPlanDraft(job: any, linkedJob?: any) {
-  const fallback = fallbackTransportDraft(job, linkedJob);
+export async function generateTransportLiftPlanDraft(job: any, linkedJob: any = null) {
+  const profile = matchTransportJobEquipmentProfile(job, linkedJob);
 
   try {
-    const prompt = [
-      "You are preparing a draft UK HIAB transport lift plan and RAMS for AnnS Crane Hire Ltd.",
-      "This is for transport jobs where a HIAB / lorry loader may be used for collection, delivery or on-site lifting.",
-      "Return only valid JSON. No markdown. No commentary.",
-      "Write like an experienced planner producing a strong first draft for office review.",
-      "Do not invent exact weights, radii or heights unless they are explicitly supplied. Use null for unknown numeric values.",
-      'Return JSON with exactly these keys: {"job_summary":string|null,"load_description":string|null,"load_weight":number|null,"lift_radius":number|null,"lift_height":number|null,"vehicle_configuration":string|null,"hiab_configuration":string|null,"outrigger_setup":string|null,"ground_conditions":string|null,"pickup_method":string|null,"delivery_method":string|null,"route_notes":string|null,"access_notes":string|null,"exclusion_zone_details":string|null,"traffic_management":string|null,"load_securing_method":string|null,"lifting_accessories":string|null,"site_hazards":string|null,"control_measures":string|null,"ppe_required":string|null,"weather_limitations":string|null,"emergency_procedures":string|null,"method_statement":string|null,"risk_assessment":string|null,"appointed_person":string|null,"lift_supervisor":string|null,"operator_name":string|null,"rams_complete":boolean,"lift_plan_complete":boolean}',
-      "Keep the text practical, safe and suitable for a HIAB transport operation in the UK.",
-      "",
-      `Transport number: ${clean(job?.transport_number) || "Unknown"}`,
-      `Client: ${clean(job?.clients?.company_name) || "Unknown"}`,
-      `Job type: ${clean(job?.job_type) || "Unknown"}`,
-      `Collection address: ${clean(job?.collection_address) || "Unknown"}`,
-      `Delivery address: ${clean(job?.delivery_address) || "Unknown"}`,
-      `Transport date: ${clean(job?.transport_date) || "Unknown"}`,
-      `Delivery date: ${clean(job?.delivery_date) || "Unknown"}`,
-      `Collection time: ${clean(job?.collection_time) || "Unknown"}`,
-      `Delivery time: ${clean(job?.delivery_time) || "Unknown"}`,
-      `Load description: ${clean(job?.load_description) || "Unknown"}`,
-      `Vehicle: ${joinParts([job?.vehicles?.name, job?.vehicles?.vehicle_type, job?.vehicles?.reg_number]) || "Unknown"}`,
-      `Operator: ${clean(job?.operators?.full_name) || "Unknown"}`,
-      `Linked crane job context: ${linkedJob ? JSON.stringify(linkedJob) : "None"}`,
-      `Transport notes: ${clean(job?.notes) || "None"}`,
-      `Fallback context: ${JSON.stringify(fallback)}`,
-    ].join("\n");
-
-    const text = await callOpenAI(prompt, 2600);
+    const text = await callOpenAI(buildTransportPrompt(job, linkedJob, profile), 2600);
     return {
       provider: "openai" as const,
       draft: parseTransportDraft(text),
+      equipmentProfile: profile,
     };
   } catch {
     return {
       provider: "fallback" as const,
-      draft: fallback,
+      draft: fallbackTransportDraft(job, linkedJob, profile),
+      equipmentProfile: profile,
     };
   }
 }
