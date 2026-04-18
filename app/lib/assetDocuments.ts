@@ -1,7 +1,10 @@
 import {
+  buildCraneAppendixFacts,
+  buildVehicleAppendixFacts,
   detectAssetAppendixPreset,
   selectCraneBundleTitlesForContext,
   selectVehicleBundleTitlesForContext,
+  type AppendixSelectionFacts,
   type CraneAppendixSelectionContext,
   type VehicleAppendixSelectionContext,
 } from "./assetAppendixPresets";
@@ -29,6 +32,13 @@ export type PackAppendixAssetItem = {
   document_type: string;
   page_number: number;
   appendix_order: number;
+};
+
+type RuleRow = {
+  id: string;
+  rule_name: string;
+  priority: number;
+  match_criteria: Record<string, any> | null;
 };
 
 function normaliseNumberArray(value: unknown): number[] {
@@ -95,6 +105,224 @@ function filterDocsByTitles<T extends { title?: string | null }>(docs: T[], titl
   const wanted = new Set(titles.map((title) => normaliseTitle(title)));
   const matched = docs.filter((doc) => wanted.has(normaliseTitle(doc.title)));
   return matched.length ? matched : docs;
+}
+
+function criterionMatches(expected: any, actual: any): boolean {
+  if (Array.isArray(expected)) {
+    return expected.some((item) => criterionMatches(item, actual));
+  }
+
+  if (expected === null || expected === undefined) {
+    return true;
+  }
+
+  if (typeof expected === "boolean") {
+    return Boolean(actual) === expected;
+  }
+
+  if (typeof expected === "number") {
+    return Number(actual) === expected;
+  }
+
+  return String(actual ?? "").trim().toLowerCase() === String(expected).trim().toLowerCase();
+}
+
+function matchesCriteria(criteria: Record<string, any> | null | undefined, facts: AppendixSelectionFacts) {
+  const entries = Object.entries(criteria ?? {});
+  if (!entries.length) return true;
+
+  for (const [key, expected] of entries) {
+    const actual = (facts as any)[key];
+    if (!criterionMatches(expected, actual)) return false;
+  }
+
+  return true;
+}
+
+function buildAppendixItemsFromRows({
+  previews,
+  docs,
+  storageMap,
+  ruleOrder,
+}: {
+  previews: any[];
+  docs: any[];
+  storageMap: Map<string, string>;
+  ruleOrder?: Map<string, number>;
+}) {
+  const docMap = new Map<string, any>(docs.map((doc: any) => [String(doc.id), doc]));
+
+  return previews
+    .map((preview: any) => {
+      const doc = docMap.get(String(preview.crane_document_id ?? preview.vehicle_document_id ?? ""));
+      if (!doc) return null;
+      const signed = storageMap.get(String(preview.preview_storage_path ?? ""));
+      if (!signed) return null;
+
+      const pageNumber = Number(preview.page_number ?? 0) || 1;
+      const order = ruleOrder?.get(String(preview.id)) ?? Number(doc.appendix_order ?? 9999);
+
+      return {
+        title:
+          String(preview.title ?? "").trim() ||
+          `${String(doc.title ?? "Document")}${pageNumber > 1 ? ` – page ${pageNumber}` : ""}`,
+        description: `${documentTypeLabel(doc.document_type)} • PDF page ${pageNumber}`,
+        image_url: signed,
+        document_type: String(doc.document_type ?? "other"),
+        page_number: pageNumber,
+        appendix_order: order,
+      } satisfies PackAppendixAssetItem;
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => a.appendix_order - b.appendix_order || a.page_number - b.page_number);
+}
+
+async function getCraneRuleAppendixAssets(craneId: string, context?: CraneAppendixSelectionContext | null) {
+  const admin = createSupabaseAdminClient();
+  const facts = buildCraneAppendixFacts(context ?? null);
+
+  const { data: rules, error: rulesError } = await admin
+    .from("asset_appendix_rules")
+    .select("id, rule_name, priority, match_criteria")
+    .eq("asset_type", "crane")
+    .eq("crane_id", craneId)
+    .eq("is_active", true)
+    .order("priority", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (rulesError || !rules?.length) return [];
+
+  const matchedRules = (rules as any[])
+    .filter((rule) => matchesCriteria(rule.match_criteria, facts))
+    .map((rule) => ({
+      id: String(rule.id),
+      rule_name: String(rule.rule_name ?? ""),
+      priority: Number(rule.priority ?? 100),
+      match_criteria: (rule.match_criteria ?? {}) as Record<string, any>,
+    })) as RuleRow[];
+
+  if (!matchedRules.length) return [];
+
+  const rulePriority = new Map<string, number>(matchedRules.map((rule) => [rule.id, rule.priority]));
+
+  const { data: rulePages, error: rulePagesError } = await admin
+    .from("asset_appendix_rule_pages")
+    .select("rule_id, preview_id, appendix_order")
+    .in("rule_id", matchedRules.map((rule) => rule.id));
+
+  if (rulePagesError || !rulePages?.length) return [];
+
+  const previewOrder = new Map<string, number>();
+  const previewIds: string[] = [];
+
+  (rulePages as any[])
+    .sort((a, b) => {
+      const pa = rulePriority.get(String(a.rule_id)) ?? 9999;
+      const pb = rulePriority.get(String(b.rule_id)) ?? 9999;
+      return pa - pb || Number(a.appendix_order ?? 9999) - Number(b.appendix_order ?? 9999);
+    })
+    .forEach((row) => {
+      const previewId = String(row.preview_id ?? "");
+      if (!previewId || previewOrder.has(previewId)) return;
+      previewIds.push(previewId);
+      previewOrder.set(previewId, Number(row.appendix_order ?? 9999));
+    });
+
+  if (!previewIds.length) return [];
+
+  const { data: previews, error: previewsError } = await admin
+    .from("asset_document_previews")
+    .select("id, crane_document_id, page_number, title, preview_storage_path")
+    .in("id", previewIds);
+
+  if (previewsError || !previews?.length) return [];
+
+  const docIds = Array.from(new Set(previews.map((row: any) => String(row.crane_document_id ?? "")).filter(Boolean)));
+  const { data: docs } = await admin
+    .from("crane_documents")
+    .select("id, title, document_type, appendix_order")
+    .in("id", docIds);
+
+  const storageMap = await signPaths(
+    "asset-doc-previews",
+    previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
+  );
+
+  return buildAppendixItemsFromRows({ previews, docs: docs ?? [], storageMap, ruleOrder: previewOrder });
+}
+
+async function getVehicleRuleAppendixAssets(vehicleId: string, context?: VehicleAppendixSelectionContext | null) {
+  const admin = createSupabaseAdminClient();
+  const facts = buildVehicleAppendixFacts(context ?? null);
+
+  const { data: rules, error: rulesError } = await admin
+    .from("asset_appendix_rules")
+    .select("id, rule_name, priority, match_criteria")
+    .eq("asset_type", "vehicle")
+    .eq("vehicle_id", vehicleId)
+    .eq("is_active", true)
+    .order("priority", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (rulesError || !rules?.length) return [];
+
+  const matchedRules = (rules as any[])
+    .filter((rule) => matchesCriteria(rule.match_criteria, facts))
+    .map((rule) => ({
+      id: String(rule.id),
+      rule_name: String(rule.rule_name ?? ""),
+      priority: Number(rule.priority ?? 100),
+      match_criteria: (rule.match_criteria ?? {}) as Record<string, any>,
+    })) as RuleRow[];
+
+  if (!matchedRules.length) return [];
+
+  const rulePriority = new Map<string, number>(matchedRules.map((rule) => [rule.id, rule.priority]));
+
+  const { data: rulePages, error: rulePagesError } = await admin
+    .from("asset_appendix_rule_pages")
+    .select("rule_id, preview_id, appendix_order")
+    .in("rule_id", matchedRules.map((rule) => rule.id));
+
+  if (rulePagesError || !rulePages?.length) return [];
+
+  const previewOrder = new Map<string, number>();
+  const previewIds: string[] = [];
+
+  (rulePages as any[])
+    .sort((a, b) => {
+      const pa = rulePriority.get(String(a.rule_id)) ?? 9999;
+      const pb = rulePriority.get(String(b.rule_id)) ?? 9999;
+      return pa - pb || Number(a.appendix_order ?? 9999) - Number(b.appendix_order ?? 9999);
+    })
+    .forEach((row) => {
+      const previewId = String(row.preview_id ?? "");
+      if (!previewId || previewOrder.has(previewId)) return;
+      previewIds.push(previewId);
+      previewOrder.set(previewId, Number(row.appendix_order ?? 9999));
+    });
+
+  if (!previewIds.length) return [];
+
+  const { data: previews, error: previewsError } = await admin
+    .from("asset_document_previews")
+    .select("id, vehicle_document_id, page_number, title, preview_storage_path")
+    .in("id", previewIds);
+
+  if (previewsError || !previews?.length) return [];
+
+  const docIds = Array.from(new Set(previews.map((row: any) => String(row.vehicle_document_id ?? "")).filter(Boolean)));
+  const { data: docs } = await admin
+    .from("vehicle_documents")
+    .select("id, title, document_type, appendix_order")
+    .in("id", docIds);
+
+  const storageMap = await signPaths(
+    "asset-doc-previews",
+    previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
+  );
+
+  return buildAppendixItemsFromRows({ previews, docs: docs ?? [], storageMap, ruleOrder: previewOrder });
 }
 
 export async function getCraneDocumentsForManager(craneId: string) {
@@ -211,6 +439,9 @@ export async function getCraneAppendixAssetsForPack(
 ) {
   if (!craneId) return [];
 
+  const ruleAssets = await getCraneRuleAppendixAssets(craneId, context);
+  if (ruleAssets.length) return ruleAssets;
+
   const admin = createSupabaseAdminClient();
 
   const [{ data: crane }, { data: docs, error }] = await Promise.all([
@@ -234,7 +465,6 @@ export async function getCraneAppendixAssetsForPack(
     preset ? selectCraneBundleTitlesForContext(crane ?? null, context ?? null) : null
   );
 
-  const docMap = new Map<string, any>(chosenDocs.map((doc: any) => [String(doc.id), doc]));
   const { data: previews } = await admin
     .from("asset_document_previews")
     .select("id, crane_document_id, page_number, title, preview_storage_path")
@@ -250,29 +480,7 @@ export async function getCraneAppendixAssetsForPack(
     previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
   );
 
-  return previews
-    .map((preview: any) => {
-      const doc = docMap.get(String(preview.crane_document_id));
-      if (!doc) return null;
-      const signed = storageMap.get(String(preview.preview_storage_path ?? ""));
-      if (!signed) return null;
-
-      const pageNumber = Number(preview.page_number ?? 0) || 1;
-      const order = Number(doc.appendix_order ?? 9999);
-
-      return {
-        title:
-          String(preview.title ?? "").trim() ||
-          `${String(doc.title ?? "Document")}${pageNumber > 1 ? ` – page ${pageNumber}` : ""}`,
-        description: `${documentTypeLabel(doc.document_type)} • PDF page ${pageNumber}`,
-        image_url: signed,
-        document_type: String(doc.document_type ?? "other"),
-        page_number: pageNumber,
-        appendix_order: order,
-      } satisfies PackAppendixAssetItem;
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => a.appendix_order - b.appendix_order || a.page_number - b.page_number);
+  return buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
 }
 
 export async function getVehicleAppendixAssetsForPack(
@@ -280,6 +488,9 @@ export async function getVehicleAppendixAssetsForPack(
   context?: VehicleAppendixSelectionContext | null
 ) {
   if (!vehicleId) return [];
+
+  const ruleAssets = await getVehicleRuleAppendixAssets(vehicleId, context);
+  if (ruleAssets.length) return ruleAssets;
 
   const admin = createSupabaseAdminClient();
 
@@ -307,7 +518,6 @@ export async function getVehicleAppendixAssetsForPack(
     preset ? selectVehicleBundleTitlesForContext(profile, context ?? null) : null
   );
 
-  const docMap = new Map<string, any>(chosenDocs.map((doc: any) => [String(doc.id), doc]));
   const { data: previews } = await admin
     .from("asset_document_previews")
     .select("id, vehicle_document_id, page_number, title, preview_storage_path")
@@ -323,27 +533,5 @@ export async function getVehicleAppendixAssetsForPack(
     previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
   );
 
-  return previews
-    .map((preview: any) => {
-      const doc = docMap.get(String(preview.vehicle_document_id));
-      if (!doc) return null;
-      const signed = storageMap.get(String(preview.preview_storage_path ?? ""));
-      if (!signed) return null;
-
-      const pageNumber = Number(preview.page_number ?? 0) || 1;
-      const order = Number(doc.appendix_order ?? 9999);
-
-      return {
-        title:
-          String(preview.title ?? "").trim() ||
-          `${String(doc.title ?? "Document")}${pageNumber > 1 ? ` – page ${pageNumber}` : ""}`,
-        description: `${documentTypeLabel(doc.document_type)} • PDF page ${pageNumber}`,
-        image_url: signed,
-        document_type: String(doc.document_type ?? "other"),
-        page_number: pageNumber,
-        appendix_order: order,
-      } satisfies PackAppendixAssetItem;
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => a.appendix_order - b.appendix_order || a.page_number - b.page_number);
+  return buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
 }
