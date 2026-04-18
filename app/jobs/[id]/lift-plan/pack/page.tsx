@@ -1,10 +1,12 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import {
   getPrimaryCraneContext,
   matchCraneJobEquipmentProfile,
 } from "../../../../lib/ai/matchEquipmentProfile";
 import PrintPackButton from "./PrintPackButton";
+
+type StringMap = Record<string, string | null>;
 
 function flatten<T>(value: T | T[] | null | undefined): T[] {
   if (!value) return [];
@@ -45,8 +47,7 @@ function calcDuration(start: string | null | undefined, end: string | null | und
 
 function craneLabel(crane: any, allocation: any) {
   const parts = [crane?.name, crane?.make, crane?.model].filter(Boolean);
-  const base = parts.join(" ").trim() || crane?.name || allocation?.item_name || "—";
-  return base;
+  return parts.join(" ").trim() || crane?.name || allocation?.item_name || "—";
 }
 
 function formatCapacity(profile: any, crane: any) {
@@ -83,7 +84,83 @@ function para(value: string | null | undefined, fallback: string) {
   return value && String(value).trim() ? String(value) : fallback;
 }
 
-function Page({ children, breakAfter = true }: { children: React.ReactNode; breakAfter?: boolean }) {
+function sentenceCase(value: string | null | undefined, fallback: string) {
+  const text = para(value, fallback).trim();
+  return text;
+}
+
+function tidyWhitespace(value: string | null | undefined) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function shortBoomConfiguration(
+  override: string | null | undefined,
+  liftPlanConfiguration: string | null | undefined,
+  equipmentProfile: any
+) {
+  if (override && override.trim()) return override.trim();
+
+  const source = tidyWhitespace(liftPlanConfiguration).toLowerCase();
+
+  if (!source) {
+    if (equipmentProfile?.machineType === "truck_crane") return "Main boom";
+    if (equipmentProfile?.machineType === "crane") return "Main boom";
+    return "Planned configuration";
+  }
+
+  if (source.includes("main boom") && source.includes("jib")) return "Main boom + jib";
+  if (source.includes("main boom")) return "Main boom";
+  if (source.includes("fly jib")) return "Main boom + fly jib";
+  if (source.includes("jib")) return "Boom + jib";
+  if (source.includes("platform") || source.includes("basket")) return "Lifting mode only";
+  return liftPlanConfiguration?.trim() || "Planned configuration";
+}
+
+function shortBoomLength(
+  override: string | null | undefined,
+  equipmentProfile: any,
+  craneName: string
+) {
+  if (override && override.trim()) return override.trim();
+
+  if (equipmentProfile?.maxBoomLengthM) {
+    return `${equipmentProfile.maxBoomLengthM} m max boom`;
+  }
+
+  if (equipmentProfile?.maxHydraulicOutreachM) {
+    if (String(craneName).toLowerCase().includes("ak 46")) {
+      return "44.0 m max extension";
+    }
+    return `${equipmentProfile.maxHydraulicOutreachM} m hydraulic outreach`;
+  }
+
+  return "Planned per selected chart";
+}
+
+function fallbackScope(clientName: string, projectName: string, liftPlan: any, loadWeight: string) {
+  const loadText = liftPlan?.load_description || "the planned load";
+  return `Works comprise the lifting operation for ${clientName} at ${projectName}. The planned load is ${loadText} with a stated load weight of ${loadWeight}. All lifting activities are to be carried out under the control of the appointed lifting team in accordance with the approved lift plan, site controls and current legislation.`;
+}
+
+function fallbackCommunication(siteContact: string) {
+  return `Communication will be maintained using clear agreed hand signals in accordance with BS 7121, with two-way radio communication used if visibility or site layout requires it. The designated signaller will remain in control of crane movements and liaise with ${siteContact || "the site representative"} where necessary.`;
+}
+
+function coverAddress(job: any) {
+  return [job?.site_name, job?.site_address].filter(Boolean).join(", ");
+}
+
+function PageShell({
+  children,
+  sectionTitle,
+  breakAfter = true,
+}: {
+  children: ReactNode;
+  sectionTitle: string;
+  breakAfter?: boolean;
+}) {
   return (
     <section
       style={{
@@ -92,16 +169,35 @@ function Page({ children, breakAfter = true }: { children: React.ReactNode; brea
         breakAfter: breakAfter ? "page" : "auto",
       }}
     >
-      {children}
+      <PageHeader sectionTitle={sectionTitle} />
+      <div style={pageBody}>{children}</div>
+      <PageFooter />
     </section>
   );
 }
 
-function HeaderBand({ title }: { title: string }) {
+function PageHeader({ sectionTitle }: { sectionTitle: string }) {
   return (
-    <div style={headerBand}>
-      <div style={{ fontWeight: 900 }}>ANNS – LIFTING PLAN – V1</div>
-      <div>{title}</div>
+    <div style={pageHeader}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <img src="/icon.png" alt="AnnS Crane Hire logo" style={logoStyle} />
+        <div>
+          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>ANNS – LIFTING PLAN – V1</div>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>Anns Crane Hire Ltd</div>
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>April 2026</div>
+        <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+      </div>
+    </div>
+  );
+}
+
+function PageFooter() {
+  return (
+    <div style={pageFooter}>
+      Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk
     </div>
   );
 }
@@ -119,15 +215,42 @@ function InfoTable({ rows }: { rows: Array<[string, any]> }) {
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
-  return <h2 style={sectionTitle}>{children}</h2>;
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h2 style={sectionTitleStyle}>{children}</h2>;
 }
 
-function BoxedParagraph({ title, children }: { title?: string; children: React.ReactNode }) {
+function BoxedParagraph({
+  title,
+  children,
+  compact = false,
+}: {
+  title?: string;
+  children: ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <div style={boxed}>
+    <div style={{ ...boxed, ...(compact ? compactBoxed : null) }}>
       {title ? <div style={boxedTitle}>{title}</div> : null}
-      <div style={{ whiteSpace: "pre-wrap", lineHeight: 1.45 }}>{children}</div>
+      <div style={boxedBody}>{children}</div>
+    </div>
+  );
+}
+
+function TwoColumnBoxes({
+  leftTitle,
+  leftBody,
+  rightTitle,
+  rightBody,
+}: {
+  leftTitle: string;
+  leftBody: ReactNode;
+  rightTitle: string;
+  rightBody: ReactNode;
+}) {
+  return (
+    <div style={twoColGrid}>
+      <BoxedParagraph title={leftTitle}>{leftBody}</BoxedParagraph>
+      <BoxedParagraph title={rightTitle}>{rightBody}</BoxedParagraph>
     </div>
   );
 }
@@ -156,11 +279,42 @@ function CheckboxTable({
         {Array.from({ length: rows }).map((_, i) => (
           <tr key={i}>
             <td style={tdStyle}>{left[i] ?? ""}</td>
-            <td style={tdStyle}></td>
-            <td style={tdStyle}></td>
+            <td style={tickCell}></td>
+            <td style={tickCell}></td>
             <td style={tdStyle}>{right[i] ?? ""}</td>
-            <td style={tdStyle}></td>
-            <td style={tdStyle}></td>
+            <td style={tickCell}></td>
+            <td style={tickCell}></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function BlankTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: number;
+}) {
+  return (
+    <table style={tableStyle}>
+      <thead>
+        <tr>
+          {headers.map((header) => (
+            <th key={header} style={thStyle}>
+              {header}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }).map((_, i) => (
+          <tr key={i}>
+            {headers.map((header, idx) => (
+              <td key={`${header}-${idx}`} style={tdStyle}></td>
+            ))}
           </tr>
         ))}
       </tbody>
@@ -242,7 +396,8 @@ export default async function CraneLiftPlanPackPage({
     supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
   ]);
 
-  const sections = ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
+  const sections: StringMap =
+    ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
   const client = flatten((job as any)?.clients)[0] ?? null;
   const primary = getPrimaryCraneContext(job as any);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
@@ -259,27 +414,33 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const projectName = sections.cover_project || (job as any)?.site_name || `Job ${(job as any)?.job_number ?? ""}`.trim();
+  const clientName = client?.company_name || "the client";
+  const projectName =
+    sections.cover_project ||
+    (job as any)?.site_name ||
+    `Job ${(job as any)?.job_number ?? ""}`.trim();
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
   const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
   const craneName = craneLabel(crane, allocation);
   const craneCapacity = formatCapacity(equipmentProfile, crane);
   const loadWeight = liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—";
-  const grossAccessories = liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—";
-  const boomConfig = sections.boom_configuration || liftPlan?.crane_configuration || "Main boom";
-  const boomLength = sections.boom_length || (
-    equipmentProfile?.maxHydraulicOutreachM
-      ? `${equipmentProfile.maxHydraulicOutreachM} m headline boom / outreach reference`
-      : "To be confirmed against selected chart"
+  const boomConfig = shortBoomConfiguration(
+    sections.boom_configuration,
+    liftPlan?.crane_configuration,
+    equipmentProfile
   );
+  const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
   const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
-  const scopeFallback = `Lifting operation for ${client?.company_name || "the client"} at ${projectName}. The planned load is ${liftPlan?.load_description || "to be confirmed"} with a stated load weight of ${loadWeight}. The crane will be set up, operated and supervised in accordance with the approved lifting plan, current legislation and site requirements.`;
-
+  const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
+  const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
   const methodStatementLines = splitLines(liftPlan?.method_statement);
   const riskLines = splitLines(liftPlan?.risk_assessment);
   const hazardLines = splitLines(liftPlan?.site_hazards);
   const controlLines = splitLines(liftPlan?.control_measures);
   const ppeLines = splitLines(liftPlan?.ppe_required);
+  const emergencyContacts = splitLines(sections.emergency_contacts || "").join("\n");
+  const equipmentList = splitLines(sections.equipment_list || "").join("\n");
+  const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
 
   return (
     <div style={wrapper}>
@@ -287,93 +448,123 @@ export default async function CraneLiftPlanPackPage({
         @media print {
           .print-hide { display: none !important; }
           body { background: white !important; }
+          @page { size: A4; margin: 10mm; }
         }
       `}</style>
 
       <div className="print-hide" style={toolbar}>
-        <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>← Back to lift plan</a>
+        <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
+          ← Back to lift plan
+        </a>
         <PrintPackButton />
       </div>
 
-      <Page>
-        <HeaderBand title="April 2026" />
-        <div style={{ textAlign: "center", marginTop: 18, marginBottom: 18 }}>
-          <div style={{ fontSize: 28, fontWeight: 900 }}>ANNS – LIFTING PLAN – V1</div>
-          <div style={{ marginTop: 6 }}>April 2026</div>
-          <div style={{ marginTop: 10, fontSize: 13 }}>
-            Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
+      <PageShell sectionTitle="Cover Sheet">
+        <div style={coverHero}>
+          <div>
+            <div style={coverTitle}>ANNS – LIFTING PLAN – V1</div>
+            <div style={coverSubtitle}>April 2026</div>
+          </div>
+          <div style={coverCompany}>
+            <div>Anns Crane Hire Ltd</div>
+            <div>6 Bay St, Port Tennant, Swansea, SA1 8LB</div>
+            <div>01792 641653 • info@annscranehire.co.uk</div>
           </div>
         </div>
 
         <InfoTable
           rows={[
-            ["Client", client?.company_name],
+            ["Client", clientName],
             ["Project", projectName],
             ["Start Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
-            ["Duration", calcDuration((job as any)?.start_date ?? (job as any)?.job_date, (job as any)?.end_date ?? (job as any)?.job_date)],
-            ["Site Address", (job as any)?.site_address],
+            [
+              "Duration",
+              calcDuration(
+                (job as any)?.start_date ?? (job as any)?.job_date,
+                (job as any)?.end_date ?? (job as any)?.job_date
+              ),
+            ],
+            ["Site Address", coverAddress(job)],
             ["Site Contact", (job as any)?.contact_name],
             ["Appointed Person", appointedPerson],
-            ["Prepared on behalf of:", "ANNS CRANE HIRE LTD"],
-            ["Lift Classification", sections.lift_classification || (job as any)?.hire_type || "Basic"],
+            ["Prepared on behalf of", "ANNS CRANE HIRE LTD"],
+            [
+              "Lift Classification",
+              sections.lift_classification || (job as any)?.hire_type || "Basic",
+            ],
             ["Crane(s)", craneName],
             ["Boom configuration", boomConfig],
             ["Boom length", boomLength],
           ]}
         />
-      </Page>
+      </PageShell>
 
-      <Page>
-        <HeaderBand title="Table of Contents" />
+      <PageShell sectionTitle="Table of Contents">
         <SectionTitle>Table of Contents</SectionTitle>
-        <ol style={{ lineHeight: 1.8, paddingLeft: 22 }}>
-          <li>Introduction</li>
-          <li>Appointed Person Declaration</li>
-          <li>Client Responsibilities and General Conditions</li>
-          <li>The Contract Lift and Arrival on Site</li>
-          <li>Brief Scope of Works</li>
-          <li>Lifting Personnel</li>
-          <li>On Site Communication</li>
-          <li>Weather Conditions</li>
-          <li>Site Access and Egress</li>
-          <li>Ground Conditions</li>
-          <li>Overhead Obstructions and Slewing Restrictions</li>
-          <li>Traffic and Pedestrian Management</li>
-          <li>Lifting Equipment to be used &amp; Certification</li>
-          <li>Crane Details</li>
-          <li>Variation from Method Statement</li>
-          <li>Toolbox Talk Attendance</li>
-          <li>Crane Set up Procedure</li>
-          <li>Lifting Procedure</li>
-          <li>De-Rig Procedure</li>
-          <li>Emergency Procedure</li>
-          <li>Risk Assessments</li>
-          <li>Check Lists and Sign Offs</li>
-        </ol>
-      </Page>
+        <div style={tocGrid}>
+          {[
+            "1. Introduction",
+            "2. Appointed Person Declaration",
+            "3. Client Responsibilities and General Conditions",
+            "4. The Contract Lift and Arrival on Site",
+            "5. Brief Scope of Works",
+            "6. Lifting Personnel",
+            "7. On Site Communication",
+            "8. Weather Conditions",
+            "9. Site Access and Egress",
+            "10. Ground Conditions",
+            "11. Overhead Obstructions and Slewing Restrictions",
+            "12. Traffic and Pedestrian Management",
+            "13. Lifting Equipment to be used & Certification",
+            "14. Crane Details",
+            "15. Variation from Method Statement",
+            "16. Toolbox Talk Attendance",
+            "17. Crane Set-up Procedure",
+            "18. Lifting Procedure",
+            "19. De-Rig Procedure",
+            "20. Emergency Procedure",
+            "21. Risk Assessments",
+            "22. Check Lists and Sign Offs",
+          ].map((item) => (
+            <div key={item} style={tocItem}>
+              {item}
+            </div>
+          ))}
+        </div>
+      </PageShell>
 
-      <Page>
-        <HeaderBand title="1. Introduction" />
+      <PageShell sectionTitle="1. Introduction">
         <SectionTitle>1. Introduction</SectionTitle>
         <BoxedParagraph title="Method Statement – CPA Contract Lift">
-{para(sections.introduction, "This Method Statement has been prepared based on information provided by our client, together with site-specific details held within the CRM and the selected lifting equipment profile. This lift is undertaken under CPA Contract Lift conditions where requested and is to be carried out in accordance with current legislation, BS 7121, LOLER, PUWER, and applicable manufacturer guidance.")}
+          {sentenceCase(
+            sections.introduction,
+            `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded within the CRM. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
+          )}
         </BoxedParagraph>
 
-        <BoxedParagraph title="Site Inspection">
-          A site review and planning assessment must be completed by the Appointed Person before lifting operations commence. Particular consideration must be given to site access and egress, ground conditions, overhead obstructions, public interface, delivery vehicle positioning, exclusion zone requirements and any other environmental or logistical constraints that could affect the lift.
-        </BoxedParagraph>
+        <TwoColumnBoxes
+          leftTitle="Site Inspection"
+          leftBody={sentenceCase(
+            null,
+            `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`
+          )}
+          rightTitle="Roles and Responsibilities"
+          rightBody={sentenceCase(
+            null,
+            `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`
+          )}
+        />
 
-        <BoxedParagraph title="The Appointed Person">
-          The Appointed Person who has prepared this lifting plan assumes responsibility for the planning of the lifting operation. The Lift Supervisor must be fully briefed on the contents of the plan before any lifting activities begin, and the Appointed Person must remain available should site conditions or operational requirements change.
+        <BoxedParagraph title="Job Planning Snapshot" compact>
+          Client: {clientName}{"\n"}
+          Project: {projectName}{"\n"}
+          Crane: {craneName}{"\n"}
+          Lift Type: {(job as any)?.lift_type || "—"}{"\n"}
+          Site Contact: {(job as any)?.contact_name || "—"}
         </BoxedParagraph>
+      </PageShell>
 
-        <BoxedParagraph title="The Lift Supervisor, Slinger/Signaller and Operator">
-          The Lift Supervisor is responsible for implementing this lifting plan on site and ensuring all operatives are briefed. The Slinger/Signaller is responsible for correct attachment of lifting accessories, directing the lift and maintaining clear communication. The crane operator must only operate the crane within the approved configuration and in accordance with the instructions issued by the Lift Supervisor / designated signaller.
-        </BoxedParagraph>
-      </Page>
-
-      <Page>
-        <HeaderBand title="2–5. Planning & Scope" />
+      <PageShell sectionTitle="2–5. Planning & Scope">
         <SectionTitle>2. Appointed Person Declaration</SectionTitle>
         <InfoTable
           rows={[
@@ -387,20 +578,27 @@ export default async function CraneLiftPlanPackPage({
 
         <SectionTitle>3. Client Responsibilities and General Conditions</SectionTitle>
         <BoxedParagraph>
-{para(sections.client_responsibilities, "The client shall ensure that accurate load information, safe access / egress, suitable crane standing area, traffic management, lighting where required, and site induction / emergency arrangements are in place. The client remains responsible for the integrity of the load and for providing accurate information regarding underground services, voids, restrictions, permits and any other conditions that may affect the lifting operation.")}
+          {sentenceCase(
+            sections.client_responsibilities,
+            `The client shall provide accurate load information, safe and suitable access, a suitable crane standing area, traffic and pedestrian controls where required, and details of any restrictions, underground services, permits or other site conditions that may affect the lifting operation. The client remains responsible for the structural integrity of the load and any client-supplied lifting points.`
+          )}
         </BoxedParagraph>
 
         <SectionTitle>4. The Contract Lift and Arrival on Site</SectionTitle>
         <BoxedParagraph>
-{para(sections.contract_lift_arrival, "Upon arrival, the crane and associated lifting personnel will report to the agreed site contact, complete any required induction, and proceed to the designated lifting position under supervision. The crane will be rigged in accordance with the manufacturer’s instructions, the selected configuration and this lifting plan. No lifting operation will commence until the Lift Supervisor has confirmed that the site set-up, communications, exclusion zones and controls are in place.")}
+          {sentenceCase(
+            sections.contract_lift_arrival,
+            `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
+          )}
         </BoxedParagraph>
 
         <SectionTitle>5. Brief Scope of Works</SectionTitle>
-        <BoxedParagraph>{para(sections.scope_of_works || liftPlan?.load_description, scopeFallback)}</BoxedParagraph>
-      </Page>
+        <BoxedParagraph>
+          {sentenceCase(sections.scope_of_works || liftPlan?.load_description, scopeFallback)}
+        </BoxedParagraph>
+      </PageShell>
 
-      <Page>
-        <HeaderBand title="6–12. Site Controls" />
+      <PageShell sectionTitle="6–12. Site Controls">
         <SectionTitle>6. Lifting Personnel</SectionTitle>
         <InfoTable
           rows={[
@@ -412,46 +610,56 @@ export default async function CraneLiftPlanPackPage({
         />
 
         <SectionTitle>7. On Site Communication</SectionTitle>
-        <InfoTable
-          rows={[
-            ["Two-way Radios supplied by Anns Crane Hire Ltd", "No / if required by site"],
-            ["Two-way Radios supplied by the Client", "No / if required by site"],
-            ["Hand Signals", "Yes"],
-            ["Communication notes", sections.communication || "—"],
-          ]}
-        />
+        <BoxedParagraph>
+          {sentenceCase(sections.communication, communicationFallback)}
+        </BoxedParagraph>
 
         <SectionTitle>8. Weather Conditions</SectionTitle>
         <BoxedParagraph>
-          {para(
+          {sentenceCase(
             sections.weather_conditions || liftPlan?.weather_limitations,
-            "Lifting operations must be suspended during adverse weather, including high winds, lightning, heavy rain or poor visibility. Final permissible wind speed must be checked against the selected crane chart, current configuration, the load characteristics, and prevailing site conditions."
+            `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
           )}
         </BoxedParagraph>
 
-        <SectionTitle>9. Site Access and Egress</SectionTitle>
-        <BoxedParagraph>
-{para(sections.site_access_egress, "The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must be suitable for the size and weight of the crane and any delivery / collection vehicles associated with the lift.")}
-        </BoxedParagraph>
+        <TwoColumnBoxes
+          leftTitle="9. Site Access and Egress"
+          leftBody={sentenceCase(
+            sections.site_access_egress,
+            `The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must remain suitable for the crane size, weight and turning requirements.`
+          )}
+          rightTitle="10. Ground Conditions"
+          rightBody={sentenceCase(
+            sections.ground_conditions || liftPlan?.ground_conditions,
+            `Ground conditions are to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load and the outrigger reactions. Additional ground protection must be used where required.`
+          )}
+        />
 
-        <SectionTitle>10. Ground Conditions</SectionTitle>
-        <BoxedParagraph>{para(sections.ground_conditions || liftPlan?.ground_conditions, "Ground conditions to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load, and outrigger reactions. Additional ground protection is to be used where required.")}</BoxedParagraph>
+        <TwoColumnBoxes
+          leftTitle="11. Overhead Obstructions and Slewing Restrictions"
+          leftBody={sentenceCase(
+            sections.overhead_obstructions || liftPlan?.site_hazards,
+            `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
+          )}
+          rightTitle="12. Traffic and Pedestrian Management"
+          rightBody={sentenceCase(
+            sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details,
+            `The lifting area is to be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone during operations.`
+          )}
+        />
+      </PageShell>
 
-        <SectionTitle>11. Overhead Obstructions and Slewing Restrictions</SectionTitle>
-        <BoxedParagraph>{para(sections.overhead_obstructions || liftPlan?.site_hazards, "All overhead obstructions, structures, plant, power lines and slewing restrictions must be identified and controlled before lifting operations commence.")}</BoxedParagraph>
-
-        <SectionTitle>12. Traffic and Pedestrian Management</SectionTitle>
-        <BoxedParagraph>{para(sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details, "The work area must be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone. Client traffic and pedestrian management requirements must be implemented before works commence.")}</BoxedParagraph>
-      </Page>
-
-      <Page>
-        <HeaderBand title="13–14. Equipment & Crane Details" />
-        <SectionTitle>13. Lifting Equipment to be used &amp; Certification</SectionTitle>
+      <PageShell sectionTitle="13–14. Equipment & Crane Details">
+        <SectionTitle>13. Lifting Equipment to be used & Certification</SectionTitle>
         <InfoTable
           rows={[
             ["Sling type", liftPlan?.sling_type],
             ["Lifting accessories", liftPlan?.lifting_accessories],
-            ["LOLER / certification", sections.lifting_equipment_certification || "All lifting tackle to hold current certification and be inspected before use"],
+            [
+              "LOLER / certification",
+              sections.lifting_equipment_certification ||
+                "All lifting tackle must hold current certification and be inspected before use.",
+            ],
           ]}
         />
 
@@ -459,73 +667,88 @@ export default async function CraneLiftPlanPackPage({
         <InfoTable
           rows={[
             ["Crane type", craneName],
-            ["Crane gross weight", crane?.capacity ? `${crane?.capacity}` : "See selected machine profile / manufacturer information"],
+            [
+              "Crane gross weight",
+              crane?.capacity
+                ? `${crane?.capacity}`
+                : "See selected machine profile / manufacturer information",
+            ],
             ["Gross weight of load", loadWeight],
-            ["Gross weight of lifting accessories", grossAccessories],
+            [
+              "Gross weight of lifting accessories",
+              liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—",
+            ],
             ["Boom configuration", boomConfig],
-            ["Boom / outreach reference", equipmentProfile?.maxHydraulicOutreachM ? `${equipmentProfile.maxHydraulicOutreachM} m` : "—"],
-            ["Jib / max outreach", equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—"],
+            [
+              "Boom / outreach reference",
+              equipmentProfile?.maxHydraulicOutreachM
+                ? `${equipmentProfile.maxHydraulicOutreachM} m`
+                : "—",
+            ],
+            [
+              "Jib / max outreach",
+              equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—",
+            ],
             ["Max capacity", craneCapacity],
             ["Crane utilisation %", utilisation],
           ]}
         />
 
         <BoxedParagraph title="Crane specifications">
-          {sections.crane_details || equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."}
+          {sentenceCase(
+            sections.crane_details,
+            equipmentProfile?.summary ||
+              "Selected crane profile to be checked against the current manufacturer specification and load chart."
+          )}
         </BoxedParagraph>
 
         <BoxedParagraph title="Load chart note">
           Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds.
         </BoxedParagraph>
-      </Page>
+      </PageShell>
 
-      <Page>
-        <HeaderBand title="15–19. Procedure" />
+      <PageShell sectionTitle="15–19. Procedure">
         <SectionTitle>15. Variation from Method Statement</SectionTitle>
-        <table style={tableStyle}>
-          <thead>
-            <tr>
-              <th style={thStyle}>Variation Details</th>
-              <th style={thStyle}>Time / Date</th>
-              <th style={thStyle}>AP Contact</th>
-              <th style={thStyle}>Initials</th>
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <tr key={i}>
-                <td style={tdStyle}></td>
-                <td style={tdStyle}></td>
-                <td style={tdStyle}></td>
-                <td style={tdStyle}></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <SectionTitle>16. Toolbox Talk Attendance</SectionTitle>
-        <CheckboxTable
-          left={[
-            "Crane test certificates",
-            "Crane thorough examination report",
-            "Operator weekly inspection form",
-            "Test certificates / thorough exam reports for lifting accessories",
-            "Toolbox talk delivered and recorded",
-            "Appropriate PPE",
-          ]}
-          right={[
-            "Working area cordoned off",
-            "Crane set in correct location",
-            "Crane limits & load indicator OK",
-            "Rigging fitted as detailed",
-            "Weather within acceptable limits",
-            "Site cleared",
-          ]}
+        <BlankTable
+          headers={["Variation Details", "Time / Date", "AP Contact", "Initials"]}
+          rows={5}
         />
 
-        <SectionTitle>17. Crane Set up Procedure</SectionTitle>
-        <BoxedParagraph>{para(sections.crane_setup_procedure || liftPlan?.crane_configuration, "Crane to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the planned lift arrangement.")}</BoxedParagraph>
-        <BoxedParagraph>{para(liftPlan?.outrigger_setup, "Outriggers to be deployed as required by the selected configuration and site restrictions. Suitable mats / spreaders to be used where necessary.")}</BoxedParagraph>
+        <div style={avoidBreak}>
+          <SectionTitle>16. Toolbox Talk Attendance</SectionTitle>
+          <CheckboxTable
+            left={[
+              "Crane test certificates",
+              "Crane thorough examination report",
+              "Operator weekly inspection form",
+              "Test certificates / thorough exam reports for lifting accessories",
+              "Toolbox talk delivered and recorded",
+              "Appropriate PPE",
+            ]}
+            right={[
+              "Working area cordoned off",
+              "Crane set in correct location",
+              "Crane limits & load indicator OK",
+              "Rigging fitted as detailed",
+              "Weather within acceptable limits",
+              "Site cleared",
+            ]}
+          />
+        </div>
+
+        <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.crane_setup_procedure || liftPlan?.crane_configuration,
+            `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
+          )}
+        </BoxedParagraph>
+        <BoxedParagraph compact>
+          {sentenceCase(
+            liftPlan?.outrigger_setup,
+            `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
+          )}
+        </BoxedParagraph>
 
         <SectionTitle>18. Lifting Procedure</SectionTitle>
         <BoxedParagraph>
@@ -533,51 +756,59 @@ export default async function CraneLiftPlanPackPage({
             ? sections.lifting_procedure
             : methodStatementLines.length
             ? methodStatementLines.join("\n")
-            : "1. Position crane and establish exclusion zone.\n2. Brief all personnel and confirm communication method.\n3. Inspect accessories and connect as planned.\n4. Take up slack and complete test lift.\n5. Hoist, slew and land load under direction of the designated signaller.\n6. Remove lifting accessories and prepare for next operation."}
+            : "1. Brief all personnel and confirm communication method.\n2. Establish exclusion zone and position the crane.\n3. Inspect lifting accessories and connect as planned.\n4. Take up slack and complete a controlled test lift.\n5. Hoist, slew and land the load under the direction of the designated signaller.\n6. Remove lifting accessories and prepare for the next operation."}
         </BoxedParagraph>
 
         <SectionTitle>19. De-Rig Procedure</SectionTitle>
         <BoxedParagraph>
-          {para(sections.de_rig_procedure, "On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.")}
+          {sentenceCase(
+            sections.de_rig_procedure,
+            `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
+          )}
         </BoxedParagraph>
-      </Page>
+      </PageShell>
 
-      <Page>
-        <HeaderBand title="20–22. Emergency, Risk & Sign Off" />
+      <PageShell sectionTitle="20–22. Emergency, Risk & Sign Off" breakAfter={false}>
         <SectionTitle>20. Emergency Procedure</SectionTitle>
         <BoxedParagraph>
-          {para(
+          {sentenceCase(
             sections.emergency_procedure || liftPlan?.emergency_procedures,
-            "In the event of an emergency, lifting operations will stop immediately. The load will be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation will recommence until the situation has been resolved and the area declared safe."
+            `In the event of an emergency, lifting operations are to stop immediately. The load must be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation is to recommence until the situation has been resolved and the area declared safe.`
           )}
         </BoxedParagraph>
 
         <SectionTitle>21. Risk Assessments</SectionTitle>
-        <BoxedParagraph title="Risk assessment summary">
-          {sections.risk_assessment_summary
-            ? sections.risk_assessment_summary
-            : riskLines.length
-            ? riskLines.join("\n")
-            : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone."}
-        </BoxedParagraph>
+        <TwoColumnBoxes
+          leftTitle="Risk assessment summary"
+          leftBody={
+            sections.risk_assessment_summary
+              ? sections.risk_assessment_summary
+              : riskLines.length
+              ? riskLines.join("\n")
+              : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone."
+          }
+          rightTitle="Site hazards"
+          rightBody={
+            hazardLines.length
+              ? hazardLines.join("\n")
+              : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."
+          }
+        />
 
-        <BoxedParagraph title="Site hazards">
-          {hazardLines.length
-            ? hazardLines.join("\n")
-            : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."}
-        </BoxedParagraph>
-
-        <BoxedParagraph title="Control measures">
-          {controlLines.length
-            ? controlLines.join("\n")
-            : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."}
-        </BoxedParagraph>
-
-        <BoxedParagraph title="PPE required">
-          {ppeLines.length
-            ? ppeLines.join("\n")
-            : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."}
-        </BoxedParagraph>
+        <TwoColumnBoxes
+          leftTitle="Control measures"
+          leftBody={
+            controlLines.length
+              ? controlLines.join("\n")
+              : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
+          }
+          rightTitle="PPE required"
+          rightBody={
+            ppeLines.length
+              ? ppeLines.join("\n")
+              : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
+          }
+        />
 
         <SectionTitle>22. Check Lists and Sign Offs</SectionTitle>
         <InfoTable
@@ -590,30 +821,13 @@ export default async function CraneLiftPlanPackPage({
           ]}
         />
 
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Attendance Record</div>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Name</th>
-                <th style={thStyle}>Employer</th>
-                <th style={thStyle}>Signature</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 5 }).map((_, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div style={avoidBreak}>
+          <div style={subHeading}>Attendance Record</div>
+          <BlankTable headers={["Name", "Employer", "Signature"]} rows={5} />
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Delegation of Duties</div>
+        <div style={avoidBreak}>
+          <div style={subHeading}>Delegation of Duties</div>
           <InfoTable
             rows={[
               ["Appointed Person", appointedPerson],
@@ -623,43 +837,29 @@ export default async function CraneLiftPlanPackPage({
           />
         </div>
 
-        <div style={{ marginTop: 14 }}>
-          {sections.toolbox_notes ? (
-            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}>{sections.toolbox_notes}</div>
-          ) : null}
-          {sections.emergency_contacts ? (
-            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}><strong>Emergency contacts</strong><br />{sections.emergency_contacts}</div>
-          ) : null}
-          {sections.equipment_list ? (
-            <div style={{ marginBottom: 12, whiteSpace: "pre-wrap" }}><strong>Equipment list</strong><br />{sections.equipment_list}</div>
-          ) : null}
-          <div style={{ fontWeight: 800, marginBottom: 8 }}>Wind speed record sheet</div>
-          <table style={tableStyle}>
-            <thead>
-              <tr>
-                <th style={thStyle}>Time</th>
-                <th style={thStyle}>Wind Speed</th>
-                <th style={thStyle}>OK To Work (Y / N)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {Array.from({ length: 10 }).map((_, i) => (
-                <tr key={i}>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                  <td style={tdStyle}></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {toolboxNotes ? (
+          <BoxedParagraph title="Toolbox / sign-off notes">{toolboxNotes}</BoxedParagraph>
+        ) : null}
+
+        {emergencyContacts ? (
+          <BoxedParagraph title="Emergency contacts">{emergencyContacts}</BoxedParagraph>
+        ) : null}
+
+        {equipmentList ? (
+          <BoxedParagraph title="Equipment list">{equipmentList}</BoxedParagraph>
+        ) : null}
+
+        <div style={avoidBreak}>
+          <div style={subHeading}>Wind speed record sheet</div>
+          <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)"]} rows={10} />
         </div>
-      </Page>
+      </PageShell>
     </div>
   );
 }
 
 const wrapper: CSSProperties = {
-  background: "#fff",
+  background: "#f5f5f5",
   color: "#111",
   minHeight: "100vh",
   padding: 24,
@@ -668,7 +868,7 @@ const wrapper: CSSProperties = {
 };
 
 const toolbar: CSSProperties = {
-  maxWidth: 1020,
+  maxWidth: "210mm",
   margin: "0 auto 16px auto",
   display: "flex",
   justifyContent: "space-between",
@@ -690,32 +890,91 @@ const buttonStyle: CSSProperties = {
 const pageStyle: CSSProperties = {
   width: "210mm",
   minHeight: "297mm",
-  margin: "0 auto 20px auto",
-  border: "1px dashed rgba(0,0,0,0.35)",
-  padding: 18,
-  boxSizing: "border-box",
+  margin: "0 auto 16px auto",
   background: "#fff",
+  boxSizing: "border-box",
+  padding: 16,
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
+  display: "flex",
+  flexDirection: "column",
 };
 
-const headerBand: CSSProperties = {
+const pageHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  alignItems: "center",
-  fontSize: 12,
-  marginBottom: 12,
+  alignItems: "flex-start",
+  gap: 12,
+  paddingBottom: 10,
+  borderBottom: "1px solid #bcbcbc",
 };
 
-const sectionTitle: CSSProperties = {
+const pageBody: CSSProperties = {
+  flex: 1,
+  paddingTop: 12,
+};
+
+const pageFooter: CSSProperties = {
+  paddingTop: 10,
+  marginTop: 10,
+  borderTop: "1px solid #bcbcbc",
+  fontSize: 11,
+  textAlign: "center",
+  color: "#555",
+};
+
+const logoStyle: CSSProperties = {
+  width: 54,
+  height: 54,
+  objectFit: "contain",
+};
+
+const coverHero: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  marginBottom: 18,
+};
+
+const coverTitle: CSSProperties = {
+  fontSize: 28,
+  fontWeight: 900,
+  lineHeight: 1.1,
+};
+
+const coverSubtitle: CSSProperties = {
+  marginTop: 4,
+  fontSize: 18,
+  color: "#555",
+};
+
+const coverCompany: CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.55,
+  textAlign: "right",
+};
+
+const sectionTitleStyle: CSSProperties = {
   marginTop: 0,
   marginBottom: 10,
-  fontSize: 22,
+  fontSize: 24,
+  fontWeight: 900,
+};
+
+const subHeading: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 900,
+  marginTop: 14,
+  marginBottom: 8,
 };
 
 const infoTable: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "190px 1fr",
+  gridTemplateColumns: "180px 1fr",
   borderTop: "1px solid #333",
   borderLeft: "1px solid #333",
+  breakInside: "avoid",
 };
 
 const infoLabel: CSSProperties = {
@@ -723,6 +982,7 @@ const infoLabel: CSSProperties = {
   borderRight: "1px solid #333",
   borderBottom: "1px solid #333",
   fontWeight: 700,
+  background: "#f6f6f6",
 };
 
 const infoValue: CSSProperties = {
@@ -736,16 +996,45 @@ const boxed: CSSProperties = {
   border: "1px solid #333",
   padding: 12,
   marginBottom: 12,
+  breakInside: "avoid",
+};
+
+const compactBoxed: CSSProperties = {
+  padding: 10,
 };
 
 const boxedTitle: CSSProperties = {
-  fontWeight: 800,
+  fontWeight: 900,
   marginBottom: 6,
+};
+
+const boxedBody: CSSProperties = {
+  whiteSpace: "pre-wrap",
+  lineHeight: 1.5,
+};
+
+const twoColGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
+
+const tocGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr",
+  gap: 8,
+};
+
+const tocItem: CSSProperties = {
+  paddingBottom: 6,
+  borderBottom: "1px dotted #aaa",
+  fontWeight: 700,
 };
 
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
+  breakInside: "avoid",
 };
 
 const thStyle: CSSProperties = {
@@ -753,6 +1042,7 @@ const thStyle: CSSProperties = {
   textAlign: "left",
   padding: "7px 8px",
   fontSize: 13,
+  background: "#f6f6f6",
 };
 
 const tdStyle: CSSProperties = {
@@ -760,4 +1050,16 @@ const tdStyle: CSSProperties = {
   padding: "8px",
   height: 28,
   verticalAlign: "top",
+};
+
+const tickCell: CSSProperties = {
+  ...tdStyle,
+  width: 24,
+  minWidth: 24,
+  padding: 0,
+};
+
+const avoidBreak: CSSProperties = {
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
 };
