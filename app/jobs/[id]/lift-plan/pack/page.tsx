@@ -267,8 +267,8 @@ export default async function CraneLiftPlanPackPage({
   const grossAccessories = liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—";
   const boomConfig = liftPlan?.crane_configuration || "Main boom";
   const boomLength =
-    equipmentProfile?.boomHydraulicOutreachM
-      ? `${equipmentProfile.boomHydraulicOutreachM} m headline boom / outreach reference`
+    equipmentProfile?.maxHydraulicOutreachM
+      ? `${equipmentProfile.maxHydraulicOutreachM} m headline boom / outreach reference`
       : "To be confirmed against selected chart";
   const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
   const scopeFallback = `Lifting operation for ${client?.company_name || "the client"} at ${projectName}. The planned load is ${liftPlan?.load_description || "to be confirmed"} with a stated load weight of ${loadWeight}. The crane will be set up, operated and supervised in accordance with the approved lifting plan, current legislation and site requirements.`;
@@ -460,8 +460,8 @@ export default async function CraneLiftPlanPackPage({
             ["Gross weight of load", loadWeight],
             ["Gross weight of lifting accessories", grossAccessories],
             ["Boom configuration", boomConfig],
-            ["Boom / outreach reference", equipmentProfile?.boomHydraulicOutreachM ? `${equipmentProfile.boomHydraulicOutreachM} m` : "—"],
-            ["Jib / max outreach", equipmentProfile?.maxReachM ? `${equipmentProfile.maxReachM} m` : "—"],
+            ["Boom / outreach reference", equipmentProfile?.maxHydraulicOutreachM ? `${equipmentProfile.maxHydraulicOutreachM} m` : "—"],
+            ["Jib / max outreach", equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—"],
             ["Max capacity", craneCapacity],
             ["Crane utilisation %", utilisation],
           ]}
