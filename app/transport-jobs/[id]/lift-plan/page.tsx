@@ -43,7 +43,11 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
 
   let linkedJob: any = null;
   if ((job as any)?.linked_job_id) {
-    const { data } = await supabase.from("jobs").select(`id, job_number, site_name, site_address, notes, lift_type, hire_type, cranes:crane_id (name, make, model, capacity)`).eq("id", (job as any).linked_job_id).maybeSingle();
+    const { data } = await supabase
+      .from("jobs")
+      .select(`id, job_number, site_name, site_address, notes, lift_type, hire_type, cranes:crane_id (name, make, model, capacity)`)
+      .eq("id", (job as any).linked_job_id)
+      .maybeSingle();
     linkedJob = data ?? null;
   }
 
@@ -60,6 +64,8 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href={`/transport-jobs/${params.id}`} style={secondaryBtn}>← Back to transport job</a>
+            <a href={`/transport-jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>Full HIAB pack</a>
+            <a href={`/transport-jobs/${params.id}/lift-plan/pack/edit`} style={secondaryBtn}>Edit pack sections</a>
           </div>
         </div>
 
