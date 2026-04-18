@@ -4,7 +4,7 @@ import { createSupabaseAdminClient } from "../../../../../../lib/supabase/admin"
 
 export async function POST(
   _req: Request,
-  { params }: { params: { id: string; documentId: string } }
+  { params }: { params: { id: string; documentId?: string; documentid?: string } }
 ) {
   try {
     const supabase = createSupabaseServerClient();
@@ -19,10 +19,16 @@ export async function POST(
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
+    const documentId = String(params.documentId || params.documentid || "").trim();
+
+    if (!documentId) {
+      return NextResponse.json({ error: "Document id missing." }, { status: 400 });
+    }
+
     const { data: doc, error: docError } = await admin
       .from("crane_documents")
       .select("id, crane_id, storage_path")
-      .eq("id", params.documentId)
+      .eq("id", documentId)
       .eq("crane_id", params.id)
       .maybeSingle();
 
@@ -37,14 +43,18 @@ export async function POST(
     const { data: previews } = await admin
       .from("asset_document_previews")
       .select("id, preview_storage_path")
-      .eq("crane_document_id", params.documentId);
+      .eq("crane_document_id", documentId);
 
     const previewPaths = (previews ?? [])
       .map((row: any) => String(row.preview_storage_path ?? ""))
       .filter(Boolean);
 
-    await admin.from("asset_document_previews").delete().eq("crane_document_id", params.documentId);
-    const { error: deleteError } = await admin.from("crane_documents").delete().eq("id", params.documentId);
+    await admin.from("asset_document_previews").delete().eq("crane_document_id", documentId);
+
+    const { error: deleteError } = await admin
+      .from("crane_documents")
+      .delete()
+      .eq("id", documentId);
 
     if (deleteError) {
       return NextResponse.json({ error: deleteError.message }, { status: 400 });
@@ -60,6 +70,9 @@ export async function POST(
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message || "Could not delete document." }, { status: 400 });
+    return NextResponse.json(
+      { error: error?.message || "Could not delete document." },
+      { status: 400 }
+    );
   }
 }
