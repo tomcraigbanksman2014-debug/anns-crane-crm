@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useState } from "react";
-import type { EquipmentProfile } from "../../../lib/ai/equipmentProfiles";
+import type { EquipmentProfile } from "../../lib/ai/equipmentProfiles";
 
 type TransportLiftPlanData = {
   job_summary?: string | null;
