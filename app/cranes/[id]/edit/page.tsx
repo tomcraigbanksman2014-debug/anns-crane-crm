@@ -196,7 +196,7 @@ export default async function EditCranePage({
             </div>
 
             <div style={{ marginTop: 18 }}>
-              <CraneDocumentsManager craneId={crane.id} initialDocuments={docs} />
+              <CraneDocumentsManager craneId={crane.id} assetProfile={{ name: crane.name, make: crane.make, model: crane.model, capacity: crane.capacity }} initialDocuments={docs} />
             </div>
           </>
         ) : null}
