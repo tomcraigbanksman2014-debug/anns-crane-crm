@@ -238,15 +238,24 @@ function AppendixPage({
   const imageSrc = asset.dataUri || asset.publicPath;
 
   return (
-    <PageShell sectionTitle={`Appendix ${index}`}>
+    <section
+      style={{
+        ...appendixPageStyle,
+        pageBreakBefore: "always",
+        breakBefore: "page",
+        pageBreakAfter: "always",
+        breakAfter: "page",
+      }}
+    >
+      <PageHeader sectionTitle={`Appendix ${index}`} />
       <div style={appendixPageBody}>
-        <SectionTitle>{asset.title}</SectionTitle>
-        {asset.description ? <div style={{ marginBottom: 8, opacity: 0.82 }}>{asset.description}</div> : null}
+        <div style={appendixTitle}>{asset.title}</div>
+        {asset.description ? <div style={appendixDescription}>{asset.description}</div> : null}
         <div style={appendixFrame}>
           <img src={imageSrc} alt={asset.title} style={appendixImage} />
         </div>
       </div>
-    </PageShell>
+    </section>
   );
 }
 
@@ -735,27 +744,51 @@ const signatureBox: CSSProperties = {
   breakInside: "avoid",
 };
 
-const appendixPageBody: CSSProperties = {
+const appendixPageStyle: CSSProperties = {
+  width: "190mm",
+  minHeight: "277mm",
+  margin: "0 auto 16px auto",
+  background: "#fff",
+  boxSizing: "border-box",
+  padding: 16,
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
   display: "flex",
   flexDirection: "column",
-  height: "100%",
-  minHeight: 0,
+};
+
+const appendixPageBody: CSSProperties = {
+  paddingTop: 12,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  flex: 1,
+};
+
+const appendixTitle: CSSProperties = {
+  fontSize: 24,
+  fontWeight: 900,
+  lineHeight: 1.15,
+};
+
+const appendixDescription: CSSProperties = {
+  fontSize: 13,
+  opacity: 0.82,
 };
 
 const appendixFrame: CSSProperties = {
   border: "1px solid #333",
-  padding: 8,
-  minHeight: 620,
+  padding: 6,
+  height: "225mm",
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
   overflow: "hidden",
+  background: "#fff",
 };
 
 const appendixImage: CSSProperties = {
   display: "block",
   width: "100%",
-  height: "auto",
+  height: "100%",
   objectFit: "contain",
-  maxHeight: 620,
 };
