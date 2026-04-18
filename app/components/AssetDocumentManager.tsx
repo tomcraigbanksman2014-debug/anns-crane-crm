@@ -152,9 +152,11 @@ export default function AssetDocumentManager({
       formData.append("document_type", documentType);
       formData.append("include_in_pack", includeInPack ? "true" : "false");
       formData.append("appendix_order", appendixOrder.trim() || "10");
+
+      // IMPORTANT: backend expects plain comma string, not JSON
       formData.append(
         "preview_page_numbers",
-        JSON.stringify(previewFiles.map((item) => item.pageNumber))
+        previewFiles.map((item) => item.pageNumber).join(",")
       );
 
       for (const preview of previewFiles) {
@@ -309,8 +311,8 @@ export default function AssetDocumentManager({
                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                   Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order:{" "}
                   {doc.appendix_order ?? "—"} • Preview pages:{" "}
-                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} •
-                  {" "}Generated preview pages: {doc.preview_count}
+                  {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} •{" "}
+                  Generated preview pages: {doc.preview_count}
                 </div>
               </div>
 
