@@ -121,6 +121,7 @@ export async function POST(
       meta: {
         transport_job_id: params.id,
         provider: result.provider,
+        equipment_profile_id: result.equipmentProfile?.id ?? null,
       },
     });
 
