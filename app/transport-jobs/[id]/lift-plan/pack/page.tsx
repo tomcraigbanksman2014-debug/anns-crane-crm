@@ -299,14 +299,31 @@ export default async function TransportLiftPlanPackPage({
   const sections: StringMap = ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const appendixAssets = await getVehicleAppendixAssetsForPack(vehicle?.id ?? null, {
-    jobType: (job as any)?.job_type,
-    vehicleConfiguration: sections.vehicle_configuration || liftPlan?.vehicle_configuration,
-    hiabConfiguration: sections.hiab_configuration || liftPlan?.hiab_configuration,
-    outriggerSetup: liftPlan?.outrigger_setup,
-    loadDescription: liftPlan?.load_description || (job as any)?.load_description,
-    notes: `${(job as any)?.notes ?? ""} ${(job as any)?.delivery_address ?? ""}`.trim(),
-  });
+  const appendixAssets = await getVehicleAppendixAssetsForPack(
+    vehicle?.id ?? null,
+    {
+      jobType: (job as any)?.job_type || linkedJob?.lift_type || null,
+      vehicleConfiguration: [sections.vehicle_configuration, liftPlan?.vehicle_configuration]
+        .filter(Boolean)
+        .join("\n"),
+      hiabConfiguration: [sections.hiab_configuration, liftPlan?.hiab_configuration]
+        .filter(Boolean)
+        .join("\n"),
+      outriggerSetup: [liftPlan?.outrigger_setup, sections.outrigger_setup]
+        .filter(Boolean)
+        .join("\n"),
+      loadDescription: (job as any)?.load_description || null,
+      notes: [
+        (job as any)?.notes,
+        linkedJob?.notes,
+        sections.route_notes,
+        sections.access_notes,
+        sections.load_securing_method,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    }
+  );
 
   const projectName = sections.cover_project || (job as any)?.load_description || `Transport ${(job as any)?.transport_number ?? ""}`.trim();
   const clientName = client?.company_name || "the client";
