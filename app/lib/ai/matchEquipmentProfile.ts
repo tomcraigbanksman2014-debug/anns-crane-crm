@@ -47,14 +47,44 @@ function matchByAliases(text: string) {
   return winner;
 }
 
-export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null {
-  const crane = flatten(job?.cranes)[0] ?? job?.crane ?? null;
-  const text = joinBits([
+function firstMatchingCraneAllocation(job: any) {
+  const allocations = flatten(job?.job_equipment).filter((item) => {
+    const type = toText(item?.asset_type || item?.source_type || "");
+    return type === "crane" || !!item?.crane_id || !!item?.cranes;
+  });
+
+  if (allocations.length === 0) return null;
+
+  allocations.sort((a, b) => {
+    const aStart = String(a?.start_date ?? a?.created_at ?? "");
+    const bStart = String(b?.start_date ?? b?.created_at ?? "");
+    return aStart.localeCompare(bStart) || String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+  });
+
+  return allocations[0] ?? null;
+}
+
+export function getPrimaryCraneContext(job: any) {
+  const allocation = firstMatchingCraneAllocation(job);
+  const crane = flatten(allocation?.cranes)[0] ?? flatten(job?.cranes)[0] ?? job?.crane ?? null;
+  const operator = flatten(allocation?.operators)[0] ?? flatten(job?.main_operator)[0] ?? flatten(job?.operators)[0] ?? null;
+
+  return {
+    allocation,
     crane,
-    crane?.name,
-    crane?.make,
-    crane?.model,
-    crane?.capacity,
+    operator,
+  };
+}
+
+export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null {
+  const primary = getPrimaryCraneContext(job);
+  const text = joinBits([
+    primary.allocation,
+    primary.crane,
+    primary.crane?.name,
+    primary.crane?.make,
+    primary.crane?.model,
+    primary.crane?.capacity,
     job?.hire_type,
     job?.lift_type,
     job?.notes,
