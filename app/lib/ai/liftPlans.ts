@@ -1,4 +1,4 @@
-import { matchCraneJobEquipmentProfile, matchTransportJobEquipmentProfile } from "./matchEquipmentProfile";
+import { getPrimaryCraneContext, matchCraneJobEquipmentProfile, matchTransportJobEquipmentProfile } from "./matchEquipmentProfile";
 import type { EquipmentProfile } from "./equipmentProfiles";
 
 export type CraneLiftPlanDraft = {
@@ -236,8 +236,9 @@ function parseTransportDraft(text: string): TransportLiftPlanDraft {
 
 function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
   const client = one(job?.clients);
-  const crane = one(job?.cranes);
-  const operator = one(job?.operators);
+  const primary = getPrimaryCraneContext(job);
+  const crane = primary.crane;
+  const operator = primary.operator ?? one(job?.operators);
   const mainOperator = one(job?.main_operator);
   const clientName = clean(client?.company_name) || "the client";
   const craneName = joinParts([
@@ -330,8 +331,9 @@ function fallbackTransportDraft(job: any, linkedJob: any, profile: EquipmentProf
 
 function buildCranePrompt(job: any, profile: EquipmentProfile | null) {
   const client = one(job?.clients);
-  const crane = one(job?.cranes);
-  const operator = one(job?.operators);
+  const primary = getPrimaryCraneContext(job);
+  const crane = primary.crane;
+  const operator = primary.operator ?? one(job?.operators);
   const mainOperator = one(job?.main_operator);
 
   return `You are helping draft a crane lift plan and RAMS document for an internal crane hire CRM.
