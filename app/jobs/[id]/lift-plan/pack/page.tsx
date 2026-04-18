@@ -1,6 +1,4 @@
 import type { CSSProperties, ReactNode } from "react";
-import fs from "fs";
-import path from "path";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import {
   getPrimaryCraneContext,
@@ -156,9 +154,26 @@ function coverAddress(job: any) {
 }
 
 function existingAppendixAssets(profileId: string | null | undefined) {
-  return getPackAppendixAssets(profileId).filter((asset) =>
-    fs.existsSync(path.join(process.cwd(), "public", asset.publicPath.replace(/^\//, "")))
-  );
+  return getPackAppendixAssets(profileId);
+}
+
+function formatOutreachReference(profile: any) {
+  if (profile?.maxHydraulicOutreachM && profile?.maxRadiusM) {
+    return `${profile.maxHydraulicOutreachM} m / ${profile.maxRadiusM} m radius`;
+  }
+  if (profile?.maxHydraulicOutreachM) return `${profile.maxHydraulicOutreachM} m`;
+  if (profile?.maxBoomLengthM && profile?.maxRadiusM) {
+    return `${profile.maxBoomLengthM} m boom / ${profile.maxRadiusM} m radius`;
+  }
+  if (profile?.maxBoomLengthM) return `${profile.maxBoomLengthM} m`;
+  if (profile?.maxRadiusM) return `${profile.maxRadiusM} m radius`;
+  return "—";
+}
+
+function formatJibReference(profile: any) {
+  if (profile?.maxJibOutreachM) return `${profile.maxJibOutreachM} m`;
+  if (profile?.maxRadiusM) return `${profile.maxRadiusM} m radius`;
+  return "—";
 }
 
 function PageShell({
@@ -489,9 +504,8 @@ export default async function CraneLiftPlanPackPage({
   const equipmentList = splitLines(sections.equipment_list || "").join("\n");
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
 
-  const outreachRef =
-    equipmentProfile?.maxHydraulicOutreachM ? `${equipmentProfile.maxHydraulicOutreachM} m` : "—";
-  const jibRef = equipmentProfile?.maxJibOutreachM ? `${equipmentProfile.maxJibOutreachM} m` : "—";
+  const outreachRef = formatOutreachReference(equipmentProfile);
+  const jibRef = formatJibReference(equipmentProfile);
 
   return (
     <div style={wrapper}>
@@ -538,7 +552,7 @@ export default async function CraneLiftPlanPackPage({
             ["Site Address", coverAddress(job)],
             ["Site Contact", (job as any)?.contact_name],
             ["Appointed Person", appointedPerson],
-            ["Prepared on behalf of", "ANNS CRANE HIRE LTD"],
+            ["Prepared by", "ANNS CRANE HIRE LTD"],
             [
               "Lift Classification",
               sections.lift_classification || (job as any)?.hire_type || "Basic",
@@ -625,7 +639,7 @@ export default async function CraneLiftPlanPackPage({
           rows={[
             ["Name", appointedPerson],
             ["Prepared for job", `#${(job as any)?.job_number ?? "—"}`],
-            ["Prepared on behalf of", "ANNS CRANE HIRE LTD"],
+            ["Prepared by", "ANNS CRANE HIRE LTD"],
             ["Approved by", liftPlan?.approved_by],
             ["Approved at", fmtDateTime(liftPlan?.approved_at)],
           ]}
@@ -760,7 +774,7 @@ export default async function CraneLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="15–19. Procedure">
+      <PageShell sectionTitle="15–17. Variation, Toolbox & Set-up">
         <SectionTitle>15. Variation from Method Statement</SectionTitle>
         <BlankTable
           headers={["Variation Details", "Time / Date", "AP Contact", "Initials"]}
@@ -802,7 +816,9 @@ export default async function CraneLiftPlanPackPage({
             `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
           )}
         </BoxedParagraph>
+      </PageShell>
 
+      <PageShell sectionTitle="18–19. Lifting & De-Rig Procedure">
         <SectionTitle>18. Lifting Procedure</SectionTitle>
         <BoxedParagraph>
           {sections.lifting_procedure
@@ -821,7 +837,7 @@ export default async function CraneLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="20–22. Emergency, Risk & Sign Off" breakAfter={!appendixAssets.length}>
+      <PageShell sectionTitle="20–21. Emergency & Risk">
         <SectionTitle>20. Emergency Procedure</SectionTitle>
         <BoxedParagraph>
           {sentenceCase(
@@ -862,7 +878,9 @@ export default async function CraneLiftPlanPackPage({
               : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
           }
         />
+      </PageShell>
 
+      <PageShell sectionTitle="22. Check Lists, Sign Offs & Wind Sheet" breakAfter={!appendixAssets.length}>
         <SectionTitle>22. Check Lists and Sign Offs</SectionTitle>
         <InfoTable
           rows={[
@@ -967,8 +985,6 @@ const pageStyle: CSSProperties = {
   boxSizing: "border-box",
   padding: 16,
   boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
-  display: "flex",
-  flexDirection: "column",
 };
 
 const pageHeader: CSSProperties = {
@@ -981,13 +997,12 @@ const pageHeader: CSSProperties = {
 };
 
 const pageBody: CSSProperties = {
-  flex: 1,
   paddingTop: 12,
 };
 
 const pageFooter: CSSProperties = {
   paddingTop: 10,
-  marginTop: 10,
+  marginTop: 16,
   borderTop: "1px solid #bcbcbc",
   fontSize: 11,
   textAlign: "center",
