@@ -735,6 +735,13 @@ const signatureBox: CSSProperties = {
   breakInside: "avoid",
 };
 
+const appendixPageBody: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  minHeight: 0,
+};
+
 const appendixFrame: CSSProperties = {
   border: "1px solid #333",
   padding: 8,
