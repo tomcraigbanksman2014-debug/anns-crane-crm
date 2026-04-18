@@ -59,7 +59,9 @@ export async function POST(
     const documentType = clean(formData.get("document_type")) || "spec_sheet";
     const includeInPack = parseBool(formData.get("include_in_pack"));
     const appendixOrder = Number(clean(formData.get("appendix_order")) || "10");
-    const previewPageNumbers = parsePageNumbers(formData.get("preview_page_numbers"));
+    const previewPageNumbers = parsePageNumbers(
+      clean(formData.get("preview_page_numbers"))
+    );
     const previewFiles = formData
       .getAll("preview_files")
       .filter((item): item is File => item instanceof File);
@@ -133,11 +135,17 @@ export async function POST(
           });
 
         if (previewUploadError) {
-          await admin.from("asset_document_previews").delete().eq("crane_document_id", document.id);
+          await admin
+            .from("asset_document_previews")
+            .delete()
+            .eq("crane_document_id", document.id);
           await admin.from("crane_documents").delete().eq("id", document.id);
           await admin.storage.from("asset-documents").remove([storagePath]);
+
           if (createdPreviewPaths.length) {
-            await admin.storage.from("asset-doc-previews").remove(createdPreviewPaths);
+            await admin.storage
+              .from("asset-doc-previews")
+              .remove(createdPreviewPaths);
           }
 
           return NextResponse.json({ error: previewUploadError.message }, { status: 400 });
@@ -160,11 +168,17 @@ export async function POST(
           });
 
         if (previewInsertError) {
-          await admin.from("asset_document_previews").delete().eq("crane_document_id", document.id);
+          await admin
+            .from("asset_document_previews")
+            .delete()
+            .eq("crane_document_id", document.id);
           await admin.from("crane_documents").delete().eq("id", document.id);
           await admin.storage.from("asset-documents").remove([storagePath]);
+
           if (createdPreviewPaths.length) {
-            await admin.storage.from("asset-doc-previews").remove(createdPreviewPaths);
+            await admin.storage
+              .from("asset-doc-previews")
+              .remove(createdPreviewPaths);
           }
 
           return NextResponse.json({ error: previewInsertError.message }, { status: 400 });
@@ -173,6 +187,7 @@ export async function POST(
     }
 
     let openUrl: string | null = null;
+
     if (document.storage_path) {
       const { data: signed } = await admin.storage
         .from("asset-documents")
@@ -195,7 +210,9 @@ export async function POST(
         appendix_order:
           document.appendix_order == null ? null : Number(document.appendix_order),
         preview_page_numbers: Array.isArray(document.preview_page_numbers)
-          ? document.preview_page_numbers.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x))
+          ? document.preview_page_numbers
+              .map((x: any) => Number(x))
+              .filter((x: number) => Number.isFinite(x))
           : [],
         preview_count: createdPreviewPaths.length,
         open_url: openUrl,
