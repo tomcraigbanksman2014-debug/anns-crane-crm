@@ -5,7 +5,7 @@ export function createSupabaseAdminClient() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceKey) {
-    throw new Error("Server missing Supabase env vars");
+    throw new Error("Server missing Supabase admin env vars");
   }
 
   return createClient(supabaseUrl, serviceKey, {
