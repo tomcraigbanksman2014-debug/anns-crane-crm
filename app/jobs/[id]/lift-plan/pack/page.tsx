@@ -153,8 +153,28 @@ function coverAddress(job: any) {
   return [job?.site_name, job?.site_address].filter(Boolean).join(", ");
 }
 
+function readPublicAssetDataUri(publicPath: string) {
+  try {
+    const filePath = path.join(process.cwd(), "public", publicPath.replace(/^\//, ""));
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mime =
+      ext === ".png"
+        ? "image/png"
+        : ext === ".jpg" || ext === ".jpeg"
+        ? "image/jpeg"
+        : "application/octet-stream";
+    return `data:${mime};base64,${buffer.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
 function existingAppendixAssets(profileId: string | null | undefined) {
-  return getPackAppendixAssets(profileId);
+  return getPackAppendixAssets(profileId).map((asset) => ({
+    ...asset,
+    dataUri: readPublicAssetDataUri(asset.publicPath),
+  }));
 }
 
 function formatOutreachReference(profile: any) {
@@ -368,15 +388,19 @@ function AppendixPage({
   asset,
   index,
 }: {
-  asset: PackAppendixAsset;
+  asset: PackAppendixAsset & { dataUri?: string | null };
   index: number;
 }) {
+  const imageSrc = asset.dataUri || asset.publicPath;
+
   return (
     <PageShell sectionTitle={`Appendix ${index}`}>
-      <SectionTitle>{asset.title}</SectionTitle>
-      {asset.description ? <div style={{ marginBottom: 12, opacity: 0.82 }}>{asset.description}</div> : null}
-      <div style={appendixFrame}>
-        <img src={asset.publicPath} alt={asset.title} style={appendixImage} />
+      <div style={appendixPageBody}>
+        <SectionTitle>{asset.title}</SectionTitle>
+        {asset.description ? <div style={{ marginBottom: 8, opacity: 0.82 }}>{asset.description}</div> : null}
+        <div style={appendixFrame}>
+          <img src={imageSrc} alt={asset.title} style={appendixImage} />
+        </div>
       </div>
     </PageShell>
   );
@@ -1171,10 +1195,18 @@ const signatureBox: CSSProperties = {
   breakInside: "avoid",
 };
 
+const appendixPageBody: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  height: "100%",
+  minHeight: 0,
+};
+
 const appendixFrame: CSSProperties = {
   border: "1px solid #333",
-  padding: 8,
-  minHeight: 620,
+  padding: 6,
+  flex: 1,
+  minHeight: 0,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
@@ -1185,7 +1217,6 @@ const appendixFrame: CSSProperties = {
 const appendixImage: CSSProperties = {
   display: "block",
   width: "100%",
-  height: "auto",
+  height: "100%",
   objectFit: "contain",
-  maxHeight: 620,
 };
