@@ -198,7 +198,7 @@ function SignatureRow({
   return (
     <div style={signatureBox}>
       <div style={{ fontWeight: 800 }}>{title}</div>
-      <div style={{ marginTop: 18, borderBottom: "1px solid #333", minHeight: 26 }} />
+      <div style={{ marginTop: 12, borderBottom: "1px solid #333", minHeight: 22 }} />
       <div style={{ marginTop: 6, fontSize: 12 }}>
         Name: {name || "________________"} &nbsp;&nbsp; Date: ________________
       </div>
@@ -214,13 +214,13 @@ function AppendixPage({
   index: number;
 }) {
   return (
-    <section style={{ pageBreakBefore: "always", breakBefore: "page" }}><PageShell sectionTitle={`Appendix ${index}`}>
+    <PageShell sectionTitle={`Appendix ${index}`}>
       <SectionTitle>{asset.title}</SectionTitle>
       {asset.description ? <div style={{ marginBottom: 12, opacity: 0.82 }}>{asset.description}</div> : null}
       <div style={appendixFrame}>
         <img src={asset.publicPath} alt={asset.title} style={appendixImage} />
       </div>
-    </PageShell></section>
+    </PageShell>
   );
 }
 
@@ -437,7 +437,7 @@ export default async function TransportLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="Method, Risk & Sign Off" breakAfter={true}>
+      <PageShell sectionTitle="Method, Risk & Sign Off">
         <SectionTitle>4. Load handling, lifting accessories and securing</SectionTitle>
         <InfoTable
           rows={[
@@ -470,7 +470,9 @@ export default async function TransportLiftPlanPackPage({
             `Use competent personnel, confirm stabiliser support, maintain communication, control the work area, monitor weather and follow the approved pack and manufacturer guidance throughout the operation.`
           )}
         />
+      </PageShell>
 
+      <PageShell sectionTitle="Sign Offs">
         <InfoTable
           rows={[
             ["Lift plan complete", yesNo(liftPlan?.lift_plan_complete)],
@@ -482,7 +484,7 @@ export default async function TransportLiftPlanPackPage({
         />
 
         <div style={subHeading}>Attendance Record</div>
-        <BlankTable headers={["Name", "Employer", "Signature"]} rows={6} />
+        <BlankTable headers={["Name", "Employer", "Signature"]} rows={4} />
 
         <div style={signatureGrid}>
           <SignatureRow title="Appointed Person signature" name={appointedPerson} />
@@ -494,7 +496,9 @@ export default async function TransportLiftPlanPackPage({
         {toolboxNotes ? <BoxedParagraph title="Toolbox / sign-off notes">{toolboxNotes}</BoxedParagraph> : null}
         {emergencyContacts ? <BoxedParagraph title="Emergency contacts">{emergencyContacts}</BoxedParagraph> : null}
         {equipmentList ? <BoxedParagraph title="Equipment list">{equipmentList}</BoxedParagraph> : null}
+      </PageShell>
 
+      <PageShell sectionTitle="Wind / Conditions Record" breakAfter={true}>
         <div style={subHeading}>Wind speed / conditions record</div>
         <InfoTable
           rows={[
@@ -701,7 +705,7 @@ const signatureGrid: CSSProperties = {
 
 const signatureBox: CSSProperties = {
   border: "1px solid #333",
-  padding: 12,
+  padding: 10,
   breakInside: "avoid",
 };
 
@@ -716,8 +720,9 @@ const appendixFrame: CSSProperties = {
 };
 
 const appendixImage: CSSProperties = {
+  display: "block",
   width: "100%",
-  height: "100%",
+  height: "auto",
   objectFit: "contain",
   maxHeight: 620,
 };
