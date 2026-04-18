@@ -124,6 +124,9 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
             <a href={`/jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>
               Full lift plan pack
             </a>
+            <a href={`/jobs/${params.id}/lift-plan/pack/edit`} style={secondaryBtn}>
+              Edit pack sections
+            </a>
           </div>
         </div>
 
