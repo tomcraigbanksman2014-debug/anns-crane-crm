@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
+import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
 import LiftPlanForm from "../LiftPlanForm";
 
 function line(label: string, value: string | null | undefined) {
@@ -11,6 +11,17 @@ function line(label: string, value: string | null | undefined) {
 function one<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function craneLabel(crane: any, allocation: any) {
+  const parts = [crane?.name, crane?.make, crane?.model, crane?.capacity].filter(Boolean);
+  const base = parts.join(" ").trim();
+  if (!base) return "—";
+
+  const dates = [allocation?.start_date, allocation?.end_date].filter(Boolean).join(" to ");
+  const startTime = allocation?.start_time ? `Start ${allocation.start_time}` : "";
+  const meta = [dates, startTime].filter(Boolean).join(" • ");
+  return meta ? `${base} (${meta})` : base;
 }
 
 export default async function JobLiftPlanPage({ params }: { params: { id: string } }) {
@@ -35,16 +46,32 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
       clients:client_id (company_name, contact_name, phone, email),
       cranes:crane_id (name, make, model, capacity),
       operators:operator_id (full_name),
-      main_operator:main_operator_id (full_name)
+      main_operator:main_operator_id (full_name),
+      job_equipment (
+        id,
+        asset_type,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        item_name,
+        crane_id,
+        operator_id,
+        cranes:crane_id (id, name, make, model, capacity, reg_number),
+        operators:operator_id (id, full_name)
+      )
     `).eq("id", params.id).maybeSingle(),
     supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
   ]);
 
   const client = one((job as any)?.clients) as any;
-  const crane = one((job as any)?.cranes) as any;
-  const operator = one((job as any)?.operators) as any;
+  const primary = getPrimaryCraneContext(job as any);
+  const crane = primary.crane as any;
+  const allocation = primary.allocation as any;
+  const operator = primary.operator as any;
+  const pageOperator = one((job as any)?.operators) as any;
   const mainOperator = one((job as any)?.main_operator) as any;
-  const equipmentProfile = matchCraneJobEquipmentProfile({ ...(job as any), cranes: crane });
+  const equipmentProfile = matchCraneJobEquipmentProfile({ ...(job as any), cranes: crane ? [crane] : [] });
   const errorMessage = jobError?.message || liftPlanError?.message || "";
 
   return (
@@ -75,8 +102,8 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
               line("Times", `${(job as any)?.start_time ?? "—"} to ${(job as any)?.end_time ?? "—"}`),
               line("Hire type", (job as any)?.hire_type),
               line("Lift type", (job as any)?.lift_type),
-              line("Crane", [crane?.name, crane?.make, crane?.model, crane?.capacity].filter(Boolean).join(" ")),
-              line("Main operator", mainOperator?.full_name || operator?.full_name),
+              line("Crane", craneLabel(crane, allocation)),
+              line("Main operator", operator?.full_name || mainOperator?.full_name || pageOperator?.full_name),
             ].map((item) => <div key={item.label} style={summaryItem}><div style={summaryLabel}>{item.label}</div><div style={summaryValue}>{item.value}</div></div>)}
           </div>
           {(job as any)?.notes ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Job notes</div><div style={notesBox}>{(job as any).notes}</div></div> : null}
