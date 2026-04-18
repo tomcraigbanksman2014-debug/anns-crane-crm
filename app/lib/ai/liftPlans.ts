@@ -234,6 +234,66 @@ function parseTransportDraft(text: string): TransportLiftPlanDraft {
   };
 }
 
+
+function hasText(value: unknown) {
+  return String(value ?? "").trim().length > 0;
+}
+
+function hasNumber(value: unknown) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
+function firstNonEmpty(...values: unknown[]) {
+  for (const value of values) {
+    if (hasText(value)) return String(value).trim();
+  }
+  return "";
+}
+
+function defaultCraneConfiguration(profile: EquipmentProfile | null) {
+  if (!profile) return "Crane configuration to be confirmed from the current manufacturer chart, actual radius, load, accessories and site setup before lifting.";
+  return firstNonEmpty(
+    profile.configurationNote,
+    `${profile.title} to be configured strictly to the manufacturer chart and the planned radius / duty for this lift.`
+  );
+}
+
+function defaultOutriggerSetup(profile: EquipmentProfile | null) {
+  if (!profile) return "Outriggers / stabilisers to be deployed on suitable mats or pads, on firm level ground, and the exact setup confirmed before the load is taken.";
+  return firstNonEmpty(
+    profile.outriggersNote,
+    `${profile.title} outriggers / stabilisers to be set to the checked working position on suitable mats / pads before lifting.`
+  );
+}
+
+function defaultWeatherLimitations(profile: EquipmentProfile | null) {
+  if (!profile) return "Lift not to proceed in unsafe wind, lightning, poor visibility or weather conditions affecting stability, control or ground bearing. Final limits to be checked against the current chart and site risk assessment.";
+  return firstNonEmpty(
+    profile.weatherNote,
+    "Lift not to proceed in unsafe wind, lightning, poor visibility or weather conditions affecting stability, control or ground bearing. Final limits to be checked against the current chart and site risk assessment."
+  );
+}
+
+function applyCraneDefaults(draft: CraneLiftPlanDraft, profile: EquipmentProfile | null): CraneLiftPlanDraft {
+  return {
+    ...draft,
+    crane_configuration: hasText(draft.crane_configuration) ? String(draft.crane_configuration).trim() : defaultCraneConfiguration(profile),
+    outrigger_setup: hasText(draft.outrigger_setup) ? String(draft.outrigger_setup).trim() : defaultOutriggerSetup(profile),
+    weather_limitations: hasText(draft.weather_limitations) ? String(draft.weather_limitations).trim() : defaultWeatherLimitations(profile),
+  };
+}
+
+function applyTransportDefaults(draft: TransportLiftPlanDraft, profile: EquipmentProfile | null): TransportLiftPlanDraft {
+  const config = defaultCraneConfiguration(profile);
+  return {
+    ...draft,
+    vehicle_configuration: hasText(draft.vehicle_configuration) ? String(draft.vehicle_configuration).trim() : config,
+    hiab_configuration: hasText(draft.hiab_configuration) ? String(draft.hiab_configuration).trim() : config,
+    outrigger_setup: hasText(draft.outrigger_setup) ? String(draft.outrigger_setup).trim() : defaultOutriggerSetup(profile),
+    weather_limitations: hasText(draft.weather_limitations) ? String(draft.weather_limitations).trim() : defaultWeatherLimitations(profile),
+  };
+}
+
 function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
   const client = one(job?.clients);
   const primary = getPrimaryCraneContext(job);
@@ -417,13 +477,13 @@ export async function generateCraneLiftPlanDraft(job: any) {
     const text = await callOpenAI(buildCranePrompt(job, profile), 2200);
     return {
       provider: "openai" as const,
-      draft: parseCraneDraft(text),
+      draft: applyCraneDefaults(parseCraneDraft(text), profile),
       equipmentProfile: profile,
     };
   } catch {
     return {
       provider: "fallback" as const,
-      draft: fallbackCraneDraft(job, profile),
+      draft: applyCraneDefaults(fallbackCraneDraft(job, profile), profile),
       equipmentProfile: profile,
     };
   }
@@ -436,13 +496,13 @@ export async function generateTransportLiftPlanDraft(job: any, linkedJob: any = 
     const text = await callOpenAI(buildTransportPrompt(job, linkedJob, profile), 2600);
     return {
       provider: "openai" as const,
-      draft: parseTransportDraft(text),
+      draft: applyTransportDefaults(parseTransportDraft(text), profile),
       equipmentProfile: profile,
     };
   } catch {
     return {
       provider: "fallback" as const,
-      draft: fallbackTransportDraft(job, linkedJob, profile),
+      draft: applyTransportDefaults(fallbackTransportDraft(job, linkedJob, profile), profile),
       equipmentProfile: profile,
     };
   }
