@@ -1,5 +1,7 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { getCraneDocumentsForManager } from "../../lib/assetDocuments";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -25,19 +27,20 @@ function Row({
 
 export default async function CranePage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { success?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: crane, error }, { data: docs }] = await Promise.all([
+  const [{ data: crane, error }, docs] = await Promise.all([
     supabase.from("cranes").select("*").eq("id", params.id).single(),
-    supabase
-      .from("crane_documents")
-      .select("*")
-      .eq("crane_id", params.id)
-      .order("uploaded_at", { ascending: false }),
+    getCraneDocumentsForManager(params.id),
   ]);
+
+  const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
+  const errorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
 
   return (
     <ClientShell>
@@ -46,7 +49,7 @@ export default async function CranePage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Crane Record</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Service, inspection, LOLER and crane documents.
+              Service, inspection, LOLER and asset appendix PDFs.
             </p>
           </div>
 
@@ -56,6 +59,8 @@ export default async function CranePage({
           </div>
         </div>
 
+        {successMessage ? <div style={successBox}>{successMessage}</div> : null}
+        {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
         {error ? <div style={errorBox}>{error.message}</div> : null}
         {!crane ? <div style={errorBox}>Crane not found.</div> : null}
 
@@ -90,33 +95,39 @@ export default async function CranePage({
               </div>
             </section>
 
-            <section style={{ ...cardStyle, gridColumn: "1 / -1" }}>
+            <section style={cardStyle}>
               <h2 style={sectionTitle}>Notes</h2>
-              <div style={notesBox}>{crane.notes ?? "—"}</div>
+              <div style={notesBox}>{crane.notes ?? "No notes recorded."}</div>
             </section>
 
             <section style={{ ...cardStyle, gridColumn: "1 / -1" }}>
-              <h2 style={sectionTitle}>Documents</h2>
-              {!docs || docs.length === 0 ? (
-                <div style={emptyBox}>No documents uploaded yet.</div>
+              <h2 style={sectionTitle}>Asset PDFs</h2>
+              {docs.length === 0 ? (
+                <div style={emptyBox}>No PDFs uploaded yet.</div>
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {docs.map((doc: any) => (
+                  {docs.map((doc) => (
                     <div key={doc.id} style={docRow}>
                       <div>
                         <div style={{ fontWeight: 900 }}>{doc.title}</div>
                         <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                           {doc.document_type} • {fmtDate(doc.uploaded_at)}
                         </div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                          Include in pack: {doc.include_in_pack ? "Yes" : "No"} • Appendix order: {doc.appendix_order ?? "—"} • Preview pages: {doc.preview_page_numbers.length ? doc.preview_page_numbers.join(", ") : "—"} • Generated previews: {doc.preview_count}
+                        </div>
                       </div>
-                      <a
-                        href={doc.file_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        style={secondaryBtn}
-                      >
-                        Open PDF
-                      </a>
+
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {doc.open_url ? (
+                          <a href={doc.open_url} target="_blank" rel="noreferrer" style={secondaryBtn}>
+                            Open PDF
+                          </a>
+                        ) : null}
+                        <a href={`/cranes/${params.id}/edit`} style={secondaryBtn}>
+                          Manage
+                        </a>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -129,7 +140,7 @@ export default async function CranePage({
   );
 }
 
-const pageHeader: React.CSSProperties = {
+const pageHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -138,13 +149,13 @@ const pageHeader: React.CSSProperties = {
   marginBottom: 18,
 };
 
-const gridWrap: React.CSSProperties = {
+const gridWrap: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 18,
 };
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -152,38 +163,37 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
   fontSize: 22,
 };
 
-const summaryGrid: React.CSSProperties = {
+const summaryGrid: CSSProperties = {
   display: "grid",
-  gap: 2,
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: 10,
 };
 
-const rowStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 12,
-  alignItems: "center",
-  padding: "10px 0",
-  borderBottom: "1px solid rgba(0,0,0,0.08)",
+const rowStyle: CSSProperties = {
+  padding: 12,
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const rowLabel: React.CSSProperties = {
-  fontSize: 14,
-  opacity: 0.72,
-  minWidth: 150,
-};
-
-const rowValue: React.CSSProperties = {
+const rowLabel: CSSProperties = {
+  fontSize: 12,
   fontWeight: 800,
-  textAlign: "right",
+  opacity: 0.7,
 };
 
-const notesBox: React.CSSProperties = {
+const rowValue: CSSProperties = {
+  marginTop: 6,
+  fontWeight: 800,
+};
+
+const notesBox: CSSProperties = {
   padding: 12,
   borderRadius: 10,
   background: "rgba(255,255,255,0.42)",
@@ -192,7 +202,7 @@ const notesBox: React.CSSProperties = {
   lineHeight: 1.5,
 };
 
-const docRow: React.CSSProperties = {
+const docRow: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
@@ -203,7 +213,7 @@ const docRow: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const emptyBox: React.CSSProperties = {
+const emptyBox: CSSProperties = {
   padding: "14px 16px",
   borderRadius: 12,
   background: "rgba(255,255,255,0.45)",
@@ -211,7 +221,7 @@ const emptyBox: React.CSSProperties = {
   fontWeight: 700,
 };
 
-const primaryBtn: React.CSSProperties = {
+const primaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -221,7 +231,7 @@ const primaryBtn: React.CSSProperties = {
   fontWeight: 900,
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
   padding: "8px 10px",
   borderRadius: 10,
@@ -232,8 +242,16 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const errorBox: React.CSSProperties = {
-  marginTop: 14,
+const successBox: CSSProperties = {
+  marginBottom: 14,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,128,0,0.10)",
+  border: "1px solid rgba(0,128,0,0.18)",
+};
+
+const errorBox: CSSProperties = {
+  marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(255,0,0,0.10)",
