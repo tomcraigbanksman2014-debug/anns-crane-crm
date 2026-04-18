@@ -15,7 +15,7 @@ function safeName(value: string) {
 }
 
 function parsePageNumbers(value: string) {
-  return value
+  return String(value ?? "")
     .split(",")
     .map((item) => Number(item.trim()))
     .filter((item) => Number.isFinite(item) && item > 0)
@@ -59,7 +59,10 @@ export async function POST(
     const documentType = clean(formData.get("document_type")) || "spec_sheet";
     const includeInPack = parseBool(formData.get("include_in_pack"));
     const appendixOrder = Number(clean(formData.get("appendix_order")) || "10");
-    const previewPageNumbers = parsePageNumbers(clean(formData.get("preview_page_numbers")));
+    const previewPageNumbers = parsePageNumbers(formData.get("preview_page_numbers"));
+    const previewFiles = formData
+      .getAll("preview_files")
+      .filter((item): item is File => item instanceof File);
 
     if (!(file instanceof File)) {
       return NextResponse.json({ error: "No PDF uploaded." }, { status: 400 });
@@ -112,6 +115,63 @@ export async function POST(
       );
     }
 
+    const createdPreviewPaths: string[] = [];
+
+    if (includeInPack && previewFiles.length) {
+      for (let index = 0; index < previewFiles.length; index += 1) {
+        const previewFile = previewFiles[index];
+        const pageNumber = previewPageNumbers[index] ?? index + 1;
+        const previewPath = `vehicles/${params.id}/${document.id}/page-${pageNumber}.png`;
+
+        const previewBuffer = Buffer.from(await previewFile.arrayBuffer());
+
+        const { error: previewUploadError } = await admin.storage
+          .from("asset-doc-previews")
+          .upload(previewPath, previewBuffer, {
+            contentType: previewFile.type || "image/png",
+            upsert: false,
+          });
+
+        if (previewUploadError) {
+          await admin.from("asset_document_previews").delete().eq("vehicle_document_id", document.id);
+          await admin.from("vehicle_documents").delete().eq("id", document.id);
+          await admin.storage.from("asset-documents").remove([storagePath]);
+          if (createdPreviewPaths.length) {
+            await admin.storage.from("asset-doc-previews").remove(createdPreviewPaths);
+          }
+
+          return NextResponse.json({ error: previewUploadError.message }, { status: 400 });
+        }
+
+        createdPreviewPaths.push(previewPath);
+
+        const { error: previewInsertError } = await admin
+          .from("asset_document_previews")
+          .insert({
+            vehicle_document_id: document.id,
+            page_number: pageNumber,
+            preview_storage_path: previewPath,
+            preview_file_name: previewFile.name,
+            title:
+              previewFiles.length > 1
+                ? `${String(document.title ?? "Document")} – page ${pageNumber}`
+                : String(document.title ?? "Document"),
+            appendix_order: Number.isFinite(appendixOrder) ? appendixOrder : 10,
+          });
+
+        if (previewInsertError) {
+          await admin.from("asset_document_previews").delete().eq("vehicle_document_id", document.id);
+          await admin.from("vehicle_documents").delete().eq("id", document.id);
+          await admin.storage.from("asset-documents").remove([storagePath]);
+          if (createdPreviewPaths.length) {
+            await admin.storage.from("asset-doc-previews").remove(createdPreviewPaths);
+          }
+
+          return NextResponse.json({ error: previewInsertError.message }, { status: 400 });
+        }
+      }
+    }
+
     let openUrl: string | null = null;
     if (document.storage_path) {
       const { data: signed } = await admin.storage
@@ -135,9 +195,9 @@ export async function POST(
         appendix_order:
           document.appendix_order == null ? null : Number(document.appendix_order),
         preview_page_numbers: Array.isArray(document.preview_page_numbers)
-          ? document.preview_page_numbers
+          ? document.preview_page_numbers.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x))
           : [],
-        preview_count: 0,
+        preview_count: createdPreviewPaths.length,
         open_url: openUrl,
       },
     });
