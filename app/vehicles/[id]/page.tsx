@@ -1,6 +1,9 @@
+import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { getVehicleDocumentsForManager } from "../../lib/assetDocuments";
+import VehicleDocumentsManager from "./VehicleDocumentsManager";
 import { redirect } from "next/navigation";
 
 function clean(value: FormDataEntryValue | null) {
@@ -56,7 +59,7 @@ export default async function VehicleDetailPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: vehicle, error }, { data: transportJobs }] = await Promise.all([
+  const [{ data: vehicle, error }, { data: transportJobs }, docs] = await Promise.all([
     supabase.from("vehicles").select("*").eq("id", params.id).single(),
     supabase
       .from("transport_jobs")
@@ -73,6 +76,7 @@ export default async function VehicleDetailPage({
       `)
       .eq("vehicle_id", params.id)
       .order("transport_date", { ascending: false }),
+    getVehicleDocumentsForManager(params.id),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -86,7 +90,7 @@ export default async function VehicleDetailPage({
             <div>
               <h1 style={{ marginTop: 0, fontSize: 32 }}>{vehicle?.name ?? "Vehicle"}</h1>
               <p style={{ opacity: 0.8, marginTop: 6 }}>
-                Vehicle details and linked transport jobs.
+                Vehicle details, linked transport jobs and HIAB appendix PDFs.
               </p>
             </div>
 
@@ -107,82 +111,88 @@ export default async function VehicleDetailPage({
           {!vehicle ? (
             <div style={errorBox}>Vehicle not found.</div>
           ) : (
-            <div style={pageGrid}>
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Vehicle details</h2>
+            <>
+              <div style={pageGrid}>
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Vehicle details</h2>
 
-                <form action={updateVehicle} style={{ display: "grid", gap: 14 }}>
-                  <input type="hidden" name="id" value={vehicle.id} />
+                  <form action={updateVehicle} style={{ display: "grid", gap: 14 }}>
+                    <input type="hidden" name="id" value={vehicle.id} />
 
-                  <div style={gridStyle}>
-                    <Field label="Vehicle name" name="name" defaultValue={vehicle.name ?? ""} />
-                    <Field label="Registration" name="reg_number" defaultValue={vehicle.reg_number ?? ""} />
-                    <Field label="Vehicle type" name="vehicle_type" defaultValue={vehicle.vehicle_type ?? ""} />
-                    <Field label="Capacity" name="capacity" defaultValue={vehicle.capacity ?? ""} />
-                    <Field label="Trailer type" name="trailer_type" defaultValue={vehicle.trailer_type ?? ""} />
-                    <SelectField
-                      label="Status"
-                      name="status"
-                      defaultValue={vehicle.status ?? "active"}
-                      options={[
-                        { value: "active", label: "active" },
-                        { value: "workshop", label: "workshop" },
-                        { value: "off_hire", label: "off_hire" },
-                        { value: "inactive", label: "inactive" },
-                      ]}
-                    />
-                    <Field label="MOT due" name="mot_due_date" type="date" defaultValue={vehicle.mot_due_date ?? ""} />
-                    <Field label="Service due" name="service_due_date" type="date" defaultValue={vehicle.service_due_date ?? ""} />
-                    <Field label="Inspection due" name="inspection_due_date" type="date" defaultValue={vehicle.inspection_due_date ?? ""} />
-                  </div>
+                    <div style={gridStyle}>
+                      <Field label="Vehicle name" name="name" defaultValue={vehicle.name ?? ""} />
+                      <Field label="Registration" name="reg_number" defaultValue={vehicle.reg_number ?? ""} />
+                      <Field label="Vehicle type" name="vehicle_type" defaultValue={vehicle.vehicle_type ?? ""} />
+                      <Field label="Capacity" name="capacity" defaultValue={vehicle.capacity ?? ""} />
+                      <Field label="Trailer type" name="trailer_type" defaultValue={vehicle.trailer_type ?? ""} />
+                      <SelectField
+                        label="Status"
+                        name="status"
+                        defaultValue={vehicle.status ?? "active"}
+                        options={[
+                          { value: "active", label: "active" },
+                          { value: "workshop", label: "workshop" },
+                          { value: "off_hire", label: "off_hire" },
+                          { value: "inactive", label: "inactive" },
+                        ]}
+                      />
+                      <Field label="MOT due" name="mot_due_date" type="date" defaultValue={vehicle.mot_due_date ?? ""} />
+                      <Field label="Service due" name="service_due_date" type="date" defaultValue={vehicle.service_due_date ?? ""} />
+                      <Field label="Inspection due" name="inspection_due_date" type="date" defaultValue={vehicle.inspection_due_date ?? ""} />
+                    </div>
 
-                  <FullWidthField label="Notes" name="notes" defaultValue={vehicle.notes ?? ""} />
+                    <FullWidthField label="Notes" name="notes" defaultValue={vehicle.notes ?? ""} />
 
-                  <div>
-                    <ServerSubmitButton style={primaryBtn} pendingText="Updating vehicle…">
-                      Update vehicle
-                    </ServerSubmitButton>
-                  </div>
-                </form>
-              </section>
+                    <div>
+                      <ServerSubmitButton style={primaryBtn} pendingText="Updating vehicle…">
+                        Update vehicle
+                      </ServerSubmitButton>
+                    </div>
+                  </form>
+                </section>
 
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Linked transport jobs</h2>
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Linked transport jobs</h2>
 
-                {!transportJobs || transportJobs.length === 0 ? (
-                  <p style={{ margin: 0 }}>No transport jobs linked to this vehicle yet.</p>
-                ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {transportJobs.map((item: any) => {
-                      const client = Array.isArray(item.clients) ? item.clients[0] : item.clients;
-                      const linkedJob = Array.isArray(item.jobs) ? item.jobs[0] : item.jobs;
+                  {!transportJobs || transportJobs.length === 0 ? (
+                    <p style={{ margin: 0 }}>No transport jobs linked to this vehicle yet.</p>
+                  ) : (
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {transportJobs.map((item: any) => {
+                        const client = Array.isArray(item.clients) ? item.clients[0] : item.clients;
+                        const linkedJob = Array.isArray(item.jobs) ? item.jobs[0] : item.jobs;
 
-                      return (
-                        <div key={item.id} style={miniCard}>
-                          <div style={{ fontWeight: 1000 }}>
-                            {item.transport_number ?? "Transport Job"}
+                        return (
+                          <div key={item.id} style={miniCard}>
+                            <div style={{ fontWeight: 1000 }}>
+                              {item.transport_number ?? "Transport Job"}
+                            </div>
+                            <div style={{ marginTop: 4, opacity: 0.72 }}>
+                              {client?.company_name ?? "—"} • {item.job_type ?? "—"}
+                            </div>
+                            <div style={{ marginTop: 4, opacity: 0.72 }}>
+                              {fmtDate(item.transport_date)} • {item.status ?? "—"}
+                            </div>
+                            <div style={{ marginTop: 4, opacity: 0.72 }}>
+                              Linked crane job: {linkedJob?.job_number ?? "—"}
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              <a href={`/transport-jobs/${item.id}`} style={miniLinkBtn}>
+                                Open transport job
+                              </a>
+                            </div>
                           </div>
-                          <div style={{ marginTop: 4, opacity: 0.72 }}>
-                            {client?.company_name ?? "—"} • {item.job_type ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 4, opacity: 0.72 }}>
-                            {fmtDate(item.transport_date)} • {item.status ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 4, opacity: 0.72 }}>
-                            Linked crane job: {linkedJob?.job_number ?? "—"}
-                          </div>
-                          <div style={{ marginTop: 8 }}>
-                            <a href={`/transport-jobs/${item.id}`} style={miniLinkBtn}>
-                              Open transport job
-                            </a>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </section>
-            </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <VehicleDocumentsManager vehicleId={vehicle.id} initialDocuments={docs} />
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -251,7 +261,7 @@ function FullWidthField({
   );
 }
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 20,
   borderRadius: 16,
@@ -259,64 +269,47 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const headerRow: React.CSSProperties = {
+const headerRow: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+  marginBottom: 18,
 };
 
-const pageGrid: React.CSSProperties = {
+const pageGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1.1fr 0.9fr",
-  gap: 16,
+  gridTemplateColumns: "1.2fr 0.8fr",
+  gap: 18,
 };
 
-const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.32)",
-  border: "1px solid rgba(0,0,0,0.08)",
+const sectionCard: CSSProperties = {
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(255,255,255,0.44)",
   borderRadius: 14,
-  padding: 16,
+  padding: 18,
 };
 
-const sectionTitle: React.CSSProperties = {
+const sectionTitle: CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
-  fontSize: 22,
+  fontSize: 24,
 };
 
-const gridStyle: React.CSSProperties = {
+const gridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   gap: 12,
 };
 
-const miniCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.52)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 12,
-  padding: 12,
-};
-
-const miniLinkBtn: React.CSSProperties = {
-  display: "inline-block",
-  padding: "8px 10px",
-  borderRadius: 9,
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.72)",
-  color: "#111",
-  fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
-  opacity: 0.75,
+  opacity: 0.78,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   height: 42,
   padding: "0 12px",
@@ -326,31 +319,46 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   width: "100%",
-  padding: "10px 12px",
+  padding: 12,
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
-  boxSizing: "border-box",
   resize: "vertical",
+  boxSizing: "border-box",
 };
 
-const primaryBtn: React.CSSProperties = {
+const miniCard: CSSProperties = {
+  borderRadius: 12,
+  padding: 12,
+  background: "rgba(255,255,255,0.52)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const miniLinkBtn: CSSProperties = {
   display: "inline-block",
-  padding: "12px 14px",
+  padding: "8px 10px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+};
+
+const primaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
   borderRadius: 10,
   textDecoration: "none",
   background: "#111",
   color: "#fff",
   fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
 };
 
-const secondaryBtn: React.CSSProperties = {
+const secondaryBtn: CSSProperties = {
   display: "inline-block",
-  padding: "10px 14px",
+  padding: "8px 10px",
   borderRadius: 10,
   textDecoration: "none",
   background: "rgba(255,255,255,0.78)",
@@ -359,19 +367,15 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
-const successBox: React.CSSProperties = {
-  marginTop: 14,
+const successBox: CSSProperties = {
   marginBottom: 14,
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,180,120,0.12)",
-  border: "1px solid rgba(0,180,120,0.24)",
-  color: "#0b7a4b",
-  fontWeight: 800,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,128,0,0.10)",
+  border: "1px solid rgba(0,128,0,0.18)",
 };
 
-const errorBox: React.CSSProperties = {
-  marginTop: 14,
+const errorBox: CSSProperties = {
   marginBottom: 14,
   padding: "10px 12px",
   borderRadius: 10,
