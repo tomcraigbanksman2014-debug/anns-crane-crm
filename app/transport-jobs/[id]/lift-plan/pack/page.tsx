@@ -214,13 +214,13 @@ function AppendixPage({
   index: number;
 }) {
   return (
-    <PageShell sectionTitle={`Appendix ${index}`}>
+    <section style={{ pageBreakBefore: "always", breakBefore: "page" }}><PageShell sectionTitle={`Appendix ${index}`}>
       <SectionTitle>{asset.title}</SectionTitle>
       {asset.description ? <div style={{ marginBottom: 12, opacity: 0.82 }}>{asset.description}</div> : null}
       <div style={appendixFrame}>
         <img src={asset.publicPath} alt={asset.title} style={appendixImage} />
       </div>
-    </PageShell>
+    </PageShell></section>
   );
 }
 
@@ -437,7 +437,7 @@ export default async function TransportLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="Method, Risk & Sign Off" breakAfter={!appendixAssets.length}>
+      <PageShell sectionTitle="Method, Risk & Sign Off" breakAfter={true}>
         <SectionTitle>4. Load handling, lifting accessories and securing</SectionTitle>
         <InfoTable
           rows={[
@@ -551,6 +551,8 @@ const pageStyle: CSSProperties = {
   boxSizing: "border-box",
   padding: 16,
   boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
+  display: "flex",
+  flexDirection: "column",
 };
 
 const pageHeader: CSSProperties = {
@@ -564,11 +566,12 @@ const pageHeader: CSSProperties = {
 
 const pageBody: CSSProperties = {
   paddingTop: 12,
+  flex: 1,
 };
 
 const pageFooter: CSSProperties = {
   paddingTop: 10,
-  marginTop: 16,
+  marginTop: "auto",
   borderTop: "1px solid #bcbcbc",
   fontSize: 11,
   textAlign: "center",
@@ -704,16 +707,17 @@ const signatureBox: CSSProperties = {
 
 const appendixFrame: CSSProperties = {
   border: "1px solid #333",
-  padding: 10,
-  minHeight: 620,
+  padding: 8,
+  minHeight: 700,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  overflow: "hidden",
 };
 
 const appendixImage: CSSProperties = {
   width: "100%",
-  height: "auto",
+  height: "100%",
   objectFit: "contain",
-  maxHeight: 640,
+  maxHeight: 720,
 };
