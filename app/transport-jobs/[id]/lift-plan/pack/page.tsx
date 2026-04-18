@@ -1,3 +1,4 @@
+import fs from "fs";
 import path from "path";
 import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
