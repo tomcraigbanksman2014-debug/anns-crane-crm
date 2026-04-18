@@ -1,12 +1,10 @@
-import fs from "fs";
-import path from "path";
 import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import {
   getPrimaryCraneContext,
   matchCraneJobEquipmentProfile,
 } from "../../../../lib/ai/matchEquipmentProfile";
-import { getPackAppendixAssets, type PackAppendixAsset } from "../../../../lib/ai/packAppendixAssets";
+import { getCraneAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -153,30 +151,6 @@ function fallbackCommunication(siteContact: string) {
 
 function coverAddress(job: any) {
   return [job?.site_name, job?.site_address].filter(Boolean).join(", ");
-}
-
-function readPublicAssetDataUri(publicPath: string) {
-  try {
-    const filePath = path.join(process.cwd(), "public", publicPath.replace(/^\//, ""));
-    const buffer = fs.readFileSync(filePath);
-    const ext = path.extname(filePath).toLowerCase();
-    const mime =
-      ext === ".png"
-        ? "image/png"
-        : ext === ".jpg" || ext === ".jpeg"
-        ? "image/jpeg"
-        : "application/octet-stream";
-    return `data:${mime};base64,${buffer.toString("base64")}`;
-  } catch {
-    return null;
-  }
-}
-
-function existingAppendixAssets(profileId: string | null | undefined) {
-  return getPackAppendixAssets(profileId).map((asset) => ({
-    ...asset,
-    dataUri: readPublicAssetDataUri(asset.publicPath),
-  }));
 }
 
 function formatOutreachReference(profile: any) {
@@ -390,10 +364,10 @@ function AppendixPage({
   asset,
   index,
 }: {
-  asset: PackAppendixAsset & { dataUri?: string | null };
+  asset: PackAppendixAssetItem;
   index: number;
 }) {
-  const imageSrc = asset.dataUri || asset.publicPath;
+  const imageSrc = asset.image_url;
 
   return (
     <section
@@ -509,7 +483,7 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const appendixAssets = existingAppendixAssets(equipmentProfile?.id);
+  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
 
   const clientName = client?.company_name || "the client";
   const projectName =
@@ -981,7 +955,7 @@ export default async function CraneLiftPlanPackPage({
       </PageShell>
 
       {appendixAssets.map((asset, index) => (
-        <AppendixPage key={asset.publicPath} asset={asset} index={index + 1} />
+        <AppendixPage key={`${asset.title}-${asset.page_number}-${index}`} asset={asset} index={index + 1} />
       ))}
     </div>
   );
