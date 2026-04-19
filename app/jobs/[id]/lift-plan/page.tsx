@@ -13,6 +13,20 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function flatten<T>(value: T | T[] | null | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function allocationLabel(row: any) {
+  const crane = one(row?.cranes) as any;
+  const operator = one(row?.operators) as any;
+  const base = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || row?.item_name || "Allocated crane";
+  const dateText = [row?.start_date, row?.end_date].filter(Boolean).join(" to ");
+  const operatorText = operator?.full_name ? `Operator: ${operator.full_name}` : "";
+  return [base, dateText, operatorText].filter(Boolean).join(" • ");
+}
+
 export default async function JobLiftPlanPage({ params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
 
@@ -91,18 +105,45 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
     | { company_name?: string | null; contact_name?: string | null; phone?: string | null; email?: string | null }
     | null;
 
-  const primary = getPrimaryCraneContext(job as any);
+  const selectedJob = {
+    ...(job as any),
+    selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
+    selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+  };
+
+  const primary = getPrimaryCraneContext(selectedJob);
   const crane = primary?.crane ?? (one((job as any)?.cranes) as
-    | { name?: string | null; make?: string | null; model?: string | null; capacity?: string | null }
+    | { id?: string | null; name?: string | null; make?: string | null; model?: string | null; capacity?: string | null }
     | null);
   const operator = primary?.operator ??
     (one((job as any)?.main_operator) as { full_name?: string | null } | null) ??
     (one((job as any)?.operators) as { full_name?: string | null } | null);
 
-  const equipmentProfile = matchCraneJobEquipmentProfile(job as any);
+  const equipmentProfile = matchCraneJobEquipmentProfile({
+    ...selectedJob,
+    cranes: crane ? [crane] : flatten((job as any)?.cranes),
+    job_equipment: (job as any)?.job_equipment ?? [],
+  });
   const errorMessage = jobError?.message || liftPlanError?.message || "";
 
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
+  const craneOptions = flatten((job as any)?.job_equipment)
+    .filter((row) => {
+      const type = String(row?.asset_type ?? row?.source_type ?? "").toLowerCase();
+      return type === "crane" || !!row?.crane_id || !!one(row?.cranes);
+    })
+    .map((row) => {
+      const craneRow = one(row?.cranes) as any;
+      return {
+        value: String(row?.id ?? ""),
+        craneId: String(craneRow?.id ?? row?.crane_id ?? ""),
+        label: allocationLabel(row),
+      };
+    });
+
+  if (craneOptions.length === 0 && crane?.id) {
+    craneOptions.push({ value: `fallback:${crane.id}`, craneId: String(crane.id), label: craneLabel });
+  }
 
   return (
     <ClientShell>
@@ -149,7 +190,7 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
               line("Times", `${(job as any)?.start_time ?? "—"} to ${(job as any)?.end_time ?? "—"}`),
               line("Hire type", (job as any)?.hire_type),
               line("Lift type", (job as any)?.lift_type),
-              line("Crane", craneLabel),
+              line("Selected crane", craneLabel),
               line("Main operator", operator?.full_name),
             ].map((item) => (
               <div key={item.label} style={summaryItem}>
@@ -171,6 +212,7 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
           jobId={params.id}
           initial={(liftPlan as any) ?? null}
           equipmentProfile={equipmentProfile ?? null}
+          craneOptions={craneOptions}
         />
       </div>
     </ClientShell>
