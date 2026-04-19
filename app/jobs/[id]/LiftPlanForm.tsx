@@ -1,10 +1,18 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { EquipmentProfile } from "../../lib/ai/equipmentProfiles";
 
+type CraneOption = {
+  value: string;
+  craneId: string;
+  label: string;
+};
+
 type LiftPlanData = {
+  selected_job_equipment_id?: string | null;
+  selected_crane_id?: string | null;
   load_description?: string | null;
   load_weight?: number | null;
   lift_radius?: number | null;
@@ -36,7 +44,6 @@ type LiftPlanData = {
   finalised_at?: string | null;
   paperwork_locked?: boolean;
 };
-
 
 function hasDraftValue(value: unknown) {
   if (value === null || value === undefined) return false;
@@ -74,12 +81,16 @@ export default function LiftPlanForm({
   jobId,
   initial,
   equipmentProfile,
+  craneOptions,
 }: {
   jobId: string;
   initial: LiftPlanData | null;
   equipmentProfile?: EquipmentProfile | null;
+  craneOptions: CraneOption[];
 }) {
   const [form, setForm] = useState<LiftPlanData>({
+    selected_job_equipment_id: initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
+    selected_crane_id: initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
     load_description: initial?.load_description ?? "",
     load_weight: initial?.load_weight ?? null,
     lift_radius: initial?.lift_radius ?? null,
@@ -118,9 +129,24 @@ export default function LiftPlanForm({
   const [msg, setMsg] = useState("");
   const locked = !!form.paperwork_locked;
 
+  const selectedCraneLabel = useMemo(() => {
+    const selected = craneOptions.find((option) => option.value === form.selected_job_equipment_id);
+    return selected?.label || "No crane selected";
+  }, [craneOptions, form.selected_job_equipment_id]);
+
   function update(key: keyof LiftPlanData, value: any) {
     if (locked) return;
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateSelectedCrane(allocationId: string) {
+    if (locked) return;
+    const selected = craneOptions.find((option) => option.value === allocationId) ?? null;
+    setForm((prev) => ({
+      ...prev,
+      selected_job_equipment_id: allocationId || "",
+      selected_crane_id: selected?.craneId || "",
+    }));
   }
 
   async function postForm(payload: LiftPlanData) {
@@ -141,6 +167,7 @@ export default function LiftPlanForm({
     setMsg("");
 
     try {
+      await postForm(form);
       const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
@@ -149,6 +176,8 @@ export default function LiftPlanForm({
         const merged = mergeGeneratedDraft(prev, data?.draft, ['load_description', 'load_weight', 'lift_radius', 'lift_height', 'sling_type', 'lifting_accessories']);
         return {
           ...merged,
+          selected_job_equipment_id: prev.selected_job_equipment_id,
+          selected_crane_id: prev.selected_crane_id,
           paperwork_locked: prev.paperwork_locked,
           approved_by: prev.approved_by,
           approved_at: prev.approved_at,
@@ -246,6 +275,20 @@ export default function LiftPlanForm({
         </div>
       </div>
 
+      <Section title="Selected crane control">
+        <div style={grid2}>
+          <SelectField
+            label="Selected allocated crane"
+            value={form.selected_job_equipment_id ?? ""}
+            onChange={updateSelectedCrane}
+            disabled={locked}
+            options={craneOptions.map((option) => ({ value: option.value, label: option.label }))}
+          />
+          <ReadOnlyFact label="Current selection" value={selectedCraneLabel} />
+        </div>
+        <div style={helperText}>This controls which allocated crane the AI draft, printable lift plan and full pack use.</div>
+      </Section>
+
       {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
       {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
@@ -326,6 +369,7 @@ function EquipmentProfileCard({ profile }: { profile: EquipmentProfile }) {
 function ReadOnlyFact({ label, value }: { label: string; value: string }) { return <div style={summaryItem}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div></div>; }
 function Section({ title, children }: { title: string; children: ReactNode }) { return <div style={sectionStyle}><div style={sectionTitle}>{title}</div><div style={{ display: "grid", gap: 12 }}>{children}</div></div>; }
 function Field({ label, value, onChange, type = "text", step, disabled }: { label: string; value: string | number; onChange: (value: string) => void; type?: string; step?: string; disabled?: boolean; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} /></label>; }
+function SelectField({ label, value, onChange, disabled, options }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; options: Array<{ value: string; label: string }>; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
 function TextAreaField({ label, value, onChange, disabled, rows = 4 }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; rows?: number; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} /></label>; }
 
 const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
