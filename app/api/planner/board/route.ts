@@ -6,9 +6,6 @@ function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
   const d = new Date(base);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
   return d;
 }
 
