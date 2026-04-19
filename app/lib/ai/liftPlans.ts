@@ -408,6 +408,7 @@ function machineSpecificExclusionZone(job: any, profile: EquipmentProfile | null
 function machineSpecificNarrative(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
   const operatorName = operatorNameFromJob(job);
   const appointedPerson = appointedPersonFromJob(job);
+  const liftSupervisor = clean(job?.lift_supervisor_name) || clean(job?.lift_supervisor) || appointedPerson || null;
 
   return {
     crane_configuration: defaultCraneConfiguration(profile),
@@ -421,7 +422,7 @@ function machineSpecificNarrative(job: any, profile: EquipmentProfile | null): C
     exclusion_zone_details: machineSpecificExclusionZone(job, profile),
     weather_limitations: defaultWeatherLimitations(profile),
     emergency_procedures: machineSpecificEmergency(job, profile),
-    lift_supervisor: operatorName,
+    lift_supervisor: liftSupervisor,
     appointed_person: appointedPerson,
     crane_operator: operatorName,
   };
@@ -462,6 +463,9 @@ function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLi
   const hireType = clean(job?.hire_type) || "crane hire";
   const loadDescription = clean(job?.notes) || `${hireType} for ${clientName}`;
 
+  const appointedPerson = appointedPersonFromJob(job);
+  const liftSupervisor = clean(job?.lift_supervisor_name) || clean(job?.lift_supervisor) || appointedPerson || null;
+
   return {
     load_description: loadDescription,
     load_weight: null,
@@ -469,8 +473,8 @@ function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLi
     lift_height: null,
     sling_type: `Correct certified slings and lifting accessories to be selected to suit the load, centre of gravity and lifting points.`,
     lifting_accessories: `Certified chains / slings / shackles / lifting beam as required by the load and lift arrangement. Pre-use checks to be completed before lifting.`,
-    lift_supervisor: operatorName,
-    appointed_person: appointedPersonFromJob(job),
+    lift_supervisor: liftSupervisor,
+    appointed_person: appointedPerson,
     crane_operator: operatorName,
     rams_complete: false,
     lift_plan_complete: false,
