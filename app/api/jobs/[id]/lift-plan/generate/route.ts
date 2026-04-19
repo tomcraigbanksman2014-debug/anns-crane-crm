@@ -21,7 +21,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("lift_plans")
-      .select("id, paperwork_locked, selected_job_equipment_id, selected_crane_id")
+      .select("id, paperwork_locked, selected_job_equipment_id, selected_crane_id, lift_supervisor, appointed_person, crane_operator")
       .eq("job_id", params.id)
       .maybeSingle();
 
@@ -122,6 +122,9 @@ export async function POST(
       ...(job as any),
       selected_job_equipment_id: (existing as any)?.selected_job_equipment_id ?? null,
       selected_crane_id: (existing as any)?.selected_crane_id ?? null,
+      lift_supervisor: (existing as any)?.lift_supervisor ?? null,
+      appointed_person: (existing as any)?.appointed_person ?? null,
+      crane_operator: (existing as any)?.crane_operator ?? null,
     });
 
     await writeAuditLog({
