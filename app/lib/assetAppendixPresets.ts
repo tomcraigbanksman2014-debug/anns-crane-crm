@@ -211,7 +211,8 @@ export function buildCraneAppendixFacts(
   const explicitGlazing = hasAny(source, ["glazing", "glass", "vacuum lifter"]);
   const liftingPersons =
     hasAny(platformSignalSource, ["basket", "platform", "mewp", "man basket", "personnel basket", "lifting persons", "people lifting"]) &&
-    !explicitCraneLift;
+    !explicitCraneLift &&
+    !explicitGlazing;
   const restrictedAccess = hasAny(source, ["restricted access", "tight access", "narrow access", "confined", "limited access", "restricted setup"]);
   const stabilityClass = ["j0", "j1", "j5", "j6", "j7"].find((item) => source.includes(item))?.toUpperCase() ?? null;
 
@@ -228,7 +229,6 @@ export function buildCraneAppendixFacts(
 
   let operatingMode = "crane_lift";
   if (liftingPersons) operatingMode = "platform_or_basket";
-  else if (explicitGlazing) operatingMode = "glazing";
 
   return {
     operating_mode: operatingMode,
