@@ -280,7 +280,7 @@ function isNoDragTarget(target: EventTarget | null) {
 function stopNoDragEvent() {}
 
 export default function PlannerBoard() {
-  const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(mondayOf(new Date())));
+  const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(new Date()));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [error, setError] = useState("");
@@ -756,7 +756,7 @@ export default function PlannerBoard() {
         <div>
           <h2 style={{ margin: 0, fontSize: 28 }}>Crane Planner</h2>
           <div style={{ marginTop: 6, opacity: 0.75 }}>
-            Week commencing {data?.week_start ?? weekStart}
+            Showing from {data?.week_start ?? weekStart} to {data?.week_end ?? visibleDays[visibleDays.length - 1]?.date ?? weekStart}
           </div>
         </div>
 
@@ -765,13 +765,13 @@ export default function PlannerBoard() {
             + Add Job
           </a>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
-            ← Previous week
+            ← Previous 7 days
           </button>
-          <button type="button" onClick={() => setWeekStart(isoDateLocal(mondayOf(new Date())))} style={secondaryBtn}>
+          <button type="button" onClick={() => setWeekStart(isoDateLocal(new Date()))} style={secondaryBtn}>
             This week
           </button>
           <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
-            Next week →
+            Next 7 days →
           </button>
         </div>
       </div>
