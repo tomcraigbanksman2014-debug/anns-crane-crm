@@ -21,7 +21,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("lift_plans")
-      .select("id, paperwork_locked")
+      .select("id, paperwork_locked, selected_job_equipment_id, selected_crane_id")
       .eq("job_id", params.id)
       .maybeSingle();
 
@@ -64,10 +64,12 @@ export async function POST(
           email
         ),
         cranes:crane_id (
+          id,
           name,
           make,
           model,
-          capacity
+          capacity,
+          reg_number
         ),
         operators:operator_id (
           full_name,
@@ -116,7 +118,11 @@ export async function POST(
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
 
-    const result = await generateCraneLiftPlanDraft(job);
+    const result = await generateCraneLiftPlanDraft({
+      ...(job as any),
+      selected_job_equipment_id: (existing as any)?.selected_job_equipment_id ?? null,
+      selected_crane_id: (existing as any)?.selected_crane_id ?? null,
+    });
 
     await writeAuditLog({
       actor_user_id: user.id,
@@ -128,6 +134,8 @@ export async function POST(
         job_id: params.id,
         provider: result.provider,
         equipment_profile_id: result.equipmentProfile?.id ?? null,
+        selected_job_equipment_id: (existing as any)?.selected_job_equipment_id ?? null,
+        selected_crane_id: (existing as any)?.selected_crane_id ?? null,
       },
     });
 
