@@ -168,8 +168,10 @@ export default function LiftPlanForm({
     setForm((prev) => {
       const changed = String(prev.selected_job_equipment_id ?? "") !== String(allocationId ?? "");
       const base = changed ? clearMachineNarrativeFields(prev) : { ...prev };
+      const shouldClearSupervisor = changed && (!hasDraftValue(prev.lift_supervisor) || String(prev.lift_supervisor ?? "").trim() === String(prev.crane_operator ?? "").trim());
       return {
         ...base,
+        lift_supervisor: shouldClearSupervisor ? "" : prev.lift_supervisor,
         selected_job_equipment_id: allocationId || "",
         selected_crane_id: selected?.craneId || "",
       };
@@ -212,7 +214,6 @@ export default function LiftPlanForm({
           "lift_height",
           "sling_type",
           "lifting_accessories",
-          "lift_supervisor",
           "appointed_person",
         ]
       );
