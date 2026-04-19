@@ -17,6 +17,13 @@ function cleanBool(value: unknown) {
   return value === true;
 }
 
+function cleanUuid(value: unknown) {
+  const s = String(value ?? "").trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
+    ? s
+    : null;
+}
+
 export async function GET(
   req: Request,
   { params }: { params: { id: string } }
@@ -80,6 +87,8 @@ export async function POST(
 
     const payload = {
       job_id: params.id,
+      selected_job_equipment_id: cleanUuid(body.selected_job_equipment_id),
+      selected_crane_id: cleanUuid(body.selected_crane_id),
       load_description: cleanText(body.load_description),
       load_weight: cleanNumber(body.load_weight),
       lift_radius: cleanNumber(body.lift_radius),
@@ -129,7 +138,7 @@ export async function POST(
         action: "lift_plan_updated",
         entity_type: "lift_plan",
         entity_id: existing.id,
-        meta: { job_id: params.id },
+        meta: { job_id: params.id, selected_job_equipment_id: payload.selected_job_equipment_id, selected_crane_id: payload.selected_crane_id },
       });
     } else {
       const { data: inserted, error: insertError } = await supabase
@@ -151,7 +160,7 @@ export async function POST(
         action: "lift_plan_created",
         entity_type: "lift_plan",
         entity_id: inserted.id,
-        meta: { job_id: params.id },
+        meta: { job_id: params.id, selected_job_equipment_id: payload.selected_job_equipment_id, selected_crane_id: payload.selected_crane_id },
       });
     }
 
