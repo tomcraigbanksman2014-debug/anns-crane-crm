@@ -82,9 +82,6 @@ function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
   const d = new Date(base);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
   return d;
 }
 
@@ -534,14 +531,14 @@ export default async function WeeklyPlannerPage({
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <a href="/jobs/new" style={primaryBtn}>+ Add Job</a>
             <a href="/transport-jobs/new" style={secondaryBtn}>+ Add Transport Job</a>
-            <a href={`/weekly-planner?week=${prevWeek}&filter=${selectedFilter}`} style={secondaryBtn}>← Prev</a>
+            <a href={`/weekly-planner?week=${prevWeek}&filter=${selectedFilter}`} style={secondaryBtn}>← Previous 7 days</a>
             <a href={`/weekly-planner?week=${thisWeek}&filter=${selectedFilter}`} style={secondaryBtn}>This week</a>
-            <a href={`/weekly-planner?week=${nextWeek}&filter=${selectedFilter}`} style={secondaryBtn}>Next →</a>
+            <a href={`/weekly-planner?week=${nextWeek}&filter=${selectedFilter}`} style={secondaryBtn}>Next 7 days →</a>
           </div>
         </div>
 
         <div style={summaryBar}>
-          <div style={summaryItem}>Week: {weekStartIso}</div>
+          <div style={summaryItem}>Showing: {weekStartIso} to {weekEndIso}</div>
           <div style={summaryItem}>Crane jobs: {craneRows.length}</div>
           <div style={summaryItem}>Transport jobs: {transportRows.length}</div>
           <div style={summaryItem}>Labour rows: {labourRowsTotal}</div>
