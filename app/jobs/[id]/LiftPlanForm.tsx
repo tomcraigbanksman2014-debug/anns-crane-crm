@@ -81,8 +81,6 @@ const MACHINE_NARRATIVE_KEYS: Array<keyof LiftPlanData> = [
   "exclusion_zone_details",
   "weather_limitations",
   "emergency_procedures",
-  "lift_supervisor",
-  "appointed_person",
   "crane_operator",
 ];
 
@@ -207,7 +205,16 @@ export default function LiftPlanForm({
       const mergedBase = mergeGeneratedDraft(
         form,
         data?.draft,
-        ["load_description", "load_weight", "lift_radius", "lift_height", "sling_type", "lifting_accessories"]
+        [
+          "load_description",
+          "load_weight",
+          "lift_radius",
+          "lift_height",
+          "sling_type",
+          "lifting_accessories",
+          "lift_supervisor",
+          "appointed_person",
+        ]
       );
 
       const merged: LiftPlanData = {
