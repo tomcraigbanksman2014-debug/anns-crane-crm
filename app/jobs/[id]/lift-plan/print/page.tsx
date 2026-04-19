@@ -139,7 +139,12 @@ export default async function LiftPlanPrintPage({
   ]);
 
   const client = flatten((job as any)?.clients)[0] ?? null;
-  const primary = getPrimaryCraneContext(job as any);
+  const selectedJob = {
+    ...(job as any),
+    selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
+    selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+  };
+  const primary = getPrimaryCraneContext(selectedJob);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
   const allocation = primary?.allocation ?? null;
   const operator =
@@ -149,7 +154,7 @@ export default async function LiftPlanPrintPage({
     null;
 
   const equipmentProfile = matchCraneJobEquipmentProfile({
-    ...(job as any),
+    ...selectedJob,
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
     job_equipment: (job as any)?.job_equipment ?? [],
   });
