@@ -468,7 +468,12 @@ export default async function CraneLiftPlanPackPage({
   const sections: StringMap =
     ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
   const client = flatten((job as any)?.clients)[0] ?? null;
-  const primary = getPrimaryCraneContext(job as any);
+  const selectedJob = {
+    ...(job as any),
+    selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
+    selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+  };
+  const primary = getPrimaryCraneContext(selectedJob);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
   const allocation = primary?.allocation ?? null;
   const operator =
@@ -478,41 +483,12 @@ export default async function CraneLiftPlanPackPage({
     null;
 
   const equipmentProfile = matchCraneJobEquipmentProfile({
-    ...(job as any),
+    ...selectedJob,
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const appendixAssets = await getCraneAppendixAssetsForPack(
-    primary?.crane?.id ?? crane?.id ?? null,
-    {
-      liftType: (job as any)?.lift_type || sections.lift_classification || null,
-      craneConfiguration: [
-        sections.boom_configuration,
-        liftPlan?.crane_configuration,
-        sections.crane_setup_procedure,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      outriggerSetup: [
-        liftPlan?.outrigger_setup,
-        sections.outrigger_setup,
-        sections.ground_conditions,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      loadDescription: liftPlan?.load_description || null,
-      notes: [
-        (job as any)?.notes,
-        sections.scope_of_works,
-        sections.risk_assessment_summary,
-        sections.overhead_obstructions,
-        sections.weather_conditions,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    }
-  );
+  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
 
   const clientName = client?.company_name || "the client";
   const projectName =
