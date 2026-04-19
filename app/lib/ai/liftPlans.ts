@@ -234,13 +234,8 @@ function parseTransportDraft(text: string): TransportLiftPlanDraft {
   };
 }
 
-
 function hasText(value: unknown) {
   return String(value ?? "").trim().length > 0;
-}
-
-function hasNumber(value: unknown) {
-  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
 }
 
 function firstNonEmpty(...values: unknown[]) {
@@ -274,12 +269,168 @@ function defaultWeatherLimitations(profile: EquipmentProfile | null) {
   );
 }
 
-function applyCraneDefaults(draft: CraneLiftPlanDraft, profile: EquipmentProfile | null): CraneLiftPlanDraft {
+function craneNameFromJob(job: any, profile: EquipmentProfile | null) {
+  const primary = getPrimaryCraneContext(job);
+  const crane = primary.crane;
+  return joinParts([
+    crane?.name,
+    crane?.make,
+    crane?.model,
+    crane?.capacity,
+  ]) || profile?.title || "the allocated crane";
+}
+
+function operatorNameFromJob(job: any) {
+  const primary = getPrimaryCraneContext(job);
+  const mainOperator = one(job?.main_operator);
+  return clean(mainOperator?.full_name) || clean(primary.operator?.full_name) || null;
+}
+
+function appointedPersonFromJob(job: any) {
+  return clean(job?.appointed_person_name) || clean(job?.appointed_person) || null;
+}
+
+function siteNameFromJob(job: any) {
+  return clean(job?.site_name) || "site";
+}
+
+function siteAddressFromJob(job: any) {
+  return clean(job?.site_address) || "site address to be confirmed";
+}
+
+function liftTypeFromJob(job: any) {
+  return clean(job?.lift_type) || "planned lift";
+}
+
+function machineSpecificSetupText(profile: EquipmentProfile | null) {
+  switch (profile?.id) {
+    case "ak46-6000":
+      return "Use the AK 46/6000 in the planned boom / jib arrangement only after checking the working range crane-operation chart for the intended radius and load. Do not use basket / MEWP mode for normal crane lifting operations.";
+    case "gmk4080-1":
+      return "Use the GMK4080-1 only in the checked boom length, counterweight and outrigger duty. Confirm the exact chart, carrier setup and level condition before lifting.";
+    case "spx532":
+      return "The SPX532 must be used in the correct stability zone and boom / jib chart for the selected outrigger geometry. Reduced or asymmetric outrigger setups can materially reduce capacity or remove lifting capacity in some zones.";
+    case "mtk-35":
+      return "The MTK35 must be used in the planned boom / jib arrangement only after checking the current duty chart. Published capacities in the supplied sheet are based on fully extended outriggers unless a separately checked reduced-outrigger duty is available.";
+    default:
+      return defaultCraneConfiguration(profile);
+  }
+}
+
+function machineSpecificMethodStatement(job: any, profile: EquipmentProfile | null) {
+  const craneName = craneNameFromJob(job, profile);
+  const siteName = siteNameFromJob(job);
+  const siteAddress = siteAddressFromJob(job);
+  const liftType = liftTypeFromJob(job);
+  const machineSetup = machineSpecificSetupText(profile);
+  const warnings = equipmentWarnings(profile).join(" ");
+
+  return [
+    `Attend site at ${siteName}${siteAddress ? `, ${siteAddress}` : ""} and complete the pre-lift briefing with all involved personnel before lifting starts.`,
+    `Establish the exclusion zone, confirm the load details, lift route, landing area and communication method for the ${liftType}.`,
+    `Position ${craneName} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm level, support and final setup before load is taken.`,
+    machineSetup,
+    `Inspect all lifting accessories, connect the load using the planned certified arrangement, complete a controlled test lift if required and then carry out the lift under the direction of the lift supervisor using the agreed signalling method.`,
+    `Land the load safely, remove lifting accessories, de-rig the crane in accordance with the manufacturer instructions and leave the work area safe and tidy.`,
+    warnings,
+  ].join(" ");
+}
+
+function machineSpecificGroundConditions(job: any, profile: EquipmentProfile | null) {
+  const siteName = siteNameFromJob(job);
+  const siteAddress = siteAddressFromJob(job);
+  const profileText = profile?.id === "spx532"
+    ? "Ground, support pads and local level must suit the selected outrigger / stability position."
+    : "Ground must be firm, level and suitable for the planned outrigger / stabiliser reactions.";
+
+  return `${profileText} The setup area at ${siteName}${siteAddress ? `, ${siteAddress}` : ""} must be checked for soft ground, basements, chambers, edge risks, underground services and any other condition that could affect support.`;
+}
+
+function machineSpecificSiteHazards(job: any, profile: EquipmentProfile | null) {
+  const base = `Potential hazards include overhead obstructions, underground services, restricted access / egress, proximity to public areas, adverse weather, uneven or soft ground and glass handling risks.`;
+  if (profile?.id === "spx532") {
+    return `${base} Additional hazard: selecting the wrong stability / outrigger zone for the planned Jekko duty.`;
+  }
+  if (profile?.id === "gmk4080-1") {
+    return `${base} Additional hazard: incorrect counterweight, boom duty or outrigger extension for the GMK4080-1.`;
+  }
+  return base;
+}
+
+function machineSpecificControlMeasures(job: any, profile: EquipmentProfile | null) {
+  const craneName = craneNameFromJob(job, profile);
+  const profileSpecific = profile?.id === "spx532"
+    ? "Confirm the selected stability / outrigger zone and use the matching Jekko chart before the lift proceeds."
+    : profile?.id === "gmk4080-1"
+    ? "Confirm boom length, counterweight, outrigger extension and the applicable GMK4080-1 chart before lifting."
+    : profile?.id === "ak46-6000"
+    ? "Use the crane-operation chart only for crane lifting and do not mix basket / platform guidance into the lifting duty."
+    : profile?.id === "mtk-35"
+    ? "Use fully extended outriggers unless a separately checked reduced-outrigger duty is available and approved."
+    : "Check the current manufacturer chart and support arrangement before lifting.";
+
+  return [
+    `Establish and maintain a clear exclusion zone around ${craneName}, the slewing area, the suspended load path and the landing zone.`,
+    `Use trained personnel only, maintain agreed signalling / radio communication and stop the lift immediately if conditions change or visibility is lost.`,
+    `Verify load weight, lifting points, accessories, hook block weight, radius, support arrangement and ground suitability before taking the load.`,
+    profileSpecific,
+  ].join(" ");
+}
+
+function machineSpecificRiskAssessment(job: any, profile: EquipmentProfile | null) {
+  const profileSpecific = profile?.id === "spx532"
+    ? "incorrect stability-zone selection"
+    : profile?.id === "gmk4080-1"
+    ? "incorrect counterweight / duty selection"
+    : profile?.id === "ak46-6000"
+    ? "incorrect crane-operation working range selection"
+    : profile?.id === "mtk-35"
+    ? "using a reduced-outrigger duty without separate chart confirmation"
+    : "incorrect chart or setup selection";
+
+  return `Main risks include load drop due to sling / accessory failure, crane instability due to poor ground or incorrect setup, collision with structures or personnel, ${profileSpecific}, glass breakage, weather impacts and unauthorised access to the exclusion zone. Final capacity and configuration must be checked against the current applicable chart before approval.`;
+}
+
+function machineSpecificEmergency(job: any, profile: EquipmentProfile | null) {
+  const craneName = craneNameFromJob(job, profile);
+  return `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${craneName} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`;
+}
+
+function machineSpecificPpe() {
+  return "Hard hat, hi-vis clothing, gloves, safety boots and eye protection. Additional PPE such as cut-resistant gloves to be used where glass handling or sharp-edge work requires it.";
+}
+
+function machineSpecificExclusionZone(job: any, profile: EquipmentProfile | null) {
+  const craneName = craneNameFromJob(job, profile);
+  return `Barrier off the lifting area, slewing area and landing zone for ${craneName}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`;
+}
+
+function machineSpecificNarrative(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
+  const operatorName = operatorNameFromJob(job);
+  const appointedPerson = appointedPersonFromJob(job);
+
+  return {
+    crane_configuration: defaultCraneConfiguration(profile),
+    outrigger_setup: defaultOutriggerSetup(profile),
+    ground_conditions: machineSpecificGroundConditions(job, profile),
+    method_statement: machineSpecificMethodStatement(job, profile),
+    risk_assessment: machineSpecificRiskAssessment(job, profile),
+    site_hazards: machineSpecificSiteHazards(job, profile),
+    control_measures: machineSpecificControlMeasures(job, profile),
+    ppe_required: machineSpecificPpe(),
+    exclusion_zone_details: machineSpecificExclusionZone(job, profile),
+    weather_limitations: defaultWeatherLimitations(profile),
+    emergency_procedures: machineSpecificEmergency(job, profile),
+    lift_supervisor: operatorName,
+    appointed_person: appointedPerson,
+    crane_operator: operatorName,
+  };
+}
+
+function applyCraneDefaults(draft: CraneLiftPlanDraft, job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
   return {
     ...draft,
-    crane_configuration: hasText(draft.crane_configuration) ? String(draft.crane_configuration).trim() : defaultCraneConfiguration(profile),
-    outrigger_setup: hasText(draft.outrigger_setup) ? String(draft.outrigger_setup).trim() : defaultOutriggerSetup(profile),
-    weather_limitations: hasText(draft.weather_limitations) ? String(draft.weather_limitations).trim() : defaultWeatherLimitations(profile),
+    ...machineSpecificNarrative(job, profile),
   };
 }
 
@@ -308,34 +459,18 @@ function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLi
     crane?.capacity ? `(${crane.capacity})` : "",
   ]) || profile?.title || "the allocated crane";
   const operatorName = clean(mainOperator?.full_name) || clean(operator?.full_name) || "Allocated operator";
-  const liftType = clean(job?.lift_type) || "planned lift";
   const hireType = clean(job?.hire_type) || "crane hire";
-  const siteName = clean(job?.site_name) || "site";
-  const siteAddress = clean(job?.site_address) || "site address to be confirmed";
   const loadDescription = clean(job?.notes) || `${hireType} for ${clientName}`;
-  const machineFacts = equipmentHeadline(profile);
-  const warningText = equipmentWarnings(profile).join(" ");
 
   return {
     load_description: loadDescription,
     load_weight: null,
     lift_radius: null,
     lift_height: null,
-    crane_configuration: `${craneName} to be configured in line with manufacturer guidance, site constraints and the agreed lift plan for ${siteName}. ${machineFacts || "Final boom configuration, counterweight and operating radius to be confirmed on site before lifting starts."}`,
-    outrigger_setup: `${profile?.outriggersNote || "Outriggers to be fully deployed where possible on suitable mats or spreader support."} Setup area to be checked for underground services, voids, chambers, kerbs and edge risks before load is taken.`,
-    ground_conditions: `Ground conditions at ${siteName} / ${siteAddress} to be visually inspected before setup. Crane not to be operated until the appointed person / supervisor is satisfied that the ground is suitable for the planned configuration and any outrigger loading.`,
     sling_type: `Correct certified slings and lifting accessories to be selected to suit the load, centre of gravity and lifting points.`,
     lifting_accessories: `Certified chains / slings / shackles / lifting beam as required by the load and lift arrangement. Pre-use checks to be completed before lifting.`,
-    method_statement: `Attend site, sign in and brief all involved personnel. Confirm load details, lift route, landing area, exclusion zone and communication method. Position ${craneName}, deploy outriggers on suitable support, complete pre-lift checks and test lift if required. Carry out the ${liftType} under the direction of the lift supervisor using agreed signals. Land the load safely, release accessories and leave the work area in a safe condition. ${warningText}`,
-    risk_assessment: `Main risks include overturning, inadequate ground support, striking overhead services, trapping / crushing, load instability, suspended load movement, personnel entering the lift zone and poor communication. ${warningText}`,
-    site_hazards: `Possible overhead lines, underground services, weak ground, basements / chambers, nearby structures, traffic / pedestrians, weather exposure and restricted access around ${siteName}.`,
-    control_measures: `Use trained personnel only. Establish exclusion zone. Check ground and support arrangement before setup. Verify load weight, radius and attachment method. Use standard hand signals / agreed radio communication. Stop work in unsafe wind or weather conditions. Final chart / setup check to be completed before lifting.`,
-    ppe_required: `Hard hat, hi-vis, gloves, safety boots and any site-specific PPE identified during briefing.`,
-    exclusion_zone_details: `Barrier off the lifting area, slewing area and landing zone. No unauthorised persons to enter the exclusion zone while the load is suspended or the crane is being set up.`,
-    weather_limitations: `Lift not to proceed in unsafe wind, lightning or weather conditions affecting visibility, load control or ground stability. Refer to the applicable machine chart / manual and site risk assessment.`,
-    emergency_procedures: `Stop lifting immediately if unsafe conditions develop. Make load safe where possible, isolate the area, report to site management and follow emergency arrangements for injury, equipment failure or contact with services.`,
-    lift_supervisor: clean(mainOperator?.full_name) || clean(operator?.full_name) || null,
-    appointed_person: null,
+    lift_supervisor: operatorName,
+    appointed_person: appointedPersonFromJob(job),
     crane_operator: operatorName,
     rams_complete: false,
     lift_plan_complete: false,
@@ -407,6 +542,7 @@ Rules:
 - Make it practical and specific for UK lifting operations.
 - Always include a clear warning that final capacity must be checked against the current manufacturer chart, actual setup, accessories and site conditions before approval.
 - Keep rams_complete and lift_plan_complete false.
+- NEVER refer to a different crane model than the selected crane / machine profile.
 
 Job data:
 ${JSON.stringify({
@@ -477,13 +613,13 @@ export async function generateCraneLiftPlanDraft(job: any) {
     const text = await callOpenAI(buildCranePrompt(job, profile), 2200);
     return {
       provider: "openai" as const,
-      draft: applyCraneDefaults(parseCraneDraft(text), profile),
+      draft: applyCraneDefaults(parseCraneDraft(text), job, profile),
       equipmentProfile: profile,
     };
   } catch {
     return {
       provider: "fallback" as const,
-      draft: applyCraneDefaults(fallbackCraneDraft(job, profile), profile),
+      draft: applyCraneDefaults(fallbackCraneDraft(job, profile), job, profile),
       equipmentProfile: profile,
     };
   }
