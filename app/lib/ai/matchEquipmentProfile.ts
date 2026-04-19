@@ -64,10 +64,54 @@ function firstMatchingCraneAllocation(job: any) {
   return allocations[0] ?? null;
 }
 
+function listMatchingCraneAllocations(job: any) {
+  return flatten(job?.job_equipment).filter((item) => {
+    const type = toText(item?.asset_type || item?.source_type || "");
+    return type === "crane" || !!item?.crane_id || !!item?.cranes;
+  });
+}
+
+function findSelectedCraneAllocation(job: any) {
+  const allocations = listMatchingCraneAllocations(job);
+  if (!allocations.length) return null;
+
+  const selectedAllocationId = String(job?.selected_job_equipment_id ?? "").trim();
+  if (selectedAllocationId) {
+    const exact = allocations.find((item) => String(item?.id ?? "") === selectedAllocationId);
+    if (exact) return exact;
+  }
+
+  const selectedCraneId = String(job?.selected_crane_id ?? "").trim();
+  if (selectedCraneId) {
+    const byCrane = allocations.find((item) => {
+      const crane = flatten(item?.cranes)[0] ?? null;
+      return (
+        String(item?.crane_id ?? "") === selectedCraneId ||
+        String(crane?.id ?? "") === selectedCraneId
+      );
+    });
+    if (byCrane) return byCrane;
+  }
+
+  return null;
+}
+
 export function getPrimaryCraneContext(job: any) {
-  const allocation = firstMatchingCraneAllocation(job);
-  const crane = flatten(allocation?.cranes)[0] ?? flatten(job?.cranes)[0] ?? job?.crane ?? null;
-  const operator = flatten(allocation?.operators)[0] ?? flatten(job?.main_operator)[0] ?? flatten(job?.operators)[0] ?? null;
+  const allocation = findSelectedCraneAllocation(job) ?? firstMatchingCraneAllocation(job);
+
+  const selectedCraneId = String(job?.selected_crane_id ?? "").trim();
+  const craneFromAllocation = flatten(allocation?.cranes)[0] ?? null;
+  const jobCraneList = flatten(job?.cranes);
+  const craneFromSelection = selectedCraneId
+    ? jobCraneList.find((item) => String(item?.id ?? "") === selectedCraneId) ?? null
+    : null;
+  const crane = craneFromAllocation ?? craneFromSelection ?? jobCraneList[0] ?? job?.crane ?? null;
+
+  const operator =
+    flatten(allocation?.operators)[0] ??
+    flatten(job?.main_operator)[0] ??
+    flatten(job?.operators)[0] ??
+    null;
 
   return {
     allocation,
