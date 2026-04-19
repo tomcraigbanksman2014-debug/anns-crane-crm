@@ -69,6 +69,31 @@ function mergeGeneratedDraft<T extends Record<string, any>>(prev: T, draft: Part
   return next as T;
 }
 
+const MACHINE_NARRATIVE_KEYS: Array<keyof LiftPlanData> = [
+  "crane_configuration",
+  "outrigger_setup",
+  "ground_conditions",
+  "method_statement",
+  "risk_assessment",
+  "site_hazards",
+  "control_measures",
+  "ppe_required",
+  "exclusion_zone_details",
+  "weather_limitations",
+  "emergency_procedures",
+  "lift_supervisor",
+  "appointed_person",
+  "crane_operator",
+];
+
+function clearMachineNarrativeFields<T extends Record<string, any>>(prev: T) {
+  const next: Record<string, any> = { ...prev };
+  for (const key of MACHINE_NARRATIVE_KEYS) {
+    next[key] = "";
+  }
+  return next as T;
+}
+
 function toInputDateTime(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -142,11 +167,18 @@ export default function LiftPlanForm({
   function updateSelectedCrane(allocationId: string) {
     if (locked) return;
     const selected = craneOptions.find((option) => option.value === allocationId) ?? null;
-    setForm((prev) => ({
-      ...prev,
-      selected_job_equipment_id: allocationId || "",
-      selected_crane_id: selected?.craneId || "",
-    }));
+    setForm((prev) => {
+      const changed = String(prev.selected_job_equipment_id ?? "") !== String(allocationId ?? "");
+      const base = changed ? clearMachineNarrativeFields(prev) : { ...prev };
+      return {
+        ...base,
+        selected_job_equipment_id: allocationId || "",
+        selected_crane_id: selected?.craneId || "",
+      };
+    });
+    if (String(form.selected_job_equipment_id ?? "") !== String(allocationId ?? "")) {
+      setMsg("Selected crane changed. Generate AI draft to rebuild crane-specific wording, then save.");
+    }
   }
 
   async function postForm(payload: LiftPlanData) {
@@ -172,24 +204,29 @@ export default function LiftPlanForm({
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
 
-      setForm((prev) => {
-        const merged = mergeGeneratedDraft(prev, data?.draft, ['load_description', 'load_weight', 'lift_radius', 'lift_height', 'sling_type', 'lifting_accessories']);
-        return {
-          ...merged,
-          selected_job_equipment_id: prev.selected_job_equipment_id,
-          selected_crane_id: prev.selected_crane_id,
-          paperwork_locked: prev.paperwork_locked,
-          approved_by: prev.approved_by,
-          approved_at: prev.approved_at,
-          approval_notes: prev.approval_notes,
-          customer_signed_by: prev.customer_signed_by,
-          operator_signed_by: prev.operator_signed_by,
-          office_signed_by: prev.office_signed_by,
-          finalised_at: prev.finalised_at,
-        };
-      });
+      const mergedBase = mergeGeneratedDraft(
+        form,
+        data?.draft,
+        ["load_description", "load_weight", "lift_radius", "lift_height", "sling_type", "lifting_accessories"]
+      );
 
-      setMsg(`AI draft generated (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before saving.`);
+      const merged: LiftPlanData = {
+        ...mergedBase,
+        selected_job_equipment_id: form.selected_job_equipment_id,
+        selected_crane_id: form.selected_crane_id,
+        paperwork_locked: form.paperwork_locked,
+        approved_by: form.approved_by,
+        approved_at: form.approved_at,
+        approval_notes: form.approval_notes,
+        customer_signed_by: form.customer_signed_by,
+        operator_signed_by: form.operator_signed_by,
+        office_signed_by: form.office_signed_by,
+        finalised_at: form.finalised_at,
+      };
+
+      await postForm(merged);
+      setForm(merged);
+      setMsg(`AI draft generated and saved (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before finalising.`);
     } catch (e: any) {
       setMsg(e?.message || "Could not generate draft.");
     } finally {
