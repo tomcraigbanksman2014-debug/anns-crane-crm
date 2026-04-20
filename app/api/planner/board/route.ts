@@ -303,7 +303,6 @@ export async function GET(req: Request) {
           hire_type,
           lift_type,
           supplier_id,
-          supplier_reference,
           notes,
           invoice_subtotal,
           invoice_amount,
@@ -331,7 +330,6 @@ export async function GET(req: Request) {
           asset_type,
           source_type,
           supplier_id,
-          supplier_reference,
           item_name,
           start_date,
           end_date,
@@ -358,7 +356,6 @@ export async function GET(req: Request) {
             hire_type,
             lift_type,
             supplier_id,
-            supplier_reference,
             notes,
             invoice_subtotal,
             invoice_amount,
@@ -406,7 +403,6 @@ export async function GET(req: Request) {
             hire_type,
             lift_type,
             supplier_id,
-            supplier_reference,
             notes,
             invoice_subtotal,
             invoice_amount,
@@ -797,7 +793,7 @@ export async function GET(req: Request) {
             plannerGroup === "labour_only"
               ? "Labour / Other"
               : plannerGroup === "cross_hired"
-              ? job.supplier_reference ?? "Cross-hired crane"
+              ? "Cross-hired crane"
               : null,
           clients: client ? [client] : [],
           operators: operator ? [operator] : [],
