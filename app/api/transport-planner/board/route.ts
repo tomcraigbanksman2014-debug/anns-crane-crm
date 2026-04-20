@@ -28,6 +28,14 @@ function lower(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function isCrossHiredTransportJob(row: any) {
+  const supplierId = String(row?.supplier_id ?? "").trim();
+  const supplierReference = String(row?.supplier_reference ?? "").trim();
+  const supplierCost = num(row?.supplier_cost);
+
+  return Boolean(supplierId || supplierReference || supplierCost > 0);
+}
+
 function overlapsRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
@@ -106,6 +114,8 @@ export async function GET(req: Request) {
         delivery_time,
         load_description,
         status,
+        supplier_id,
+        supplier_reference,
         supplier_cost,
         agreed_sell_rate,
         price,
@@ -197,6 +207,8 @@ export async function GET(req: Request) {
         status: row.status ?? null,
         job_type: row.job_type ?? null,
         load_description: row.load_description ?? null,
+        supplier_id: row.supplier_id ?? null,
+        supplier_reference: row.supplier_reference ?? null,
         supplier_cost: num(row.supplier_cost),
         agreed_sell_rate: num(row.agreed_sell_rate),
         job_price: num(row.effective_price),
@@ -205,15 +217,22 @@ export async function GET(req: Request) {
       };
     };
 
+    const crossHiredJobs = activeJobs.filter((row: any) => isCrossHiredTransportJob(row));
+    const ownedTransportJobs = activeJobs.filter((row: any) => !isCrossHiredTransportJob(row));
+
     const vehicleRows = vehicles.map((vehicle: any) => ({
       id: vehicle.id,
       name: vehicle.name,
       reg_number: vehicle.reg_number,
       status: vehicle.status,
-      items: activeJobs.filter((row: any) => row.vehicle_id === vehicle.id).map(mapJob),
+      items: ownedTransportJobs.filter((row: any) => row.vehicle_id === vehicle.id).map(mapJob),
     }));
 
-    const unallocatedJobs = activeJobs.filter((row: any) => !row.vehicle_id).map(mapJob);
+    const unallocatedJobs = ownedTransportJobs.filter((row: any) => !row.vehicle_id).map(mapJob);
+    const crossHiredPlannerJobs = crossHiredJobs.map((row: any) => ({
+      ...mapJob(row),
+      planner_group: "cross_hired",
+    }));
 
     return NextResponse.json({
       week_start: rangeStart,
@@ -221,6 +240,7 @@ export async function GET(req: Request) {
       bank_holidays: bankHolidays,
       vehicles: vehicleRows,
       unallocated_jobs: unallocatedJobs,
+      cross_hired_jobs: crossHiredPlannerJobs,
     });
   } catch (e: any) {
     return NextResponse.json(
