@@ -272,6 +272,10 @@ function actionLabel(item: PlannerItem) {
   return `Job ${item.job_number ? `#${item.job_number}` : ""} • ${getClientName(item)}`;
 }
 
+function canDragPlannerItem(item: PlannerItem) {
+  return String(item.planner_group ?? "") !== "cross_hired";
+}
+
 function isNoDragTarget(target: EventTarget | null) {
   if (!(target instanceof Element)) return false;
   return Boolean(target.closest("[data-no-drag='true']"));
@@ -388,9 +392,18 @@ export default function PlannerBoard() {
     });
   }, [data]);
 
+  const crossHiredItems = useMemo(() => {
+    return (data?.items ?? []).filter(
+      (item) => !item.equipment_id && String(item.planner_group ?? "") === "cross_hired"
+    );
+  }, [data]);
+
   const unassignedCraneItems = useMemo(() => {
     return (data?.items ?? []).filter(
-      (item) => !item.equipment_id && String(item.planner_group ?? "") !== "labour_only"
+      (item) =>
+        !item.equipment_id &&
+        String(item.planner_group ?? "") !== "labour_only" &&
+        String(item.planner_group ?? "") !== "cross_hired"
     );
   }, [data]);
 
@@ -677,7 +690,7 @@ export default function PlannerBoard() {
     return (
       <div
         key={item.id}
-        draggable={openMenuId !== item.id && movingId !== item.id}
+        draggable={canDragPlannerItem(item) && openMenuId !== item.id && movingId !== item.id}
         onMouseDownCapture={stopNoDragEvent}
         onPointerDownCapture={stopNoDragEvent}
         onDragStart={(e) => onDragStart(e, item, visibleDayIso)}
@@ -686,7 +699,12 @@ export default function PlannerBoard() {
           ...(compact ? miniJobCard : fullJobCard),
           ...getStatusTone(item.status),
           opacity: draggingId === item.id ? 0.55 : movingId === item.id ? 0.45 : 1,
-          cursor: movingId === item.id ? "wait" : openMenuId === item.id ? "default" : "grab",
+          cursor:
+            movingId === item.id
+              ? "wait"
+              : !canDragPlannerItem(item) || openMenuId === item.id
+              ? "default"
+              : "grab",
         }}
         title={actionLabel(item)}
       >
@@ -719,6 +737,8 @@ export default function PlannerBoard() {
 
         <div style={tagWrap}>
           <div style={pillNeutral}>{getOperatorName(item)}</div>
+          {item.source_type === "cross_hire" ? <div style={pillWarn}>Cross hired</div> : null}
+          {item.item_name ? <div style={pillNeutral}>{item.item_name}</div> : null}
           {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
         </div>
       </div>
@@ -871,6 +891,88 @@ export default function PlannerBoard() {
               )}
             </div>
           </section>
+
+          {crossHiredItems.length > 0 ? (
+            <section style={sectionCard}>
+              <div style={sectionTitleRow}>
+                <div>
+                  <div style={sectionTitle}>Cross-hired cranes</div>
+                  <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
+                    Supplier-fulfilled crane jobs kept separate from the owned crane rows.
+                  </div>
+                </div>
+              </div>
+
+              {isMobile && activeDay ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={mobileRowHeader}>
+                    <div style={{ fontWeight: 1000 }}>Cross-hired cranes</div>
+                    <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
+                  </div>
+                  <div style={mobileDayCell}>
+                    {sortItemsByStartTime(
+                      crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
+                    ).map((item) => (
+                      <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
+                        <div style={pillWarn}>Cross hired</div>
+                        {renderCard(item, false, activeDay.date)}
+                      </div>
+                    ))}
+                    {sortItemsByStartTime(
+                      crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
+                    ).length === 0 ? <div style={emptyCellText}>No cross-hired crane jobs</div> : null}
+                  </div>
+                </div>
+              ) : (
+                <div style={desktopGrid(visibleDays.length)}>
+                  <div style={headCell}>Cross-hire / Week</div>
+
+                  {visibleDays.map((day) => (
+                    <div
+                      key={`cross-hire-head-${day.date}`}
+                      style={{
+                        ...headCell,
+                        ...(day.is_bank_holiday ? holidayHeaderCell : null),
+                      }}
+                    >
+                      <div>{day.label}</div>
+                      {day.is_bank_holiday ? (
+                        <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>
+                          {day.bank_holiday_label ?? "Bank holiday"}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+
+                  <div style={rowHeaderCell}>Cross hired</div>
+
+                  {visibleDays.map((day) => {
+                    const dayItems = sortItemsByStartTime(
+                      crossHiredItems.filter((item) => itemMatchesDay(item, day.date))
+                    );
+
+                    return (
+                      <div
+                        key={`cross-hired-${day.date}`}
+                        style={{
+                          ...dayCell,
+                          ...(day.is_bank_holiday ? holidayCell : null),
+                        }}
+                      >
+                        {dayItems.length > 0 ? (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {dayItems.map((item) => renderCard(item, false, day.date))}
+                          </div>
+                        ) : (
+                          <div style={emptyCellText}>No cross-hired crane jobs</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : null}
 
           {labourOnlyItems.length > 0 ? (
             <section style={sectionCard}>
