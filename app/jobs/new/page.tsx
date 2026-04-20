@@ -628,11 +628,11 @@ export default async function NewJobPage({ searchParams }: PageProps) {
             <div style={twoCol}>
               <div style={fieldWrap}>
                 <label style={labelStyle}>Hire type</label>
-                <input
-                  name="hire_type"
-                  style={inputStyle}
-                  placeholder="CPA / Contract lift / etc."
-                />
+                <select name="hire_type" style={inputStyle} defaultValue="">
+                  <option value="">— Select —</option>
+                  <option value="CPA">CPA</option>
+                  <option value="CONTRACT LIFT">CONTRACT LIFT</option>
+                </select>
               </div>
 
               <div style={fieldWrap}>
