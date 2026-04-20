@@ -38,6 +38,13 @@ function numberOrZero(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function numberOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
 function countBillableDays(startDate: string, endDate: string, excludeWeekends: boolean) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
@@ -196,6 +203,10 @@ async function createJob(formData: FormData) {
 
   const primarySelection = clean(formData.get("primary_equipment_selection"));
   const otherItemName = clean(formData.get("other_item_name"));
+  const crossHireItemName = clean(formData.get("cross_hire_item_name"));
+  const crossHireSupplierId = clean(formData.get("cross_hire_supplier_id")) || null;
+  const crossHireSupplierReference = clean(formData.get("cross_hire_supplier_reference")) || null;
+  const crossHireCost = numberOrNull(formData.get("cross_hire_cost")) ?? 0;
   const rawClientId = clean(formData.get("client_id")) || null;
   const operatorId = clean(formData.get("operator_id")) || null;
 
@@ -213,6 +224,11 @@ async function createJob(formData: FormData) {
   let primaryEquipmentId: string | null = null;
   let selectedCraneId: string | null = null;
   let allocationAssetType: "equipment" | "crane" | "other" | null = null;
+  let allocationSourceType: "owned" | "cross_hire" = "owned";
+  let allocationItemName: string | null = null;
+  let allocationSupplierId: string | null = null;
+  let allocationSupplierReference: string | null = null;
+  let allocationSupplierCost = 0;
 
   if (primarySelection.startsWith("equipment:")) {
     primaryEquipmentId = primarySelection.replace("equipment:", "") || null;
@@ -222,6 +238,14 @@ async function createJob(formData: FormData) {
     allocationAssetType = selectedCraneId ? "crane" : null;
   } else if (primarySelection === "other") {
     allocationAssetType = otherItemName ? "other" : null;
+    allocationItemName = otherItemName || null;
+  } else if (primarySelection === "cross_hire") {
+    allocationAssetType = "crane";
+    allocationSourceType = "cross_hire";
+    allocationItemName = crossHireItemName || null;
+    allocationSupplierId = crossHireSupplierId;
+    allocationSupplierReference = crossHireSupplierReference;
+    allocationSupplierCost = crossHireCost;
   }
 
   const clientResolution = await resolveClientId(supabase, rawClientId, {
@@ -263,6 +287,24 @@ async function createJob(formData: FormData) {
     );
   }
 
+  if (primarySelection === "cross_hire") {
+    if (!crossHireItemName) {
+      redirect(
+        `/jobs/new?error=${encodeURIComponent(
+          "Please enter the cross-hired crane description."
+        )}`
+      );
+    }
+
+    if (!crossHireSupplierId) {
+      redirect(
+        `/jobs/new?error=${encodeURIComponent(
+          "Please select the supplier for the cross-hired crane."
+        )}`
+      );
+    }
+  }
+
   const priceMode = clean(formData.get("price_mode")) || "full_job";
   const excludeWeekends = clean(formData.get("exclude_weekends")) === "on";
   const fullJobPrice = numberOrZero(formData.get("full_job_price"));
@@ -279,6 +321,8 @@ async function createJob(formData: FormData) {
     client_id: clientId,
     equipment_id: primaryEquipmentId,
     operator_id: operatorId,
+    supplier_id: allocationSourceType === "cross_hire" ? allocationSupplierId : null,
+    supplier_reference: allocationSourceType === "cross_hire" ? allocationSupplierReference : null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || otherCustomerContactName || null,
@@ -296,6 +340,8 @@ async function createJob(formData: FormData) {
     price_per_day: priceMode === "per_day" ? pricePerDay : null,
     exclude_weekends: excludeWeekends,
     invoice_subtotal: calculatedSubtotal,
+    cross_hire_cost_total: allocationSourceType === "cross_hire" ? allocationSupplierCost : 0,
+    equipment_count: allocationAssetType ? 1 : 0,
     archived: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -323,11 +369,17 @@ async function createJob(formData: FormData) {
       job_id: data.id,
       asset_type: allocationAssetType,
       operator_id: operatorId,
+      source_type: allocationSourceType,
+      supplier_id: allocationSourceType === "cross_hire" ? allocationSupplierId : null,
       start_date: startDate,
       end_date: endDate,
       start_time: startTime,
       end_time: endTime,
+      agreed_cost: allocationSourceType === "cross_hire" ? allocationSupplierCost : 0,
       agreed_sell_rate: calculatedSubtotal,
+      supplier_cost: allocationSourceType === "cross_hire" ? allocationSupplierCost : 0,
+      supplier_reference: allocationSourceType === "cross_hire" ? allocationSupplierReference : null,
+      item_name: allocationItemName,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -336,12 +388,8 @@ async function createJob(formData: FormData) {
       allocationPayload.equipment_id = primaryEquipmentId;
     }
 
-    if (allocationAssetType === "crane") {
+    if (allocationAssetType === "crane" && allocationSourceType === "owned") {
       allocationPayload.crane_id = selectedCraneId;
-    }
-
-    if (allocationAssetType === "other") {
-      allocationPayload.item_name = otherItemName;
     }
 
     const { error: allocationError } = await supabase
@@ -380,7 +428,7 @@ type PageProps = {
 export default async function NewJobPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: operators }] =
+  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: operators }, { data: suppliers }] =
     await Promise.all([
       supabase
         .from("clients")
@@ -408,6 +456,12 @@ export default async function NewJobPage({ searchParams }: PageProps) {
         .eq("archived", false)
         .eq("status", "active")
         .order("full_name", { ascending: true }),
+
+      supabase
+        .from("suppliers")
+        .select("id, company_name, archived")
+        .eq("archived", false)
+        .order("company_name", { ascending: true }),
     ]);
 
   const quoteId = String(searchParams?.quote_id ?? "");
@@ -714,6 +768,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                     </option>
                   ))}
 
+                  <option value="cross_hire">Cross-hired crane</option>
                   <option value="other">Other</option>
                 </select>
               </div>
@@ -725,6 +780,60 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                   style={inputStyle}
                   placeholder="Only required if Primary equipment = Other"
                 />
+              </div>
+
+              <div style={crossHireBox}>
+                <div>
+                  <h4 style={crossHireHeading}>Cross-hired crane details</h4>
+                  <p style={crossHireHelp}>
+                    Only used when <strong>Primary equipment selection</strong> is set to <strong>Cross-hired crane</strong>.
+                  </p>
+                </div>
+
+                <div style={twoCol}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Cross-hired crane description</label>
+                    <input
+                      name="cross_hire_item_name"
+                      style={inputStyle}
+                      placeholder="e.g. 60T AT Crane / 40T City Crane"
+                    />
+                  </div>
+
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Cross-hire supplier</label>
+                    <select name="cross_hire_supplier_id" style={inputStyle} defaultValue="">
+                      <option value="">— Select supplier —</option>
+                      {(suppliers ?? []).map((supplier: any) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.company_name ?? "Supplier"}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div style={twoCol}>
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Supplier reference</label>
+                    <input
+                      name="cross_hire_supplier_reference"
+                      style={inputStyle}
+                      placeholder="PO / booking / supplier ref"
+                    />
+                  </div>
+
+                  <div style={fieldWrap}>
+                    <label style={labelStyle}>Cross-hire cost</label>
+                    <input
+                      name="cross_hire_cost"
+                      type="number"
+                      step="0.01"
+                      style={inputStyle}
+                      placeholder="0.00"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div style={fieldWrap}>
@@ -863,6 +972,26 @@ const newCustomerHeading: React.CSSProperties = {
 
 const newCustomerHelp: React.CSSProperties = {
   margin: 0,
+  fontSize: 13,
+  opacity: 0.8,
+};
+
+const crossHireBox: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+  padding: 14,
+  borderRadius: 12,
+  background: "rgba(255,247,230,0.72)",
+  border: "1px solid rgba(225,145,25,0.18)",
+};
+
+const crossHireHeading: React.CSSProperties = {
+  margin: 0,
+  fontSize: 16,
+};
+
+const crossHireHelp: React.CSSProperties = {
+  margin: "4px 0 0",
   fontSize: 13,
   opacity: 0.8,
 };
