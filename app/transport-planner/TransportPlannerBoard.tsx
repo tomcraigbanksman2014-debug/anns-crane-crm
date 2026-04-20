@@ -18,7 +18,10 @@ type PlannerItem = {
   status?: string | null;
   job_type?: string | null;
   load_description?: string | null;
+  supplier_id?: string | null;
+  supplier_reference?: string | null;
   supplier_cost?: number | null;
+  planner_group?: string | null;
   agreed_sell_rate?: number | null;
   job_price?: number | null;
   price_mode?: string | null;
@@ -45,6 +48,7 @@ type PlannerResponse = {
   bank_holidays: Array<{ date: string; label: string }>;
   vehicles: VehicleRow[];
   unallocated_jobs: PlannerItem[];
+  cross_hired_jobs: PlannerItem[];
 };
 
 type DropTarget = {
@@ -75,6 +79,10 @@ function deliveryDateForMove(item: PlannerItem, newStartIso: string) {
 
 function isNoOpenTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest("[data-no-open='true']"));
+}
+
+function canDragTransportItem(item: PlannerItem) {
+  return String(item.planner_group ?? "") !== "cross_hired";
 }
 
 function fmtMoney(value: number | null | undefined) {
@@ -473,14 +481,19 @@ export default function TransportPlannerBoard() {
     return (
       <div
         key={`${item.job_id}-${item.transport_date}-${item.delivery_date}-${compact ? "compact" : "full"}`}
-        draggable={!busy && openMenuId !== item.job_id}
+        draggable={canDragTransportItem(item) && !busy && openMenuId !== item.job_id}
         onDragStart={(e) => onDragStart(e, item)}
         onDragEnd={onDragEnd}
         style={{
           ...(compact ? miniJobCard : jobCardStyle),
           ...statusTone(item.status),
           opacity: draggingId === item.job_id ? 0.55 : busy ? 0.65 : 1,
-          cursor: busy ? "wait" : openMenuId === item.job_id ? "default" : "grab",
+          cursor:
+            busy
+              ? "wait"
+              : !canDragTransportItem(item) || openMenuId === item.job_id
+              ? "default"
+              : "grab",
         }}
         onClick={(e) => {
           const target = e.target as HTMLElement | null;
@@ -515,7 +528,9 @@ export default function TransportPlannerBoard() {
         </div>
         <div style={tagWrap}>
           <div style={pillNeutral}>{item.operator_name ?? "Unassigned"}</div>
-          {!item.vehicle_id ? <div style={pillWarn}>No vehicle assigned</div> : null}
+          {item.planner_group === "cross_hired" ? <div style={pillWarn}>Cross hired</div> : null}
+          {item.supplier_reference ? <div style={pillNeutral}>{item.supplier_reference}</div> : null}
+          {!item.vehicle_id && item.planner_group !== "cross_hired" ? <div style={pillWarn}>No vehicle assigned</div> : null}
         </div>
       </div>
     );
@@ -621,6 +636,109 @@ export default function TransportPlannerBoard() {
 
       {!loading && !error ? (
         <>
+          {(data?.cross_hired_jobs ?? []).length > 0 ? (
+            <section style={sectionCard}>
+              <div style={sectionTitleRow}>
+                <div>
+                  <div style={sectionTitle}>Cross-hired transport</div>
+                  <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
+                    Supplier-fulfilled transport kept separate from the owned vehicle rows.
+                  </div>
+                </div>
+              </div>
+
+              {isMobile && activeDay ? (
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div style={mobileRowHeader}>
+                    <div style={{ fontWeight: 1000 }}>Cross-hired transport</div>
+                    <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
+                  </div>
+                  <div
+                    style={{
+                      ...mobileDayCell,
+                      ...(activeDay.holiday
+                        ? {
+                            background: "rgba(255,170,0,0.08)",
+                            border: "1px solid rgba(255,170,0,0.18)",
+                          }
+                        : {}),
+                    }}
+                  >
+                    {sortItemsByStartTime(
+                      (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, activeDay.key))
+                    ).length === 0 ? (
+                      <div style={emptyState}>No cross-hired transport jobs</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {sortItemsByStartTime(
+                          (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, activeDay.key))
+                        ).map((item) => renderJobCard(item, true))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <div style={desktopGrid(visibleDays.length)}>
+                  <div style={headCell}>Cross-hire / Week</div>
+
+                  {visibleDays.map((day) => (
+                    <div
+                      key={`cross-transport-head-${day.key}`}
+                      style={{
+                        ...headCell,
+                        ...(day.holiday
+                          ? {
+                              background: "rgba(255,170,0,0.16)",
+                              border: "1px solid rgba(255,170,0,0.24)",
+                            }
+                          : {}),
+                      }}
+                    >
+                      <div>{day.label}</div>
+                      <div style={{ marginTop: 4, fontSize: 11, opacity: 0.72 }}>
+                        {day.holiday ? day.holiday : "Working day"}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div style={sideCell}>
+                    <div style={{ fontWeight: 1000 }}>Cross hired</div>
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>Supplier vehicles</div>
+                  </div>
+
+                  {visibleDays.map((day) => {
+                    const dayItems = sortItemsByStartTime(
+                      (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, day.key))
+                    );
+
+                    return (
+                      <div
+                        key={`cross-transport-${day.key}`}
+                        style={{
+                          ...dayCell,
+                          ...(day.holiday
+                            ? {
+                                background: "rgba(255,170,0,0.08)",
+                                border: "1px solid rgba(255,170,0,0.18)",
+                              }
+                            : {}),
+                        }}
+                      >
+                        {dayItems.length === 0 ? (
+                          <div style={emptyState}>Free</div>
+                        ) : (
+                          <div style={{ display: "grid", gap: 8 }}>
+                            {dayItems.map((item) => renderJobCard(item))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ) : null}
+
           {(data?.unallocated_jobs ?? []).length > 0 ? (
             <section style={sectionCard}>
               <div style={sectionTitle}>Unassigned transport jobs</div>
