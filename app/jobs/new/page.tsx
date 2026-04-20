@@ -322,7 +322,6 @@ async function createJob(formData: FormData) {
     equipment_id: primaryEquipmentId,
     operator_id: operatorId,
     supplier_id: allocationSourceType === "cross_hire" ? allocationSupplierId : null,
-    supplier_reference: allocationSourceType === "cross_hire" ? allocationSupplierReference : null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || otherCustomerContactName || null,
