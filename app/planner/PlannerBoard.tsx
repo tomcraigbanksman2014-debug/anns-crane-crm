@@ -892,87 +892,85 @@ export default function PlannerBoard() {
             </div>
           </section>
 
-          {crossHiredItems.length > 0 ? (
-            <section style={sectionCard}>
-              <div style={sectionTitleRow}>
-                <div>
-                  <div style={sectionTitle}>Cross-hired cranes</div>
-                  <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
-                    Supplier-fulfilled crane jobs kept separate from the owned crane rows.
-                  </div>
+          <section style={sectionCard}>
+            <div style={sectionTitleRow}>
+              <div>
+                <div style={sectionTitle}>Cross-hired cranes</div>
+                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
+                  Supplier-fulfilled crane jobs kept separate from the owned crane rows.
                 </div>
               </div>
+            </div>
 
-              {isMobile && activeDay ? (
-                <div style={{ display: "grid", gap: 10 }}>
-                  <div style={mobileRowHeader}>
-                    <div style={{ fontWeight: 1000 }}>Cross-hired cranes</div>
-                    <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
-                  </div>
-                  <div style={mobileDayCell}>
-                    {sortItemsByStartTime(
-                      crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
-                    ).map((item) => (
-                      <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
-                        <div style={pillWarn}>Cross hired</div>
-                        {renderCard(item, false, activeDay.date)}
-                      </div>
-                    ))}
-                    {sortItemsByStartTime(
-                      crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
-                    ).length === 0 ? <div style={emptyCellText}>No cross-hired crane jobs</div> : null}
-                  </div>
+            {isMobile && activeDay ? (
+              <div style={{ display: "grid", gap: 10 }}>
+                <div style={mobileRowHeader}>
+                  <div style={{ fontWeight: 1000 }}>Cross-hired cranes</div>
+                  <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                 </div>
-              ) : (
-                <div style={desktopGrid(visibleDays.length)}>
-                  <div style={headCell}>Cross-hire / Week</div>
-
-                  {visibleDays.map((day) => (
-                    <div
-                      key={`cross-hire-head-${day.date}`}
-                      style={{
-                        ...headCell,
-                        ...(day.is_bank_holiday ? holidayHeaderCell : null),
-                      }}
-                    >
-                      <div>{day.label}</div>
-                      {day.is_bank_holiday ? (
-                        <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>
-                          {day.bank_holiday_label ?? "Bank holiday"}
-                        </div>
-                      ) : null}
+                <div style={mobileDayCell}>
+                  {sortItemsByStartTime(
+                    crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
+                  ).map((item) => (
+                    <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
+                      <div style={pillWarn}>Cross hired</div>
+                      {renderCard(item, false, activeDay.date)}
                     </div>
                   ))}
-
-                  <div style={rowHeaderCell}>Cross hired</div>
-
-                  {visibleDays.map((day) => {
-                    const dayItems = sortItemsByStartTime(
-                      crossHiredItems.filter((item) => itemMatchesDay(item, day.date))
-                    );
-
-                    return (
-                      <div
-                        key={`cross-hired-${day.date}`}
-                        style={{
-                          ...dayCell,
-                          ...(day.is_bank_holiday ? holidayCell : null),
-                        }}
-                      >
-                        {dayItems.length > 0 ? (
-                          <div style={{ display: "grid", gap: 8 }}>
-                            {dayItems.map((item) => renderCard(item, false, day.date))}
-                          </div>
-                        ) : (
-                          <div style={emptyCellText}>No cross-hired crane jobs</div>
-                        )}
-                      </div>
-                    );
-                  })}
+                  {sortItemsByStartTime(
+                    crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
+                  ).length === 0 ? <div style={emptyCellText}>No cross-hired crane jobs</div> : null}
                 </div>
-              )}
-            </section>
-          ) : null}
+              </div>
+            ) : (
+              <div style={desktopGrid(visibleDays.length)}>
+                <div style={headCell}>Cross-hire / Week</div>
+
+                {visibleDays.map((day) => (
+                  <div
+                    key={`cross-hire-head-${day.date}`}
+                    style={{
+                      ...headCell,
+                      ...(day.is_bank_holiday ? holidayHeaderCell : null),
+                    }}
+                  >
+                    <div>{day.label}</div>
+                    {day.is_bank_holiday ? (
+                      <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>
+                        {day.bank_holiday_label ?? "Bank holiday"}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+
+                <div style={rowHeaderCell}>Cross hired</div>
+
+                {visibleDays.map((day) => {
+                  const dayItems = sortItemsByStartTime(
+                    crossHiredItems.filter((item) => itemMatchesDay(item, day.date))
+                  );
+
+                  return (
+                    <div
+                      key={`cross-hired-${day.date}`}
+                      style={{
+                        ...dayCell,
+                        ...(day.is_bank_holiday ? holidayCell : null),
+                      }}
+                    >
+                      {dayItems.length > 0 ? (
+                        <div style={{ display: "grid", gap: 8 }}>
+                          {dayItems.map((item) => renderCard(item, false, day.date))}
+                        </div>
+                      ) : (
+                        <div style={emptyCellText}>No cross-hired crane jobs</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
 
           {labourOnlyItems.length > 0 ? (
             <section style={sectionCard}>
