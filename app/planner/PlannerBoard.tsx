@@ -68,6 +68,7 @@ type PlannerResponse = {
 type DropTarget = {
   equipmentId: string | null;
   dayIso: string;
+  plannerGroup?: string | null;
 };
 
 function first<T>(value: T | T[] | null | undefined): T | null {
@@ -177,7 +178,9 @@ function getPlannerCardHighlightStyle(item: PlannerItem, compact = false): React
 
   if (isCrossHireItem(item)) {
     return {
-      outline: "2px solid rgba(214,137,16,0.38)",
+      background: "rgba(246, 198, 117, 0.26)",
+      border: "1px solid rgba(214,137,16,0.34)",
+      outline: "2px solid rgba(214,137,16,0.24)",
       outlineOffset: -2,
       boxShadow: `inset 4px 0 0 #d68910, ${baseShadow}`,
     };
@@ -185,7 +188,9 @@ function getPlannerCardHighlightStyle(item: PlannerItem, compact = false): React
 
   if (isLabourOnlyItem(item)) {
     return {
-      outline: "2px solid rgba(125,60,152,0.34)",
+      background: "rgba(183, 146, 208, 0.22)",
+      border: "1px solid rgba(125,60,152,0.28)",
+      outline: "2px solid rgba(125,60,152,0.22)",
       outlineOffset: -2,
       boxShadow: `inset 4px 0 0 #7d3c98, ${baseShadow}`,
     };
@@ -193,7 +198,9 @@ function getPlannerCardHighlightStyle(item: PlannerItem, compact = false): React
 
   if (isLinkedTransportItem(item)) {
     return {
-      outline: "2px solid rgba(0,120,255,0.30)",
+      background: "rgba(116, 182, 255, 0.22)",
+      border: "1px solid rgba(0,120,255,0.24)",
+      outline: "2px solid rgba(0,120,255,0.18)",
       outlineOffset: -2,
       boxShadow: `inset 4px 0 0 #0078ff, ${baseShadow}`,
     };
@@ -328,7 +335,7 @@ function actionLabel(item: PlannerItem) {
 }
 
 function canDragPlannerItem(item: PlannerItem) {
-  return String(item.planner_group ?? "") !== "cross_hired";
+  return String(item.status ?? "").trim().toLowerCase() !== "completed";
 }
 
 function isNoDragTarget(target: EventTarget | null) {
@@ -351,6 +358,8 @@ export default function PlannerBoard() {
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const messageTimerRef = useRef<number | null>(null);
+  const dragPointerYRef = useRef<number | null>(null);
+  const dragAutoScrollFrameRef = useRef<number | null>(null);
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
@@ -387,6 +396,67 @@ export default function PlannerBoard() {
     window.addEventListener("resize", syncMobile);
     return () => window.removeEventListener("resize", syncMobile);
   }, []);
+
+  useEffect(() => {
+    if (!draggingId) {
+      dragPointerYRef.current = null;
+      if (dragAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+        dragAutoScrollFrameRef.current = null;
+      }
+      return;
+    }
+
+    const updatePointer = (event: DragEvent) => {
+      dragPointerYRef.current = event.clientY;
+    };
+
+    const clearPointer = () => {
+      dragPointerYRef.current = null;
+    };
+
+    const tick = () => {
+      const pointerY = dragPointerYRef.current;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+
+      if (typeof pointerY === "number" && viewportHeight > 0) {
+        const edgeThreshold = Math.min(180, Math.max(90, Math.round(viewportHeight * 0.18)));
+        const upperEdge = edgeThreshold;
+        const lowerEdge = viewportHeight - edgeThreshold;
+        let delta = 0;
+
+        if (pointerY < upperEdge) {
+          const ratio = (upperEdge - pointerY) / Math.max(upperEdge, 1);
+          delta = -Math.max(10, Math.round(ratio * 26));
+        } else if (pointerY > lowerEdge) {
+          const ratio = (pointerY - lowerEdge) / Math.max(edgeThreshold, 1);
+          delta = Math.max(10, Math.round(ratio * 26));
+        }
+
+        if (delta !== 0) {
+          window.scrollBy({ top: delta, behavior: "auto" });
+        }
+      }
+
+      dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    document.addEventListener("dragover", updatePointer, true);
+    document.addEventListener("drop", clearPointer, true);
+    document.addEventListener("dragend", clearPointer, true);
+    dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      document.removeEventListener("dragover", updatePointer, true);
+      document.removeEventListener("drop", clearPointer, true);
+      document.removeEventListener("dragend", clearPointer, true);
+      dragPointerYRef.current = null;
+      if (dragAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+        dragAutoScrollFrameRef.current = null;
+      }
+    };
+  }, [draggingId]);
 
   useEffect(() => {
     function onDocPointerDown(event: PointerEvent) {
@@ -514,10 +584,14 @@ export default function PlannerBoard() {
         ? item.working_dates[item.working_dates.length - 1]
         : String(item.end_date ?? item.start_date ?? item.job_date ?? sourceDay).trim();
 
+    const currentPlannerGroup = String(item.planner_group ?? "").trim();
+    const nextPlannerGroup = String(target.plannerGroup ?? currentPlannerGroup).trim();
+
     const alreadySame =
       String(item.equipment_id ?? "") === String(nextEquipmentId ?? "") &&
       sourceDay === nextStart &&
-      String(sourceSegmentEnd ?? "") === nextEnd;
+      String(sourceSegmentEnd ?? "") === nextEnd &&
+      currentPlannerGroup === nextPlannerGroup;
 
     if (alreadySame) {
       setDraggingId(null);
@@ -548,6 +622,7 @@ export default function PlannerBoard() {
           end_time: item.end_time ?? "",
           status: item.status ?? "",
           planner_group: item.planner_group ?? "",
+          target_planner_group: target.plannerGroup ?? null,
         }),
       });
 
@@ -643,6 +718,7 @@ export default function PlannerBoard() {
       return;
     }
     setDraggingId(item.id);
+    dragPointerYRef.current = e.clientY;
     setDragSourceDay(
       String(visibleDayIso ?? item.start_date ?? item.job_date ?? "").trim() || null
     );
@@ -650,6 +726,7 @@ export default function PlannerBoard() {
   }
 
   function onDragEnd() {
+    dragPointerYRef.current = null;
     setDraggingId(null);
     setDragSourceDay(null);
   }
@@ -727,6 +804,7 @@ export default function PlannerBoard() {
                     {
                       equipmentId: null,
                       dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
+                      plannerGroup: "unassigned_crane",
                     },
                     String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart)
                   );
@@ -823,7 +901,7 @@ export default function PlannerBoard() {
     );
   }
 
-  function renderDropCell(items: PlannerItem[], target: DropTarget, highlight = false) {
+  function renderDropCell(items: PlannerItem[], target: DropTarget, highlight = false, showEmptyCrossHire = false) {
     return (
       <div
         style={{
@@ -843,7 +921,13 @@ export default function PlannerBoard() {
           }
         }}
       >
-        {sortItemsByStartTime(items).map((item) => renderCard(item, true, target.dayIso))}
+        {items.length > 0 ? (
+          sortItemsByStartTime(items).map((item) => renderCard(item, true, target.dayIso))
+        ) : showEmptyCrossHire ? (
+          <div style={emptyCellText}>No cross-hired crane jobs</div>
+        ) : (
+          <div style={emptyCellText}>Free</div>
+        )}
       </div>
     );
   }
@@ -945,6 +1029,7 @@ export default function PlannerBoard() {
                     {
                       equipmentId: null,
                       dayIso: String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart),
+                      plannerGroup: "unassigned_crane",
                     },
                     String(item.start_date ?? item.job_date ?? visibleDays[0]?.date ?? weekStart)
                   );
@@ -986,19 +1071,14 @@ export default function PlannerBoard() {
                   <div style={{ fontWeight: 1000 }}>Cross-hired cranes</div>
                   <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                 </div>
-                <div style={mobileDayCell}>
-                  {sortItemsByStartTime(
+                {renderDropCell(
+                  sortItemsByStartTime(
                     crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
-                  ).map((item) => (
-                    <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
-                      <div style={pillCrossHire}>Cross hire / subcontract</div>
-                      {renderCard(item, false, activeDay.date)}
-                    </div>
-                  ))}
-                  {sortItemsByStartTime(
-                    crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
-                  ).length === 0 ? <div style={emptyCellText}>No cross-hired crane jobs</div> : null}
-                </div>
+                  ),
+                  { equipmentId: null, dayIso: activeDay.date, plannerGroup: "cross_hired" },
+                  activeDay.is_bank_holiday,
+                  true
+                )}
               </div>
             ) : (
               <div style={desktopGrid(visibleDays.length)}>
@@ -1028,22 +1108,11 @@ export default function PlannerBoard() {
                     crossHiredItems.filter((item) => itemMatchesDay(item, day.date))
                   );
 
-                  return (
-                    <div
-                      key={`cross-hired-${day.date}`}
-                      style={{
-                        ...dayCell,
-                        ...(day.is_bank_holiday ? holidayCell : null),
-                      }}
-                    >
-                      {dayItems.length > 0 ? (
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {dayItems.map((item) => renderCard(item, false, day.date))}
-                        </div>
-                      ) : (
-                        <div style={emptyCellText}>No cross-hired crane jobs</div>
-                      )}
-                    </div>
+                  return renderDropCell(
+                    dayItems,
+                    { equipmentId: null, dayIso: day.date, plannerGroup: "cross_hired" },
+                    day.is_bank_holiday,
+                    true
                   );
                 })}
               </div>
@@ -1158,6 +1227,7 @@ export default function PlannerBoard() {
                             movePlannerItem(item, {
                               equipmentId: equipment.id,
                               dayIso: activeDay.date,
+                              plannerGroup: "allocated",
                             });
                           }
                         }}
@@ -1209,7 +1279,7 @@ export default function PlannerBoard() {
                     cells={visibleDays.map((day) =>
                       renderDropCell(
                         items.filter((item) => itemMatchesDay(item, day.date)),
-                        { equipmentId: equipment.id, dayIso: day.date },
+                        { equipmentId: equipment.id, dayIso: day.date, plannerGroup: "allocated" },
                         Boolean(day.is_bank_holiday)
                       )
                     )}
