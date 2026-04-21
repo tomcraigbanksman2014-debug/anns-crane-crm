@@ -205,7 +205,8 @@ export default function TransportPlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(new Date()));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [message, setMessage] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
@@ -218,7 +219,7 @@ export default function TransportPlannerBoard() {
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
-    setError("");
+    setLoadError("");
 
     try {
       const res = await fetch(`/api/transport-planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
@@ -232,7 +233,7 @@ export default function TransportPlannerBoard() {
 
       setData(json);
     } catch (e: any) {
-      setError(e?.message || "Could not load transport planner.");
+      setLoadError(e?.message || "Could not load transport planner.");
     } finally {
       setLoading(false);
     }
@@ -393,6 +394,12 @@ export default function TransportPlannerBoard() {
 
     const currentPlannerGroup = String(item.planner_group ?? "").trim();
     const nextPlannerGroup = String(target.plannerGroup ?? currentPlannerGroup).trim();
+    const movingToCrossHire = nextPlannerGroup === "cross_hired";
+    const hasSubcontractMeta = Boolean(
+      String(item.supplier_id ?? "").trim() ||
+      String(item.supplier_reference ?? "").trim() ||
+      Number(item.supplier_cost ?? 0) > 0
+    );
 
     const alreadySame =
       String(item.vehicle_id ?? "") === String(nextVehicleId ?? "") &&
@@ -402,10 +409,15 @@ export default function TransportPlannerBoard() {
 
     if (alreadySame) return;
 
+    if (movingToCrossHire && !hasSubcontractMeta) {
+      window.location.href = `/transport-jobs/${item.job_id}#supplier_id`;
+      return;
+    }
+
     setMovingId(item.job_id);
     setActionId(item.job_id);
     setOpenMenuId(null);
-    setError("");
+    setActionError("");
     setMessage("");
 
     try {
@@ -434,7 +446,7 @@ export default function TransportPlannerBoard() {
       setMessage("Transport planner updated.");
       await loadBoard(weekStart);
     } catch (e: any) {
-      setError(e?.message || "Could not move transport job.");
+      setActionError(e?.message || "Could not move transport job.");
     } finally {
       setMovingId(null);
       setActionId(null);
@@ -465,7 +477,7 @@ export default function TransportPlannerBoard() {
   async function duplicateTransportJob(item: PlannerItem) {
     setActionId(item.job_id);
     setOpenMenuId(null);
-    setError("");
+    setActionError("");
     setMessage("");
 
     try {
@@ -491,7 +503,7 @@ export default function TransportPlannerBoard() {
       setMessage("Transport job duplicated.");
       await loadBoard(weekStart);
     } catch (e: any) {
-      setError(e?.message || "Could not duplicate transport job.");
+      setActionError(e?.message || "Could not duplicate transport job.");
     } finally {
       setActionId(null);
     }
@@ -500,7 +512,7 @@ export default function TransportPlannerBoard() {
   async function clearVehicleAssignment(item: PlannerItem) {
     setActionId(item.job_id);
     setOpenMenuId(null);
-    setError("");
+    setActionError("");
     setMessage("");
 
     try {
@@ -523,7 +535,7 @@ export default function TransportPlannerBoard() {
       setMessage("Vehicle assignment removed.");
       await loadBoard(weekStart);
     } catch (e: any) {
-      setError(e?.message || "Could not remove vehicle assignment.");
+      setActionError(e?.message || "Could not remove vehicle assignment.");
     } finally {
       setActionId(null);
     }
@@ -755,10 +767,11 @@ export default function TransportPlannerBoard() {
       ) : null}
 
       {loading ? <div style={infoBox}>Loading transport planner…</div> : null}
-      {error ? <div style={errorBox}>{error}</div> : null}
+      {loadError ? <div style={errorBox}>{loadError}</div> : null}
+      {actionError ? <div style={errorBox}>{actionError}</div> : null}
       {message ? <div style={successBox}>{message}</div> : null}
 
-      {!loading && !error ? (
+      {!loading && !loadError ? (
         <>
 
           <section style={sectionCard}>
