@@ -536,7 +536,7 @@ export async function GET(req: Request) {
       linkedTransportsByJobId.set(linkedJobId, current);
     }
 
-    function getLinkedTransportMeta(jobId: string | null | undefined) {
+    const getLinkedTransportMeta = (jobId: string | null | undefined) => {
       const rows = linkedTransportsByJobId.get(String(jobId ?? "").trim()) ?? [];
       return {
         linked_transport_job_count: rows.length,
@@ -544,7 +544,7 @@ export async function GET(req: Request) {
           .map((row: any) => String(row?.transport_number ?? "").trim())
           .filter(Boolean),
       };
-    }
+    };
 
     const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
       activeJobById.has(String(row.job_id))
