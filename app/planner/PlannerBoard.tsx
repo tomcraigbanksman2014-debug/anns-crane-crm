@@ -31,6 +31,8 @@ type PlannerItem = {
   operators?: any;
   equipment?: any;
   agreed_sell_rate?: number | null;
+  supplier_id?: string | null;
+  supplier_reference?: string | null;
   supplier_cost?: number | null;
   price_mode?: string | null;
   price_per_day?: number | null;
@@ -349,7 +351,8 @@ export default function PlannerBoard() {
   const [weekStart, setWeekStart] = useState<string>(() => isoDateLocal(new Date()));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
-  const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -363,7 +366,7 @@ export default function PlannerBoard() {
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
-    setError("");
+    setLoadError("");
 
     try {
       const res = await fetch(`/api/planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
@@ -377,7 +380,7 @@ export default function PlannerBoard() {
 
       setData(json);
     } catch (e: any) {
-      setError(e?.message || "Could not load planner.");
+      setLoadError(e?.message || "Could not load planner.");
     } finally {
       setLoading(false);
     }
@@ -586,6 +589,14 @@ export default function PlannerBoard() {
 
     const currentPlannerGroup = String(item.planner_group ?? "").trim();
     const nextPlannerGroup = String(target.plannerGroup ?? currentPlannerGroup).trim();
+    const movingToCrossHire = nextPlannerGroup === "cross_hired";
+    const hasCrossHireMeta = Boolean(
+      String(item.supplier_id ?? "").trim() ||
+      String(item.supplier_reference ?? "").trim() ||
+      Number(item.supplier_cost ?? 0) > 0 ||
+      String(item.source_type ?? "").trim().toLowerCase() === "cross_hire" ||
+      currentPlannerGroup === "cross_hired"
+    );
 
     const alreadySame =
       String(item.equipment_id ?? "") === String(nextEquipmentId ?? "") &&
@@ -599,8 +610,14 @@ export default function PlannerBoard() {
       return;
     }
 
+    if (movingToCrossHire && !hasCrossHireMeta) {
+      window.location.href = `/jobs/${item.job_id}`;
+      return;
+    }
+
     setMovingId(item.id);
     setOpenMenuId(null);
+    setActionError("");
 
     try {
       const res = await fetch("/api/planner/board/update", {
@@ -635,7 +652,7 @@ export default function PlannerBoard() {
       showMessage("Planner updated.");
       await loadBoard(weekStart);
     } catch (e: any) {
-      setError(e?.message || "Could not move planner item.");
+      setActionError(e?.message || "Could not move planner item.");
     } finally {
       setMovingId(null);
       setDraggingId(null);
@@ -645,6 +662,7 @@ export default function PlannerBoard() {
 
   async function duplicateJob(item: PlannerItem) {
     setOpenMenuId(null);
+    setActionError("");
 
     try {
       const res = await fetch("/api/jobs/duplicate", {
@@ -672,12 +690,13 @@ export default function PlannerBoard() {
       showMessage("Job duplicated.");
       await loadBoard(weekStart);
     } catch (e: any) {
-      setError(e?.message || "Could not duplicate job.");
+      setActionError(e?.message || "Could not duplicate job.");
     }
   }
 
   async function createTransport(item: PlannerItem) {
     setOpenMenuId(null);
+    setActionError("");
 
     try {
       const res = await fetch("/api/jobs/create-transport", {
@@ -704,7 +723,7 @@ export default function PlannerBoard() {
 
       showMessage("Linked transport job created.");
     } catch (e: any) {
-      setError(e?.message || "Could not create linked transport job.");
+      setActionError(e?.message || "Could not create linked transport job.");
     }
   }
 
@@ -996,10 +1015,11 @@ export default function PlannerBoard() {
       ) : null}
 
       {loading ? <div style={infoBox}>Loading planner…</div> : null}
-      {error ? <div style={errorBox}>{error}</div> : null}
+      {loadError ? <div style={errorBox}>{loadError}</div> : null}
+      {actionError ? <div style={errorBox}>{actionError}</div> : null}
       {message ? <div style={successBox}>{message}</div> : null}
 
-      {!loading && !error ? (
+      {!loading && !loadError ? (
         <>
           <section style={sectionCard}>
             <div style={sectionTitleRow}>
