@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
+import CopyTextButton from "../../components/CopyTextButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -8,6 +9,7 @@ import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
 import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
+import { approvalStatusLabel, buildAbnormalLoadReadiness, buildMovementOrderSummary, isAbnormalLoadTransport, movementStatusLabel, abnormalLoadCategoryLabel } from "../../lib/transportAbnormal";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -23,6 +25,18 @@ function numberOrNull(value: FormDataEntryValue | null) {
   if (!raw) return null;
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+function checkboxValue(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "true" || raw === "on" || raw === "1" || raw === "yes";
+}
+
+function dateTimeOrNull(value: FormDataEntryValue | null) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
 
 function money(value: number | string | null | undefined) {
@@ -157,6 +171,12 @@ function prettyJobType(value: string | null | undefined) {
 function documentTypeLabel(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (!raw) return "Other";
+  if (raw === "movement_order") return "Movement Order";
+  if (raw === "route_plan") return "Route Plan";
+  if (raw === "permit") return "Permit / Approval";
+  if (raw === "escort_confirmation") return "Escort Confirmation";
+  if (raw === "authority_notice") return "Authority Notice";
+  if (raw === "dimension_sheet") return "Dimension Sheet";
   return raw
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -424,6 +444,49 @@ async function updateTransportJob(formData: FormData) {
     invoice_subtotal: invoiceSubtotal,
     invoice_vat: invoiceVat,
     total_invoice: totalInvoice,
+    abnormal_load_enabled: checkboxValue(formData.get("abnormal_load_enabled")),
+    abnormal_load_category: checkboxValue(formData.get("abnormal_load_enabled"))
+      ? clean(formData.get("abnormal_load_category")) || "abnormal_load"
+      : null,
+    load_length_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("load_length_m")) : null,
+    load_width_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("load_width_m")) : null,
+    load_height_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("load_height_m")) : null,
+    load_weight_t: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("load_weight_t")) : null,
+    transport_length_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_length_m")) : null,
+    transport_width_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_width_m")) : null,
+    transport_height_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_height_m")) : null,
+    transport_gross_weight_t: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_gross_weight_t")) : null,
+    axle_weight_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("axle_weight_notes")) || null : null,
+    collection_contact_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("collection_contact_name")) || null : null,
+    collection_contact_phone: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("collection_contact_phone")) || null : null,
+    delivery_contact_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_name")) || null : null,
+    delivery_contact_phone: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_phone")) || null : null,
+    preferred_move_window: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("preferred_move_window")) || null : null,
+    trailer_type: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("trailer_type")) || null : null,
+    tractor_unit_type: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("tractor_unit_type")) || null : null,
+    escort_required: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("escort_required")) : false,
+    escort_details: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("escort_details")) || null : null,
+    route_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("route_notes")) || null : null,
+    restriction_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("restriction_notes")) || null : null,
+    police_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("police_notes")) || null : null,
+    council_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("council_notes")) || null : null,
+    bridge_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("bridge_notes")) || null : null,
+    submission_status: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("submission_status")) || "not_started" : "not_started",
+    movement_order_reference: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("movement_order_reference")) || null : null,
+    movement_order_submitted_at: checkboxValue(formData.get("abnormal_load_enabled")) ? dateTimeOrNull(formData.get("movement_order_submitted_at")) : null,
+    approval_status: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("approval_status")) || "not_started" : "not_started",
+    approval_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("approval_notes")) || null : null,
+    submitted_by_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("submitted_by_name")) || null : null,
+    checklist_dimensions_confirmed: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_dimensions_confirmed")) : false,
+    checklist_weight_confirmed: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_weight_confirmed")) : false,
+    checklist_route_checked: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_route_checked")) : false,
+    checklist_trailer_checked: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_trailer_checked")) : false,
+    checklist_escort_checked: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_escort_checked")) : false,
+    checklist_site_access_checked: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_site_access_checked")) : false,
+    checklist_customer_approved: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_customer_approved")) : false,
+    checklist_supplier_booked: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_supplier_booked")) : false,
+    checklist_movement_order_submitted: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_movement_order_submitted")) : false,
+    checklist_approval_received: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("checklist_approval_received")) : false,
     notes: clean(formData.get("notes")) || null,
     updated_at: new Date().toISOString(),
   };
@@ -451,6 +514,9 @@ async function updateTransportJob(formData: FormData) {
         price_mode: payload.price_mode,
         price_per_day: payload.price_per_day,
         agreed_sell_rate: payload.agreed_sell_rate,
+        abnormal_load_enabled: payload.abnormal_load_enabled,
+        submission_status: payload.submission_status,
+        approval_status: payload.approval_status,
       },
     },
   });
@@ -594,6 +660,26 @@ export default async function TransportJobDetailPage({
 
   const parsedOtherSupplier = parseOtherSupplierReference((item as any)?.supplier_reference);
   const isOtherSupplier = !(item as any)?.supplier_id && !!parsedOtherSupplier.otherSupplierName;
+  const abnormalReadiness = buildAbnormalLoadReadiness(item as any);
+  const movementSummary = buildMovementOrderSummary({
+    ...(item as any),
+    client_name: client?.company_name ?? null,
+    supplier_name: isOtherSupplier ? parsedOtherSupplier.otherSupplierName : supplierFromLookup?.company_name ?? null,
+  });
+  const movementDocumentTypes = new Set([
+    "movement_order",
+    "route_plan",
+    "permit",
+    "escort_confirmation",
+    "authority_notice",
+    "dimension_sheet",
+  ]);
+  const movementDocuments = ((transportDocuments as any[]) ?? []).filter((doc: any) =>
+    movementDocumentTypes.has(String(doc.document_type ?? "").trim().toLowerCase())
+  );
+  const generalDocuments = ((transportDocuments as any[]) ?? []).filter((doc: any) =>
+    !movementDocumentTypes.has(String(doc.document_type ?? "").trim().toLowerCase())
+  );
 
   return (
     <ClientShell>
@@ -706,6 +792,20 @@ export default async function TransportJobDetailPage({
                     },
                   ]}
                 />
+
+                {isAbnormalLoadTransport(item as any) ? (
+                  <SummaryCard
+                    title="Movement Order"
+                    rows={[
+                      { label: "Category", value: abnormalLoadCategoryLabel((item as any)?.abnormal_load_category) },
+                      { label: "Readiness", value: `${abnormalReadiness.label} • ${abnormalReadiness.score}%` },
+                      { label: "Submission", value: movementStatusLabel((item as any)?.submission_status) },
+                      { label: "Approval", value: approvalStatusLabel((item as any)?.approval_status) },
+                      { label: "Reference", value: (item as any)?.movement_order_reference ?? "—" },
+                      { label: "Escort required", value: (item as any)?.escort_required ? "Yes" : "No" },
+                    ]}
+                  />
+                ) : null}
               </div>
 
               <form action={updateTransportJob} style={{ display: "grid", gap: 18, marginTop: 18 }}>
@@ -1034,6 +1134,180 @@ export default async function TransportJobDetailPage({
                 </details>
 
                 <section style={sectionCard}>
+                  <div style={sectionTitle}>Abnormal load / movement order</div>
+
+                  <div style={{ ...softPanel, marginTop: 12, ...(abnormalReadiness.tone === "green" ? readinessGreen : abnormalReadiness.tone === "amber" ? readinessAmber : isAbnormalLoadTransport(item as any) ? readinessRed : {}) }}>
+                    <div style={{ fontWeight: 900, marginBottom: 6 }}>
+                      {isAbnormalLoadTransport(item as any) ? `Readiness • ${abnormalReadiness.label}` : "Standard transport job"}
+                    </div>
+                    <div style={{ fontSize: 13, opacity: 0.82 }}>
+                      {isAbnormalLoadTransport(item as any)
+                        ? `Movement order completion score ${abnormalReadiness.score}%`
+                        : "Enable this section when the job needs abnormal-load controls, movement orders or permit tracking."}
+                    </div>
+                    {isAbnormalLoadTransport(item as any) && abnormalReadiness.missingCritical.length > 0 ? (
+                      <div style={{ marginTop: 8, fontSize: 13, fontWeight: 700 }}>
+                        Missing critical: {abnormalReadiness.missingCritical.join(", ")}
+                      </div>
+                    ) : null}
+                    {isAbnormalLoadTransport(item as any) && abnormalReadiness.checklistMissing.length > 0 ? (
+                      <div style={{ marginTop: 6, fontSize: 13 }}>
+                        Checklist still open: {abnormalReadiness.checklistMissing.join(", ")}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="abnormal_load_enabled" value="true" defaultChecked={Boolean((item as any)?.abnormal_load_enabled)} />
+                      <span>This transport job needs abnormal load / movement order control</span>
+                    </label>
+
+                    <div>
+                      <div style={subsectionTitle}>Movement details</div>
+                      <div style={gridStyle}>
+                        <SelectField
+                          label="Category"
+                          name="abnormal_load_category"
+                          defaultValue={(item as any)?.abnormal_load_category ?? "abnormal_load"}
+                          options={[
+                            { value: "abnormal_load", label: "Abnormal load" },
+                            { value: "heavy_haulage", label: "Heavy haulage" },
+                            { value: "escorted_movement", label: "Escorted movement" },
+                            { value: "modular_movement", label: "Modular / cabin movement" },
+                          ]}
+                        />
+                        <Field label="Preferred move window" name="preferred_move_window" defaultValue={(item as any)?.preferred_move_window ?? ""} />
+                        <Field label="Trailer type" name="trailer_type" defaultValue={(item as any)?.trailer_type ?? ""} />
+                        <Field label="Tractor unit type" name="tractor_unit_type" defaultValue={(item as any)?.tractor_unit_type ?? ""} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={subsectionTitle}>Load dimensions</div>
+                      <div style={gridStyle}>
+                        <Field label="Load length (m)" name="load_length_m" type="number" step="0.01" defaultValue={String((item as any)?.load_length_m ?? "")} />
+                        <Field label="Load width (m)" name="load_width_m" type="number" step="0.01" defaultValue={String((item as any)?.load_width_m ?? "")} />
+                        <Field label="Load height (m)" name="load_height_m" type="number" step="0.01" defaultValue={String((item as any)?.load_height_m ?? "")} />
+                        <Field label="Load weight (t)" name="load_weight_t" type="number" step="0.01" defaultValue={String((item as any)?.load_weight_t ?? "")} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={subsectionTitle}>Overall transport dimensions</div>
+                      <div style={gridStyle}>
+                        <Field label="Overall length (m)" name="transport_length_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_length_m ?? "")} />
+                        <Field label="Overall width (m)" name="transport_width_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_width_m ?? "")} />
+                        <Field label="Overall height (m)" name="transport_height_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_height_m ?? "")} />
+                        <Field label="Gross weight (t)" name="transport_gross_weight_t" type="number" step="0.01" defaultValue={String((item as any)?.transport_gross_weight_t ?? "")} />
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <label style={labelStyle}>Axle weights / axle notes</label>
+                        <textarea name="axle_weight_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.axle_weight_notes ?? ""} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={subsectionTitle}>Contacts and route checks</div>
+                      <div style={gridStyle}>
+                        <Field label="Collection contact" name="collection_contact_name" defaultValue={(item as any)?.collection_contact_name ?? ""} />
+                        <Field label="Collection contact phone" name="collection_contact_phone" defaultValue={(item as any)?.collection_contact_phone ?? ""} />
+                        <Field label="Delivery contact" name="delivery_contact_name" defaultValue={(item as any)?.delivery_contact_name ?? ""} />
+                        <Field label="Delivery contact phone" name="delivery_contact_phone" defaultValue={(item as any)?.delivery_contact_phone ?? ""} />
+                      </div>
+
+                      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                        <div>
+                          <label style={labelStyle}>Route notes</label>
+                          <textarea name="route_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.route_notes ?? ""} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Restrictions / access notes</label>
+                          <textarea name="restriction_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.restriction_notes ?? ""} />
+                        </div>
+                        <label style={checkboxRow}>
+                          <input type="checkbox" name="escort_required" value="true" defaultChecked={Boolean((item as any)?.escort_required)} />
+                          <span>Escort required</span>
+                        </label>
+                        <div>
+                          <label style={labelStyle}>Escort details</label>
+                          <textarea name="escort_details" rows={2} style={textareaStyle} defaultValue={(item as any)?.escort_details ?? ""} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Police notes</label>
+                          <textarea name="police_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.police_notes ?? ""} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Council / highway notes</label>
+                          <textarea name="council_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.council_notes ?? ""} />
+                        </div>
+                        <div>
+                          <label style={labelStyle}>Bridge notes</label>
+                          <textarea name="bridge_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.bridge_notes ?? ""} />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={subsectionTitle}>Movement order tracker</div>
+                      <div style={gridStyle}>
+                        <SelectField
+                          label="Submission status"
+                          name="submission_status"
+                          defaultValue={(item as any)?.submission_status ?? "not_started"}
+                          options={[
+                            { value: "not_started", label: "Not started" },
+                            { value: "drafting", label: "Drafting" },
+                            { value: "ready_to_submit", label: "Ready to submit" },
+                            { value: "submitted", label: "Submitted" },
+                            { value: "awaiting_approval", label: "Awaiting approval" },
+                            { value: "approved", label: "Approved" },
+                            { value: "amendments_required", label: "Amendments required" },
+                            { value: "completed", label: "Completed" },
+                          ]}
+                        />
+                        <Field label="Movement order reference" name="movement_order_reference" defaultValue={(item as any)?.movement_order_reference ?? ""} />
+                        <Field label="Submitted by" name="submitted_by_name" defaultValue={(item as any)?.submitted_by_name ?? ""} />
+                        <Field label="Submitted at" name="movement_order_submitted_at" type="datetime-local" defaultValue={String((item as any)?.movement_order_submitted_at ?? "").slice(0, 16)} />
+                        <SelectField
+                          label="Approval status"
+                          name="approval_status"
+                          defaultValue={(item as any)?.approval_status ?? "not_started"}
+                          options={[
+                            { value: "not_started", label: "Not started" },
+                            { value: "awaiting_approval", label: "Awaiting approval" },
+                            { value: "approved", label: "Approved" },
+                            { value: "restricted", label: "Approved with restrictions" },
+                            { value: "rejected", label: "Rejected" },
+                            { value: "not_required", label: "Not required" },
+                          ]}
+                        />
+                      </div>
+                      <div style={{ marginTop: 12 }}>
+                        <label style={labelStyle}>Approval / permit notes</label>
+                        <textarea name="approval_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.approval_notes ?? ""} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={subsectionTitle}>Submission checklist</div>
+                      <div style={checklistGrid}>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_dimensions_confirmed" value="true" defaultChecked={Boolean((item as any)?.checklist_dimensions_confirmed)} /><span>Dimensions confirmed</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_weight_confirmed" value="true" defaultChecked={Boolean((item as any)?.checklist_weight_confirmed)} /><span>Weight confirmed</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_route_checked" value="true" defaultChecked={Boolean((item as any)?.checklist_route_checked)} /><span>Route checked</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_trailer_checked" value="true" defaultChecked={Boolean((item as any)?.checklist_trailer_checked)} /><span>Trailer checked</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_escort_checked" value="true" defaultChecked={Boolean((item as any)?.checklist_escort_checked)} /><span>Escort checked</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_site_access_checked" value="true" defaultChecked={Boolean((item as any)?.checklist_site_access_checked)} /><span>Site access checked</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_customer_approved" value="true" defaultChecked={Boolean((item as any)?.checklist_customer_approved)} /><span>Customer approved</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_supplier_booked" value="true" defaultChecked={Boolean((item as any)?.checklist_supplier_booked)} /><span>Supplier booked</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_movement_order_submitted" value="true" defaultChecked={Boolean((item as any)?.checklist_movement_order_submitted)} /><span>Movement order submitted</span></label>
+                        <label style={checkboxRow}><input type="checkbox" name="checklist_approval_received" value="true" defaultChecked={Boolean((item as any)?.checklist_approval_received)} /><span>Approval / permit received</span></label>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section style={sectionCard}>
                   <div style={sectionTitle}>Invoice</div>
 
                   <div style={gridStyle}>
@@ -1086,6 +1360,18 @@ export default async function TransportJobDetailPage({
                 </div>
               </form>
 
+              {isAbnormalLoadTransport(item as any) ? (
+                <section style={{ ...sectionCard, marginTop: 18 }}>
+                  <div style={sectionTitle}>Movement order summary</div>
+                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    <CopyTextButton text={movementSummary} label="Copy summary" copiedLabel="Summary copied" />
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    <textarea value={movementSummary} readOnly rows={18} style={{ ...textareaStyle, background: "rgba(255,255,255,0.72)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }} />
+                  </div>
+                </section>
+              ) : null}
+
               <section style={{ ...sectionCard, marginTop: 18 }}>
                 <div style={sectionTitle}>Transport Documents</div>
 
@@ -1095,43 +1381,68 @@ export default async function TransportJobDetailPage({
                   {(transportDocuments ?? []).length === 0 ? (
                     <div style={emptyState}>No documents uploaded yet.</div>
                   ) : (
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {(transportDocuments ?? []).map((doc: any) => (
-                        <div key={doc.id} style={listCard}>
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              gap: 10,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
-                                {doc.file_name ?? "Document"}
-                              </div>
-                              <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
-                                {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
-                              </div>
-                            </div>
-
-                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                              <a
-                                href={documentHref(doc.file_path)}
-                                target="_blank"
-                                rel="noreferrer"
-                                style={secondaryBtn}
+                    <div style={{ display: "grid", gap: 14 }}>
+                      {movementDocuments.length > 0 ? (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={subsectionTitle}>Movement order documents</div>
+                          {movementDocuments.map((doc: any) => (
+                            <div key={doc.id} style={listCard}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  flexWrap: "wrap",
+                                }}
                               >
-                                Open
-                              </a>
-                              <TransportDocumentDeleteButton
-                                transportJobId={params.id}
-                                documentId={doc.id}
-                              />
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
+                                    {doc.file_name ?? "Document"}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                    {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <a href={documentHref(doc.file_path)} target="_blank" rel="noreferrer" style={secondaryBtn}>Open</a>
+                                  <TransportDocumentDeleteButton transportJobId={params.id} documentId={doc.id} />
+                                </div>
+                              </div>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      ))}
+                      ) : null}
+
+                      {generalDocuments.length > 0 ? (
+                        <div style={{ display: "grid", gap: 10 }}>
+                          <div style={subsectionTitle}>General transport documents</div>
+                          {generalDocuments.map((doc: any) => (
+                            <div key={doc.id} style={listCard}>
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 10,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                <div style={{ minWidth: 0 }}>
+                                  <div style={{ fontWeight: 900, wordBreak: "break-word" }}>
+                                    {doc.file_name ?? "Document"}
+                                  </div>
+                                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.75 }}>
+                                    {documentTypeLabel(doc.document_type)} • {doc.created_at ?? ""}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  <a href={documentHref(doc.file_path)} target="_blank" rel="noreferrer" style={secondaryBtn}>Open</a>
+                                  <TransportDocumentDeleteButton transportJobId={params.id} documentId={doc.id} />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -1551,6 +1862,41 @@ const softPanel: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const subsectionTitle: React.CSSProperties = {
+  fontSize: 15,
+  fontWeight: 900,
+  marginBottom: 10,
+};
+
+const checkboxRow: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontSize: 14,
+  fontWeight: 700,
+};
+
+const checklistGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 10,
+};
+
+const readinessRed: React.CSSProperties = {
+  background: "rgba(239, 68, 68, 0.12)",
+  border: "1px solid rgba(239, 68, 68, 0.24)",
+};
+
+const readinessAmber: React.CSSProperties = {
+  background: "rgba(245, 158, 11, 0.12)",
+  border: "1px solid rgba(245, 158, 11, 0.24)",
+};
+
+const readinessGreen: React.CSSProperties = {
+  background: "rgba(16, 185, 129, 0.12)",
+  border: "1px solid rgba(16, 185, 129, 0.24)",
 };
 
 const emptyState: React.CSSProperties = {
