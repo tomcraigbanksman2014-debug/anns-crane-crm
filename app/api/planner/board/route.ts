@@ -211,9 +211,19 @@ function looksLikeCraneAllocation(row: any) {
 function looksLikeCrossHireCraneAllocation(row: any) {
   const sourceType = String(row?.source_type ?? "").trim().toLowerCase();
   const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
+  const craneId = String(row?.crane_id ?? "").trim();
+  const supplierId = String(row?.supplier_id ?? first(row?.jobs)?.supplier_id ?? "").trim();
+  const supplierReference = String(row?.supplier_reference ?? "").trim();
+  const supplierCost = num(row?.supplier_cost ?? row?.agreed_cost);
 
-  if (sourceType !== "cross_hire") return false;
-  return assetType === "crane" || looksLikeCraneAllocation(row);
+  if (sourceType === "cross_hire") {
+    return assetType === "crane" || looksLikeCraneAllocation(row);
+  }
+
+  if (assetType !== "crane") return false;
+  if (craneId) return false;
+
+  return Boolean(supplierId || supplierReference || supplierCost > 0);
 }
 
 function looksLikeLabourAllocation(row: any) {
@@ -304,6 +314,7 @@ export async function GET(req: Request) {
           lift_type,
           supplier_id,
           notes,
+          cross_hire_cost_total,
           invoice_subtotal,
           invoice_amount,
           total_invoice,
@@ -357,6 +368,7 @@ export async function GET(req: Request) {
             lift_type,
             supplier_id,
             notes,
+            cross_hire_cost_total,
             invoice_subtotal,
             invoice_amount,
             total_invoice,
@@ -404,6 +416,7 @@ export async function GET(req: Request) {
             lift_type,
             supplier_id,
             notes,
+            cross_hire_cost_total,
             invoice_subtotal,
             invoice_amount,
             total_invoice,
@@ -487,6 +500,50 @@ export async function GET(req: Request) {
       if (!activeJobById.has(String(job.id))) {
         activeJobById.set(String(job.id), job);
       }
+    }
+
+    const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
+    let linkedTransportJobs: any[] = [];
+
+    if (activeJobIds.length > 0) {
+      const linkedTransportRes = await supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          linked_job_id,
+          transport_number,
+          status,
+          archived
+        `)
+        .in("linked_job_id", activeJobIds)
+        .eq("archived", false);
+
+      if (linkedTransportRes.error) {
+        return NextResponse.json({ error: linkedTransportRes.error.message }, { status: 400 });
+      }
+
+      linkedTransportJobs = (linkedTransportRes.data ?? []).filter((row: any) =>
+        isPlannerVisibleStatus(row?.status)
+      );
+    }
+
+    const linkedTransportsByJobId = new Map<string, any[]>();
+    for (const row of linkedTransportJobs) {
+      const linkedJobId = String(row?.linked_job_id ?? "").trim();
+      if (!linkedJobId) continue;
+      const current = linkedTransportsByJobId.get(linkedJobId) ?? [];
+      current.push(row);
+      linkedTransportsByJobId.set(linkedJobId, current);
+    }
+
+    function getLinkedTransportMeta(jobId: string | null | undefined) {
+      const rows = linkedTransportsByJobId.get(String(jobId ?? "").trim()) ?? [];
+      return {
+        linked_transport_job_count: rows.length,
+        linked_transport_numbers: rows
+          .map((row: any) => String(row?.transport_number ?? "").trim())
+          .filter(Boolean),
+      };
     }
 
     const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
@@ -590,6 +647,8 @@ export async function GET(req: Request) {
       );
       const excludeWeekends = Boolean(job?.exclude_weekends);
 
+      const linkedTransportMeta = getLinkedTransportMeta(row.job_id);
+
       return {
         id: `alloc_${row.allocation_source}_${row.id}_${rowCraneId ?? "none"}`,
         allocation_id: row.id,
@@ -612,7 +671,7 @@ export async function GET(req: Request) {
         operators: operator ? [operator] : [],
         equipment: crane ? [crane] : [],
         agreed_sell_rate: num(row.agreed_sell_rate),
-        supplier_cost: num(row.supplier_cost),
+        supplier_cost: num(row.supplier_cost) || num(job?.cross_hire_cost_total),
         price_mode: job?.price_mode ?? "full_job",
         price_per_day: num(job?.price_per_day),
         job_price: effectiveJobPrice(job),
@@ -620,6 +679,8 @@ export async function GET(req: Request) {
         working_dates: activeWorkingDates(dateBounds.start, dateBounds.end, excludeWeekends),
         billable_days: countBillableDays(dateBounds.start, dateBounds.end, excludeWeekends),
         notes: row.notes ?? job?.notes ?? null,
+        linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
+        linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "allocated",
       };
     });
@@ -634,6 +695,8 @@ export async function GET(req: Request) {
         row.end_date ?? job?.end_date ?? row.start_date ?? job?.start_date ?? job?.job_date ?? null
       );
       const excludeWeekends = Boolean(job?.exclude_weekends);
+
+      const linkedTransportMeta = getLinkedTransportMeta(row.job_id);
 
       return {
         id: `cross_hire_${row.allocation_source}_${row.id}`,
@@ -657,7 +720,7 @@ export async function GET(req: Request) {
         operators: operator ? [operator] : [],
         equipment: [],
         agreed_sell_rate: num(row.agreed_sell_rate),
-        supplier_cost: num(row.supplier_cost),
+        supplier_cost: num(row.supplier_cost) || num(job?.cross_hire_cost_total),
         price_mode: job?.price_mode ?? "full_job",
         price_per_day: num(job?.price_per_day),
         job_price: effectiveJobPrice(job),
@@ -665,6 +728,8 @@ export async function GET(req: Request) {
         working_dates: activeWorkingDates(dateBounds.start, dateBounds.end, excludeWeekends),
         billable_days: countBillableDays(dateBounds.start, dateBounds.end, excludeWeekends),
         notes: row.notes ?? job?.notes ?? null,
+        linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
+        linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "cross_hired",
       };
     });
@@ -683,6 +748,8 @@ export async function GET(req: Request) {
           null
       );
       const excludeWeekends = Boolean(job?.exclude_weekends);
+
+      const linkedTransportMeta = getLinkedTransportMeta(row.job_id);
 
       return {
         id: `labour_${row.allocation_source}_${row.id}`,
@@ -713,6 +780,8 @@ export async function GET(req: Request) {
         working_dates: activeWorkingDates(dateBounds.start, dateBounds.end, excludeWeekends),
         billable_days: countBillableDays(dateBounds.start, dateBounds.end, excludeWeekends),
         notes: row.notes ?? job?.notes ?? null,
+        linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
+        linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "labour_only",
       };
     });
@@ -728,6 +797,8 @@ export async function GET(req: Request) {
       const excludeWeekends = Boolean(job.exclude_weekends);
       const jobId = String(job.id);
       const mainCraneId = String(job.crane_id ?? "").trim();
+      const linkedTransportMeta = getLinkedTransportMeta(job.id);
+      const isCrossHiredDirect = Boolean(job?.supplier_id) || num(job?.cross_hire_cost_total) > 0;
 
       if (jobsWithAnyAllocationRows.has(jobId)) {
         return [];
@@ -764,12 +835,14 @@ export async function GET(req: Request) {
             working_dates: activeWorkingDates(dateBounds.start, dateBounds.end, excludeWeekends),
             billable_days: countBillableDays(dateBounds.start, dateBounds.end, excludeWeekends),
             notes: job.notes ?? null,
+            linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
+            linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
             planner_group: "allocated",
           },
         ];
       }
 
-      const plannerGroup = job?.supplier_id ? "cross_hired" : classifyUnassignedType(job);
+      const plannerGroup = isCrossHiredDirect ? "cross_hired" : classifyUnassignedType(job);
 
       return [
         {
@@ -799,7 +872,7 @@ export async function GET(req: Request) {
           operators: operator ? [operator] : [],
           equipment: [],
           agreed_sell_rate: 0,
-          supplier_cost: 0,
+          supplier_cost: plannerGroup === "cross_hired" ? num(job.cross_hire_cost_total) : 0,
           price_mode: job.price_mode ?? "full_job",
           price_per_day: num(job.price_per_day),
           job_price: effectiveJobPrice(job),
@@ -807,6 +880,8 @@ export async function GET(req: Request) {
           working_dates: activeWorkingDates(dateBounds.start, dateBounds.end, excludeWeekends),
           billable_days: countBillableDays(dateBounds.start, dateBounds.end, excludeWeekends),
           notes: job.notes ?? null,
+          linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
+          linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
           planner_group: plannerGroup,
         },
       ];
