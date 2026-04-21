@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type PlannerItem = {
   job_id: string;
@@ -55,6 +55,7 @@ type PlannerResponse = {
 type DropTarget = {
   vehicleId: string | null;
   dayIso: string;
+  plannerGroup?: string | null;
 };
 
 function parseDateOnly(value: string | null | undefined) {
@@ -83,7 +84,7 @@ function isNoOpenTarget(target: EventTarget | null) {
 }
 
 function canDragTransportItem(item: PlannerItem) {
-  return String(item.planner_group ?? "") !== "cross_hired";
+  return String(item.status ?? "").trim().toLowerCase() !== "completed";
 }
 
 function fmtMoney(value: number | null | undefined) {
@@ -179,7 +180,9 @@ function getTransportCardHighlightStyle(item: PlannerItem, compact = false): Rea
 
   if (isCrossHiredTransportItem(item)) {
     return {
-      outline: "2px solid rgba(214,137,16,0.38)",
+      background: "rgba(246, 198, 117, 0.26)",
+      border: "1px solid rgba(214,137,16,0.34)",
+      outline: "2px solid rgba(214,137,16,0.24)",
       outlineOffset: -2,
       boxShadow: `inset 4px 0 0 #d68910, ${baseShadow}`,
     };
@@ -187,7 +190,9 @@ function getTransportCardHighlightStyle(item: PlannerItem, compact = false): Rea
 
   if (isLinkedCraneTransportItem(item)) {
     return {
-      outline: "2px solid rgba(0,120,255,0.30)",
+      background: "rgba(116, 182, 255, 0.22)",
+      border: "1px solid rgba(0,120,255,0.24)",
+      outline: "2px solid rgba(0,120,255,0.18)",
       outlineOffset: -2,
       boxShadow: `inset 4px 0 0 #0078ff, ${baseShadow}`,
     };
@@ -208,6 +213,8 @@ export default function TransportPlannerBoard() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const dragPointerYRef = useRef<number | null>(null);
+  const dragAutoScrollFrameRef = useRef<number | null>(null);
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
@@ -244,6 +251,67 @@ export default function TransportPlannerBoard() {
     window.addEventListener("resize", syncMobile);
     return () => window.removeEventListener("resize", syncMobile);
   }, []);
+
+  useEffect(() => {
+    if (!draggingId) {
+      dragPointerYRef.current = null;
+      if (dragAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+        dragAutoScrollFrameRef.current = null;
+      }
+      return;
+    }
+
+    const updatePointer = (event: DragEvent) => {
+      dragPointerYRef.current = event.clientY;
+    };
+
+    const clearPointer = () => {
+      dragPointerYRef.current = null;
+    };
+
+    const tick = () => {
+      const pointerY = dragPointerYRef.current;
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+
+      if (typeof pointerY === "number" && viewportHeight > 0) {
+        const edgeThreshold = Math.min(180, Math.max(90, Math.round(viewportHeight * 0.18)));
+        const upperEdge = edgeThreshold;
+        const lowerEdge = viewportHeight - edgeThreshold;
+        let delta = 0;
+
+        if (pointerY < upperEdge) {
+          const ratio = (upperEdge - pointerY) / Math.max(upperEdge, 1);
+          delta = -Math.max(10, Math.round(ratio * 26));
+        } else if (pointerY > lowerEdge) {
+          const ratio = (pointerY - lowerEdge) / Math.max(edgeThreshold, 1);
+          delta = Math.max(10, Math.round(ratio * 26));
+        }
+
+        if (delta !== 0) {
+          window.scrollBy({ top: delta, behavior: "auto" });
+        }
+      }
+
+      dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    document.addEventListener("dragover", updatePointer, true);
+    document.addEventListener("drop", clearPointer, true);
+    document.addEventListener("dragend", clearPointer, true);
+    dragAutoScrollFrameRef.current = window.requestAnimationFrame(tick);
+
+    return () => {
+      document.removeEventListener("dragover", updatePointer, true);
+      document.removeEventListener("drop", clearPointer, true);
+      document.removeEventListener("dragend", clearPointer, true);
+      dragPointerYRef.current = null;
+      if (dragAutoScrollFrameRef.current) {
+        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+        dragAutoScrollFrameRef.current = null;
+      }
+    };
+  }, [draggingId]);
 
   useEffect(() => {
     function onDocPointerDown(event: MouseEvent | TouchEvent) {
@@ -323,10 +391,14 @@ export default function TransportPlannerBoard() {
     const nextDeliveryDate = deliveryDateForMove(item, nextTransportDate);
     const nextVehicleId = target.vehicleId;
 
+    const currentPlannerGroup = String(item.planner_group ?? "").trim();
+    const nextPlannerGroup = String(target.plannerGroup ?? currentPlannerGroup).trim();
+
     const alreadySame =
       String(item.vehicle_id ?? "") === String(nextVehicleId ?? "") &&
       String(item.transport_date ?? "") === nextTransportDate &&
-      String(item.delivery_date ?? item.transport_date ?? "") === nextDeliveryDate;
+      String(item.delivery_date ?? item.transport_date ?? "") === nextDeliveryDate &&
+      currentPlannerGroup === nextPlannerGroup;
 
     if (alreadySame) return;
 
@@ -350,6 +422,7 @@ export default function TransportPlannerBoard() {
           collection_time: item.collection_time ?? "",
           delivery_time: item.delivery_time ?? "",
           status: item.status ?? "planned",
+          target_planner_group: target.plannerGroup ?? null,
         }),
       });
 
@@ -376,6 +449,7 @@ export default function TransportPlannerBoard() {
     }
     try {
       e.dataTransfer.effectAllowed = "move";
+      dragPointerYRef.current = e.clientY;
       e.dataTransfer.setData("text/plain", item.job_id);
       e.dataTransfer.setData("application/x-transport-job-id", item.job_id);
     } catch {}
@@ -384,6 +458,7 @@ export default function TransportPlannerBoard() {
   }
 
   function onDragEnd() {
+    dragPointerYRef.current = null;
     setDraggingId(null);
   }
 
@@ -585,7 +660,7 @@ export default function TransportPlannerBoard() {
     );
   }
 
-  function renderDropCell(items: PlannerItem[], target: DropTarget, highlight = false) {
+  function renderDropCell(items: PlannerItem[], target: DropTarget, highlight = false, showEmptyCrossHire = false) {
     return (
       <div
         style={{
@@ -605,7 +680,7 @@ export default function TransportPlannerBoard() {
         onDrop={(e) => {
           e.preventDefault();
           const droppedId = (e.dataTransfer.getData("application/x-transport-job-id") || e.dataTransfer.getData("text/plain") || draggingId || "").trim();
-          const item = [...(data?.unallocated_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
+          const item = [...(data?.unallocated_jobs ?? []), ...(data?.cross_hired_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
             (row) => row.job_id === droppedId
           );
           if (item) {
@@ -613,7 +688,7 @@ export default function TransportPlannerBoard() {
           }
         }}
       >
-        {items.length === 0 ? <div style={emptyState}>Free</div> : <div style={{ display: "grid", gap: 8 }}>{items.map((item) => renderJobCard(item, true))}</div>}
+        {items.length === 0 ? (showEmptyCrossHire ? <div style={emptyState}>No cross-hired transport jobs</div> : <div style={emptyState}>Free</div>) : <div style={{ display: "grid", gap: 8 }}>{items.map((item) => renderJobCard(item, true))}</div>}
       </div>
     );
   }
@@ -702,29 +777,14 @@ export default function TransportPlannerBoard() {
                   <div style={{ fontWeight: 1000 }}>Cross-hired transport</div>
                   <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                 </div>
-                <div
-                  style={{
-                    ...mobileDayCell,
-                    ...(activeDay.holiday
-                      ? {
-                          background: "rgba(255,170,0,0.08)",
-                          border: "1px solid rgba(255,170,0,0.18)",
-                        }
-                      : {}),
-                  }}
-                >
-                  {sortItemsByStartTime(
+                {renderDropCell(
+                  sortItemsByStartTime(
                     (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, activeDay.key))
-                  ).length === 0 ? (
-                    <div style={emptyState}>No cross-hired transport jobs</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 8 }}>
-                      {sortItemsByStartTime(
-                        (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, activeDay.key))
-                      ).map((item) => renderJobCard(item, true))}
-                    </div>
-                  )}
-                </div>
+                  ),
+                  { vehicleId: null, dayIso: activeDay.key, plannerGroup: "cross_hired" },
+                  Boolean(activeDay.holiday),
+                  true
+                )}
               </div>
             ) : (
               <div style={desktopGrid(visibleDays.length)}>
@@ -760,27 +820,11 @@ export default function TransportPlannerBoard() {
                     (data?.cross_hired_jobs ?? []).filter((item) => itemMatchesDay(item, day.key))
                   );
 
-                  return (
-                    <div
-                      key={`cross-transport-${day.key}`}
-                      style={{
-                        ...dayCell,
-                        ...(day.holiday
-                          ? {
-                              background: "rgba(255,170,0,0.08)",
-                              border: "1px solid rgba(255,170,0,0.18)",
-                            }
-                          : {}),
-                      }}
-                    >
-                      {dayItems.length === 0 ? (
-                        <div style={emptyState}>Free</div>
-                      ) : (
-                        <div style={{ display: "grid", gap: 8 }}>
-                          {dayItems.map((item) => renderJobCard(item))}
-                        </div>
-                      )}
-                    </div>
+                  return renderDropCell(
+                    dayItems,
+                    { vehicleId: null, dayIso: day.key, plannerGroup: "cross_hired" },
+                    Boolean(day.holiday),
+                    true
                   );
                 })}
               </div>
@@ -806,7 +850,7 @@ export default function TransportPlannerBoard() {
                 }}
                 onDrop={(e) => {
                   e.preventDefault();
-                  const item = [...(data?.unallocated_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
+                  const item = [...(data?.unallocated_jobs ?? []), ...(data?.cross_hired_jobs ?? []), ...(data?.vehicles ?? []).flatMap((vehicle) => vehicle.items)].find(
                     (row) => row.job_id === draggingId
                   );
                   if (item) {
@@ -881,7 +925,7 @@ export default function TransportPlannerBoard() {
 
                       return renderDropCell(
                         dayItems,
-                        { vehicleId: vehicle.id, dayIso: day.key },
+                        { vehicleId: vehicle.id, dayIso: day.key, plannerGroup: "allocated" },
                         Boolean(day.holiday)
                       );
                     })}
