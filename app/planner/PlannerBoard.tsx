@@ -39,6 +39,8 @@ type PlannerItem = {
   working_dates?: string[];
   billable_days?: number | null;
   notes?: string | null;
+  linked_transport_job_count?: number | null;
+  linked_transport_numbers?: string[] | null;
   planner_group?: string | null;
 };
 
@@ -145,6 +147,59 @@ function getDisplayPrice(item: PlannerItem) {
   const agreed = Number(item.agreed_sell_rate ?? 0);
   if (agreed > 0) return agreed;
   return Number(item.job_price ?? 0);
+}
+
+function isCrossHireItem(item: PlannerItem) {
+  return String(item.source_type ?? "").trim().toLowerCase() === "cross_hire" || String(item.planner_group ?? "") === "cross_hired";
+}
+
+function isLabourOnlyItem(item: PlannerItem) {
+  return String(item.planner_group ?? "") === "labour_only";
+}
+
+function linkedTransportCount(item: PlannerItem) {
+  const count = Number(item.linked_transport_job_count ?? 0);
+  return Number.isFinite(count) ? Math.max(count, 0) : 0;
+}
+
+function isLinkedTransportItem(item: PlannerItem) {
+  return linkedTransportCount(item) > 0;
+}
+
+function getLinkedTransportLabel(item: PlannerItem) {
+  const count = linkedTransportCount(item);
+  if (count <= 1) return "Linked transport";
+  return `Linked transport x${count}`;
+}
+
+function getPlannerCardHighlightStyle(item: PlannerItem, compact = false): React.CSSProperties {
+  const baseShadow = compact ? "0 4px 12px rgba(0,0,0,0.05)" : "0 4px 14px rgba(0,0,0,0.06)";
+
+  if (isCrossHireItem(item)) {
+    return {
+      outline: "2px solid rgba(214,137,16,0.38)",
+      outlineOffset: -2,
+      boxShadow: `inset 4px 0 0 #d68910, ${baseShadow}`,
+    };
+  }
+
+  if (isLabourOnlyItem(item)) {
+    return {
+      outline: "2px solid rgba(125,60,152,0.34)",
+      outlineOffset: -2,
+      boxShadow: `inset 4px 0 0 #7d3c98, ${baseShadow}`,
+    };
+  }
+
+  if (isLinkedTransportItem(item)) {
+    return {
+      outline: "2px solid rgba(0,120,255,0.30)",
+      outlineOffset: -2,
+      boxShadow: `inset 4px 0 0 #0078ff, ${baseShadow}`,
+    };
+  }
+
+  return { boxShadow: baseShadow };
 }
 
 function sortItemsByStartTime(items: PlannerItem[]) {
@@ -687,6 +742,12 @@ export default function PlannerBoard() {
   }
 
   function renderCard(item: PlannerItem, compact = false, visibleDayIso?: string | null) {
+    const crossHireItem = isCrossHireItem(item);
+    const labourOnlyItem = isLabourOnlyItem(item);
+    const linkedTransportItem = isLinkedTransportItem(item);
+    const linkedTransportLabel = linkedTransportItem ? getLinkedTransportLabel(item) : null;
+    const displayPrice = getDisplayPrice(item);
+
     return (
       <div
         key={item.id}
@@ -698,6 +759,7 @@ export default function PlannerBoard() {
         style={{
           ...(compact ? miniJobCard : fullJobCard),
           ...getStatusTone(item.status),
+          ...getPlannerCardHighlightStyle(item, compact),
           opacity: draggingId === item.id ? 0.55 : movingId === item.id ? 0.45 : 1,
           cursor:
             movingId === item.id
@@ -728,16 +790,32 @@ export default function PlannerBoard() {
           {item.start_time ?? "—"} → {item.end_time ?? "—"}
         </div>
 
-        <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-          {fmtMoney(getDisplayPrice(item))}
-          {String(item.price_mode ?? "full_job") === "per_day"
-            ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}`
-            : " • Full job"}
-        </div>
+        {crossHireItem ? (
+          <>
+            <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+              PO cost {fmtMoney(item.supplier_cost ?? 0)}
+            </div>
+            <div style={{ marginTop: 2, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+              Charge {fmtMoney(displayPrice)}
+              {String(item.price_mode ?? "full_job") === "per_day"
+                ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}`
+                : " • Full job"}
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+            {fmtMoney(displayPrice)}
+            {String(item.price_mode ?? "full_job") === "per_day"
+              ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}`
+              : " • Full job"}
+          </div>
+        )}
 
         <div style={tagWrap}>
           <div style={pillNeutral}>{getOperatorName(item)}</div>
-          {item.source_type === "cross_hire" ? <div style={pillWarn}>Cross hired</div> : null}
+          {labourOnlyItem ? <div style={pillLabour}>Labour only</div> : null}
+          {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
+          {linkedTransportLabel ? <div style={pillLinked}>{linkedTransportLabel}</div> : null}
           {item.item_name ? <div style={pillNeutral}>{item.item_name}</div> : null}
           {item.exclude_weekends ? <div style={pillNeutral}>Exclude weekends</div> : null}
         </div>
@@ -913,7 +991,7 @@ export default function PlannerBoard() {
                     crossHiredItems.filter((item) => itemMatchesDay(item, activeDay.date))
                   ).map((item) => (
                     <div key={`${item.id}-${activeDay.date}`} style={{ display: "grid", gap: 8 }}>
-                      <div style={pillWarn}>Cross hired</div>
+                      <div style={pillCrossHire}>Cross hire / subcontract</div>
                       {renderCard(item, false, activeDay.date)}
                     </div>
                   ))}
@@ -1407,6 +1485,26 @@ const pillLabour: React.CSSProperties = {
   borderRadius: 999,
   background: "rgba(125,60,152,0.12)",
   color: "#7d3c98",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const pillCrossHire: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "rgba(214,137,16,0.14)",
+  color: "#8a5609",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const pillLinked: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "rgba(0,120,255,0.12)",
+  color: "#0b57d0",
   fontSize: 11,
   fontWeight: 900,
 };
