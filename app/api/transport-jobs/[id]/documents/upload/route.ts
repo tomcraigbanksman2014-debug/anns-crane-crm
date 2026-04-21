@@ -10,6 +10,12 @@ const ALLOWED_DOCUMENT_TYPES = new Set([
   "delivery_note",
   "collection_note",
   "pod",
+  "movement_order",
+  "route_plan",
+  "permit",
+  "escort_confirmation",
+  "authority_notice",
+  "dimension_sheet",
   "other",
 ]);
 
