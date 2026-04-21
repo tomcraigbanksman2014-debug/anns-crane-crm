@@ -28,12 +28,16 @@ function lower(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function isCrossHiredTransportJob(row: any) {
+function hasTransportSubcontractMeta(row: any) {
   const supplierId = String(row?.supplier_id ?? "").trim();
   const supplierReference = String(row?.supplier_reference ?? "").trim();
   const supplierCost = num(row?.supplier_cost);
 
   return Boolean(supplierId || supplierReference || supplierCost > 0);
+}
+
+function isCrossHiredTransportPlannerJob(row: any) {
+  return !String(row?.vehicle_id ?? "").trim() && hasTransportSubcontractMeta(row);
 }
 
 function overlapsRange(
@@ -219,8 +223,8 @@ export async function GET(req: Request) {
       };
     };
 
-    const crossHiredJobs = activeJobs.filter((row: any) => isCrossHiredTransportJob(row));
-    const ownedTransportJobs = activeJobs.filter((row: any) => !isCrossHiredTransportJob(row));
+    const crossHiredJobs = activeJobs.filter((row: any) => isCrossHiredTransportPlannerJob(row));
+    const ownedTransportJobs = activeJobs.filter((row: any) => !isCrossHiredTransportPlannerJob(row));
 
     const vehicleRows = vehicles.map((vehicle: any) => ({
       id: vehicle.id,
