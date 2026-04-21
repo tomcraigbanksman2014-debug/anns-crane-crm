@@ -6,6 +6,7 @@ type PlannerItem = {
   job_id: string;
   transport_number?: string | null;
   client_name?: string | null;
+  linked_job_id?: string | null;
   collection_address?: string | null;
   delivery_address?: string | null;
   transport_date?: string | null;
@@ -163,6 +164,36 @@ function getDisplayPrice(item: PlannerItem) {
   const agreed = Number(item.agreed_sell_rate ?? 0);
   if (agreed > 0) return agreed;
   return Number(item.job_price ?? 0);
+}
+
+function isCrossHiredTransportItem(item: PlannerItem) {
+  return String(item.planner_group ?? "") === "cross_hired";
+}
+
+function isLinkedCraneTransportItem(item: PlannerItem) {
+  return Boolean(String(item.linked_job_id ?? "").trim());
+}
+
+function getTransportCardHighlightStyle(item: PlannerItem, compact = false): React.CSSProperties {
+  const baseShadow = compact ? "0 4px 12px rgba(0,0,0,0.05)" : "0 4px 12px rgba(0,0,0,0.05)";
+
+  if (isCrossHiredTransportItem(item)) {
+    return {
+      outline: "2px solid rgba(214,137,16,0.38)",
+      outlineOffset: -2,
+      boxShadow: `inset 4px 0 0 #d68910, ${baseShadow}`,
+    };
+  }
+
+  if (isLinkedCraneTransportItem(item)) {
+    return {
+      outline: "2px solid rgba(0,120,255,0.30)",
+      outlineOffset: -2,
+      boxShadow: `inset 4px 0 0 #0078ff, ${baseShadow}`,
+    };
+  }
+
+  return { boxShadow: baseShadow };
 }
 
 export default function TransportPlannerBoard() {
@@ -478,6 +509,10 @@ export default function TransportPlannerBoard() {
 
   function renderJobCard(item: PlannerItem, compact = false) {
     const busy = actionId === item.job_id || movingId === item.job_id;
+    const crossHireItem = isCrossHiredTransportItem(item);
+    const linkedCraneItem = isLinkedCraneTransportItem(item);
+    const displayPrice = getDisplayPrice(item);
+
     return (
       <div
         key={`${item.job_id}-${item.transport_date}-${item.delivery_date}-${compact ? "compact" : "full"}`}
@@ -487,6 +522,7 @@ export default function TransportPlannerBoard() {
         style={{
           ...(compact ? miniJobCard : jobCardStyle),
           ...statusTone(item.status),
+          ...getTransportCardHighlightStyle(item, compact),
           opacity: draggingId === item.job_id ? 0.55 : busy ? 0.65 : 1,
           cursor:
             busy
@@ -522,13 +558,26 @@ export default function TransportPlannerBoard() {
         <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, opacity: 0.72 }}>
           {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
         </div>
-        <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-          {fmtMoney(getDisplayPrice(item))}
-          {String(item.price_mode ?? "full_job") === "per_day" ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}` : " • Full job"}
-        </div>
+        {crossHireItem ? (
+          <>
+            <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+              PO cost {fmtMoney(item.supplier_cost ?? 0)}
+            </div>
+            <div style={{ marginTop: 2, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+              Charge {fmtMoney(displayPrice)}
+              {String(item.price_mode ?? "full_job") === "per_day" ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}` : " • Full job"}
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
+            {fmtMoney(displayPrice)}
+            {String(item.price_mode ?? "full_job") === "per_day" ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}` : " • Full job"}
+          </div>
+        )}
         <div style={tagWrap}>
           <div style={pillNeutral}>{item.operator_name ?? "Unassigned"}</div>
-          {item.planner_group === "cross_hired" ? <div style={pillWarn}>Cross hired</div> : null}
+          {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
+          {linkedCraneItem ? <div style={pillLinked}>Linked crane job</div> : null}
           {item.supplier_reference ? <div style={pillNeutral}>{item.supplier_reference}</div> : null}
           {!item.vehicle_id && item.planner_group !== "cross_hired" ? <div style={pillWarn}>No vehicle assigned</div> : null}
         </div>
@@ -1024,6 +1073,20 @@ const pillWarn: React.CSSProperties = {
   ...pillNeutral,
   background: "rgba(255,180,0,0.16)",
   border: "1px solid rgba(255,180,0,0.22)",
+};
+
+const pillCrossHire: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(214,137,16,0.14)",
+  border: "1px solid rgba(214,137,16,0.24)",
+  color: "#8a5609",
+};
+
+const pillLinked: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(0,120,255,0.12)",
+  border: "1px solid rgba(0,120,255,0.22)",
+  color: "#0b57d0",
 };
 
 const dropReadyCell: React.CSSProperties = {
