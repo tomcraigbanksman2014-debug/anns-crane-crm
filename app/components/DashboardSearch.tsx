@@ -171,7 +171,15 @@ export default function DashboardSearch() {
   }
 
   return (
-    <div ref={rootRef} style={{ position: "relative", width: "min(620px, 92vw)" }}>
+    <div
+      ref={rootRef}
+      style={{
+        position: "relative",
+        width: "100%",
+        maxWidth: "100%",
+        minWidth: 0,
+      }}
+    >
       <input
         ref={inputRef}
         value={q}
@@ -250,6 +258,9 @@ export default function DashboardSearch() {
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  display: "block",
   padding: "12px 14px",
   borderRadius: 12,
   border: "1px solid rgba(0,0,0,0.14)",
@@ -260,6 +271,7 @@ const inputStyle: React.CSSProperties = {
 
 const panelStyle: React.CSSProperties = {
   position: "absolute",
+  boxSizing: "border-box",
   top: "calc(100% + 8px)",
   left: 0,
   right: 0,
