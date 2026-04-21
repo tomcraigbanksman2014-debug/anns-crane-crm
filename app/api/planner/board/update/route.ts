@@ -175,6 +175,7 @@ export async function POST(req: Request) {
     const endTime = clean(body.end_time);
     const status = clean(body.status);
     const plannerGroup = clean(body.planner_group);
+    const targetPlannerGroup = clean(body.target_planner_group);
 
     if (!jobId) {
       return NextResponse.json({ error: "Job id is required." }, { status: 400 });
@@ -189,7 +190,7 @@ export async function POST(req: Request) {
 
     const { data: linkedJob, error: linkedJobError } = await supabase
       .from("jobs")
-      .select("id, exclude_weekends")
+      .select("id, exclude_weekends, supplier_id, cross_hire_cost_total")
       .eq("id", jobId)
       .single();
 
@@ -198,6 +199,20 @@ export async function POST(req: Request) {
     }
 
     const excludeWeekends = Boolean(linkedJob.exclude_weekends);
+
+    const movingToCrossHire = targetPlannerGroup === "cross_hired";
+    const movingToOwnedCrane = Boolean(craneId) && targetPlannerGroup !== "cross_hired";
+
+    const hasCrossHireMeta = (value: Record<string, any> | null | undefined) => {
+      return Boolean(
+        clean(value?.source_type) === "cross_hire" ||
+        clean(value?.supplier_id) ||
+        clean(value?.supplier_reference) ||
+        Number(value?.supplier_cost ?? value?.agreed_cost ?? 0) > 0
+      );
+    };
+
+    const jobHasCrossHireMeta = Boolean(clean(linkedJob?.supplier_id) || Number(linkedJob?.cross_hire_cost_total ?? 0) > 0);
 
     if (allocationId) {
       let resolvedAllocationSource = allocationSource;
@@ -231,6 +246,13 @@ export async function POST(req: Request) {
 
         if (existingError || !existing) {
           return NextResponse.json({ error: "Allocation not found." }, { status: 404 });
+        }
+
+        if (movingToCrossHire && !hasCrossHireMeta(existing) && !jobHasCrossHireMeta) {
+          return NextResponse.json(
+            { error: "Add the subcontract supplier or cost on the job first, then move it to the cross-hired row." },
+            { status: 400 }
+          );
         }
 
         if (!craneId && plannerGroup === "labour_only") {
@@ -274,12 +296,12 @@ export async function POST(req: Request) {
 
           const movedPayload = cloneInsertPayload(existing, {
             operator_id: operatorId,
-            crane_id: craneId,
+            crane_id: movingToCrossHire ? null : craneId,
             start_at: buildTimestamp(startDate, startTime, "00:00"),
             end_at: buildTimestamp(endDate, endTime ?? startTime, "23:59"),
           });
 
-          if (craneId) {
+          if (movingToCrossHire || craneId) {
             movedPayload.asset_type = "crane";
           }
 
@@ -293,7 +315,7 @@ export async function POST(req: Request) {
         } else {
           const allocationPayload: Record<string, any> = {
             operator_id: operatorId,
-            crane_id: craneId,
+            crane_id: movingToCrossHire ? null : craneId,
           };
 
           if (startDate) {
@@ -303,7 +325,7 @@ export async function POST(req: Request) {
             allocationPayload.end_at = buildTimestamp(endDate, endTime ?? startTime, "23:59");
           }
 
-          if (craneId) {
+          if (movingToCrossHire || craneId) {
             allocationPayload.asset_type = "crane";
           }
 
@@ -325,6 +347,13 @@ export async function POST(req: Request) {
 
         if (existingError || !existing) {
           return NextResponse.json({ error: "Allocation not found." }, { status: 404 });
+        }
+
+        if (movingToCrossHire && !hasCrossHireMeta(existing) && !jobHasCrossHireMeta) {
+          return NextResponse.json(
+            { error: "Add the subcontract supplier or cost on the job first, then move it to the cross-hired row." },
+            { status: 400 }
+          );
         }
 
         const existingStart = clean(existing.start_date);
@@ -354,15 +383,16 @@ export async function POST(req: Request) {
 
           const movedPayload = cloneInsertPayload(existing, {
             operator_id: operatorId,
-            crane_id: craneId,
+            crane_id: movingToCrossHire ? null : craneId,
             start_date: startDate,
             end_date: endDate,
             start_time: startTime,
             end_time: endTime,
             updated_at: new Date().toISOString(),
+            source_type: movingToCrossHire ? "cross_hire" : movingToOwnedCrane ? "owned" : existing.source_type ?? null,
           });
 
-          if (craneId) {
+          if (movingToCrossHire || craneId) {
             movedPayload.asset_type = "crane";
           } else if (plannerGroup === "labour_only") {
             movedPayload.asset_type = "other";
@@ -378,7 +408,7 @@ export async function POST(req: Request) {
         } else {
           const allocationPayload: Record<string, any> = {
             operator_id: operatorId,
-            crane_id: craneId,
+            crane_id: movingToCrossHire ? null : craneId,
             updated_at: new Date().toISOString(),
           };
 
@@ -387,8 +417,9 @@ export async function POST(req: Request) {
           if (startTime !== null) allocationPayload.start_time = startTime;
           if (endTime !== null) allocationPayload.end_time = endTime;
 
-          if (craneId) {
+          if (movingToCrossHire || craneId) {
             allocationPayload.asset_type = "crane";
+            allocationPayload.source_type = movingToCrossHire ? "cross_hire" : movingToOwnedCrane ? "owned" : existing.source_type ?? null;
           } else if (plannerGroup === "labour_only") {
             allocationPayload.asset_type = "other";
           }
@@ -408,9 +439,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (movingToCrossHire && !jobHasCrossHireMeta) {
+      return NextResponse.json(
+        { error: "Add the subcontract supplier or cost on the job first, then move it to the cross-hired row." },
+        { status: 400 }
+      );
+    }
+
     const jobPayload: Record<string, any> = {
       operator_id: operatorId,
-      crane_id: craneId,
+      crane_id: movingToCrossHire ? null : craneId,
       updated_at: new Date().toISOString(),
     };
 
