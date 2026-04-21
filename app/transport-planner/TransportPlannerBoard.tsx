@@ -27,6 +27,11 @@ type PlannerItem = {
   job_price?: number | null;
   price_mode?: string | null;
   price_per_day?: number | null;
+  abnormal_load_enabled?: boolean | null;
+  abnormal_load_category?: string | null;
+  movement_order_reference?: string | null;
+  submission_status?: string | null;
+  approval_status?: string | null;
 };
 
 type VehicleRow = {
@@ -173,6 +178,18 @@ function isCrossHiredTransportItem(item: PlannerItem) {
 
 function isLinkedCraneTransportItem(item: PlannerItem) {
   return Boolean(String(item.linked_job_id ?? "").trim());
+}
+
+function isAbnormalTransportItem(item: PlannerItem) {
+  return Boolean(item.abnormal_load_enabled);
+}
+
+function abnormalCategoryLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "heavy_haulage") return "Heavy haulage";
+  if (raw === "escorted_movement") return "Escorted movement";
+  if (raw === "modular_movement") return "Modular movement";
+  return "Abnormal load";
 }
 
 function getTransportCardHighlightStyle(item: PlannerItem, compact = false): React.CSSProperties {
@@ -665,6 +682,8 @@ export default function TransportPlannerBoard() {
           <div style={pillNeutral}>{item.operator_name ?? "Unassigned"}</div>
           {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
           {linkedCraneItem ? <div style={pillLinked}>Linked crane job</div> : null}
+          {isAbnormalTransportItem(item) ? <div style={pillAbnormal}>{abnormalCategoryLabel(item.abnormal_load_category)}</div> : null}
+          {item.movement_order_reference ? <div style={pillNeutral}>{item.movement_order_reference}</div> : null}
           {item.supplier_reference ? <div style={pillNeutral}>{item.supplier_reference}</div> : null}
           {!item.vehicle_id && item.planner_group !== "cross_hired" ? <div style={pillWarn}>No vehicle assigned</div> : null}
         </div>
@@ -1144,6 +1163,13 @@ const pillLinked: React.CSSProperties = {
   background: "rgba(0,120,255,0.12)",
   border: "1px solid rgba(0,120,255,0.22)",
   color: "#0b57d0",
+};
+
+const pillAbnormal: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(127,90,240,0.14)",
+  border: "1px solid rgba(127,90,240,0.24)",
+  color: "#5a33b0",
 };
 
 const dropReadyCell: React.CSSProperties = {
