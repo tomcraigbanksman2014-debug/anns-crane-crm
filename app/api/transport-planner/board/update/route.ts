@@ -38,6 +38,32 @@ export async function POST(req: Request) {
       );
     }
 
+    const targetPlannerGroup = clean(body.target_planner_group);
+
+    const { data: existingJob, error: existingJobError } = await supabase
+      .from("transport_jobs")
+      .select("id, supplier_id, supplier_reference, supplier_cost")
+      .eq("id", transportJobId)
+      .single();
+
+    if (existingJobError || !existingJob) {
+      return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
+    }
+
+    const movingToCrossHire = targetPlannerGroup === "cross_hired";
+    const hasSubcontractMeta = Boolean(
+      clean(existingJob.supplier_id) ||
+      clean(existingJob.supplier_reference) ||
+      Number(existingJob.supplier_cost ?? 0) > 0
+    );
+
+    if (movingToCrossHire && !hasSubcontractMeta) {
+      return NextResponse.json(
+        { error: "Add the subcontract supplier or PO cost on the transport job first, then move it to the subcontract row." },
+        { status: 400 }
+      );
+    }
+
     const updatePayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
