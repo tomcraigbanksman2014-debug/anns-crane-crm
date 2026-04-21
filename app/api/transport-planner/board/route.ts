@@ -127,6 +127,11 @@ export async function GET(req: Request) {
         total_invoice,
         price_mode,
         price_per_day,
+        abnormal_load_enabled,
+        abnormal_load_category,
+        movement_order_reference,
+        submission_status,
+        approval_status,
         notes,
         clients:client_id (
           id,
@@ -220,6 +225,11 @@ export async function GET(req: Request) {
         job_price: num(row.effective_price),
         price_mode: row.price_mode ?? "full_job",
         price_per_day: num(row.price_per_day),
+        abnormal_load_enabled: Boolean(row.abnormal_load_enabled),
+        abnormal_load_category: row.abnormal_load_category ?? null,
+        movement_order_reference: row.movement_order_reference ?? null,
+        submission_status: row.submission_status ?? null,
+        approval_status: row.approval_status ?? null,
       };
     };
 
