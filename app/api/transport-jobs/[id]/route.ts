@@ -13,6 +13,18 @@ function numberOrNull(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function checkboxValue(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "true" || raw === "on" || raw === "1" || raw === "yes";
+}
+
+function dateTimeOrNull(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function toMinutes(value: string | null) {
   if (!value) return null;
   const match = value.match(/^(\d{1,2}):(\d{2})$/);
@@ -238,6 +250,170 @@ export async function PATCH(
       delivery_lng: requestedDeliveryLng ?? deliveryCoords?.lng ?? null,
       archived:
         body.archived !== undefined ? !!body.archived : existing.archived,
+      abnormal_load_enabled:
+        body.abnormal_load_enabled !== undefined
+          ? checkboxValue(body.abnormal_load_enabled)
+          : existing.abnormal_load_enabled,
+      abnormal_load_category:
+        body.abnormal_load_category !== undefined
+          ? clean(body.abnormal_load_category)
+          : existing.abnormal_load_category,
+      load_length_m:
+        body.load_length_m !== undefined
+          ? numberOrNull(body.load_length_m)
+          : existing.load_length_m,
+      load_width_m:
+        body.load_width_m !== undefined
+          ? numberOrNull(body.load_width_m)
+          : existing.load_width_m,
+      load_height_m:
+        body.load_height_m !== undefined
+          ? numberOrNull(body.load_height_m)
+          : existing.load_height_m,
+      load_weight_t:
+        body.load_weight_t !== undefined
+          ? numberOrNull(body.load_weight_t)
+          : existing.load_weight_t,
+      transport_length_m:
+        body.transport_length_m !== undefined
+          ? numberOrNull(body.transport_length_m)
+          : existing.transport_length_m,
+      transport_width_m:
+        body.transport_width_m !== undefined
+          ? numberOrNull(body.transport_width_m)
+          : existing.transport_width_m,
+      transport_height_m:
+        body.transport_height_m !== undefined
+          ? numberOrNull(body.transport_height_m)
+          : existing.transport_height_m,
+      transport_gross_weight_t:
+        body.transport_gross_weight_t !== undefined
+          ? numberOrNull(body.transport_gross_weight_t)
+          : existing.transport_gross_weight_t,
+      axle_weight_notes:
+        body.axle_weight_notes !== undefined
+          ? clean(body.axle_weight_notes)
+          : existing.axle_weight_notes,
+      collection_contact_name:
+        body.collection_contact_name !== undefined
+          ? clean(body.collection_contact_name)
+          : existing.collection_contact_name,
+      collection_contact_phone:
+        body.collection_contact_phone !== undefined
+          ? clean(body.collection_contact_phone)
+          : existing.collection_contact_phone,
+      delivery_contact_name:
+        body.delivery_contact_name !== undefined
+          ? clean(body.delivery_contact_name)
+          : existing.delivery_contact_name,
+      delivery_contact_phone:
+        body.delivery_contact_phone !== undefined
+          ? clean(body.delivery_contact_phone)
+          : existing.delivery_contact_phone,
+      preferred_move_window:
+        body.preferred_move_window !== undefined
+          ? clean(body.preferred_move_window)
+          : existing.preferred_move_window,
+      trailer_type:
+        body.trailer_type !== undefined
+          ? clean(body.trailer_type)
+          : existing.trailer_type,
+      tractor_unit_type:
+        body.tractor_unit_type !== undefined
+          ? clean(body.tractor_unit_type)
+          : existing.tractor_unit_type,
+      escort_required:
+        body.escort_required !== undefined
+          ? checkboxValue(body.escort_required)
+          : existing.escort_required,
+      escort_details:
+        body.escort_details !== undefined
+          ? clean(body.escort_details)
+          : existing.escort_details,
+      route_notes:
+        body.route_notes !== undefined
+          ? clean(body.route_notes)
+          : existing.route_notes,
+      restriction_notes:
+        body.restriction_notes !== undefined
+          ? clean(body.restriction_notes)
+          : existing.restriction_notes,
+      police_notes:
+        body.police_notes !== undefined
+          ? clean(body.police_notes)
+          : existing.police_notes,
+      council_notes:
+        body.council_notes !== undefined
+          ? clean(body.council_notes)
+          : existing.council_notes,
+      bridge_notes:
+        body.bridge_notes !== undefined
+          ? clean(body.bridge_notes)
+          : existing.bridge_notes,
+      submission_status:
+        body.submission_status !== undefined
+          ? clean(body.submission_status) || "not_started"
+          : existing.submission_status,
+      movement_order_reference:
+        body.movement_order_reference !== undefined
+          ? clean(body.movement_order_reference)
+          : existing.movement_order_reference,
+      movement_order_submitted_at:
+        body.movement_order_submitted_at !== undefined
+          ? dateTimeOrNull(body.movement_order_submitted_at)
+          : existing.movement_order_submitted_at,
+      approval_status:
+        body.approval_status !== undefined
+          ? clean(body.approval_status) || "not_started"
+          : existing.approval_status,
+      approval_notes:
+        body.approval_notes !== undefined
+          ? clean(body.approval_notes)
+          : existing.approval_notes,
+      submitted_by_name:
+        body.submitted_by_name !== undefined
+          ? clean(body.submitted_by_name)
+          : existing.submitted_by_name,
+      checklist_dimensions_confirmed:
+        body.checklist_dimensions_confirmed !== undefined
+          ? checkboxValue(body.checklist_dimensions_confirmed)
+          : existing.checklist_dimensions_confirmed,
+      checklist_weight_confirmed:
+        body.checklist_weight_confirmed !== undefined
+          ? checkboxValue(body.checklist_weight_confirmed)
+          : existing.checklist_weight_confirmed,
+      checklist_route_checked:
+        body.checklist_route_checked !== undefined
+          ? checkboxValue(body.checklist_route_checked)
+          : existing.checklist_route_checked,
+      checklist_trailer_checked:
+        body.checklist_trailer_checked !== undefined
+          ? checkboxValue(body.checklist_trailer_checked)
+          : existing.checklist_trailer_checked,
+      checklist_escort_checked:
+        body.checklist_escort_checked !== undefined
+          ? checkboxValue(body.checklist_escort_checked)
+          : existing.checklist_escort_checked,
+      checklist_site_access_checked:
+        body.checklist_site_access_checked !== undefined
+          ? checkboxValue(body.checklist_site_access_checked)
+          : existing.checklist_site_access_checked,
+      checklist_customer_approved:
+        body.checklist_customer_approved !== undefined
+          ? checkboxValue(body.checklist_customer_approved)
+          : existing.checklist_customer_approved,
+      checklist_supplier_booked:
+        body.checklist_supplier_booked !== undefined
+          ? checkboxValue(body.checklist_supplier_booked)
+          : existing.checklist_supplier_booked,
+      checklist_movement_order_submitted:
+        body.checklist_movement_order_submitted !== undefined
+          ? checkboxValue(body.checklist_movement_order_submitted)
+          : existing.checklist_movement_order_submitted,
+      checklist_approval_received:
+        body.checklist_approval_received !== undefined
+          ? checkboxValue(body.checklist_approval_received)
+          : existing.checklist_approval_received,
     };
 
     const startMins = toMinutes(nextPayload.collection_time);
@@ -254,6 +430,49 @@ export async function PATCH(
         { error: "Delivery time cannot be earlier than collection time." },
         { status: 400 }
       );
+    }
+
+    if (!nextPayload.abnormal_load_enabled) {
+      nextPayload.abnormal_load_category = null;
+      nextPayload.load_length_m = null;
+      nextPayload.load_width_m = null;
+      nextPayload.load_height_m = null;
+      nextPayload.load_weight_t = null;
+      nextPayload.transport_length_m = null;
+      nextPayload.transport_width_m = null;
+      nextPayload.transport_height_m = null;
+      nextPayload.transport_gross_weight_t = null;
+      nextPayload.axle_weight_notes = null;
+      nextPayload.collection_contact_name = null;
+      nextPayload.collection_contact_phone = null;
+      nextPayload.delivery_contact_name = null;
+      nextPayload.delivery_contact_phone = null;
+      nextPayload.preferred_move_window = null;
+      nextPayload.trailer_type = null;
+      nextPayload.tractor_unit_type = null;
+      nextPayload.escort_required = false;
+      nextPayload.escort_details = null;
+      nextPayload.route_notes = null;
+      nextPayload.restriction_notes = null;
+      nextPayload.police_notes = null;
+      nextPayload.council_notes = null;
+      nextPayload.bridge_notes = null;
+      nextPayload.submission_status = "not_started";
+      nextPayload.movement_order_reference = null;
+      nextPayload.movement_order_submitted_at = null;
+      nextPayload.approval_status = "not_started";
+      nextPayload.approval_notes = null;
+      nextPayload.submitted_by_name = null;
+      nextPayload.checklist_dimensions_confirmed = false;
+      nextPayload.checklist_weight_confirmed = false;
+      nextPayload.checklist_route_checked = false;
+      nextPayload.checklist_trailer_checked = false;
+      nextPayload.checklist_escort_checked = false;
+      nextPayload.checklist_site_access_checked = false;
+      nextPayload.checklist_customer_approved = false;
+      nextPayload.checklist_supplier_booked = false;
+      nextPayload.checklist_movement_order_submitted = false;
+      nextPayload.checklist_approval_received = false;
     }
 
     const subtotal =
