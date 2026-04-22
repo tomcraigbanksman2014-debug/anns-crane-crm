@@ -270,7 +270,9 @@ function looksLikeLabourAllocation(row: any) {
 
 export async function GET(req: Request) {
   try {
-    const supabase = await requireApiUser();
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
+
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
