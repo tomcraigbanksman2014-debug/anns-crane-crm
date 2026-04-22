@@ -203,6 +203,7 @@ function shouldShowLiftPlanStatus(job: any) {
 function plannerLiftPlanStatus(job: any, liftPlan: any) {
   return shouldShowLiftPlanStatus(job) ? liftPlanStatusLabel(liftPlan) : null;
 }
+
 function isPlannerVisibleStatus(status: string | null | undefined) {
   const s = String(status ?? "").trim().toLowerCase();
   if (!s) return true;
@@ -419,6 +420,8 @@ export async function GET(req: Request) {
             job_date,
             start_time,
             end_time,
+            hire_type,
+            lift_type,
             status,
             notes,
             price_mode,
@@ -664,7 +667,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "allocated",
-        lift_plan_status: liftPlanStatusLabel(liftPlan),
+        lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
       };
     });
 
@@ -717,7 +720,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "cross_hired",
-        lift_plan_status: liftPlanStatusLabel(liftPlan),
+        lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
       };
     });
 
@@ -771,7 +774,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "labour_only",
-        lift_plan_status: liftPlanStatusLabel(liftPlan),
+        lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
       };
     });
 
@@ -828,7 +831,7 @@ export async function GET(req: Request) {
             linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
             linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
             planner_group: "allocated",
-            lift_plan_status: liftPlanStatusLabel(liftPlan),
+            lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
           },
         ];
       }
@@ -871,7 +874,7 @@ export async function GET(req: Request) {
           linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
           linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
           planner_group: plannerGroup,
-          lift_plan_status: liftPlanStatusLabel(liftPlan),
+          lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
         },
       ];
     });
