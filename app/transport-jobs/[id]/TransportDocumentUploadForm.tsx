@@ -21,11 +21,17 @@ export default function TransportDocumentUploadForm({
       <div style={{ display: "grid", gap: 10 }}>
         <select name="document_type" defaultValue="other" style={selectStyle}>
           <option value="movement_order">Movement Order</option>
+          <option value="movement_order_request">Movement Order Request</option>
           <option value="route_plan">Route Plan</option>
           <option value="permit">Permit / Approval</option>
           <option value="escort_confirmation">Escort Confirmation</option>
           <option value="authority_notice">Authority Notice</option>
+          <option value="bridge_notice">Bridge Notice</option>
+          <option value="police_notice">Police Notice</option>
           <option value="dimension_sheet">Dimension Sheet</option>
+          <option value="drawing">Drawing</option>
+          <option value="weight_sheet">Weight Sheet</option>
+          <option value="vehicle_configuration">Vehicle Configuration</option>
           <option value="rams">RAMS</option>
           <option value="site_drawing">Site Drawing</option>
           <option value="photo">Photo</option>
