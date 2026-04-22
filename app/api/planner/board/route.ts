@@ -423,13 +423,13 @@ export async function GET(req: Request) {
       supabase
         .from("operators")
         .select("id, full_name")
-        .eq("active", true)
+        .eq("archived", false)
         .order("full_name", { ascending: true }),
 
       supabase
         .from("cranes")
         .select("id, name, asset_number:reg_number")
-        .eq("active", true)
+        .eq("archived", false)
         .order("name", { ascending: true }),
 
       bankHolidaySeed,
