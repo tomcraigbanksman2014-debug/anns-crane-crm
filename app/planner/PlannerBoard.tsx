@@ -43,6 +43,7 @@ type PlannerItem = {
   notes?: string | null;
   linked_transport_job_count?: number | null;
   linked_transport_numbers?: string[] | null;
+  lift_plan_status?: string | null;
   planner_group?: string | null;
 };
 
@@ -173,6 +174,50 @@ function getLinkedTransportLabel(item: PlannerItem) {
   const count = linkedTransportCount(item);
   if (count <= 1) return "Linked transport";
   return `Linked transport x${count}`;
+}
+
+function getLiftPlanLabel(status: string | null | undefined) {
+  const key = String(status ?? "").trim().toLowerCase();
+
+  if (key === "lp locked" || key === "locked") return "LP locked";
+  if (key === "lp draft" || key === "draft") return "LP draft";
+  if (key === "lp required" || key === "required") return "LP required";
+
+  return null;
+}
+
+function getLiftPlanPillStyle(status: string | null | undefined): React.CSSProperties {
+  const key = String(status ?? "").trim().toLowerCase();
+
+  if (key === "lp locked" || key === "locked") {
+    return {
+      background: "rgba(0,160,80,0.14)",
+      color: "#0b6b34",
+      border: "1px solid rgba(0,160,80,0.18)",
+    };
+  }
+
+  if (key === "lp draft" || key === "draft") {
+    return {
+      background: "rgba(255,140,0,0.14)",
+      color: "#8a5609",
+      border: "1px solid rgba(255,140,0,0.20)",
+    };
+  }
+
+  if (key === "lp required" || key === "required") {
+    return {
+      background: "rgba(180,0,0,0.10)",
+      color: "#8b0000",
+      border: "1px solid rgba(180,0,0,0.18)",
+    };
+  }
+
+  return {
+    background: "rgba(0,0,0,0.06)",
+    color: "#111",
+    border: "1px solid rgba(0,0,0,0.10)",
+  };
 }
 
 function getPlannerCardHighlightStyle(item: PlannerItem, compact = false): React.CSSProperties {
@@ -354,6 +399,47 @@ export default function PlannerBoard() {
   const [loadError, setLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [isMobile, setIsMobile] = useState(false);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragSourceDay, setDragSourceDay] = useState<string | null>(null);
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string>("");
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const messageTimerRef = useRef<number | null>(null);
+  const dragPointerYRef = useRef<number | null>(null);
+  const dragAutoScrollFrameRef = useRef<number | null>(null);
+
+  async function loadBoard(targetWeekStart: string) {
+    setLoading(true);
+    setLoadError("");
+
+    try {
+      const res = await fetch(`/api/planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not load planner.");
+      }
+
+      setData(json);
+    } catch (e: any) {
+      setLoadError(e?.message || "Could not load planner.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadBoard(weekStart);
+  }, [weekStart]);
+
+  useEffect(() => {
+    function syncMobile() {
+      setIsMobile(window.innerWidth < 900);
+    }
+      const [isMobile, setIsMobile] = useState(false);
   const [mobileDayIndex, setMobileDayIndex] = useState(0);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragSourceDay, setDragSourceDay] = useState<string | null>(null);
@@ -752,8 +838,7 @@ export default function PlannerBoard() {
 
   function renderMenu(item: PlannerItem) {
     const isOpen = openMenuId === item.id;
-
-    function goTo(url: string) {
+        function goTo(url: string) {
       window.location.href = url;
     }
 
@@ -843,6 +928,7 @@ export default function PlannerBoard() {
     const labourOnlyItem = isLabourOnlyItem(item);
     const linkedTransportItem = isLinkedTransportItem(item);
     const linkedTransportLabel = linkedTransportItem ? getLinkedTransportLabel(item) : null;
+    const liftPlanLabel = getLiftPlanLabel(item.lift_plan_status);
     const displayPrice = getDisplayPrice(item);
 
     return (
@@ -909,6 +995,11 @@ export default function PlannerBoard() {
         )}
 
         <div style={tagWrap}>
+          {liftPlanLabel ? (
+            <div style={{ ...pillNeutral, ...getLiftPlanPillStyle(item.lift_plan_status) }}>
+              {liftPlanLabel}
+            </div>
+          ) : null}
           <div style={pillNeutral}>{getOperatorName(item)}</div>
           {labourOnlyItem ? <div style={pillLabour}>Labour only</div> : null}
           {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
@@ -1149,8 +1240,7 @@ export default function PlannerBoard() {
                   </div>
                 </div>
               </div>
-
-              {isMobile && activeDay ? (
+                            {isMobile && activeDay ? (
                 <div style={{ display: "grid", gap: 10 }}>
                   <div style={mobileRowHeader}>
                     <div style={{ fontWeight: 1000 }}>Labour only</div>
