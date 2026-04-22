@@ -1102,6 +1102,7 @@ export default async function NewTransportJobPage({
                   </div>
                 </div>
               </div>
+              </div>
             </section>
 
             <section id="invoice_details_section" style={sectionCard}>
