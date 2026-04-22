@@ -570,13 +570,13 @@ export async function GET(req: Request) {
       linkedTransportByJobId.set(key, existing);
     });
 
-    function getLinkedTransportMeta(jobId: string | null | undefined) {
+    const getLinkedTransportMeta = (jobId: string | null | undefined) => {
       const rows = linkedTransportByJobId.get(String(jobId ?? "")) ?? [];
       return {
         linked_transport_job_count: rows.length,
         linked_transport_numbers: rows,
       };
-    }
+    };
 
     const crossHireCraneAllocationRows = activeAllocations.filter((row: any) =>
       looksLikeCrossHireCraneAllocation(row)
