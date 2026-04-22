@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
+import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -594,6 +595,7 @@ export default async function NewTransportJobPage({
           {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
 
           <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+            <TransportJobFormEnhancer />
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
