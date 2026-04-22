@@ -178,15 +178,9 @@ function liftPlanStatusLabel(liftPlan: any) {
     liftPlan?.method_statement,
     liftPlan?.risk_assessment,
     liftPlan?.pack_sections,
-    liftPlan?.approved_by,
-    liftPlan?.approved_at,
-    liftPlan?.finalised_at,
-    liftPlan?.lift_plan_complete,
-    liftPlan?.rams_complete,
   ].some((value) => {
     if (value == null) return false;
     if (typeof value === "object") return Object.keys(value).length > 0;
-    if (typeof value === "boolean") return value;
     return String(value).trim().length > 0;
   });
 
@@ -439,7 +433,7 @@ export async function GET(req: Request) {
 
       supabase
         .from("lift_plans")
-        .select("job_id, paperwork_locked, method_statement, risk_assessment, pack_sections, approved_by, approved_at, finalised_at, lift_plan_complete, rams_complete"),
+        .select("job_id, paperwork_locked, method_statement, risk_assessment, pack_sections"),
     ]);
 
     if (jobsRes.error) {
@@ -546,38 +540,48 @@ export async function GET(req: Request) {
         .map((row: any) => String(row.job_id))
     );
 
-    const linkedTransportRes = await supabase
-      .from("transport_jobs")
-      .select(`
-        id,
-        job_number,
-        linked_job_id,
-        status,
-        transport_date,
-        delivery_date
-      `)
-      .not("linked_job_id", "is", null);
+    const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
+    let linkedTransportJobs: any[] = [];
 
-    if (linkedTransportRes.error) {
-      return NextResponse.json({ error: linkedTransportRes.error.message }, { status: 400 });
+    if (activeJobIds.length > 0) {
+      const linkedTransportRes = await supabase
+        .from("transport_jobs")
+        .select(`
+          id,
+          linked_job_id,
+          transport_number,
+          status,
+          archived
+        `)
+        .in("linked_job_id", activeJobIds)
+        .eq("archived", false);
+
+      if (linkedTransportRes.error) {
+        return NextResponse.json({ error: linkedTransportRes.error.message }, { status: 400 });
+      }
+
+      linkedTransportJobs = (linkedTransportRes.data ?? []).filter((row: any) =>
+        isPlannerVisibleStatus(row?.status)
+      );
     }
 
-    const linkedTransportByJobId = new Map<string, string[]>();
+    const linkedTransportByJobId = new Map<string, any[]>();
 
-    (linkedTransportRes.data ?? []).forEach((row: any) => {
+    linkedTransportJobs.forEach((row: any) => {
       if (!row?.linked_job_id) return;
-      if (!isPlannerVisibleStatus(row?.status)) return;
-      const key = String(row.linked_job_id);
+      const key = String(row.linked_job_id).trim();
       const existing = linkedTransportByJobId.get(key) ?? [];
-      existing.push(row?.job_number ? `#${row.job_number}` : `T${row.id}`);
+      existing.push(row);
       linkedTransportByJobId.set(key, existing);
     });
 
     const getLinkedTransportMeta = (jobId: string | null | undefined) => {
-      const rows = linkedTransportByJobId.get(String(jobId ?? "")) ?? [];
+      const rows = linkedTransportByJobId.get(String(jobId ?? "").trim()) ?? [];
       return {
         linked_transport_job_count: rows.length,
-        linked_transport_numbers: rows,
+        linked_transport_numbers: rows
+          .map((row: any) => String(row?.transport_number ?? "").trim())
+          .filter(Boolean),
       };
     };
 
