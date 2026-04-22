@@ -48,6 +48,9 @@ export default function TransportJobFormEnhancer() {
     const deliveryAddressInput = document.getElementById("delivery_address") as HTMLTextAreaElement | null;
     const loadDescriptionInput = document.getElementById("load_description") as HTMLTextAreaElement | null;
     const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
+    const abnormalLoadCheckbox = document.querySelector('input[name="abnormal_load_enabled"]') as HTMLInputElement | null;
+    const abnormalLoadFieldsWrap = document.getElementById("abnormal_load_fields_wrap") as HTMLDivElement | null;
+    const abnormalLoadFieldsPanel = document.getElementById("abnormal_load_fields_panel") as HTMLDivElement | null;
 
     if (!subtotalInput || !vatInput || !totalInput) return;
 
@@ -186,6 +189,16 @@ export default function TransportJobFormEnhancer() {
       }
     }
 
+    function syncAbnormalLoadVisibility() {
+      const enabled = !!abnormalLoadCheckbox?.checked;
+      if (abnormalLoadFieldsWrap) {
+        abnormalLoadFieldsWrap.style.display = enabled ? "block" : "none";
+      }
+      if (abnormalLoadFieldsPanel) {
+        abnormalLoadFieldsPanel.style.display = enabled ? "grid" : "none";
+      }
+    }
+
 
     type ChecklistRule = {
       checkboxName: string;
@@ -288,6 +301,7 @@ export default function TransportJobFormEnhancer() {
 
     customerSelect?.addEventListener("change", toggleOtherCustomer);
     supplierSelect?.addEventListener("change", toggleOtherSupplier);
+    abnormalLoadCheckbox?.addEventListener("change", syncAbnormalLoadVisibility);
 
     collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
     collectionDateInput?.addEventListener("change", autoSyncDeliveryDate);
