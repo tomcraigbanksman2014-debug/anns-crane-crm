@@ -453,6 +453,50 @@ async function createTransportJob(formData: FormData) {
     approval_status: abnormalLoadEnabled ? clean(formData.get("approval_status")) || "not_started" : "not_started",
     approval_notes: abnormalLoadEnabled ? clean(formData.get("approval_notes")) || null : null,
     submitted_by_name: abnormalLoadEnabled ? clean(formData.get("submitted_by_name")) || null : null,
+
+    movement_reference: abnormalLoadEnabled ? clean(formData.get("movement_reference")) || null : null,
+    tractor_unit_registration: abnormalLoadEnabled ? clean(formData.get("tractor_unit_registration")) || null : null,
+    tractor_unit_fleet_id: abnormalLoadEnabled ? clean(formData.get("tractor_unit_fleet_id")) || null : null,
+    trailer_registration: abnormalLoadEnabled ? clean(formData.get("trailer_registration")) || null : null,
+    trailer_fleet_id: abnormalLoadEnabled ? clean(formData.get("trailer_fleet_id")) || null : null,
+    haulier_contact_name: abnormalLoadEnabled ? clean(formData.get("haulier_contact_name")) || null : null,
+    haulier_contact_phone: abnormalLoadEnabled ? clean(formData.get("haulier_contact_phone")) || null : null,
+    axle_configuration: abnormalLoadEnabled ? clean(formData.get("axle_configuration")) || null : null,
+    front_axle_t: abnormalLoadEnabled ? numberOrNull(formData.get("front_axle_t")) : null,
+    drive_axle_t: abnormalLoadEnabled ? numberOrNull(formData.get("drive_axle_t")) : null,
+    trailer_axle_1_t: abnormalLoadEnabled ? numberOrNull(formData.get("trailer_axle_1_t")) : null,
+    trailer_axle_2_t: abnormalLoadEnabled ? numberOrNull(formData.get("trailer_axle_2_t")) : null,
+    trailer_axle_3_t: abnormalLoadEnabled ? numberOrNull(formData.get("trailer_axle_3_t")) : null,
+    trailer_axle_4_t: abnormalLoadEnabled ? numberOrNull(formData.get("trailer_axle_4_t")) : null,
+    route_start: abnormalLoadEnabled ? clean(formData.get("route_start")) || null : null,
+    route_finish: abnormalLoadEnabled ? clean(formData.get("route_finish")) || null : null,
+    planned_route: abnormalLoadEnabled ? clean(formData.get("planned_route")) || null : null,
+    access_notes: abnormalLoadEnabled ? clean(formData.get("access_notes")) || null : null,
+    authority_areas: abnormalLoadEnabled ? clean(formData.get("authority_areas")) || null : null,
+    route_checked: abnormalLoadEnabled ? checkboxValue(formData.get("route_checked")) : false,
+    escort_provider: abnormalLoadEnabled ? clean(formData.get("escort_provider")) || null : null,
+    escort_contact_name: abnormalLoadEnabled ? clean(formData.get("escort_contact_name")) || null : null,
+    escort_contact_phone: abnormalLoadEnabled ? clean(formData.get("escort_contact_phone")) || null : null,
+    special_instructions: abnormalLoadEnabled ? clean(formData.get("special_instructions")) || null : null,
+    contingency_notes: abnormalLoadEnabled ? clean(formData.get("contingency_notes")) || null : null,
+    submission_method: abnormalLoadEnabled ? clean(formData.get("submission_method")) || "esdal" : null,
+    submission_notes: abnormalLoadEnabled ? clean(formData.get("submission_notes")) || null : null,
+    approval_reference: abnormalLoadEnabled ? clean(formData.get("approval_reference")) || null : null,
+    approval_received_at: abnormalLoadEnabled ? dateTimeOrNull(formData.get("approval_received_at")) : null,
+    authorised_to_move: abnormalLoadEnabled ? checkboxValue(formData.get("authorised_to_move")) : false,
+    authorised_move_notes: abnormalLoadEnabled ? clean(formData.get("authorised_move_notes")) || null : null,
+    police_reference: abnormalLoadEnabled ? clean(formData.get("police_reference")) || null : null,
+    highways_reference: abnormalLoadEnabled ? clean(formData.get("highways_reference")) || null : null,
+    bridge_reference: abnormalLoadEnabled ? clean(formData.get("bridge_reference")) || null : null,
+    council_reference: abnormalLoadEnabled ? clean(formData.get("council_reference")) || null : null,
+    special_order_reference: abnormalLoadEnabled ? clean(formData.get("special_order_reference")) || null : null,
+    vr1_reference: abnormalLoadEnabled ? clean(formData.get("vr1_reference")) || null : null,
+    checklist_vehicle_confirmed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_vehicle_confirmed")) : false,
+    checklist_axle_data_confirmed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_axle_data_confirmed")) : false,
+    checklist_contacts_confirmed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_contacts_confirmed")) : false,
+    checklist_authorities_identified: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_authorities_identified")) : false,
+    checklist_documents_uploaded: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_documents_uploaded")) : false,
+    checklist_submission_reviewed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_submission_reviewed")) : false,
     checklist_dimensions_confirmed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_dimensions_confirmed")) : false,
     checklist_weight_confirmed: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_weight_confirmed")) : false,
     checklist_route_checked: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_route_checked")) : false,
@@ -793,12 +837,12 @@ export default async function NewTransportJobPage({
 
               <div style={{ ...softPanel, marginTop: 12 }}>
                 <div style={{ fontWeight: 900, marginBottom: 8 }}>Submission guidance</div>
-                <div style={helperText}>Use this section to capture the dimensions, route checks, submission tracker and readiness items the transport desk needs before sending movement orders.</div>
+                <div style={helperText}>Use this section to capture the route, vehicle, authority, document and approval details needed for a ready-to-submit movement order pack.</div>
               </div>
 
               <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
                 <div>
-                  <div style={subsectionTitle}>Movement details</div>
+                  <div style={subsectionTitle}>Movement setup</div>
                   <div style={gridStyle}>
                     <SelectField
                       label="Category"
@@ -811,10 +855,23 @@ export default async function NewTransportJobPage({
                         { value: "modular_movement", label: "Modular / cabin movement" },
                       ]}
                     />
+                    <Field label="Preferred move window" name="preferred_move_window" placeholder="Eg. 07:00–13:00 / Nights only" />
+                    <Field label="Movement reference" name="movement_reference" placeholder="Internal move ref" />
+                    <Field label="Movement order reference" name="movement_order_reference" placeholder="Eg. ANNC/717/1#1" />
+                  </div>
+                </div>
 
-                    <Field label="Preferred move window" name="preferred_move_window" placeholder="Eg. Nights / 22:00–04:00 / Weekend only" />
-                    <Field label="Trailer type" name="trailer_type" placeholder="Step frame / low loader / extender" />
+                <div>
+                  <div style={subsectionTitle}>Vehicle and trailer</div>
+                  <div style={gridStyle}>
+                    <Field label="Tractor unit registration" name="tractor_unit_registration" />
                     <Field label="Tractor unit type" name="tractor_unit_type" placeholder="4x2 / 6x4 / ballast tractor" />
+                    <Field label="Tractor unit fleet ID" name="tractor_unit_fleet_id" />
+                    <Field label="Trailer registration" name="trailer_registration" />
+                    <Field label="Trailer type" name="trailer_type" placeholder="Step frame / low loader / extender" />
+                    <Field label="Trailer fleet ID" name="trailer_fleet_id" />
+                    <Field label="Haulier contact name" name="haulier_contact_name" />
+                    <Field label="Haulier contact phone" name="haulier_contact_phone" />
                   </div>
                 </div>
 
@@ -836,9 +893,22 @@ export default async function NewTransportJobPage({
                     <Field label="Overall height (m)" name="transport_height_m" type="number" step="0.01" />
                     <Field label="Gross weight (t)" name="transport_gross_weight_t" type="number" step="0.01" />
                   </div>
+                </div>
+
+                <div>
+                  <div style={subsectionTitle}>Axle and configuration</div>
+                  <div style={gridStyle}>
+                    <Field label="Axle configuration" name="axle_configuration" placeholder="Eg. 1 steer / 2 drive / 4 trailer" />
+                    <Field label="Front axle (t)" name="front_axle_t" type="number" step="0.01" />
+                    <Field label="Drive axle (t)" name="drive_axle_t" type="number" step="0.01" />
+                    <Field label="Trailer axle 1 (t)" name="trailer_axle_1_t" type="number" step="0.01" />
+                    <Field label="Trailer axle 2 (t)" name="trailer_axle_2_t" type="number" step="0.01" />
+                    <Field label="Trailer axle 3 (t)" name="trailer_axle_3_t" type="number" step="0.01" />
+                    <Field label="Trailer axle 4 (t)" name="trailer_axle_4_t" type="number" step="0.01" />
+                  </div>
                   <div style={{ marginTop: 12 }}>
                     <label style={labelStyle}>Axle weights / axle notes</label>
-                    <textarea name="axle_weight_notes" rows={3} style={textareaStyle} placeholder="Axle weights, trailer setup or weight spread notes" />
+                    <textarea name="axle_weight_notes" rows={3} style={textareaStyle} placeholder="Axle weights, weight spread or trailer setup notes" />
                   </div>
                 </div>
 
@@ -849,21 +919,54 @@ export default async function NewTransportJobPage({
                     <Field label="Collection contact phone" name="collection_contact_phone" />
                     <Field label="Delivery contact" name="delivery_contact_name" />
                     <Field label="Delivery contact phone" name="delivery_contact_phone" />
+                    <Field label="Route start" name="route_start" placeholder="Start point / depot / first pickup" />
+                    <Field label="Route finish" name="route_finish" placeholder="Final destination" />
                   </div>
 
                   <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
                     <div>
+                      <label style={labelStyle}>Planned route</label>
+                      <textarea name="planned_route" rows={3} style={textareaStyle} placeholder="Planned route description or ESDAL route detail" />
+                    </div>
+                    <div>
                       <label style={labelStyle}>Route notes</label>
-                      <textarea name="route_notes" rows={3} style={textareaStyle} placeholder="Planned route, movement windows, escorts, ferry / motorway notes" />
+                      <textarea name="route_notes" rows={3} style={textareaStyle} placeholder="Movement windows, ferry / motorway notes, diversions" />
                     </div>
                     <div>
                       <label style={labelStyle}>Restrictions / access notes</label>
-                      <textarea name="restriction_notes" rows={3} style={textareaStyle} placeholder="Width restrictions, delivery access, narrow roads, closures, permits" />
+                      <textarea name="restriction_notes" rows={3} style={textareaStyle} placeholder="Width restrictions, closures, delivery access, permits" />
                     </div>
+                    <div>
+                      <label style={labelStyle}>Bridge notes</label>
+                      <textarea name="bridge_notes" rows={2} style={textareaStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Access notes</label>
+                      <textarea name="access_notes" rows={2} style={textareaStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Authority areas</label>
+                      <textarea name="authority_areas" rows={2} style={textareaStyle} placeholder="Police / council / highways areas affected" />
+                    </div>
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="route_checked" value="true" />
+                      <span>Route checked</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={subsectionTitle}>Escort and move-day</div>
+                  <div style={gridStyle}>
                     <label style={checkboxRow}>
                       <input type="checkbox" name="escort_required" value="true" />
                       <span>Escort required</span>
                     </label>
+                    <Field label="Escort provider" name="escort_provider" />
+                    <Field label="Escort contact name" name="escort_contact_name" />
+                    <Field label="Escort contact phone" name="escort_contact_phone" />
+                  </div>
+                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
                     <div>
                       <label style={labelStyle}>Escort details</label>
                       <textarea name="escort_details" rows={2} style={textareaStyle} placeholder="Police escort, private escort, source and timing notes" />
@@ -877,15 +980,31 @@ export default async function NewTransportJobPage({
                       <textarea name="council_notes" rows={2} style={textareaStyle} />
                     </div>
                     <div>
-                      <label style={labelStyle}>Bridge notes</label>
-                      <textarea name="bridge_notes" rows={2} style={textareaStyle} />
+                      <label style={labelStyle}>Special instructions</label>
+                      <textarea name="special_instructions" rows={2} style={textareaStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Contingency notes</label>
+                      <textarea name="contingency_notes" rows={2} style={textareaStyle} />
                     </div>
                   </div>
                 </div>
 
                 <div>
-                  <div style={subsectionTitle}>Movement order tracker</div>
+                  <div style={subsectionTitle}>Submission and approval</div>
                   <div style={gridStyle}>
+                    <SelectField
+                      label="Submission method"
+                      name="submission_method"
+                      defaultValue="esdal"
+                      options={[
+                        { value: "esdal", label: "ESDAL" },
+                        { value: "portal", label: "Portal" },
+                        { value: "email", label: "Email" },
+                        { value: "phone", label: "Phone" },
+                        { value: "manual", label: "Manual" },
+                      ]}
+                    />
                     <SelectField
                       label="Submission status"
                       name="submission_status"
@@ -895,14 +1014,14 @@ export default async function NewTransportJobPage({
                         { value: "drafting", label: "Drafting" },
                         { value: "ready_to_submit", label: "Ready to submit" },
                         { value: "submitted", label: "Submitted" },
+                        { value: "awaiting_response", label: "Awaiting response" },
                         { value: "awaiting_approval", label: "Awaiting approval" },
                         { value: "approved", label: "Approved" },
+                        { value: "rejected", label: "Rejected" },
                         { value: "amendments_required", label: "Amendments required" },
                         { value: "completed", label: "Completed" },
                       ]}
                     />
-
-                    <Field label="Movement order reference" name="movement_order_reference" placeholder="Eg. ANNC/717/1#1" />
                     <Field label="Submitted by" name="submitted_by_name" placeholder="Dispatcher / planner name" />
                     <Field label="Submitted at" name="movement_order_submitted_at" type="datetime-local" />
                     <SelectField
@@ -911,17 +1030,47 @@ export default async function NewTransportJobPage({
                       defaultValue="not_started"
                       options={[
                         { value: "not_started", label: "Not started" },
+                        { value: "awaiting_response", label: "Awaiting response" },
                         { value: "awaiting_approval", label: "Awaiting approval" },
                         { value: "approved", label: "Approved" },
                         { value: "restricted", label: "Approved with restrictions" },
                         { value: "rejected", label: "Rejected" },
+                        { value: "queried", label: "Queried / more info needed" },
                         { value: "not_required", label: "Not required" },
                       ]}
                     />
+                    <Field label="Approval received at" name="approval_received_at" type="datetime-local" />
+                    <Field label="Approval reference" name="approval_reference" />
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="authorised_to_move" value="true" />
+                      <span>Authorised to move</span>
+                    </label>
                   </div>
-                  <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Approval / permit notes</label>
-                    <textarea name="approval_notes" rows={3} style={textareaStyle} placeholder="Approvals, restrictions, authority responses or permit conditions" />
+                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                    <div>
+                      <label style={labelStyle}>Submission notes</label>
+                      <textarea name="submission_notes" rows={3} style={textareaStyle} placeholder="ESDAL / authority submission notes" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Approval / permit notes</label>
+                      <textarea name="approval_notes" rows={3} style={textareaStyle} placeholder="Approvals, restrictions, authority responses or permit conditions" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Authorised move notes</label>
+                      <textarea name="authorised_move_notes" rows={2} style={textareaStyle} placeholder="Anything the crew needs to know once approved" />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div style={subsectionTitle}>Authority references</div>
+                  <div style={gridStyle}>
+                    <Field label="Police reference" name="police_reference" />
+                    <Field label="Highways reference" name="highways_reference" />
+                    <Field label="Bridge reference" name="bridge_reference" />
+                    <Field label="Council reference" name="council_reference" />
+                    <Field label="Special Order reference" name="special_order_reference" />
+                    <Field label="VR1 reference" name="vr1_reference" />
                   </div>
                 </div>
 
@@ -930,12 +1079,18 @@ export default async function NewTransportJobPage({
                   <div style={checklistGrid}>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_dimensions_confirmed" value="true" /><span>Dimensions confirmed</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_weight_confirmed" value="true" /><span>Weight confirmed</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_vehicle_confirmed" value="true" /><span>Vehicle confirmed</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_axle_data_confirmed" value="true" /><span>Axle data confirmed</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_route_checked" value="true" /><span>Route checked</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_trailer_checked" value="true" /><span>Trailer checked</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_escort_checked" value="true" /><span>Escort checked</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_site_access_checked" value="true" /><span>Site access checked</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_contacts_confirmed" value="true" /><span>Contacts confirmed</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_authorities_identified" value="true" /><span>Authorities identified</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_customer_approved" value="true" /><span>Customer approved</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_supplier_booked" value="true" /><span>Supplier booked</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_documents_uploaded" value="true" /><span>Documents uploaded</span></label>
+                    <label style={checkboxRow}><input type="checkbox" name="checklist_submission_reviewed" value="true" /><span>Submission reviewed</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_movement_order_submitted" value="true" /><span>Movement order submitted</span></label>
                     <label style={checkboxRow}><input type="checkbox" name="checklist_approval_received" value="true" /><span>Approval / permit received</span></label>
                   </div>
