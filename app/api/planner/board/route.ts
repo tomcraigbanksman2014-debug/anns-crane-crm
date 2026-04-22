@@ -172,18 +172,21 @@ function effectiveJobPrice(job: any) {
 function liftPlanStatusLabel(liftPlan: any) {
   if (!liftPlan) return "LP required";
 
-  const lockedAt = String(liftPlan?.locked_at ?? "").trim();
-  if (lockedAt) return "LP locked";
+  if (Boolean(liftPlan?.paperwork_locked)) return "LP locked";
 
   const hasAnyContent = [
     liftPlan?.method_statement,
     liftPlan?.risk_assessment,
-    liftPlan?.sequence_of_operations,
-    liftPlan?.communication_plan,
     liftPlan?.pack_sections,
+    liftPlan?.approved_by,
+    liftPlan?.approved_at,
+    liftPlan?.finalised_at,
+    liftPlan?.lift_plan_complete,
+    liftPlan?.rams_complete,
   ].some((value) => {
     if (value == null) return false;
     if (typeof value === "object") return Object.keys(value).length > 0;
+    if (typeof value === "boolean") return value;
     return String(value).trim().length > 0;
   });
 
@@ -436,7 +439,7 @@ export async function GET(req: Request) {
 
       supabase
         .from("lift_plans")
-        .select("job_id, locked_at, method_statement, risk_assessment, sequence_of_operations, communication_plan, pack_sections"),
+        .select("job_id, paperwork_locked, method_statement, risk_assessment, pack_sections, approved_by, approved_at, finalised_at, lift_plan_complete, rams_complete"),
     ]);
 
     if (jobsRes.error) {
