@@ -596,6 +596,8 @@ export default async function NewTransportJobPage({
 
           {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
 
+          <TransportJobFormEnhancer />
+
           <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
