@@ -352,6 +352,7 @@ export default function TransportJobFormEnhancer() {
     applyOnSiteLabels();
     maybeOpenSupplierSection();
     maybeOpenInvoiceSection();
+    syncAbnormalLoadVisibility();
     syncMovementChecklist();
 
     return () => {
@@ -363,6 +364,7 @@ export default function TransportJobFormEnhancer() {
 
       customerSelect?.removeEventListener("change", toggleOtherCustomer);
       supplierSelect?.removeEventListener("change", toggleOtherSupplier);
+      abnormalLoadCheckbox?.removeEventListener("change", syncAbnormalLoadVisibility);
 
       collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
       collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
