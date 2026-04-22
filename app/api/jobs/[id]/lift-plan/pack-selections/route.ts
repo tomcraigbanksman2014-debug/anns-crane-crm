@@ -1,34 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 
-type PackSectionsPayload = {
-  cover_project?: string | null;
-  lift_classification?: string | null;
-  boom_configuration?: string | null;
-  boom_length?: string | null;
-  introduction?: string | null;
-  client_responsibilities?: string | null;
-  contract_lift_arrival?: string | null;
-  scope_of_works?: string | null;
-  communication?: string | null;
-  weather_conditions?: string | null;
-  site_access_egress?: string | null;
-  ground_conditions?: string | null;
-  overhead_obstructions?: string | null;
-  traffic_pedestrian_management?: string | null;
-  lifting_equipment_certification?: string | null;
-  crane_details?: string | null;
-  crane_setup_procedure?: string | null;
-  lifting_procedure?: string | null;
-  de_rig_procedure?: string | null;
-  emergency_procedure?: string | null;
-  risk_assessment_summary?: string | null;
-  emergency_contacts?: string | null;
-  equipment_list?: string | null;
-  toolbox_notes?: string | null;
-};
-
-const fieldNames: Array<keyof PackSectionsPayload> = [
+const fieldNames = [
   "cover_project",
   "lift_classification",
   "boom_configuration",
@@ -53,7 +26,27 @@ const fieldNames: Array<keyof PackSectionsPayload> = [
   "emergency_contacts",
   "equipment_list",
   "toolbox_notes",
-];
+  "site_inspection",
+  "roles_responsibilities",
+  "appointed_person_name",
+  "prepared_by_name",
+  "approved_by_name",
+  "approved_at_text",
+  "lift_supervisor_name",
+  "crane_operator_name",
+  "client_site_contact_name",
+  "sling_type_text",
+  "lifting_accessories_text",
+  "configuration_outrigger_note",
+  "load_chart_note",
+  "outrigger_setup_note",
+  "site_hazards",
+  "control_measures",
+  "ppe_required",
+  "wind_speed_lift_supervisor",
+] as const;
+
+type PackSectionsPayload = Partial<Record<(typeof fieldNames)[number], string | null>>;
 
 function normaliseText(value: unknown) {
   if (value === null || value === undefined) return null;
@@ -61,7 +54,7 @@ function normaliseText(value: unknown) {
   return text.length ? text : null;
 }
 
-function sanitiseSections(input: Partial<Record<keyof PackSectionsPayload, unknown>>) {
+function sanitiseSections(input: Record<string, unknown>) {
   const next: Record<string, string | null> = {};
   fieldNames.forEach((field) => {
     next[field] = normaliseText(input[field]);
@@ -122,11 +115,11 @@ export async function POST(
     let sections: PackSectionsPayload;
 
     if (wantsJson) {
-      const body = (await request.json()) as PackSectionsPayload;
+      const body = (await request.json()) as Record<string, unknown>;
       sections = sanitiseSections(body);
     } else {
       const formData = await request.formData();
-      const formValues: Partial<Record<keyof PackSectionsPayload, unknown>> = {};
+      const formValues: Record<string, unknown> = {};
       fieldNames.forEach((field) => {
         formValues[field] = formData.get(field);
       });
