@@ -3,6 +3,7 @@ import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
 import LiftPlanForm from "../LiftPlanForm";
+import DocumentUploadForm from "../DocumentUploadForm";
 
 function line(label: string, value: string | null | undefined) {
   return { label, value: String(value ?? "—").trim() || "—" };
@@ -21,16 +22,56 @@ function flatten<T>(value: T | T[] | null | undefined): T[] {
 function allocationLabel(row: any) {
   const crane = one(row?.cranes) as any;
   const operator = one(row?.operators) as any;
-  const base = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || row?.item_name || "Allocated crane";
+  const base =
+    [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") ||
+    row?.item_name ||
+    "Allocated crane";
   const dateText = [row?.start_date, row?.end_date].filter(Boolean).join(" to ");
   const operatorText = operator?.full_name ? `Operator: ${operator.full_name}` : "";
   return [base, dateText, operatorText].filter(Boolean).join(" • ");
 }
 
+function documentTypeLabel(value: string | null | undefined) {
+  switch (String(value ?? "").trim().toLowerCase()) {
+    case "site_drawing":
+      return "Site drawing";
+    case "photo":
+      return "Photo / diagram";
+    case "lift_plan":
+      return "Lift plan";
+    case "rams":
+      return "RAMS";
+    case "delivery_note":
+      return "Delivery note";
+    default:
+      return "Other";
+  }
+}
+
+function isAppendixImageDoc(doc: any) {
+  const fileType = String(doc?.file_type ?? "").trim().toLowerCase();
+  const fileName = String(doc?.file_name ?? "").trim().toLowerCase();
+  return (
+    fileType.startsWith("image/") ||
+    fileName.endsWith(".png") ||
+    fileName.endsWith(".jpg") ||
+    fileName.endsWith(".jpeg") ||
+    fileName.endsWith(".webp") ||
+    fileName.endsWith(".gif")
+  );
+}
+
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString("en-GB");
+}
+
 export default async function JobLiftPlanPage({ params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }] =
+  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }, { data: documents, error: documentsError }] =
     await Promise.all([
       supabase
         .from("jobs")
@@ -99,6 +140,11 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
         .eq("id", params.id)
         .maybeSingle(),
       supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
+      supabase
+        .from("job_documents")
+        .select("id, file_name, file_type, document_type, created_at, share_with_operator")
+        .eq("job_id", params.id)
+        .order("created_at", { ascending: false }),
     ]);
 
   const client = one((job as any)?.clients) as
@@ -112,10 +158,13 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
   };
 
   const primary = getPrimaryCraneContext(selectedJob);
-  const crane = primary?.crane ?? (one((job as any)?.cranes) as
-    | { id?: string | null; name?: string | null; make?: string | null; model?: string | null; capacity?: string | null }
-    | null);
-  const operator = primary?.operator ??
+  const crane =
+    primary?.crane ??
+    (one((job as any)?.cranes) as
+      | { id?: string | null; name?: string | null; make?: string | null; model?: string | null; capacity?: string | null }
+      | null);
+  const operator =
+    primary?.operator ??
     (one((job as any)?.main_operator) as { full_name?: string | null } | null) ??
     (one((job as any)?.operators) as { full_name?: string | null } | null);
 
@@ -124,7 +173,7 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
     job_equipment: (job as any)?.job_equipment ?? [],
   });
-  const errorMessage = jobError?.message || liftPlanError?.message || "";
+  const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || "";
 
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
   const craneOptions = flatten((job as any)?.job_equipment)
@@ -145,6 +194,9 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
     craneOptions.push({ value: `fallback:${crane.id}`, craneId: String(crane.id), label: craneLabel });
   }
 
+  const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
+  const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
+
   return (
     <ClientShell>
       <div style={{ width: "min(1180px, 95vw)", margin: "0 auto", display: "grid", gap: 16 }}>
@@ -163,10 +215,7 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
               Printable version
             </a>
             <a href={`/jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>
-              Full lift plan pack
-            </a>
-            <a href={`/jobs/${params.id}/lift-plan/pack/edit`} style={secondaryBtn}>
-              Edit pack sections
+              Full lift plan pack / edit
             </a>
           </div>
         </div>
@@ -208,6 +257,55 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
           ) : null}
         </div>
 
+        <div style={uploadCard}>
+          <div style={summaryTitle}>Lift plan appendix uploads</div>
+          <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
+            Upload crane position sketches, diagrams, marked-up site drawings, and photos here. Image uploads are appended into the full lift plan pack as extra pages.
+          </div>
+
+          <DocumentUploadForm jobId={params.id} />
+
+          <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+            {appendixDocs.length ? (
+              <>
+                <div style={listTitle}>Appendix image pages that will be added to the full pack</div>
+                <div style={docGrid}>
+                  {appendixDocs.map((doc: any) => (
+                    <div key={doc.id} style={docCard}>
+                      <div style={{ fontWeight: 900 }}>{doc.file_name ?? "Untitled file"}</div>
+                      <div style={docMeta}>
+                        {documentTypeLabel(doc.document_type)} • Uploaded {fmtDateTime(doc.created_at)}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                        <span style={appendixPill}>Pack appendix page</span>
+                        {doc.share_with_operator ? <span style={neutralPill}>Shared with operator</span> : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div style={emptyBox}>No appendix image uploads yet.</div>
+            )}
+
+            {otherDocs.length ? (
+              <>
+                <div style={listTitle}>Other uploaded job documents</div>
+                <div style={docGrid}>
+                  {otherDocs.map((doc: any) => (
+                    <div key={doc.id} style={docCard}>
+                      <div style={{ fontWeight: 900 }}>{doc.file_name ?? "Untitled file"}</div>
+                      <div style={docMeta}>
+                        {documentTypeLabel(doc.document_type)} • Uploaded {fmtDateTime(doc.created_at)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+
         <LiftPlanForm
           jobId={params.id}
           initial={(liftPlan as any) ?? null}
@@ -228,6 +326,14 @@ const topRow: CSSProperties = {
 };
 
 const summaryCard: CSSProperties = {
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const uploadCard: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -272,6 +378,58 @@ const notesBox: CSSProperties = {
   borderRadius: 12,
   padding: 12,
   whiteSpace: "pre-wrap",
+};
+
+const docGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+  gap: 12,
+};
+
+const docCard: CSSProperties = {
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+};
+
+const docMeta: CSSProperties = {
+  marginTop: 6,
+  fontSize: 13,
+  opacity: 0.78,
+};
+
+const listTitle: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 900,
+};
+
+const appendixPill: CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "rgba(0,120,255,0.12)",
+  color: "#0b57d0",
+  fontSize: 12,
+  fontWeight: 800,
+};
+
+const neutralPill: CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  background: "rgba(0,0,0,0.06)",
+  color: "#111",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const emptyBox: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
 };
 
 const errorBox: CSSProperties = {
