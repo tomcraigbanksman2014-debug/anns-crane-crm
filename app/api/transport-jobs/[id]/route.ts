@@ -374,6 +374,179 @@ export async function PATCH(
         body.submitted_by_name !== undefined
           ? clean(body.submitted_by_name)
           : existing.submitted_by_name,
+
+      movement_reference:
+        body.movement_reference !== undefined
+          ? clean(body.movement_reference)
+          : existing.movement_reference,
+      tractor_unit_registration:
+        body.tractor_unit_registration !== undefined
+          ? clean(body.tractor_unit_registration)
+          : existing.tractor_unit_registration,
+      tractor_unit_fleet_id:
+        body.tractor_unit_fleet_id !== undefined
+          ? clean(body.tractor_unit_fleet_id)
+          : existing.tractor_unit_fleet_id,
+      trailer_registration:
+        body.trailer_registration !== undefined
+          ? clean(body.trailer_registration)
+          : existing.trailer_registration,
+      trailer_fleet_id:
+        body.trailer_fleet_id !== undefined
+          ? clean(body.trailer_fleet_id)
+          : existing.trailer_fleet_id,
+      haulier_contact_name:
+        body.haulier_contact_name !== undefined
+          ? clean(body.haulier_contact_name)
+          : existing.haulier_contact_name,
+      haulier_contact_phone:
+        body.haulier_contact_phone !== undefined
+          ? clean(body.haulier_contact_phone)
+          : existing.haulier_contact_phone,
+      axle_configuration:
+        body.axle_configuration !== undefined
+          ? clean(body.axle_configuration)
+          : existing.axle_configuration,
+      front_axle_t:
+        body.front_axle_t !== undefined
+          ? numberOrNull(body.front_axle_t)
+          : existing.front_axle_t,
+      drive_axle_t:
+        body.drive_axle_t !== undefined
+          ? numberOrNull(body.drive_axle_t)
+          : existing.drive_axle_t,
+      trailer_axle_1_t:
+        body.trailer_axle_1_t !== undefined
+          ? numberOrNull(body.trailer_axle_1_t)
+          : existing.trailer_axle_1_t,
+      trailer_axle_2_t:
+        body.trailer_axle_2_t !== undefined
+          ? numberOrNull(body.trailer_axle_2_t)
+          : existing.trailer_axle_2_t,
+      trailer_axle_3_t:
+        body.trailer_axle_3_t !== undefined
+          ? numberOrNull(body.trailer_axle_3_t)
+          : existing.trailer_axle_3_t,
+      trailer_axle_4_t:
+        body.trailer_axle_4_t !== undefined
+          ? numberOrNull(body.trailer_axle_4_t)
+          : existing.trailer_axle_4_t,
+      route_start:
+        body.route_start !== undefined
+          ? clean(body.route_start)
+          : existing.route_start,
+      route_finish:
+        body.route_finish !== undefined
+          ? clean(body.route_finish)
+          : existing.route_finish,
+      planned_route:
+        body.planned_route !== undefined
+          ? clean(body.planned_route)
+          : existing.planned_route,
+      access_notes:
+        body.access_notes !== undefined
+          ? clean(body.access_notes)
+          : existing.access_notes,
+      authority_areas:
+        body.authority_areas !== undefined
+          ? clean(body.authority_areas)
+          : existing.authority_areas,
+      route_checked:
+        body.route_checked !== undefined
+          ? checkboxValue(body.route_checked)
+          : existing.route_checked,
+      escort_provider:
+        body.escort_provider !== undefined
+          ? clean(body.escort_provider)
+          : existing.escort_provider,
+      escort_contact_name:
+        body.escort_contact_name !== undefined
+          ? clean(body.escort_contact_name)
+          : existing.escort_contact_name,
+      escort_contact_phone:
+        body.escort_contact_phone !== undefined
+          ? clean(body.escort_contact_phone)
+          : existing.escort_contact_phone,
+      special_instructions:
+        body.special_instructions !== undefined
+          ? clean(body.special_instructions)
+          : existing.special_instructions,
+      contingency_notes:
+        body.contingency_notes !== undefined
+          ? clean(body.contingency_notes)
+          : existing.contingency_notes,
+      submission_method:
+        body.submission_method !== undefined
+          ? clean(body.submission_method)
+          : existing.submission_method,
+      submission_notes:
+        body.submission_notes !== undefined
+          ? clean(body.submission_notes)
+          : existing.submission_notes,
+      approval_reference:
+        body.approval_reference !== undefined
+          ? clean(body.approval_reference)
+          : existing.approval_reference,
+      approval_received_at:
+        body.approval_received_at !== undefined
+          ? dateTimeOrNull(body.approval_received_at)
+          : existing.approval_received_at,
+      authorised_to_move:
+        body.authorised_to_move !== undefined
+          ? checkboxValue(body.authorised_to_move)
+          : existing.authorised_to_move,
+      authorised_move_notes:
+        body.authorised_move_notes !== undefined
+          ? clean(body.authorised_move_notes)
+          : existing.authorised_move_notes,
+      police_reference:
+        body.police_reference !== undefined
+          ? clean(body.police_reference)
+          : existing.police_reference,
+      highways_reference:
+        body.highways_reference !== undefined
+          ? clean(body.highways_reference)
+          : existing.highways_reference,
+      bridge_reference:
+        body.bridge_reference !== undefined
+          ? clean(body.bridge_reference)
+          : existing.bridge_reference,
+      council_reference:
+        body.council_reference !== undefined
+          ? clean(body.council_reference)
+          : existing.council_reference,
+      special_order_reference:
+        body.special_order_reference !== undefined
+          ? clean(body.special_order_reference)
+          : existing.special_order_reference,
+      vr1_reference:
+        body.vr1_reference !== undefined
+          ? clean(body.vr1_reference)
+          : existing.vr1_reference,
+      checklist_vehicle_confirmed:
+        body.checklist_vehicle_confirmed !== undefined
+          ? checkboxValue(body.checklist_vehicle_confirmed)
+          : existing.checklist_vehicle_confirmed,
+      checklist_axle_data_confirmed:
+        body.checklist_axle_data_confirmed !== undefined
+          ? checkboxValue(body.checklist_axle_data_confirmed)
+          : existing.checklist_axle_data_confirmed,
+      checklist_contacts_confirmed:
+        body.checklist_contacts_confirmed !== undefined
+          ? checkboxValue(body.checklist_contacts_confirmed)
+          : existing.checklist_contacts_confirmed,
+      checklist_authorities_identified:
+        body.checklist_authorities_identified !== undefined
+          ? checkboxValue(body.checklist_authorities_identified)
+          : existing.checklist_authorities_identified,
+      checklist_documents_uploaded:
+        body.checklist_documents_uploaded !== undefined
+          ? checkboxValue(body.checklist_documents_uploaded)
+          : existing.checklist_documents_uploaded,
+      checklist_submission_reviewed:
+        body.checklist_submission_reviewed !== undefined
+          ? checkboxValue(body.checklist_submission_reviewed)
+          : existing.checklist_submission_reviewed,
       checklist_dimensions_confirmed:
         body.checklist_dimensions_confirmed !== undefined
           ? checkboxValue(body.checklist_dimensions_confirmed)
@@ -463,6 +636,50 @@ export async function PATCH(
       nextPayload.approval_status = "not_started";
       nextPayload.approval_notes = null;
       nextPayload.submitted_by_name = null;
+
+      nextPayload.movement_reference = null;
+      nextPayload.tractor_unit_registration = null;
+      nextPayload.tractor_unit_fleet_id = null;
+      nextPayload.trailer_registration = null;
+      nextPayload.trailer_fleet_id = null;
+      nextPayload.haulier_contact_name = null;
+      nextPayload.haulier_contact_phone = null;
+      nextPayload.axle_configuration = null;
+      nextPayload.front_axle_t = null;
+      nextPayload.drive_axle_t = null;
+      nextPayload.trailer_axle_1_t = null;
+      nextPayload.trailer_axle_2_t = null;
+      nextPayload.trailer_axle_3_t = null;
+      nextPayload.trailer_axle_4_t = null;
+      nextPayload.route_start = null;
+      nextPayload.route_finish = null;
+      nextPayload.planned_route = null;
+      nextPayload.access_notes = null;
+      nextPayload.authority_areas = null;
+      nextPayload.route_checked = false;
+      nextPayload.escort_provider = null;
+      nextPayload.escort_contact_name = null;
+      nextPayload.escort_contact_phone = null;
+      nextPayload.special_instructions = null;
+      nextPayload.contingency_notes = null;
+      nextPayload.submission_method = null;
+      nextPayload.submission_notes = null;
+      nextPayload.approval_reference = null;
+      nextPayload.approval_received_at = null;
+      nextPayload.authorised_to_move = false;
+      nextPayload.authorised_move_notes = null;
+      nextPayload.police_reference = null;
+      nextPayload.highways_reference = null;
+      nextPayload.bridge_reference = null;
+      nextPayload.council_reference = null;
+      nextPayload.special_order_reference = null;
+      nextPayload.vr1_reference = null;
+      nextPayload.checklist_vehicle_confirmed = false;
+      nextPayload.checklist_axle_data_confirmed = false;
+      nextPayload.checklist_contacts_confirmed = false;
+      nextPayload.checklist_authorities_identified = false;
+      nextPayload.checklist_documents_uploaded = false;
+      nextPayload.checklist_submission_reviewed = false;
       nextPayload.checklist_dimensions_confirmed = false;
       nextPayload.checklist_weight_confirmed = false;
       nextPayload.checklist_route_checked = false;
