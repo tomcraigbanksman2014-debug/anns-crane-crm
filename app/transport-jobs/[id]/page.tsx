@@ -468,6 +468,8 @@ async function updateTransportJob(formData: FormData) {
     delivery_contact_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_name")) || null : null,
     delivery_contact_phone: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_phone")) || null : null,
     preferred_move_window: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("preferred_move_window")) || null : null,
+    movement_start_time: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("movement_start_time")) || null : null,
+    movement_finish_time: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("movement_finish_time")) || null : null,
     trailer_type: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("trailer_type")) || null : null,
     tractor_unit_type: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("tractor_unit_type")) || null : null,
     escort_required: checkboxValue(formData.get("abnormal_load_enabled")) ? checkboxValue(formData.get("escort_required")) : false,
@@ -1253,7 +1255,11 @@ export default async function TransportJobDetailPage({
                     <span>This transport job needs abnormal load / movement order control</span>
                   </label>
 
-                  <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                  <div
+                    id="abnormal_load_fields_wrap"
+                    style={{ display: Boolean((item as any)?.abnormal_load_enabled) ? "block" : "none", marginTop: 12 }}
+                  >
+                    <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
                     <div>
                       <div style={subsectionTitle}>Movement setup</div>
                       <div style={gridStyle}>
@@ -1269,6 +1275,8 @@ export default async function TransportJobDetailPage({
                           ]}
                         />
                         <Field label="Preferred move window" name="preferred_move_window" defaultValue={(item as any)?.preferred_move_window ?? ""} />
+                        <Field label="Movement start time" name="movement_start_time" type="time" defaultValue={(item as any)?.movement_start_time ?? ""} />
+                        <Field label="Movement finish time" name="movement_finish_time" type="time" defaultValue={(item as any)?.movement_finish_time ?? ""} />
                         <Field label="Movement reference" name="movement_reference" defaultValue={(item as any)?.movement_reference ?? ""} />
                         <Field label="Movement order reference" name="movement_order_reference" defaultValue={(item as any)?.movement_order_reference ?? ""} />
                       </div>
@@ -1332,8 +1340,8 @@ export default async function TransportJobDetailPage({
                         <Field label="Collection contact phone" name="collection_contact_phone" defaultValue={(item as any)?.collection_contact_phone ?? ""} />
                         <Field label="Delivery contact" name="delivery_contact_name" defaultValue={(item as any)?.delivery_contact_name ?? ""} />
                         <Field label="Delivery contact phone" name="delivery_contact_phone" defaultValue={(item as any)?.delivery_contact_phone ?? ""} />
-                        <Field label="Route start" name="route_start" defaultValue={(item as any)?.route_start ?? ""} />
-                        <Field label="Route finish" name="route_finish" defaultValue={(item as any)?.route_finish ?? ""} />
+                        <Field label="Route start location" name="route_start" defaultValue={(item as any)?.route_start ?? ""} />
+                        <Field label="Route finish location" name="route_finish" defaultValue={(item as any)?.route_finish ?? ""} />
                       </div>
 
                       <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
@@ -1949,13 +1957,6 @@ const sectionTitle: React.CSSProperties = {
   fontWeight: 900,
 };
 
-const helperText: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 13,
-  lineHeight: 1.5,
-  color: "#5b6470",
-};
-
 const summaryRow: React.CSSProperties = {
   display: "grid",
   gap: 4,
@@ -2079,6 +2080,13 @@ const subsectionTitle: React.CSSProperties = {
   fontSize: 15,
   fontWeight: 900,
   marginBottom: 10,
+};
+
+const helperText: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: "rgba(15,23,42,0.74)",
+  marginTop: 6,
 };
 
 const checkboxRow: React.CSSProperties = {
