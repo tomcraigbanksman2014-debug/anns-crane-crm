@@ -281,6 +281,14 @@ export async function GET(req: Request) {
     const weekStart = isoDate(weekStartDate);
     const weekEnd = isoDate(weekEndDate);
 
+    const bankHolidaySeed =
+      weekEndDate.getFullYear() === weekStartDate.getFullYear()
+        ? getEnglandWalesBankHolidays(weekStartDate.getFullYear())
+        : [
+            ...getEnglandWalesBankHolidays(weekStartDate.getFullYear()),
+            ...getEnglandWalesBankHolidays(weekEndDate.getFullYear()),
+          ];
+
     const [
       jobsRes,
       equipmentAllocationsRes,
@@ -424,7 +432,7 @@ export async function GET(req: Request) {
         .eq("active", true)
         .order("name", { ascending: true }),
 
-      getEnglandWalesBankHolidays(),
+      bankHolidaySeed,
 
       supabase
         .from("lift_plans")
