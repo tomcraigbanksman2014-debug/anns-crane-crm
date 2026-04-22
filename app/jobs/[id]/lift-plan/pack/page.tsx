@@ -174,7 +174,6 @@ export default async function LiftPlanPackPage({
         hire_type,
         lift_type,
         notes,
-        load_weight,
         clients:client_id (
           company_name,
           contact_name,
@@ -348,7 +347,7 @@ export default async function LiftPlanPackPage({
   const craneDetails = buildSectionValue(
     packSections,
     "crane_details",
-    `Selected crane: ${equipmentLabel(selectedEquipmentRow ?? { cranes: [crane] })}. Crane utilisation for the planned lift is ${utilisationPercent((job as any)?.load_weight, crane?.capacity)} based on the stored load weight and crane capacity.`
+    `Selected crane: ${equipmentLabel(selectedEquipmentRow ?? { cranes: [crane] })}. Crane utilisation for the planned lift is ${utilisationPercent((liftPlan as any)?.load_weight, crane?.capacity)} based on the stored load weight and crane capacity.`
   );
   const craneSetupProcedure = buildSectionValue(
     packSections,
@@ -547,7 +546,7 @@ export default async function LiftPlanPackPage({
                 <InfoCard title="Crane reg" value={crane?.reg_number || "—"} />
                 <InfoCard title="Boom configuration" value={boomConfiguration} />
                 <InfoCard title="Boom length" value={boomLength} />
-                <InfoCard title="Utilisation" value={utilisationPercent((job as any)?.load_weight, crane?.capacity)} />
+                <InfoCard title="Utilisation" value={utilisationPercent((liftPlan as any)?.load_weight, crane?.capacity)} />
               </div>
             </SectionBlock>
           </section>
