@@ -751,6 +751,108 @@ export default async function CraneLiftPlanPackPage({
   const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
   const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
 
+  const siteInspectionText = defaultSectionText(
+    sections,
+    "site_inspection",
+    `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`
+  );
+  const rolesResponsibilitiesText = defaultSectionText(
+    sections,
+    "roles_responsibilities",
+    `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`
+  );
+  const appointedPersonText = defaultSectionText(
+    sections,
+    "appointed_person_name",
+    appointedPerson
+  );
+  const preparedByText = defaultSectionText(
+    sections,
+    "prepared_by_name",
+    "ANNS CRANE HIRE LTD"
+  );
+  const approvedByText = defaultSectionText(
+    sections,
+    "approved_by_name",
+    liftPlan?.approved_by || ""
+  );
+  const approvedAtText = defaultSectionText(
+    sections,
+    "approved_at_text",
+    fmtDateTime(liftPlan?.approved_at)
+  );
+  const liftSupervisorText = defaultSectionText(
+    sections,
+    "lift_supervisor_name",
+    liftSupervisor
+  );
+  const craneOperatorText = defaultSectionText(
+    sections,
+    "crane_operator_name",
+    liftPlan?.crane_operator || operator?.full_name || ""
+  );
+  const siteContactText = defaultSectionText(
+    sections,
+    "client_site_contact_name",
+    (job as any)?.contact_name || ""
+  );
+  const slingTypeText = defaultSectionText(
+    sections,
+    "sling_type_text",
+    liftPlan?.sling_type || ""
+  );
+  const liftingAccessoriesText = defaultSectionText(
+    sections,
+    "lifting_accessories_text",
+    liftPlan?.lifting_accessories || ""
+  );
+  const configurationOutriggerNoteText = defaultSectionText(
+    sections,
+    "configuration_outrigger_note",
+    `${equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
+
+${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}`
+  );
+  const loadChartNoteText = defaultSectionText(
+    sections,
+    "load_chart_note",
+    "Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds."
+  );
+  const outriggerSetupNoteText = defaultSectionText(
+    sections,
+    "outrigger_setup_note",
+    sentenceCase(
+      liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
+      `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
+    )
+  );
+  const siteHazardsText = defaultSectionText(
+    sections,
+    "site_hazards",
+    hazardLines.length
+      ? hazardLines.join("\n")
+      : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."
+  );
+  const controlMeasuresText = defaultSectionText(
+    sections,
+    "control_measures",
+    controlLines.length
+      ? controlLines.join("\n")
+      : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
+  );
+  const ppeRequiredText = defaultSectionText(
+    sections,
+    "ppe_required",
+    ppeLines.length
+      ? ppeLines.join("\n")
+      : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
+  );
+  const windSpeedLiftSupervisorText = defaultSectionText(
+    sections,
+    "wind_speed_lift_supervisor",
+    liftSupervisorText
+  );
+
   const saveOk = String(searchParams?.saved ?? "") === "1";
   const saveError = String(searchParams?.error ?? "").trim();
 
@@ -816,9 +918,9 @@ export default async function CraneLiftPlanPackPage({
               ),
             ],
             ["Site Address", coverAddress(job)],
-            ["Site Contact", (job as any)?.contact_name],
-            ["Appointed Person", appointedPerson],
-            ["Prepared by", "ANNS CRANE HIRE LTD"],
+            ["Site Contact", <EditableInput name="client_site_contact_name" defaultValue={siteContactText} />],
+            ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
+            ["Prepared by", <EditableInput name="prepared_by_name" defaultValue={preparedByText} />],
             [
               "Lift Classification",
               <EditableInput name="lift_classification" defaultValue={liftClassificationText} />,
@@ -875,15 +977,9 @@ export default async function CraneLiftPlanPackPage({
 
         <TwoColumnBoxes
           leftTitle="Site Inspection"
-          leftBody={sentenceCase(
-            null,
-            `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`
-          )}
+          leftBody={<EditableTextarea name="site_inspection" defaultValue={siteInspectionText} rows={6} />}
           rightTitle="Roles and Responsibilities"
-          rightBody={sentenceCase(
-            null,
-            `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`
-          )}
+          rightBody={<EditableTextarea name="roles_responsibilities" defaultValue={rolesResponsibilitiesText} rows={6} />}
         />
 
         <BoxedParagraph title="Job Planning Snapshot" compact>
@@ -900,11 +996,11 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>2. Appointed Person Declaration</SectionTitle>
         <InfoTable
           rows={[
-            ["Name", appointedPerson],
+            ["Name", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
             ["Prepared for job", `#${(job as any)?.job_number ?? "—"}`],
-            ["Prepared by", "ANNS CRANE HIRE LTD"],
-            ["Approved by", liftPlan?.approved_by],
-            ["Approved at", fmtDateTime(liftPlan?.approved_at)],
+            ["Prepared by", <EditableInput name="prepared_by_name" defaultValue={preparedByText} />],
+            ["Approved by", <EditableInput name="approved_by_name" defaultValue={approvedByText} />],
+            ["Approved at", <EditableInput name="approved_at_text" defaultValue={approvedAtText} />],
           ]}
         />
 
@@ -928,10 +1024,10 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>6. Lifting Personnel</SectionTitle>
         <InfoTable
           rows={[
-            ["Appointed Person", appointedPerson],
-            ["Lift Supervisor", liftSupervisor],
-            ["Crane Operator", liftPlan?.crane_operator || operator?.full_name],
-            ["Client / Site Contact", (job as any)?.contact_name],
+            ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
+            ["Lift Supervisor", <EditableInput name="lift_supervisor_name" defaultValue={liftSupervisorText} />],
+            ["Crane Operator", <EditableInput name="crane_operator_name" defaultValue={craneOperatorText} />],
+            ["Client / Site Contact", <EditableInput name="client_site_contact_name" defaultValue={siteContactText} />],
           ]}
         />
 
@@ -964,8 +1060,8 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>13. Lifting Equipment to be used & Certification</SectionTitle>
         <InfoTable
           rows={[
-            ["Sling type", liftPlan?.sling_type],
-            ["Lifting accessories", liftPlan?.lifting_accessories],
+            ["Sling type", <EditableInput name="sling_type_text" defaultValue={slingTypeText} />],
+            ["Lifting accessories", <EditableInput name="lifting_accessories_text" defaultValue={liftingAccessoriesText} />],
             [
               "LOLER / certification",
               <EditableTextarea name="lifting_equipment_certification" defaultValue={liftingEquipmentText} rows={4} compact />,
@@ -1049,10 +1145,7 @@ export default async function CraneLiftPlanPackPage({
           {<EditableTextarea name="crane_setup_procedure" defaultValue={craneSetupText} rows={7} />}
         </BoxedParagraph>
         <BoxedParagraph compact>
-          {sentenceCase(
-            liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
-            `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
-          )}
+          <EditableTextarea name="outrigger_setup_note" defaultValue={outriggerSetupNoteText} rows={4} compact />
         </BoxedParagraph>
       </PageShell>
 
@@ -1110,9 +1203,9 @@ export default async function CraneLiftPlanPackPage({
           rows={[
             ["Lift plan complete", yesNo(liftPlan?.lift_plan_complete)],
             ["RAMS complete", yesNo(liftPlan?.rams_complete)],
-            ["Approved by", liftPlan?.approved_by],
-            ["Approved at", fmtDateTime(liftPlan?.approved_at)],
-            ["Approval notes", liftPlan?.approval_notes],
+            ["Approved by", <EditableInput name="approved_by_name" defaultValue={approvedByText} />],
+            ["Approved at", <EditableInput name="approved_at_text" defaultValue={approvedAtText} />],
+            ["Approval notes", <EditableTextarea name="approval_notes_text" defaultValue={defaultSectionText(sections, "approval_notes_text", liftPlan?.approval_notes || "")} rows={4} compact />],
           ]}
         />
 
@@ -1125,18 +1218,18 @@ export default async function CraneLiftPlanPackPage({
           <div style={subHeading}>Delegation of Duties</div>
           <InfoTable
             rows={[
-              ["Appointed Person", appointedPerson],
-              ["Lift Supervisor", liftSupervisor],
-              ["Crane Operator", liftPlan?.crane_operator || operator?.full_name],
+              ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
+              ["Lift Supervisor", <EditableInput name="lift_supervisor_name" defaultValue={liftSupervisorText} />],
+              ["Crane Operator", <EditableInput name="crane_operator_name" defaultValue={craneOperatorText} />],
             ]}
           />
         </div>
 
         <div style={signatureGrid}>
-          <SignatureRow title="Appointed Person signature" name={appointedPerson} />
-          <SignatureRow title="Lift Supervisor signature" name={liftSupervisor} />
-          <SignatureRow title="Crane Operator signature" name={liftPlan?.crane_operator || operator?.full_name} />
-          <SignatureRow title="Client completion sign-off" name={(job as any)?.contact_name} />
+          <SignatureRow title="Appointed Person signature" name={appointedPersonText} />
+          <SignatureRow title="Lift Supervisor signature" name={liftSupervisorText} />
+          <SignatureRow title="Crane Operator signature" name={craneOperatorText} />
+          <SignatureRow title="Client completion sign-off" name={siteContactText} />
         </div>
 
         <BoxedParagraph title="Toolbox / sign-off notes">
@@ -1157,7 +1250,7 @@ export default async function CraneLiftPlanPackPage({
         <InfoTable
           rows={[
             ["Project", <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            ["Lift Supervisor", liftSupervisor],
+            ["Lift Supervisor", <EditableInput name="wind_speed_lift_supervisor" defaultValue={windSpeedLiftSupervisorText} />],
             ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
           ]}
         />
