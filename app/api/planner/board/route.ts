@@ -187,6 +187,22 @@ function liftPlanStatusLabel(liftPlan: any) {
   return hasAnyContent ? "LP draft" : "LP required";
 }
 
+function shouldShowLiftPlanStatus(job: any) {
+  const hireType = String(job?.hire_type ?? "").trim().toLowerCase();
+  const liftType = String(job?.lift_type ?? "").trim().toLowerCase();
+
+  if (hireType === "contract lift" || hireType === "contract_lift") return true;
+  if (hireType === "cpa") return false;
+
+  if (liftType.includes("contract lift")) return true;
+  if (liftType.includes("cpa")) return false;
+
+  return false;
+}
+
+function plannerLiftPlanStatus(job: any, liftPlan: any) {
+  return shouldShowLiftPlanStatus(job) ? liftPlanStatusLabel(liftPlan) : null;
+}
 function isPlannerVisibleStatus(status: string | null | undefined) {
   const s = String(status ?? "").trim().toLowerCase();
   if (!s) return true;
