@@ -90,7 +90,7 @@ export default function PackSectionsForm({
       const payload: Record<string, string> = {};
       for (const field of fields) payload[field.key] = values[field.key] ?? "";
 
-      const response = await fetch(`/api/jobs/${jobId}/lift-plan/pack-sections`, {
+      const response = await fetch(`/api/jobs/${jobId}/lift-plan/pack-selections`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -109,7 +109,7 @@ export default function PackSectionsForm({
     <div style={card}>
       <div style={topRow}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 28 }}>Section-specific editable fields</h2>
+          <h2 style={{ margin: 0, fontSize: 28 }}>Pack edit fields</h2>
           <div style={{ marginTop: 6, opacity: 0.78 }}>
             Control the long-form lift plan pack sections per job instead of relying only on drafted text.
           </div>
@@ -119,7 +119,7 @@ export default function PackSectionsForm({
             {dirtyCount} changed field{dirtyCount === 1 ? "" : "s"}
           </div>
           <button type="button" onClick={handleSave} disabled={saving} style={primaryBtn}>
-            {saving ? "Saving..." : "Save section content"}
+            {saving ? "Saving..." : "Save pack edits"}
           </button>
         </div>
       </div>
