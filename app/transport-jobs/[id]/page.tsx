@@ -1517,6 +1517,7 @@ export default async function TransportJobDetailPage({
                       </div>
                     </div>
                   </div>
+                  </div>
                 </section>
 
                 <section style={sectionCard}>
