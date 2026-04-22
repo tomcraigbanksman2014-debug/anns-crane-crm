@@ -7,7 +7,7 @@ function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
 }
 
-function parseValue(input: HTMLInputElement | null) {
+function parseValue(input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null) {
   if (!input) return 0;
   const n = Number(String(input.value || "").trim());
   return Number.isFinite(n) ? n : 0;
@@ -19,10 +19,16 @@ function formatMoney(value: number) {
 
 export default function TransportJobFormEnhancer() {
   useEffect(() => {
-    const sellRateInput = document.getElementById("agreed_sell_rate") as HTMLInputElement | null;
-    const subtotalInput = document.getElementById("invoice_subtotal") as HTMLInputElement | null;
-    const vatInput = document.getElementById("invoice_vat") as HTMLInputElement | null;
-    const totalInput = document.getElementById("total_invoice") as HTMLInputElement | null;
+    function getField(idOrName: string) {
+      return (
+        (document.getElementById(idOrName) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null) ||
+        (document.querySelector(`[name="${idOrName}"]`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)
+      );
+    }
+    const sellRateInput = getField("agreed_sell_rate") as HTMLInputElement | null;
+    const subtotalInput = getField("invoice_subtotal") as HTMLInputElement | null;
+    const vatInput = getField("invoice_vat") as HTMLInputElement | null;
+    const totalInput = getField("total_invoice") as HTMLInputElement | null;
 
     const customerSelect = document.getElementById("client_id") as HTMLSelectElement | null;
     const otherCustomerWrap = document.getElementById("other_customer_wrap") as HTMLDivElement | null;
@@ -52,24 +58,29 @@ export default function TransportJobFormEnhancer() {
     const abnormalLoadFieldsWrap = document.getElementById("abnormal_load_fields_wrap") as HTMLDivElement | null;
     const abnormalLoadFieldsPanel = document.getElementById("abnormal_load_fields_panel") as HTMLDivElement | null;
 
-    if (!subtotalInput || !vatInput || !totalInput) return;
 
-    let lastSyncedSubtotal = parseValue(subtotalInput);
+    let lastSyncedSubtotal = subtotalInput ? parseValue(subtotalInput) : 0;
     let userManuallyChangedDeliveryDate = false;
     let userManuallyChangedDeliveryTime = false;
 
     function recalcFromSubtotal() {
+      if (!subtotalInput) return;
+
       const subtotal = roundMoney(parseValue(subtotalInput));
       const vat = roundMoney(subtotal * 0.2);
       const total = roundMoney(subtotal + vat);
 
-      vatInput.value = formatMoney(vat);
-      totalInput.value = formatMoney(total);
+      if (vatInput) {
+        vatInput.value = formatMoney(vat);
+      }
+      if (totalInput) {
+        totalInput.value = formatMoney(total);
+      }
       lastSyncedSubtotal = subtotal;
     }
 
     function syncSubtotalFromSellRate() {
-      if (!sellRateInput) return;
+      if (!sellRateInput || !subtotalInput) return;
 
       const sellRate = roundMoney(parseValue(sellRateInput));
       const currentSubtotal = roundMoney(parseValue(subtotalInput));
@@ -208,18 +219,18 @@ export default function TransportJobFormEnhancer() {
     };
 
     function hasText(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      const el = getField(id);
       return !!String(el?.value || "").trim();
     }
 
     function numericPositive(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | null;
+      const el = getField(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
       const n = Number(String(el?.value || "").trim());
       return Number.isFinite(n) && n > 0;
     }
 
     function checkboxChecked(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | null;
+      const el = getField(id) as HTMLInputElement | null;
       return !!el?.checked;
     }
 
@@ -232,12 +243,12 @@ export default function TransportJobFormEnhancer() {
     }
 
     function submissionStatusValue() {
-      const el = document.getElementById("submission_status") as HTMLSelectElement | null;
+      const el = getField("submission_status") as HTMLSelectElement | null;
       return String(el?.value || "").trim().toLowerCase();
     }
 
     function approvalStatusValue() {
-      const el = document.getElementById("approval_status") as HTMLSelectElement | null;
+      const el = getField("approval_status") as HTMLSelectElement | null;
       return String(el?.value || "").trim().toLowerCase();
     }
 
@@ -296,8 +307,8 @@ export default function TransportJobFormEnhancer() {
     sellRateInput?.addEventListener("input", syncSubtotalFromSellRate);
     sellRateInput?.addEventListener("change", syncSubtotalFromSellRate);
 
-    subtotalInput.addEventListener("input", recalcFromSubtotal);
-    subtotalInput.addEventListener("change", recalcFromSubtotal);
+    subtotalInput?.addEventListener("input", recalcFromSubtotal);
+    subtotalInput?.addEventListener("change", recalcFromSubtotal);
 
     customerSelect?.addEventListener("change", toggleOtherCustomer);
     supplierSelect?.addEventListener("change", toggleOtherSupplier);
@@ -335,12 +346,12 @@ export default function TransportJobFormEnhancer() {
     ];
     const checklistSyncHandler = () => syncMovementChecklist();
     checklistWatchers.forEach((id) => {
-      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      const el = getField(id);
       el?.addEventListener("input", checklistSyncHandler);
       el?.addEventListener("change", checklistSyncHandler);
     });
 
-    if (parseValue(subtotalInput) === 0 && sellRateInput) {
+    if (subtotalInput && parseValue(subtotalInput) === 0 && sellRateInput) {
       subtotalInput.value = formatMoney(parseValue(sellRateInput));
     }
 
@@ -359,8 +370,8 @@ export default function TransportJobFormEnhancer() {
       sellRateInput?.removeEventListener("input", syncSubtotalFromSellRate);
       sellRateInput?.removeEventListener("change", syncSubtotalFromSellRate);
 
-      subtotalInput.removeEventListener("input", recalcFromSubtotal);
-      subtotalInput.removeEventListener("change", recalcFromSubtotal);
+      subtotalInput?.removeEventListener("input", recalcFromSubtotal);
+      subtotalInput?.removeEventListener("change", recalcFromSubtotal);
 
       customerSelect?.removeEventListener("change", toggleOtherCustomer);
       supplierSelect?.removeEventListener("change", toggleOtherSupplier);
@@ -374,7 +385,7 @@ export default function TransportJobFormEnhancer() {
       jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
       collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
       checklistWatchers.forEach((id) => {
-        const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+        const el = getField(id);
         el?.removeEventListener("input", checklistSyncHandler);
         el?.removeEventListener("change", checklistSyncHandler);
       });
