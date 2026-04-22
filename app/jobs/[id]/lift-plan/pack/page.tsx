@@ -1,184 +1,423 @@
-import type { CSSProperties } from "react";
-import ClientShell from "../../../../ClientShell";
+import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import PackSectionsForm from "./edit/PackSelectionsForm";
+import {
+  getPrimaryCraneContext,
+  matchCraneJobEquipmentProfile,
+} from "../../../../lib/ai/matchEquipmentProfile";
+import { getCraneAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
+import PrintPackButton from "./PrintPackButton";
 
-function one<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+type StringMap = Record<string, string | null>;
+
+function flatten<T>(value: T | T[] | null | undefined): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
 }
 
-function parseDate(value: string | null | undefined) {
-  if (!value) return null;
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "—";
   const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? null : d;
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB");
 }
 
-function formatDate(value: string | null | undefined) {
-  const d = parseDate(value);
-  if (!d) return value || "—";
-  return d.toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-  });
-}
-
-function formatDateTime(value: string | null | undefined) {
-  const d = parseDate(value);
-  if (!d) return value || "—";
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleString("en-GB");
 }
 
-function asText(value: unknown, fallback = "Not specified") {
-  if (value == null) return fallback;
-  if (typeof value === "string") {
-    const text = value.trim();
-    return text.length ? text : fallback;
-  }
-  if (Array.isArray(value)) {
-    const items = value.map((entry) => asText(entry, "")).filter(Boolean);
-    return items.length ? items.join(", ") : fallback;
-  }
-  if (typeof value === "object") {
-    try {
-      const text = JSON.stringify(value);
-      return text === "{}" ? fallback : text;
-    } catch {
-      return fallback;
-    }
-  }
+function val(value: any) {
+  if (value === null || value === undefined || value === "") return "—";
   return String(value);
 }
 
-function asMultilineList(value: unknown) {
-  if (value == null) return [];
-  if (Array.isArray(value)) {
-    return value.map((entry) => asText(entry, "")).filter(Boolean);
+function yesNo(value: boolean | null | undefined) {
+  return value ? "Yes" : "No";
+}
+
+function calcDuration(start: string | null | undefined, end: string | null | undefined) {
+  if (!start) return "—";
+  const a = new Date(start);
+  const b = new Date(end || start);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return "—";
+  const diff = Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1);
+  return `${diff} day${diff === 1 ? "" : "s"}`;
+}
+
+function craneLabel(crane: any, allocation: any) {
+  const parts = [crane?.name, crane?.make, crane?.model].filter(Boolean);
+  return parts.join(" ").trim() || crane?.name || allocation?.item_name || "—";
+}
+
+function formatCapacity(profile: any, crane: any) {
+  if (profile?.maxCapacityKg) {
+    const kg = Number(profile.maxCapacityKg);
+    const tonnes =
+      profile?.maxCapacityTonnes ??
+      (Number.isFinite(kg) ? Number((kg / 1000).toFixed(1)) : null);
+
+    const kgText = Number.isFinite(kg) ? `${kg.toLocaleString("en-GB")} kg` : "";
+    const tonneText = tonnes ? `${tonnes} t` : "";
+
+    return [kgText, tonneText].filter(Boolean).join(" / ");
   }
+  return crane?.capacity || "—";
+}
+
+function percentageUtilisation(loadWeight: any, capacityKg: any) {
+  const load = Number(loadWeight || 0);
+  const cap = Number(capacityKg || 0);
+  if (!load || !cap) return "—";
+  return `${Math.round((load / cap) * 100)}%`;
+}
+
+function splitLines(value: string | null | undefined) {
+  if (!value) return [];
   return String(value)
-    .split(/\r?\n/)
-    .map((entry) => entry.trim())
+    .split(/\n+/)
+    .map((x) => x.trim())
     .filter(Boolean);
 }
 
-function fileNameLooksLikeImage(fileName: string | null | undefined) {
-  const name = String(fileName ?? "").toLowerCase();
-  return [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"].some((ext) => name.endsWith(ext));
+function para(value: string | null | undefined, fallback: string) {
+  return value && String(value).trim() ? String(value) : fallback;
 }
 
-function isAppendixImageDocument(doc: any) {
-  const type = String(doc?.document_type ?? "").toLowerCase();
-  const mime = String(doc?.file_type ?? "").toLowerCase();
-  const name = String(doc?.file_name ?? "");
-
-  if (mime.startsWith("image/") || fileNameLooksLikeImage(name)) return true;
-  return type === "site_drawing" || type === "photo";
+function sentenceCase(value: string | null | undefined, fallback: string) {
+  return para(value, fallback).trim();
 }
 
-function utilisationPercent(loadValue: unknown, capacityValue: unknown) {
-  const load = Number(loadValue ?? 0);
-  const cap = Number(capacityValue ?? 0);
-  if (!Number.isFinite(load) || !Number.isFinite(cap) || cap <= 0 || load <= 0) return "—";
-
-  const raw = (load / cap) * 100;
-  if (raw < 0.1) return "<0.1%";
-  if (raw < 1) return `${raw.toFixed(1)}%`;
-  if (raw < 10) return `${raw.toFixed(1)}%`;
-  return `${Math.round(raw)}%`;
+function tidyWhitespace(value: string | null | undefined) {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-async function getSignedAppendixUrls(paths: string[]) {
-  const supabase = createSupabaseServerClient();
-  if (!paths.length) return new Map<string, string>();
+function shortBoomConfiguration(
+  override: string | null | undefined,
+  liftPlanConfiguration: string | null | undefined,
+  equipmentProfile: any
+) {
+  if (override && override.trim()) return override.trim();
 
-  const { data, error } = await supabase.storage
-    .from("job-documents")
-    .createSignedUrls(paths, 60 * 60);
+  const source = tidyWhitespace(liftPlanConfiguration).toLowerCase();
 
-  if (error || !data) {
-    return new Map<string, string>();
+  if (!source) {
+    if (equipmentProfile?.machineType === "truck_crane") return "Main boom";
+    if (equipmentProfile?.machineType === "crane") return "Main boom";
+    if (equipmentProfile?.machineType === "spider") return "Main boom";
+    return "Planned configuration";
   }
 
-  const map = new Map<string, string>();
-  data.forEach((row) => {
-    if (row.path && row.signedUrl) {
-      map.set(row.path, row.signedUrl);
+  if (source.includes("main boom") && source.includes("jib")) return "Main boom + jib";
+  if (source.includes("main boom")) return "Main boom";
+  if (source.includes("fly jib")) return "Main boom + fly jib";
+  if (source.includes("jib")) return "Boom + jib";
+  if (source.includes("platform") || source.includes("basket")) return "Lifting mode only";
+  return liftPlanConfiguration?.trim() || "Planned configuration";
+}
+
+function shortBoomLength(
+  override: string | null | undefined,
+  equipmentProfile: any,
+  craneName: string
+) {
+  if (override && override.trim()) return override.trim();
+
+  if (equipmentProfile?.maxBoomLengthM) {
+    return `${equipmentProfile.maxBoomLengthM} m max boom`;
+  }
+
+  if (equipmentProfile?.maxHydraulicOutreachM) {
+    if (String(craneName).toLowerCase().includes("ak 46")) {
+      return "44.0 m max extension";
     }
-  });
+    return `${equipmentProfile.maxHydraulicOutreachM} m hydraulic outreach`;
+  }
 
-  return map;
+  return "Planned per selected chart";
 }
 
-function equipmentLabel(row: any) {
-  const crane = one(row?.cranes) as any;
-  const parts = [
-    crane?.name,
-    crane?.make,
-    crane?.model,
-    crane?.capacity ? `${crane.capacity}t` : null,
-  ].filter(Boolean);
-  return parts.join(" ") || row?.item_name || "Selected crane";
+function fallbackScope(clientName: string, projectName: string, liftPlan: any, loadWeight: string) {
+  const loadText = liftPlan?.load_description || "the planned load";
+  return `Works comprise the lifting operation for ${clientName} at ${projectName}. The planned load is ${loadText} with a stated load weight of ${loadWeight}. All lifting activities are to be carried out under the control of the appointed lifting team in accordance with the approved lift plan, site controls and current legislation.`;
 }
 
-function buildSectionValue(packSections: Record<string, unknown> | null | undefined, key: string, fallback: unknown) {
-  const override = packSections?.[key];
-  if (override == null) return asText(fallback);
-  return asText(override);
+function fallbackCommunication(siteContact: string) {
+  return `Communication will be maintained using clear agreed hand signals in accordance with BS 7121, with two-way radio communication used if visibility or site layout requires it. The designated signaller will remain in control of crane movements and liaise with ${siteContact || "the site representative"} where necessary.`;
 }
 
-function buildSectionList(packSections: Record<string, unknown> | null | undefined, key: string, fallback: unknown) {
-  const override = packSections?.[key];
-  const list = asMultilineList(override ?? fallback);
-  return list.length ? list : ["Not specified"];
+function coverAddress(job: any) {
+  return [job?.site_name, job?.site_address].filter(Boolean).join(", ");
 }
 
-function renderBulletList(items: string[]) {
+function formatOutreachReference(profile: any) {
+  if (profile?.maxHydraulicOutreachM && profile?.maxRadiusM) {
+    return `${profile.maxHydraulicOutreachM} m / ${profile.maxRadiusM} m radius`;
+  }
+  if (profile?.maxHydraulicOutreachM) return `${profile.maxHydraulicOutreachM} m`;
+  if (profile?.maxBoomLengthM && profile?.maxRadiusM) {
+    return `${profile.maxBoomLengthM} m boom / ${profile.maxRadiusM} m radius`;
+  }
+  if (profile?.maxBoomLengthM) return `${profile.maxBoomLengthM} m`;
+  if (profile?.maxRadiusM) return `${profile.maxRadiusM} m radius`;
+  return "—";
+}
+
+function formatJibReference(profile: any) {
+  if (profile?.maxJibOutreachM) return `${profile.maxJibOutreachM} m`;
+  if (profile?.maxRadiusM) return `${profile.maxRadiusM} m radius`;
+  return "—";
+}
+
+function PageShell({
+  children,
+  sectionTitle,
+  breakAfter = true,
+}: {
+  children: ReactNode;
+  sectionTitle: string;
+  breakAfter?: boolean;
+}) {
   return (
-    <ul style={{ margin: "8px 0 0 18px", padding: 0, display: "grid", gap: 6 }}>
-      {items.map((item, index) => (
-        <li key={`${item}-${index}`}>{item}</li>
-      ))}
-    </ul>
+    <section
+      style={{
+        ...pageStyle,
+        pageBreakAfter: breakAfter ? "always" : "auto",
+        breakAfter: breakAfter ? "page" : "auto",
+      }}
+    >
+      <PageHeader sectionTitle={sectionTitle} />
+      <div style={pageBody}>{children}</div>
+      <PageFooter />
+    </section>
   );
 }
 
-export default async function LiftPlanPackPage({
+function PageHeader({ sectionTitle }: { sectionTitle: string }) {
+  return (
+    <div style={pageHeader}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <img src="/icon.png" alt="AnnS Crane Hire logo" style={logoStyle} />
+        <div>
+          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>ANNS – LIFTING PLAN – V1</div>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>Anns Crane Hire Ltd</div>
+        </div>
+      </div>
+      <div style={{ textAlign: "right" }}>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>April 2026</div>
+        <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+      </div>
+    </div>
+  );
+}
+
+function PageFooter() {
+  return (
+    <div style={pageFooter}>
+      Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk
+    </div>
+  );
+}
+
+function InfoTable({ rows }: { rows: Array<[string, any]> }) {
+  return (
+    <div style={infoTable}>
+      {rows.map(([label, value], index) => (
+        <div key={`${label}-${index}`} style={{ display: "contents" }}>
+          <div style={infoLabel}>{label}</div>
+          <div style={infoValue}>{val(value)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionTitle({ children }: { children: ReactNode }) {
+  return <h2 style={sectionTitleStyle}>{children}</h2>;
+}
+
+function BoxedParagraph({
+  title,
+  children,
+  compact = false,
+}: {
+  title?: string;
+  children: ReactNode;
+  compact?: boolean;
+}) {
+  return (
+    <div style={{ ...boxed, ...(compact ? compactBoxed : null) }}>
+      {title ? <div style={boxedTitle}>{title}</div> : null}
+      <div style={boxedBody}>{children}</div>
+    </div>
+  );
+}
+
+function TwoColumnBoxes({
+  leftTitle,
+  leftBody,
+  rightTitle,
+  rightBody,
+}: {
+  leftTitle: string;
+  leftBody: ReactNode;
+  rightTitle: string;
+  rightBody: ReactNode;
+}) {
+  return (
+    <div style={twoColGrid}>
+      <BoxedParagraph title={leftTitle}>{leftBody}</BoxedParagraph>
+      <BoxedParagraph title={rightTitle}>{rightBody}</BoxedParagraph>
+    </div>
+  );
+}
+
+function CheckboxTable({
+  left,
+  right,
+}: {
+  left: string[];
+  right: string[];
+}) {
+  const rows = Math.max(left.length, right.length);
+  return (
+    <table style={tableStyle}>
+      <thead>
+        <tr>
+          <th style={thStyle}>PRE-LIFT CHECK POINTS</th>
+          <th style={thStyle}>Y</th>
+          <th style={thStyle}>N</th>
+          <th style={thStyle}>ERECTION / COMPLETION CHECKS</th>
+          <th style={thStyle}>Y</th>
+          <th style={thStyle}>N</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }).map((_, i) => (
+          <tr key={i}>
+            <td style={tdStyle}>{left[i] ?? ""}</td>
+            <td style={tickCell}></td>
+            <td style={tickCell}></td>
+            <td style={tdStyle}>{right[i] ?? ""}</td>
+            <td style={tickCell}></td>
+            <td style={tickCell}></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function BlankTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: number;
+}) {
+  return (
+    <table style={tableStyle}>
+      <thead>
+        <tr>
+          {headers.map((header) => (
+            <th key={header} style={thStyle}>
+              {header}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {Array.from({ length: rows }).map((_, i) => (
+          <tr key={i}>
+            {headers.map((header, idx) => (
+              <td key={`${header}-${idx}`} style={tdStyle}></td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function SignatureRow({
+  title,
+  name,
+}: {
+  title: string;
+  name?: string | null;
+}) {
+  return (
+    <div style={signatureBox}>
+      <div style={{ fontWeight: 800 }}>{title}</div>
+      <div style={{ marginTop: 12, borderBottom: "1px solid #333", minHeight: 22 }} />
+      <div style={{ marginTop: 6, fontSize: 12 }}>
+        Name: {name || "________________"} &nbsp;&nbsp; Date: ________________
+      </div>
+    </div>
+  );
+}
+
+function AppendixPage({
+  asset,
+  index,
+}: {
+  asset: PackAppendixAssetItem;
+  index: number;
+}) {
+  const imageSrc = asset.image_url;
+
+  return (
+    <section
+      style={{
+        ...appendixPageStyle,
+        pageBreakBefore: "always",
+        breakBefore: "page",
+        pageBreakAfter: "always",
+        breakAfter: "page",
+      }}
+    >
+      <PageHeader sectionTitle={`Appendix ${index}`} />
+      <div style={appendixPageBody}>
+        <div style={appendixTitle}>{asset.title}</div>
+        {asset.description ? <div style={appendixDescription}>{asset.description}</div> : null}
+        <div style={appendixFrame}>
+          <img src={imageSrc} alt={asset.title} style={appendixImage} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default async function CraneLiftPlanPackPage({
   params,
-  searchParams,
 }: {
   params: { id: string };
-  searchParams?: { saved?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [
-    { data: job, error: jobError },
-    { data: liftPlan, error: liftPlanError },
-    { data: documents, error: documentsError },
-  ] = await Promise.all([
+  const [{ data: job }, { data: liftPlan }] = await Promise.all([
     supabase
       .from("jobs")
       .select(`
         id,
         job_number,
+        job_date,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
         site_name,
         site_address,
         contact_name,
         contact_phone,
-        start_date,
-        end_date,
-        job_date,
-        start_time,
-        end_time,
         hire_type,
         lift_type,
         notes,
         clients:client_id (
-          company_name,
-          contact_name,
-          phone,
-          email
+          company_name
         ),
         cranes:crane_id (
           id,
@@ -222,567 +461,775 @@ export default async function LiftPlanPackPage({
         )
       `)
       .eq("id", params.id)
-      .maybeSingle(),
+      .single(),
     supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
-    supabase
-      .from("job_documents")
-      .select("id, file_name, file_path, file_type, document_type, created_at")
-      .eq("job_id", params.id)
-      .order("created_at", { ascending: true }),
   ]);
 
-  const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || "";
-  const client = one((job as any)?.clients) as any;
-  const jobEquipment = Array.isArray((job as any)?.job_equipment) ? (job as any).job_equipment : [];
-  const selectedJobEquipmentId = String((liftPlan as any)?.selected_job_equipment_id ?? "").trim();
-  const selectedCraneId = String((liftPlan as any)?.selected_crane_id ?? "").trim();
-
-  let selectedEquipmentRow =
-    jobEquipment.find((row: any) => String(row?.id ?? "") === selectedJobEquipmentId) ?? null;
-
-  if (!selectedEquipmentRow && selectedCraneId) {
-    selectedEquipmentRow =
-      jobEquipment.find((row: any) => {
-        const crane = one(row?.cranes) as any;
-        return String(crane?.id ?? row?.crane_id ?? "") === selectedCraneId;
-      }) ?? null;
-  }
-
-  const crane =
-    (one(selectedEquipmentRow?.cranes) as any) ??
-    (one((job as any)?.cranes) as any) ??
-    null;
-
+  const sections: StringMap =
+    ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
+  const client = flatten((job as any)?.clients)[0] ?? null;
+  const selectedJob = {
+    ...(job as any),
+    selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
+    selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+  };
+  const primary = getPrimaryCraneContext(selectedJob);
+  const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
+  const allocation = primary?.allocation ?? null;
   const operator =
-    (one(selectedEquipmentRow?.operators) as any) ??
-    (one((job as any)?.main_operator) as any) ??
-    (one((job as any)?.operators) as any) ??
+    primary?.operator ??
+    flatten((job as any)?.main_operator)[0] ??
+    flatten((job as any)?.operators)[0] ??
     null;
 
-  const packSections = ((liftPlan as any)?.pack_sections as Record<string, unknown> | null) ?? null;
-  const appendixDocuments = ((documents as any[]) ?? []).filter(isAppendixImageDocument);
-  const signedUrls = await getSignedAppendixUrls(
-    appendixDocuments.map((doc: any) => String(doc.file_path ?? "")).filter(Boolean)
-  );
+  const equipmentProfile = matchCraneJobEquipmentProfile({
+    ...selectedJob,
+    cranes: crane ? [crane] : flatten((job as any)?.cranes),
+    job_equipment: (job as any)?.job_equipment ?? [],
+  });
 
-  const projectTitle = buildSectionValue(
-    packSections,
-    "cover_project",
-    `${client?.company_name || "Client"} – ${(job as any)?.site_name || "Lift plan"}`
-  );
-  const liftClassification = buildSectionValue(
-    packSections,
-    "lift_classification",
-    (job as any)?.lift_type || (job as any)?.hire_type || "Contract lift"
-  );
-  const boomConfiguration = buildSectionValue(
-    packSections,
-    "boom_configuration",
-    (liftPlan as any)?.boom_configuration || "As selected for the planned lift"
-  );
-  const boomLength = buildSectionValue(
-    packSections,
-    "boom_length",
-    (liftPlan as any)?.boom_length || "To suit site conditions and lift radius"
-  );
-  const introduction = buildSectionValue(
-    packSections,
-    "introduction",
-    `This lift plan pack has been prepared for job #${(job as any)?.job_number ?? "—"} at ${(job as any)?.site_name ?? "the stated site"}. The documented method is based on the information currently held within the CRM and any uploaded appendix drawings.`
-  );
-  const clientResponsibilities = buildSectionList(packSections, "client_responsibilities", [
-    "Provide safe and suitable access / egress for delivery and crane set-up.",
-    "Ensure ground conditions are suitable for the intended crane and outrigger loadings.",
-    "Maintain exclusion zones and keep non-essential personnel clear of the lifting area.",
-    "Advise of any overhead obstructions, underground services, restricted access or permit requirements before the lift.",
-  ]);
-  const contractLiftArrival = buildSectionValue(
-    packSections,
-    "contract_lift_arrival",
-    "AnnS Crane Hire Ltd will arrive on site, assess conditions against the planned method, brief personnel involved in the lift, and only proceed when the appointed person / operator is satisfied that conditions remain safe."
-  );
-  const scopeOfWorks = buildSectionValue(
-    packSections,
-    "scope_of_works",
-    (liftPlan as any)?.sequence_of_operations ||
-      (job as any)?.notes ||
-      "Lift and place the designated load in accordance with the agreed site sequence and the operator / appointed person briefing."
-  );
-  const communication = buildSectionValue(
-    packSections,
-    "communication",
-    (liftPlan as any)?.communication_plan ||
-      "Communication to be maintained between the operator, slinger / signaller, appointed person, and site contact at all times during crane operations."
-  );
-  const weatherConditions = buildSectionValue(
-    packSections,
-    "weather_conditions",
-    "Operations to be monitored for wind, rain, lightning, visibility and any other adverse conditions. Lifting operations must stop if conditions become unsafe."
-  );
-  const siteAccess = buildSectionValue(
-    packSections,
-    "site_access_egress",
-    "Access route and crane set-up area to be kept suitable for the selected crane size, axle loading and outrigger deployment."
-  );
-  const groundConditions = buildSectionValue(
-    packSections,
-    "ground_conditions",
-    "Ground bearing capacity and surface condition to be suitable for crane deployment. Mats / outrigger support to be used where required."
-  );
-  const overheadObstructions = buildSectionValue(
-    packSections,
-    "overhead_obstructions",
-    "Overhead services, structures, trees and any slewing restrictions must be identified and controlled before lifting commences."
-  );
-  const trafficPedestrianManagement = buildSectionValue(
-    packSections,
-    "traffic_pedestrian_management",
-    "The lifting area must be segregated from pedestrians and site traffic using suitable barriers, banksmen and agreed site controls."
-  );
-  const liftingEquipmentCertification = buildSectionValue(
-    packSections,
-    "lifting_equipment_certification",
-    "All lifting accessories and crane certification must be in date and suitable for the load and lifting arrangement."
-  );
-  const craneDetails = buildSectionValue(
-    packSections,
-    "crane_details",
-    `Selected crane: ${equipmentLabel(selectedEquipmentRow ?? { cranes: [crane] })}. Crane utilisation for the planned lift is ${utilisationPercent((liftPlan as any)?.load_weight, crane?.capacity)} based on the stored load weight and crane capacity.`
-  );
-  const craneSetupProcedure = buildSectionValue(
-    packSections,
-    "crane_setup_procedure",
-    "Crane to position in the agreed set-up location, deploy outriggers as required, level correctly, install mats / spreaders where necessary, and complete pre-lift checks before operations begin."
-  );
-  const liftingProcedure = buildSectionValue(
-    packSections,
-    "lifting_procedure",
-    (liftPlan as any)?.method_statement ||
-      "The load will be slung using suitable certified accessories, lifted under the direction of the designated signaller, slewed within the agreed working area and landed in the agreed final position under controlled conditions."
-  );
-  const deRigProcedure = buildSectionValue(
-    packSections,
-    "de_rig_procedure",
-    "On completion, the crane will be de-rigged safely, accessories checked and removed, and the site left clear of lifting gear and support materials."
-  );
-  const emergencyProcedure = buildSectionValue(
-    packSections,
-    "emergency_procedure",
-    "In the event of an unsafe condition, incident or near miss, the operation must stop immediately, the area must be made safe, and site management / emergency services contacted where required."
-  );
-  const riskAssessmentSummary = buildSectionValue(
-    packSections,
-    "risk_assessment_summary",
-    (liftPlan as any)?.risk_assessment ||
-      "The principal risks relate to ground conditions, overhead obstructions, unsuitable access, inadequate exclusion zones, communication failure, weather conditions and incorrect load handling."
-  );
-  const emergencyContacts = buildSectionList(packSections, "emergency_contacts", [
-    client?.contact_name ? `${client.contact_name}${client.phone ? ` – ${client.phone}` : ""}` : "",
-    (job as any)?.contact_name ? `${(job as any).contact_name}${(job as any)?.contact_phone ? ` – ${(job as any).contact_phone}` : ""}` : "",
-  ]);
-  const equipmentList = buildSectionList(packSections, "equipment_list", [
-    equipmentLabel(selectedEquipmentRow ?? { cranes: [crane] }),
-    operator?.full_name ? `Operator: ${operator.full_name}` : "",
-    "Certified lifting accessories to suit the lift.",
-  ]);
-  const toolboxNotes = buildSectionValue(
-    packSections,
-    "toolbox_notes",
-    "All personnel involved in the lift to receive a site-specific briefing before work starts. Any deviation from the agreed method must be referred back to supervision before proceeding."
-  );
+  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
 
-  const savedMessage =
-    String(searchParams?.saved ?? "").trim() === "1" ? "Pack edits saved." : "";
-  const formError = String(searchParams?.error ?? "").trim();
+  const clientName = client?.company_name || "the client";
+  const projectName =
+    sections.cover_project ||
+    (job as any)?.site_name ||
+    `Job ${(job as any)?.job_number ?? ""}`.trim();
+  const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
+  const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
+  const craneName = craneLabel(crane, allocation);
+  const craneCapacity = formatCapacity(equipmentProfile, crane);
+  const loadWeight = liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—";
+  const boomConfig = shortBoomConfiguration(
+    sections.boom_configuration,
+    liftPlan?.crane_configuration,
+    equipmentProfile
+  );
+  const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
+  const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
+  const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
+  const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
+  const methodStatementLines = splitLines(liftPlan?.method_statement);
+  const riskLines = splitLines(liftPlan?.risk_assessment);
+  const hazardLines = splitLines(liftPlan?.site_hazards);
+  const controlLines = splitLines(liftPlan?.control_measures);
+  const ppeLines = splitLines(liftPlan?.ppe_required);
+  const emergencyContacts = splitLines(sections.emergency_contacts || "").join("\n");
+  const equipmentList = splitLines(sections.equipment_list || "").join("\n");
+  const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
+
+  const outreachRef = formatOutreachReference(equipmentProfile);
+  const jibRef = formatJibReference(equipmentProfile);
 
   return (
-    <ClientShell>
-      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto", display: "grid", gap: 16 }}>
-        <div style={toolbar}>
-          <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>Full lift plan pack</h1>
-            <div style={{ marginTop: 6, opacity: 0.78 }}>
-              Review the final pack, edit the pack sections on this page, then print the full pack.
-            </div>
-          </div>
+    <div style={wrapper}>
+      <style>{`
+        @media print {
+          .print-hide { display: none !important; }
+          body { background: white !important; }
+          @page { size: A4; margin: 10mm; }
+        }
+      `}</style>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href={`/jobs/${params.id}/lift-plan`} style={secondaryBtn}>
-              ← Back to lift plan
-            </a>
-            <form action={`/api/jobs/${params.id}/lift-plan/pack-selections`} method="post" style={{ display: "contents" }}>
-              <button type="submit" style={primaryBtn}>
-                Save pack edits
-              </button>
-              <a href={`/jobs/${params.id}/lift-plan/pack?print=1`} target="_blank" style={secondaryBtn}>
-                Print full pack
-              </a>
-
-              <div style={{ display: "none" }}>
-                {[
-                  ["cover_project", projectTitle],
-                  ["lift_classification", liftClassification],
-                  ["boom_configuration", boomConfiguration],
-                  ["boom_length", boomLength],
-                  ["introduction", introduction],
-                  ["client_responsibilities", clientResponsibilities.join("\n")],
-                  ["contract_lift_arrival", contractLiftArrival],
-                  ["scope_of_works", scopeOfWorks],
-                  ["communication", communication],
-                  ["weather_conditions", weatherConditions],
-                  ["site_access_egress", siteAccess],
-                  ["ground_conditions", groundConditions],
-                  ["overhead_obstructions", overheadObstructions],
-                  ["traffic_pedestrian_management", trafficPedestrianManagement],
-                  ["lifting_equipment_certification", liftingEquipmentCertification],
-                  ["crane_details", craneDetails],
-                  ["crane_setup_procedure", craneSetupProcedure],
-                  ["lifting_procedure", liftingProcedure],
-                  ["de_rig_procedure", deRigProcedure],
-                  ["emergency_procedure", emergencyProcedure],
-                  ["risk_assessment_summary", riskAssessmentSummary],
-                  ["emergency_contacts", emergencyContacts.join("\n")],
-                  ["equipment_list", equipmentList.join("\n")],
-                  ["toolbox_notes", toolboxNotes],
-                ].map(([name, value]) => (
-                  <input key={name} type="hidden" name={name} defaultValue={String(value ?? "")} />
-                ))}
-              </div>
-            </form>
-          </div>
-        </div>
-
-        {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
-        {savedMessage ? <div style={successBox}>{savedMessage}</div> : null}
-        {formError ? <div style={errorBox}>{formError}</div> : null}
-
-        <PackSectionsForm jobId={params.id} initialSections={packSections as any} />
-
-        <div style={packSheet}>
-          <section style={page}>
-            <div style={{ display: "grid", gap: 12 }}>
-              <div style={brandRow}>
-                <div>
-                  <div style={smallMuted}>AnnS Crane Hire Ltd</div>
-                  <h2 style={{ margin: "6px 0 0", fontSize: 34 }}>Lift Plan Pack</h2>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={smallMuted}>Job number</div>
-                  <div style={heroValue}>#{(job as any)?.job_number ?? "—"}</div>
-                </div>
-              </div>
-
-              <div style={heroGrid}>
-                <InfoCard title="Project" value={projectTitle} />
-                <InfoCard title="Client" value={client?.company_name || "—"} />
-                <InfoCard title="Site" value={(job as any)?.site_name || "—"} />
-                <InfoCard title="Address" value={(job as any)?.site_address || "—"} />
-                <InfoCard
-                  title="Planned dates"
-                  value={`${formatDate((job as any)?.start_date ?? (job as any)?.job_date)} to ${formatDate(
-                    (job as any)?.end_date ?? (job as any)?.job_date
-                  )}`}
-                />
-                <InfoCard
-                  title="Planned times"
-                  value={`${(job as any)?.start_time || "—"} to ${(job as any)?.end_time || "—"}`}
-                />
-                <InfoCard title="Lift classification" value={liftClassification} />
-                <InfoCard title="Selected crane" value={equipmentLabel(selectedEquipmentRow ?? { cranes: [crane] })} />
-              </div>
-            </div>
-          </section>
-
-          <section style={page}>
-            <SectionBlock title="1. Introduction">
-              <Paragraph>{introduction}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="2. Client responsibilities">
-              {renderBulletList(clientResponsibilities)}
-            </SectionBlock>
-
-            <SectionBlock title="3. Contract lift / arrival on site">
-              <Paragraph>{contractLiftArrival}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="4. Scope of works">
-              <Paragraph>{scopeOfWorks}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="5. Communication">
-              <Paragraph>{communication}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="6. Weather conditions">
-              <Paragraph>{weatherConditions}</Paragraph>
-            </SectionBlock>
-          </section>
-
-          <section style={page}>
-            <SectionBlock title="7. Site access and egress">
-              <Paragraph>{siteAccess}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="8. Ground conditions">
-              <Paragraph>{groundConditions}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="9. Overhead obstructions / restrictions">
-              <Paragraph>{overheadObstructions}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="10. Traffic and pedestrian management">
-              <Paragraph>{trafficPedestrianManagement}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="11. Lifting equipment & certification">
-              <Paragraph>{liftingEquipmentCertification}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="12. Crane details">
-              <Paragraph>{craneDetails}</Paragraph>
-              <div style={statGrid}>
-                <InfoCard title="Crane reg" value={crane?.reg_number || "—"} />
-                <InfoCard title="Boom configuration" value={boomConfiguration} />
-                <InfoCard title="Boom length" value={boomLength} />
-                <InfoCard title="Utilisation" value={utilisationPercent((liftPlan as any)?.load_weight, crane?.capacity)} />
-              </div>
-            </SectionBlock>
-          </section>
-
-          <section style={page}>
-            <SectionBlock title="13. Crane set-up procedure">
-              <Paragraph>{craneSetupProcedure}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="14. Lifting procedure">
-              <Paragraph>{liftingProcedure}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="15. De-rig procedure">
-              <Paragraph>{deRigProcedure}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="16. Emergency procedure">
-              <Paragraph>{emergencyProcedure}</Paragraph>
-            </SectionBlock>
-          </section>
-
-          <section style={page}>
-            <SectionBlock title="17. Risk assessment summary">
-              <Paragraph>{riskAssessmentSummary}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="18. Emergency contacts">
-              {renderBulletList(emergencyContacts)}
-            </SectionBlock>
-
-            <SectionBlock title="19. Equipment list">
-              {renderBulletList(equipmentList)}
-            </SectionBlock>
-
-            <SectionBlock title="20. Toolbox / sign-off notes">
-              <Paragraph>{toolboxNotes}</Paragraph>
-            </SectionBlock>
-
-            <SectionBlock title="Recorded job details">
-              <div style={statGrid}>
-                <InfoCard title="Site contact" value={(job as any)?.contact_name || client?.contact_name || "—"} />
-                <InfoCard title="Contact phone" value={(job as any)?.contact_phone || client?.phone || "—"} />
-                <InfoCard title="Operator" value={operator?.full_name || "—"} />
-                <InfoCard title="Lift plan last updated" value={formatDateTime((liftPlan as any)?.updated_at)} />
-              </div>
-            </SectionBlock>
-          </section>
-
-          {appendixDocuments.map((doc: any, index: number) => {
-            const signedUrl = signedUrls.get(String(doc.file_path ?? ""));
-            return (
-              <section style={page} key={doc.id}>
-                <SectionBlock title={`Appendix page ${index + 1}`}>
-                  <div style={{ marginBottom: 10, fontWeight: 800 }}>{doc.file_name || `Appendix ${index + 1}`}</div>
-                  <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 12 }}>
-                    {String(doc.document_type ?? "").replaceAll("_", " ") || "uploaded appendix"} • uploaded{" "}
-                    {formatDateTime(doc.created_at)}
-                  </div>
-
-                  {signedUrl ? (
-                    <div style={imageFrame}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={signedUrl}
-                        alt={doc.file_name || `Appendix ${index + 1}`}
-                        style={{ width: "100%", height: "auto", display: "block" }}
-                      />
-                    </div>
-                  ) : (
-                    <div style={appendixFallback}>
-                      Preview unavailable for this appendix image.
-                    </div>
-                  )}
-                </SectionBlock>
-              </section>
-            );
-          })}
-        </div>
+      <div className="print-hide" style={toolbar}>
+        <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
+          ← Back to lift plan
+        </a>
+        <PrintPackButton />
       </div>
-    </ClientShell>
-  );
-}
 
-function InfoCard({ title, value }: { title: string; value: string }) {
-  return (
-    <div style={infoCard}>
-      <div style={smallMuted}>{title}</div>
-      <div style={{ marginTop: 6, fontWeight: 900, lineHeight: 1.4 }}>{value}</div>
+      <PageShell sectionTitle="Cover Sheet">
+        <div style={coverHero}>
+          <div>
+            <div style={coverTitle}>ANNS – LIFTING PLAN – V1</div>
+            <div style={coverSubtitle}>April 2026</div>
+          </div>
+          <div style={coverCompany}>
+            <div>Anns Crane Hire Ltd</div>
+            <div>6 Bay St, Port Tennant, Swansea, SA1 8LB</div>
+            <div>01792 641653 • info@annscranehire.co.uk</div>
+          </div>
+        </div>
+
+        <InfoTable
+          rows={[
+            ["Client", clientName],
+            ["Project", projectName],
+            ["Start Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            [
+              "Duration",
+              calcDuration(
+                (job as any)?.start_date ?? (job as any)?.job_date,
+                (job as any)?.end_date ?? (job as any)?.job_date
+              ),
+            ],
+            ["Site Address", coverAddress(job)],
+            ["Site Contact", (job as any)?.contact_name],
+            ["Appointed Person", appointedPerson],
+            ["Prepared by", "ANNS CRANE HIRE LTD"],
+            [
+              "Lift Classification",
+              sections.lift_classification || (job as any)?.hire_type || "Basic",
+            ],
+            ["Crane(s)", craneName],
+            ["Boom configuration", boomConfig],
+            ["Boom length", boomLength],
+          ]}
+        />
+      </PageShell>
+
+      <PageShell sectionTitle="Table of Contents">
+        <SectionTitle>Table of Contents</SectionTitle>
+        <div style={tocGrid}>
+          {[
+            "1. Introduction",
+            "2. Appointed Person Declaration",
+            "3. Client Responsibilities and General Conditions",
+            "4. The Contract Lift and Arrival on Site",
+            "5. Brief Scope of Works",
+            "6. Lifting Personnel",
+            "7. On Site Communication",
+            "8. Weather Conditions",
+            "9. Site Access and Egress",
+            "10. Ground Conditions",
+            "11. Overhead Obstructions and Slewing Restrictions",
+            "12. Traffic and Pedestrian Management",
+            "13. Lifting Equipment to be used & Certification",
+            "14. Crane Details",
+            "15. Variation from Method Statement",
+            "16. Toolbox Talk Attendance",
+            "17. Crane Set-up Procedure",
+            "18. Lifting Procedure",
+            "19. De-Rig Procedure",
+            "20. Emergency Procedure",
+            "21. Risk Assessments",
+            "22. Check Lists and Sign Offs",
+          ].map((item) => (
+            <div key={item} style={tocItem}>
+              {item}
+            </div>
+          ))}
+          {appendixAssets.length ? (
+            <div style={tocItem}>Appendix – Selected machine specification and chart pages</div>
+          ) : null}
+        </div>
+      </PageShell>
+
+      <PageShell sectionTitle="1. Introduction">
+        <SectionTitle>1. Introduction</SectionTitle>
+        <BoxedParagraph title="Method Statement – CPA Contract Lift">
+          {sentenceCase(
+            sections.introduction,
+            `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded within the CRM. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
+          )}
+        </BoxedParagraph>
+
+        <TwoColumnBoxes
+          leftTitle="Site Inspection"
+          leftBody={sentenceCase(
+            null,
+            `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`
+          )}
+          rightTitle="Roles and Responsibilities"
+          rightBody={sentenceCase(
+            null,
+            `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`
+          )}
+        />
+
+        <BoxedParagraph title="Job Planning Snapshot" compact>
+          Client: {clientName}{"\n"}
+          Project: {projectName}{"\n"}
+          Crane: {craneName}{"\n"}
+          Lift Type: {(job as any)?.lift_type || "—"}{"\n"}
+          Site Contact: {(job as any)?.contact_name || "—"}{"\n"}
+          Job Notes: {(job as any)?.notes || "—"}
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="2–5. Planning & Scope">
+        <SectionTitle>2. Appointed Person Declaration</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Name", appointedPerson],
+            ["Prepared for job", `#${(job as any)?.job_number ?? "—"}`],
+            ["Prepared by", "ANNS CRANE HIRE LTD"],
+            ["Approved by", liftPlan?.approved_by],
+            ["Approved at", fmtDateTime(liftPlan?.approved_at)],
+          ]}
+        />
+
+        <SectionTitle>3. Client Responsibilities and General Conditions</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.client_responsibilities,
+            `The client shall provide accurate load information, safe and suitable access, a suitable crane standing area, traffic and pedestrian controls where required, and details of any restrictions, underground services, permits or other site conditions that may affect the lifting operation. The client remains responsible for the structural integrity of the load and any client-supplied lifting points.`
+          )}
+        </BoxedParagraph>
+
+        <SectionTitle>4. The Contract Lift and Arrival on Site</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.contract_lift_arrival,
+            `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
+          )}
+        </BoxedParagraph>
+
+        <SectionTitle>5. Brief Scope of Works</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(sections.scope_of_works || liftPlan?.load_description, scopeFallback)}
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="6–12. Site Controls">
+        <SectionTitle>6. Lifting Personnel</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Appointed Person", appointedPerson],
+            ["Lift Supervisor", liftSupervisor],
+            ["Crane Operator", liftPlan?.crane_operator || operator?.full_name],
+            ["Client / Site Contact", (job as any)?.contact_name],
+          ]}
+        />
+
+        <SectionTitle>7. On Site Communication</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(sections.communication, communicationFallback)}
+        </BoxedParagraph>
+
+        <SectionTitle>8. Weather Conditions</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote,
+            `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
+          )}
+        </BoxedParagraph>
+
+        <TwoColumnBoxes
+          leftTitle="9. Site Access and Egress"
+          leftBody={sentenceCase(
+            sections.site_access_egress,
+            `The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must remain suitable for the crane size, weight and turning requirements.`
+          )}
+          rightTitle="10. Ground Conditions"
+          rightBody={sentenceCase(
+            sections.ground_conditions || liftPlan?.ground_conditions,
+            `Ground conditions are to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load and the outrigger reactions. Additional ground protection must be used where required.`
+          )}
+        />
+
+        <TwoColumnBoxes
+          leftTitle="11. Overhead Obstructions and Slewing Restrictions"
+          leftBody={sentenceCase(
+            sections.overhead_obstructions || liftPlan?.site_hazards,
+            `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
+          )}
+          rightTitle="12. Traffic and Pedestrian Management"
+          rightBody={sentenceCase(
+            sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details,
+            `The lifting area is to be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone during operations.`
+          )}
+        />
+      </PageShell>
+
+      <PageShell sectionTitle="13. Equipment & Certification">
+        <SectionTitle>13. Lifting Equipment to be used & Certification</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Sling type", liftPlan?.sling_type],
+            ["Lifting accessories", liftPlan?.lifting_accessories],
+            [
+              "LOLER / certification",
+              sections.lifting_equipment_certification ||
+                "All lifting tackle must hold current certification and be inspected before use.",
+            ],
+          ]}
+        />
+      </PageShell>
+
+      <PageShell sectionTitle="14. Crane Details">
+        <SectionTitle>14. Crane Details</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Crane type", craneName],
+            [
+              "Crane gross weight",
+              crane?.capacity
+                ? `${crane?.capacity}`
+                : "See selected machine profile / manufacturer information",
+            ],
+            ["Gross weight of load", loadWeight],
+            [
+              "Gross weight of lifting accessories",
+              liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—",
+            ],
+            ["Boom configuration", boomConfig],
+            ["Boom / outreach reference", outreachRef],
+            ["Jib / max outreach", jibRef],
+            ["Max capacity", craneCapacity],
+            ["Crane utilisation %", utilisation],
+          ]}
+        />
+
+        <BoxedParagraph title="Crane specifications">
+          {sentenceCase(
+            sections.crane_details,
+            equipmentProfile?.summary ||
+              "Selected crane profile to be checked against the current manufacturer specification and load chart."
+          )}
+        </BoxedParagraph>
+
+        <BoxedParagraph title="Configuration / outrigger note">
+          {equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
+          {"\n\n"}
+          {equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}
+        </BoxedParagraph>
+
+        <BoxedParagraph title="Load chart note">
+          Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds.
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="15–16. Variation & Toolbox">
+        <SectionTitle>15. Variation from Method Statement</SectionTitle>
+        <BlankTable
+          headers={["Variation Details", "Time / Date", "AP Contact", "Initials"]}
+          rows={5}
+        />
+
+        <div style={avoidBreak}>
+          <SectionTitle>16. Toolbox Talk Attendance</SectionTitle>
+          <CheckboxTable
+            left={[
+              "Crane test certificates",
+              "Crane thorough examination report",
+              "Operator weekly inspection form",
+              "Test certificates / thorough exam reports for lifting accessories",
+              "Toolbox talk delivered and recorded",
+              "Appropriate PPE",
+            ]}
+            right={[
+              "Working area cordoned off",
+              "Crane set in correct location",
+              "Crane limits & load indicator OK",
+              "Rigging fitted as detailed",
+              "Weather within acceptable limits",
+              "Site cleared",
+            ]}
+          />
+        </div>
+      </PageShell>
+
+      <PageShell sectionTitle="17. Crane Set-up Procedure">
+        <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.crane_setup_procedure || liftPlan?.crane_configuration || equipmentProfile?.configurationNote,
+            `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
+          )}
+        </BoxedParagraph>
+        <BoxedParagraph compact>
+          {sentenceCase(
+            liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
+            `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
+          )}
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="18–19. Lifting & De-Rig Procedure">
+        <SectionTitle>18. Lifting Procedure</SectionTitle>
+        <BoxedParagraph>
+          {sections.lifting_procedure
+            ? sections.lifting_procedure
+            : methodStatementLines.length
+            ? methodStatementLines.join("\n")
+            : "1. Brief all personnel and confirm communication method.\n2. Establish exclusion zone and position the crane.\n3. Inspect lifting accessories and connect as planned.\n4. Take up slack and complete a controlled test lift.\n5. Hoist, slew and land the load under the direction of the designated signaller.\n6. Remove lifting accessories and prepare for the next operation."}
+        </BoxedParagraph>
+
+        <SectionTitle>19. De-Rig Procedure</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.de_rig_procedure,
+            `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
+          )}
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="20–21. Emergency & Risk">
+        <SectionTitle>20. Emergency Procedure</SectionTitle>
+        <BoxedParagraph>
+          {sentenceCase(
+            sections.emergency_procedure || liftPlan?.emergency_procedures,
+            `In the event of an emergency, lifting operations are to stop immediately. The load must be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation is to recommence until the situation has been resolved and the area declared safe.`
+          )}
+        </BoxedParagraph>
+
+        <SectionTitle>21. Risk Assessments</SectionTitle>
+        <TwoColumnBoxes
+          leftTitle="Risk assessment summary"
+          leftBody={
+            sections.risk_assessment_summary
+              ? sections.risk_assessment_summary
+              : riskLines.length
+              ? riskLines.join("\n")
+              : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone."
+          }
+          rightTitle="Site hazards"
+          rightBody={
+            hazardLines.length
+              ? hazardLines.join("\n")
+              : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."
+          }
+        />
+
+        <TwoColumnBoxes
+          leftTitle="Control measures"
+          leftBody={
+            controlLines.length
+              ? controlLines.join("\n")
+              : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
+          }
+          rightTitle="PPE required"
+          rightBody={
+            ppeLines.length
+              ? ppeLines.join("\n")
+              : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
+          }
+        />
+      </PageShell>
+
+      <PageShell sectionTitle="22. Check Lists & Sign Offs">
+        <SectionTitle>22. Check Lists and Sign Offs</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Lift plan complete", yesNo(liftPlan?.lift_plan_complete)],
+            ["RAMS complete", yesNo(liftPlan?.rams_complete)],
+            ["Approved by", liftPlan?.approved_by],
+            ["Approved at", fmtDateTime(liftPlan?.approved_at)],
+            ["Approval notes", liftPlan?.approval_notes],
+          ]}
+        />
+
+        <div style={avoidBreak}>
+          <div style={subHeading}>Attendance Record</div>
+          <BlankTable headers={["Name", "Employer", "Signature"]} rows={4} />
+        </div>
+
+        <div style={avoidBreak}>
+          <div style={subHeading}>Delegation of Duties</div>
+          <InfoTable
+            rows={[
+              ["Appointed Person", appointedPerson],
+              ["Lift Supervisor", liftSupervisor],
+              ["Crane Operator", liftPlan?.crane_operator || operator?.full_name],
+            ]}
+          />
+        </div>
+
+        <div style={signatureGrid}>
+          <SignatureRow title="Appointed Person signature" name={appointedPerson} />
+          <SignatureRow title="Lift Supervisor signature" name={liftSupervisor} />
+          <SignatureRow title="Crane Operator signature" name={liftPlan?.crane_operator || operator?.full_name} />
+          <SignatureRow title="Client completion sign-off" name={(job as any)?.contact_name} />
+        </div>
+
+        {toolboxNotes ? (
+          <BoxedParagraph title="Toolbox / sign-off notes">{toolboxNotes}</BoxedParagraph>
+        ) : null}
+
+        {emergencyContacts ? (
+          <BoxedParagraph title="Emergency contacts">{emergencyContacts}</BoxedParagraph>
+        ) : null}
+
+        {equipmentList ? (
+          <BoxedParagraph title="Equipment list">{equipmentList}</BoxedParagraph>
+        ) : null}
+      </PageShell>
+
+      <PageShell sectionTitle="Wind Speed Record Sheet" breakAfter={true}>
+        <SectionTitle>Wind speed record sheet</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Project", projectName],
+            ["Lift Supervisor", liftSupervisor],
+            ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+          ]}
+        />
+        <div style={{ height: 8 }} />
+        <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)", "Notes"]} rows={12} />
+      </PageShell>
+
+      {appendixAssets.map((asset, index) => (
+        <AppendixPage key={`${asset.title}-${asset.page_number}-${index}`} asset={asset} index={index + 1} />
+      ))}
     </div>
   );
 }
 
-function SectionBlock({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={{ display: "grid", gap: 10 }}>
-      <div style={sectionTitle}>{title}</div>
-      <div style={sectionBody}>{children}</div>
-    </div>
-  );
-}
-
-function Paragraph({ children }: { children: React.ReactNode }) {
-  return <p style={{ margin: 0, lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{children}</p>;
-}
+const wrapper: CSSProperties = {
+  background: "#f5f5f5",
+  color: "#111",
+  minHeight: "100vh",
+  padding: 24,
+  fontFamily:
+    "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
+};
 
 const toolbar: CSSProperties = {
+  maxWidth: "190mm",
+  margin: "0 auto 16px auto",
   display: "flex",
   justifyContent: "space-between",
   gap: 12,
-  alignItems: "center",
   flexWrap: "wrap",
 };
 
-const primaryBtn: CSSProperties = {
+const buttonStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
-  background: "#111",
-  color: "#fff",
-  textDecoration: "none",
-  fontWeight: 900,
-  border: "none",
-  cursor: "pointer",
-};
-
-const secondaryBtn: CSSProperties = {
-  display: "inline-block",
-  padding: "10px 14px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.82)",
+  background: "rgba(255,255,255,0.95)",
   color: "#111",
-  textDecoration: "none",
   fontWeight: 800,
-  border: "1px solid rgba(0,0,0,0.10)",
+  textDecoration: "none",
+  border: "1px solid rgba(0,0,0,0.12)",
 };
 
-const successBox: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(0,160,80,0.14)",
-  border: "1px solid rgba(0,160,80,0.18)",
-  color: "#0b6b34",
-  fontWeight: 700,
-};
-
-const errorBox: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(180,0,0,0.12)",
-  border: "1px solid rgba(180,0,0,0.18)",
-  color: "#8b0000",
-  fontWeight: 700,
-};
-
-const packSheet: CSSProperties = {
-  display: "grid",
-  gap: 18,
-};
-
-const page: CSSProperties = {
+const pageStyle: CSSProperties = {
+  width: "190mm",
+  minHeight: "277mm",
+  margin: "0 auto 16px auto",
   background: "#fff",
-  color: "#111",
-  borderRadius: 16,
-  padding: 24,
-  boxShadow: "0 10px 28px rgba(0,0,0,0.10)",
-  display: "grid",
-  gap: 20,
+  boxSizing: "border-box",
+  padding: 16,
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
+  display: "flex",
+  flexDirection: "column",
 };
 
-const brandRow: CSSProperties = {
+const pageHeader: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
-  gap: 14,
+  alignItems: "flex-start",
+  gap: 12,
+  paddingBottom: 10,
+  borderBottom: "1px solid #bcbcbc",
+};
+
+const pageBody: CSSProperties = {
+  paddingTop: 12,
+  flex: 1,
+};
+
+const pageFooter: CSSProperties = {
+  paddingTop: 10,
+  marginTop: "auto",
+  borderTop: "1px solid #bcbcbc",
+  fontSize: 11,
+  textAlign: "center",
+  color: "#555",
+};
+
+const logoStyle: CSSProperties = {
+  width: 54,
+  height: 54,
+  objectFit: "contain",
+};
+
+const coverHero: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 16,
   alignItems: "flex-start",
   flexWrap: "wrap",
+  marginBottom: 18,
 };
 
-const heroGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 12,
+const coverTitle: CSSProperties = {
+  fontSize: 28,
+  fontWeight: 900,
+  lineHeight: 1.1,
 };
 
-const statGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-  gap: 12,
-};
-
-const infoCard: CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.10)",
-  borderRadius: 12,
-  padding: 12,
-  background: "#fafafa",
-};
-
-const heroValue: CSSProperties = {
-  fontSize: 26,
-  fontWeight: 1000,
-};
-
-const smallMuted: CSSProperties = {
-  fontSize: 12,
-  opacity: 0.68,
-  fontWeight: 800,
-  textTransform: "uppercase",
-  letterSpacing: 0.4,
-};
-
-const sectionTitle: CSSProperties = {
+const coverSubtitle: CSSProperties = {
+  marginTop: 4,
   fontSize: 18,
-  fontWeight: 1000,
+  color: "#555",
 };
 
-const sectionBody: CSSProperties = {
-  fontSize: 14,
-  lineHeight: 1.65,
+const coverCompany: CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.55,
+  textAlign: "right",
 };
 
-const imageFrame: CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.10)",
-  borderRadius: 12,
+const sectionTitleStyle: CSSProperties = {
+  marginTop: 0,
+  marginBottom: 10,
+  fontSize: 24,
+  fontWeight: 900,
+};
+
+const subHeading: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 900,
+  marginTop: 14,
+  marginBottom: 8,
+};
+
+const infoTable: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "180px 1fr",
+  borderTop: "1px solid #333",
+  borderLeft: "1px solid #333",
+  breakInside: "avoid",
+};
+
+const infoLabel: CSSProperties = {
+  padding: "8px 10px",
+  borderRight: "1px solid #333",
+  borderBottom: "1px solid #333",
+  fontWeight: 700,
+  background: "#f6f6f6",
+};
+
+const infoValue: CSSProperties = {
+  padding: "8px 10px",
+  borderRight: "1px solid #333",
+  borderBottom: "1px solid #333",
+  fontWeight: 600,
+};
+
+const boxed: CSSProperties = {
+  border: "1px solid #333",
+  padding: 12,
+  marginBottom: 12,
+  breakInside: "avoid",
+};
+
+const compactBoxed: CSSProperties = {
+  padding: 10,
+};
+
+const boxedTitle: CSSProperties = {
+  fontWeight: 900,
+  marginBottom: 6,
+};
+
+const boxedBody: CSSProperties = {
+  whiteSpace: "pre-wrap",
+  lineHeight: 1.5,
+};
+
+const twoColGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+};
+
+const tocGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr",
+  gap: 8,
+};
+
+const tocItem: CSSProperties = {
+  paddingBottom: 6,
+  borderBottom: "1px dotted #aaa",
+  fontWeight: 700,
+};
+
+const tableStyle: CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  breakInside: "avoid",
+};
+
+const thStyle: CSSProperties = {
+  border: "1px solid #333",
+  textAlign: "left",
+  padding: "7px 8px",
+  fontSize: 13,
+  background: "#f6f6f6",
+};
+
+const tdStyle: CSSProperties = {
+  border: "1px solid #333",
+  padding: "8px",
+  height: 28,
+  verticalAlign: "top",
+};
+
+const tickCell: CSSProperties = {
+  ...tdStyle,
+  width: 24,
+  minWidth: 24,
+  padding: 0,
+};
+
+const avoidBreak: CSSProperties = {
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
+};
+
+const signatureGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 12,
+  marginTop: 14,
+};
+
+const signatureBox: CSSProperties = {
+  border: "1px solid #333",
+  padding: 10,
+  breakInside: "avoid",
+};
+
+const appendixPageStyle: CSSProperties = {
+  width: "190mm",
+  minHeight: "277mm",
+  margin: "0 auto 16px auto",
+  background: "#fff",
+  boxSizing: "border-box",
+  padding: 16,
+  boxShadow: "0 0 0 1px rgba(0,0,0,0.16)",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const appendixPageBody: CSSProperties = {
+  paddingTop: 12,
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  flex: 1,
+};
+
+const appendixTitle: CSSProperties = {
+  fontSize: 24,
+  fontWeight: 900,
+  lineHeight: 1.15,
+};
+
+const appendixDescription: CSSProperties = {
+  fontSize: 13,
+  opacity: 0.82,
+};
+
+const appendixFrame: CSSProperties = {
+  border: "1px solid #333",
+  padding: 6,
+  height: "225mm",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
   overflow: "hidden",
   background: "#fff",
 };
 
-const appendixFallback: CSSProperties = {
-  padding: 20,
-  borderRadius: 12,
-  border: "1px dashed rgba(0,0,0,0.16)",
-  background: "#fafafa",
+const appendixImage: CSSProperties = {
+  display: "block",
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
 };
