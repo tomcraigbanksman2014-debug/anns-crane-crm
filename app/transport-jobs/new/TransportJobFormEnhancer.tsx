@@ -186,6 +186,100 @@ export default function TransportJobFormEnhancer() {
       }
     }
 
+
+    type ChecklistRule = {
+      checkboxName: string;
+      auto: boolean;
+      evaluate: () => boolean;
+      note?: string;
+    };
+
+    function hasText(id: string) {
+      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      return !!String(el?.value || "").trim();
+    }
+
+    function numericPositive(id: string) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      const n = Number(String(el?.value || "").trim());
+      return Number.isFinite(n) && n > 0;
+    }
+
+    function checkboxChecked(id: string) {
+      const el = document.getElementById(id) as HTMLInputElement | null;
+      return !!el?.checked;
+    }
+
+    function anyNumericPositive(ids: string[]) {
+      return ids.some((id) => numericPositive(id));
+    }
+
+    function anyText(ids: string[]) {
+      return ids.some((id) => hasText(id));
+    }
+
+    function submissionStatusValue() {
+      const el = document.getElementById("submission_status") as HTMLSelectElement | null;
+      return String(el?.value || "").trim().toLowerCase();
+    }
+
+    function approvalStatusValue() {
+      const el = document.getElementById("approval_status") as HTMLSelectElement | null;
+      return String(el?.value || "").trim().toLowerCase();
+    }
+
+    function movementChecklistRules(): ChecklistRule[] {
+      const escortRequired = checkboxChecked("escort_required");
+      return [
+        { checkboxName: "checklist_dimensions_confirmed", auto: true, evaluate: () => ["load_length_m", "load_width_m", "load_height_m", "transport_length_m", "transport_width_m", "transport_height_m"].every(numericPositive), note: "Auto-completed from entered dimensions" },
+        { checkboxName: "checklist_weight_confirmed", auto: true, evaluate: () => ["load_weight_t", "transport_gross_weight_t"].every(numericPositive), note: "Auto-completed from entered weights" },
+        { checkboxName: "checklist_vehicle_confirmed", auto: true, evaluate: () => ["tractor_unit_type", "tractor_unit_registration", "trailer_type", "trailer_registration"].every(hasText), note: "Auto-completed from entered vehicle details" },
+        { checkboxName: "checklist_axle_data_confirmed", auto: true, evaluate: () => hasText("axle_configuration") && (hasText("axle_weight_notes") || anyNumericPositive(["front_axle_t", "drive_axle_t", "trailer_axle_1_t", "trailer_axle_2_t", "trailer_axle_3_t", "trailer_axle_4_t"])), note: "Auto-completed from axle details" },
+        { checkboxName: "checklist_route_checked", auto: false, evaluate: () => checkboxChecked("route_checked"), note: "Manual confirmation required" },
+        { checkboxName: "checklist_trailer_checked", auto: true, evaluate: () => ["trailer_type", "trailer_registration"].every(hasText), note: "Auto-completed from trailer details" },
+        { checkboxName: "checklist_escort_checked", auto: true, evaluate: () => !escortRequired || (hasText("escort_provider") && anyText(["escort_contact_name", "escort_contact_phone", "escort_details"])), note: escortRequired ? "Auto-completed when escort details are filled" : "Auto-completed because escort is not required" },
+        { checkboxName: "checklist_site_access_checked", auto: false, evaluate: () => hasText("access_notes"), note: "Manual confirmation required" },
+        { checkboxName: "checklist_contacts_confirmed", auto: true, evaluate: () => ["collection_contact_name", "collection_contact_phone", "delivery_contact_name", "delivery_contact_phone"].every(hasText), note: "Auto-completed from entered contacts" },
+        { checkboxName: "checklist_authorities_identified", auto: true, evaluate: () => hasText("authority_areas") || anyText(["police_reference", "highways_reference", "bridge_reference", "council_reference", "special_order_reference", "vr1_reference"]), note: "Auto-completed from authority areas or references" },
+        { checkboxName: "checklist_customer_approved", auto: false, evaluate: () => false, note: "Manual confirmation required" },
+        { checkboxName: "checklist_supplier_booked", auto: false, evaluate: () => false, note: "Manual confirmation required" },
+        { checkboxName: "checklist_documents_uploaded", auto: false, evaluate: () => false, note: "Manual confirmation required" },
+        { checkboxName: "checklist_submission_reviewed", auto: false, evaluate: () => false, note: "Manual confirmation required" },
+        { checkboxName: "checklist_movement_order_submitted", auto: true, evaluate: () => ["submitted", "awaiting_response", "awaiting_approval", "approved", "completed"].includes(submissionStatusValue()) || hasText("movement_order_submitted_at"), note: "Auto-completed from submission status" },
+        { checkboxName: "checklist_approval_received", auto: true, evaluate: () => ["approved", "restricted", "not_required"].includes(approvalStatusValue()) || hasText("approval_received_at") || hasText("approval_reference"), note: "Auto-completed from approval details" },
+      ];
+    }
+
+    function syncMovementChecklist() {
+      const abnormalEnabled = checkboxChecked("abnormal_load_enabled");
+      const checklist = movementChecklistRules();
+
+      checklist.forEach((rule) => {
+        const checkbox = document.querySelector(`input[name="${rule.checkboxName}"]`) as HTMLInputElement | null;
+        const row = checkbox?.closest("label") as HTMLLabelElement | null;
+        if (!checkbox || !row) return;
+
+        const done = abnormalEnabled && rule.evaluate();
+        if (rule.auto) {
+          checkbox.checked = done;
+        }
+
+        row.style.border = done
+          ? "1px solid rgba(16,185,129,0.35)"
+          : abnormalEnabled
+            ? "1px solid rgba(220,38,38,0.28)"
+            : "1px solid rgba(0,0,0,0.08)";
+        row.style.background = done
+          ? "rgba(16,185,129,0.10)"
+          : abnormalEnabled
+            ? "rgba(220,38,38,0.08)"
+            : "rgba(255,255,255,0.7)";
+
+        checkbox.title = rule.note || "";
+        row.title = rule.note || "";
+      });
+    }
+
     sellRateInput?.addEventListener("input", syncSubtotalFromSellRate);
     sellRateInput?.addEventListener("change", syncSubtotalFromSellRate);
 
@@ -214,6 +308,24 @@ export default function TransportJobFormEnhancer() {
     jobTypeSelect?.addEventListener("change", applyOnSiteLabels);
     collectionAddressInput?.addEventListener("blur", applyOnSiteLabels);
 
+    const checklistWatchers = [
+      "abnormal_load_enabled",
+      "load_length_m", "load_width_m", "load_height_m",
+      "load_weight_t", "transport_length_m", "transport_width_m", "transport_height_m", "transport_gross_weight_t",
+      "tractor_unit_type", "tractor_unit_registration", "trailer_type", "trailer_registration",
+      "axle_configuration", "axle_weight_notes", "front_axle_t", "drive_axle_t", "trailer_axle_1_t", "trailer_axle_2_t", "trailer_axle_3_t", "trailer_axle_4_t",
+      "collection_contact_name", "collection_contact_phone", "delivery_contact_name", "delivery_contact_phone",
+      "escort_required", "escort_provider", "escort_contact_name", "escort_contact_phone", "escort_details",
+      "authority_areas", "police_reference", "highways_reference", "bridge_reference", "council_reference", "special_order_reference", "vr1_reference",
+      "route_checked", "access_notes", "submission_status", "movement_order_submitted_at", "approval_status", "approval_received_at", "approval_reference"
+    ];
+    const checklistSyncHandler = () => syncMovementChecklist();
+    checklistWatchers.forEach((id) => {
+      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      el?.addEventListener("input", checklistSyncHandler);
+      el?.addEventListener("change", checklistSyncHandler);
+    });
+
     if (parseValue(subtotalInput) === 0 && sellRateInput) {
       subtotalInput.value = formatMoney(parseValue(sellRateInput));
     }
@@ -226,6 +338,7 @@ export default function TransportJobFormEnhancer() {
     applyOnSiteLabels();
     maybeOpenSupplierSection();
     maybeOpenInvoiceSection();
+    syncMovementChecklist();
 
     return () => {
       sellRateInput?.removeEventListener("input", syncSubtotalFromSellRate);
@@ -244,6 +357,11 @@ export default function TransportJobFormEnhancer() {
 
       jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
       collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
+      checklistWatchers.forEach((id) => {
+        const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+        el?.removeEventListener("input", checklistSyncHandler);
+        el?.removeEventListener("change", checklistSyncHandler);
+      });
     };
   }, []);
 
