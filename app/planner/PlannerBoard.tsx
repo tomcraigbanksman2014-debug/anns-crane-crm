@@ -439,47 +439,6 @@ export default function PlannerBoard() {
     function syncMobile() {
       setIsMobile(window.innerWidth < 900);
     }
-      const [isMobile, setIsMobile] = useState(false);
-  const [mobileDayIndex, setMobileDayIndex] = useState(0);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragSourceDay, setDragSourceDay] = useState<string | null>(null);
-  const [movingId, setMovingId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string>("");
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const messageTimerRef = useRef<number | null>(null);
-  const dragPointerYRef = useRef<number | null>(null);
-  const dragAutoScrollFrameRef = useRef<number | null>(null);
-
-  async function loadBoard(targetWeekStart: string) {
-    setLoading(true);
-    setLoadError("");
-
-    try {
-      const res = await fetch(`/api/planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
-        cache: "no-store",
-      });
-      const json = await res.json();
-
-      if (!res.ok) {
-        throw new Error(json?.error || "Could not load planner.");
-      }
-
-      setData(json);
-    } catch (e: any) {
-      setLoadError(e?.message || "Could not load planner.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadBoard(weekStart);
-  }, [weekStart]);
-
-  useEffect(() => {
-    function syncMobile() {
-      setIsMobile(window.innerWidth < 900);
-    }
 
     syncMobile();
     window.addEventListener("resize", syncMobile);
@@ -838,7 +797,8 @@ export default function PlannerBoard() {
 
   function renderMenu(item: PlannerItem) {
     const isOpen = openMenuId === item.id;
-        function goTo(url: string) {
+
+    function goTo(url: string) {
       window.location.href = url;
     }
 
@@ -1240,7 +1200,8 @@ export default function PlannerBoard() {
                   </div>
                 </div>
               </div>
-                            {isMobile && activeDay ? (
+
+              {isMobile && activeDay ? (
                 <div style={{ display: "grid", gap: 10 }}>
                   <div style={mobileRowHeader}>
                     <div style={{ fontWeight: 1000 }}>Labour only</div>
