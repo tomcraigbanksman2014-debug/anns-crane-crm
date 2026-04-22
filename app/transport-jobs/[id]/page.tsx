@@ -1949,6 +1949,13 @@ const sectionTitle: React.CSSProperties = {
   fontWeight: 900,
 };
 
+const helperText: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 13,
+  lineHeight: 1.5,
+  color: "#5b6470",
+};
+
 const summaryRow: React.CSSProperties = {
   display: "grid",
   gap: 4,
