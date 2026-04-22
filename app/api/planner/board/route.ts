@@ -327,7 +327,7 @@ export async function GET(req: Request) {
           exclude_weekends,
           clients:client_id (id, company_name),
           operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, asset_number)
+          cranes:crane_id (id, name, asset_number:reg_number)
         `),
 
       supabase
@@ -347,7 +347,7 @@ export async function GET(req: Request) {
           supplier_cost,
           agreed_sell_rate,
           notes,
-          cranes:crane_id (id, name, asset_number),
+          cranes:crane_id (id, name, asset_number:reg_number),
           operators:operator_id (id, full_name),
           jobs:job_id (
             id,
@@ -416,7 +416,7 @@ export async function GET(req: Request) {
             exclude_weekends,
             clients:client_id (id, company_name)
           ),
-          cranes:crane_id (id, name, asset_number),
+          cranes:crane_id (id, name, asset_number:reg_number),
           operators:operator_id (id, full_name)
         `),
 
@@ -428,7 +428,7 @@ export async function GET(req: Request) {
 
       supabase
         .from("cranes")
-        .select("id, name, asset_number")
+        .select("id, name, asset_number:reg_number")
         .eq("active", true)
         .order("name", { ascending: true }),
 
