@@ -439,6 +439,8 @@ async function createTransportJob(formData: FormData) {
     delivery_contact_name: abnormalLoadEnabled ? clean(formData.get("delivery_contact_name")) || null : null,
     delivery_contact_phone: abnormalLoadEnabled ? clean(formData.get("delivery_contact_phone")) || null : null,
     preferred_move_window: abnormalLoadEnabled ? clean(formData.get("preferred_move_window")) || null : null,
+    movement_start_time: abnormalLoadEnabled ? clean(formData.get("movement_start_time")) || null : null,
+    movement_finish_time: abnormalLoadEnabled ? clean(formData.get("movement_finish_time")) || null : null,
     trailer_type: abnormalLoadEnabled ? clean(formData.get("trailer_type")) || null : null,
     tractor_unit_type: abnormalLoadEnabled ? clean(formData.get("tractor_unit_type")) || null : null,
     escort_required: abnormalLoadEnabled ? checkboxValue(formData.get("escort_required")) : false,
@@ -595,7 +597,6 @@ export default async function NewTransportJobPage({
           {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
 
           <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
-            <TransportJobFormEnhancer />
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
@@ -837,12 +838,13 @@ export default async function NewTransportJobPage({
                 <span>This transport job needs abnormal load / movement order control</span>
               </label>
 
-              <div style={{ ...softPanel, marginTop: 12 }}>
-                <div style={{ fontWeight: 900, marginBottom: 8 }}>Submission guidance</div>
-                <div style={helperText}>Use this section to capture the route, vehicle, authority, document and approval details needed for a ready-to-submit movement order pack.</div>
-              </div>
+              <div id="abnormal_load_fields_wrap" style={{ display: "none", marginTop: 12 }}>
+                <div style={{ ...softPanel, marginTop: 0 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 8 }}>Submission guidance</div>
+                  <div style={helperText}>Use this section to capture the route, vehicle, authority, document and approval details needed for a ready-to-submit movement order pack.</div>
+                </div>
 
-              <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
+                <div id="abnormal_load_fields_panel" style={{ marginTop: 14, display: "grid", gap: 14 }}>
                 <div>
                   <div style={subsectionTitle}>Movement setup</div>
                   <div style={gridStyle}>
@@ -858,6 +860,8 @@ export default async function NewTransportJobPage({
                       ]}
                     />
                     <Field label="Preferred move window" name="preferred_move_window" placeholder="Eg. 07:00–13:00 / Nights only" />
+                    <Field label="Movement start time" name="movement_start_time" type="time" />
+                    <Field label="Movement finish time" name="movement_finish_time" type="time" />
                     <Field label="Movement reference" name="movement_reference" placeholder="Internal move ref" />
                     <Field label="Movement order reference" name="movement_order_reference" placeholder="Eg. ANNC/717/1#1" />
                   </div>
@@ -921,8 +925,8 @@ export default async function NewTransportJobPage({
                     <Field label="Collection contact phone" name="collection_contact_phone" />
                     <Field label="Delivery contact" name="delivery_contact_name" />
                     <Field label="Delivery contact phone" name="delivery_contact_phone" />
-                    <Field label="Route start" name="route_start" placeholder="Start point / depot / first pickup" />
-                    <Field label="Route finish" name="route_finish" placeholder="Final destination" />
+                    <Field label="Route start location" name="route_start" placeholder="Start point / depot / first pickup location" />
+                    <Field label="Route finish location" name="route_finish" placeholder="Final destination / delivery location" />
                   </div>
 
                   <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
