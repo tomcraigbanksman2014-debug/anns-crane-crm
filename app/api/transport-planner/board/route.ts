@@ -129,9 +129,13 @@ export async function GET(req: Request) {
         price_per_day,
         abnormal_load_enabled,
         abnormal_load_category,
+        movement_reference,
         movement_order_reference,
+        submission_method,
         submission_status,
         approval_status,
+        approval_reference,
+        authorised_to_move,
         notes,
         clients:client_id (
           id,
@@ -227,9 +231,13 @@ export async function GET(req: Request) {
         price_per_day: num(row.price_per_day),
         abnormal_load_enabled: Boolean(row.abnormal_load_enabled),
         abnormal_load_category: row.abnormal_load_category ?? null,
+        movement_reference: row.movement_reference ?? null,
         movement_order_reference: row.movement_order_reference ?? null,
+        submission_method: row.submission_method ?? null,
         submission_status: row.submission_status ?? null,
         approval_status: row.approval_status ?? null,
+        approval_reference: row.approval_reference ?? null,
+        authorised_to_move: Boolean(row.authorised_to_move),
       };
     };
 
