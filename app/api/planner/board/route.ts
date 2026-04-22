@@ -169,6 +169,27 @@ function effectiveJobPrice(job: any) {
   return num(job?.invoice_subtotal) || num(job?.invoice_amount) || num(job?.total_invoice);
 }
 
+function liftPlanStatusLabel(liftPlan: any) {
+  if (!liftPlan) return "LP required";
+
+  const lockedAt = String(liftPlan?.locked_at ?? "").trim();
+  if (lockedAt) return "LP locked";
+
+  const hasAnyContent = [
+    liftPlan?.method_statement,
+    liftPlan?.risk_assessment,
+    liftPlan?.sequence_of_operations,
+    liftPlan?.communication_plan,
+    liftPlan?.pack_sections,
+  ].some((value) => {
+    if (value == null) return false;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return String(value).trim().length > 0;
+  });
+
+  return hasAnyContent ? "LP draft" : "LP required";
+}
+
 function isPlannerVisibleStatus(status: string | null | undefined) {
   const s = String(status ?? "").trim().toLowerCase();
   if (!s) return true;
@@ -238,82 +259,55 @@ function looksLikeLabourAllocation(row: any) {
   return (
     itemName.includes("labour") ||
     itemName.includes("slinger") ||
-    itemName.includes("lift supervisor") ||
-    notes.includes("labour only") ||
-    notes.includes("labour-only")
+    itemName.includes("supervisor") ||
+    itemName.includes("operator") ||
+    notes.includes("labour") ||
+    notes.includes("slinger") ||
+    notes.includes("supervisor") ||
+    notes.includes("operator")
   );
-}
-
-function normaliseJobEquipmentRow(row: any) {
-  return {
-    ...row,
-    allocation_source: "job_equipment",
-    start_date: row?.start_date ?? null,
-    end_date: row?.end_date ?? row?.start_date ?? null,
-    start_time: row?.start_time ?? null,
-    end_time: row?.end_time ?? null,
-    agreed_sell_rate: row?.agreed_sell_rate ?? 0,
-    supplier_cost: row?.supplier_cost ?? row?.agreed_cost ?? 0,
-    source_type: row?.source_type ?? "owned",
-    supplier_id: row?.supplier_id ?? null,
-    supplier_reference: row?.supplier_reference ?? null,
-    item_name: row?.item_name ?? null,
-  };
-}
-
-function normaliseJobAllocationsRow(row: any) {
-  return {
-    ...row,
-    allocation_source: "job_allocations",
-    start_date: dateOnlyFromTimestamp(row?.start_at),
-    end_date: dateOnlyFromTimestamp(row?.end_at) ?? dateOnlyFromTimestamp(row?.start_at),
-    start_time: timeOnlyFromTimestamp(row?.start_at),
-    end_time: timeOnlyFromTimestamp(row?.end_at),
-    agreed_sell_rate: 0,
-    supplier_cost: row?.agreed_cost ?? 0,
-    item_name: null,
-  };
 }
 
 export async function GET(req: Request) {
   try {
-    const { supabase, response } = await requireApiUser();
-    if (response) return response;
-
+    const supabase = await requireApiUser();
     const { searchParams } = new URL(req.url);
     const date = searchParams.get("date");
 
-    const weekStart = startOfWeek(date);
-    const weekEnd = endOfWeek(date);
+    const weekStartDate = startOfWeek(date);
+    const weekEndDate = endOfWeek(date);
+    const weekStart = isoDate(weekStartDate);
+    const weekEnd = isoDate(weekEndDate);
 
-    const from = isoDate(weekStart);
-    const to = isoDate(weekEnd);
-    const bankHolidays = getEnglandWalesBankHolidays(weekStart.getFullYear()).filter(
-      (h) => h.date >= from && h.date <= to
-    );
-
-    const [jobsRes, equipmentAllocationsRes, jobAllocationsRes, operatorsRes, cranesRes] = await Promise.all([
+    const [
+      jobsRes,
+      equipmentAllocationsRes,
+      jobAllocationsRes,
+      operatorsRes,
+      cranesRes,
+      bankHolidayRes,
+      liftPlansRes,
+    ] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
           id,
+          job_number,
           client_id,
-          equipment_id,
           operator_id,
           crane_id,
-          job_number,
-          job_date,
-          start_date,
-          end_date,
-          start_time,
-          end_time,
-          status,
           site_name,
           site_address,
+          start_date,
+          end_date,
+          job_date,
+          start_time,
+          end_time,
           hire_type,
           lift_type,
-          supplier_id,
+          status,
           notes,
+          supplier_id,
           cross_hire_cost_total,
           invoice_subtotal,
           invoice_amount,
@@ -321,15 +315,10 @@ export async function GET(req: Request) {
           price_mode,
           price_per_day,
           exclude_weekends,
-          archived,
-          clients:client_id (company_name),
+          clients:client_id (id, company_name),
           operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number)
-        `)
-        .eq("archived", false)
-        .or(
-          `and(start_date.lte.${to},end_date.gte.${from}),and(start_date.lte.${to},end_date.is.null),and(start_date.is.null,job_date.gte.${from},job_date.lte.${to})`
-        ),
+          cranes:crane_id (id, name, asset_number)
+        `),
 
       supabase
         .from("job_equipment")
@@ -338,36 +327,36 @@ export async function GET(req: Request) {
           job_id,
           crane_id,
           operator_id,
-          asset_type,
-          source_type,
-          supplier_id,
-          item_name,
           start_date,
           end_date,
           start_time,
           end_time,
-          agreed_sell_rate,
+          source_type,
+          supplier_id,
+          supplier_reference,
           supplier_cost,
-          agreed_cost,
+          agreed_sell_rate,
           notes,
+          cranes:crane_id (id, name, asset_number),
+          operators:operator_id (id, full_name),
           jobs:job_id (
             id,
+            job_number,
             client_id,
             operator_id,
             crane_id,
-            job_number,
-            job_date,
-            start_date,
-            end_date,
-            start_time,
-            end_time,
-            status,
             site_name,
             site_address,
+            start_date,
+            end_date,
+            job_date,
+            start_time,
+            end_time,
             hire_type,
             lift_type,
-            supplier_id,
+            status,
             notes,
+            supplier_id,
             cross_hire_cost_total,
             invoice_subtotal,
             invoice_amount,
@@ -375,11 +364,8 @@ export async function GET(req: Request) {
             price_mode,
             price_per_day,
             exclude_weekends,
-            archived,
-            clients:client_id (company_name)
+            clients:client_id (id, company_name)
           ),
-          operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number),
           suppliers:supplier_id (id, company_name)
         `),
 
@@ -403,224 +389,184 @@ export async function GET(req: Request) {
             client_id,
             operator_id,
             crane_id,
-            job_number,
-            job_date,
+            site_name,
+            site_address,
             start_date,
             end_date,
+            job_date,
             start_time,
             end_time,
             status,
-            site_name,
-            site_address,
-            hire_type,
-            lift_type,
-            supplier_id,
             notes,
-            cross_hire_cost_total,
+            price_mode,
+            price_per_day,
             invoice_subtotal,
             invoice_amount,
             total_invoice,
-            price_mode,
-            price_per_day,
             exclude_weekends,
-            archived,
-            clients:client_id (company_name)
+            clients:client_id (id, company_name)
           ),
-          operators:operator_id (id, full_name),
-          cranes:crane_id (id, name, reg_number)
+          cranes:crane_id (id, name, asset_number),
+          operators:operator_id (id, full_name)
         `),
 
       supabase
         .from("operators")
         .select("id, full_name")
-        .eq("archived", false)
+        .eq("active", true)
         .order("full_name", { ascending: true }),
 
       supabase
         .from("cranes")
-        .select("id, name, reg_number")
-        .eq("archived", false)
+        .select("id, name, asset_number")
+        .eq("active", true)
         .order("name", { ascending: true }),
+
+      getEnglandWalesBankHolidays(),
+
+      supabase
+        .from("lift_plans")
+        .select("job_id, locked_at, method_statement, risk_assessment, sequence_of_operations, communication_plan, pack_sections"),
     ]);
 
     if (jobsRes.error) {
       return NextResponse.json({ error: jobsRes.error.message }, { status: 400 });
     }
+
     if (equipmentAllocationsRes.error) {
       return NextResponse.json({ error: equipmentAllocationsRes.error.message }, { status: 400 });
     }
+
     if (jobAllocationsRes.error) {
       return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
     }
+
     if (operatorsRes.error) {
       return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
     }
+
     if (cranesRes.error) {
       return NextResponse.json({ error: cranesRes.error.message }, { status: 400 });
     }
 
+    if (liftPlansRes.error) {
+      return NextResponse.json({ error: liftPlansRes.error.message }, { status: 400 });
+    }
+
     const jobs = jobsRes.data ?? [];
-    const allocations = [
-      ...(equipmentAllocationsRes.data ?? []).map(normaliseJobEquipmentRow),
-      ...(jobAllocationsRes.data ?? []).map(normaliseJobAllocationsRow),
-    ];
+    const equipmentAllocations = equipmentAllocationsRes.data ?? [];
+    const jobAllocations = jobAllocationsRes.data ?? [];
     const operators = operatorsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
+    const liftPlans = liftPlansRes.data ?? [];
 
-    const days = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date(weekStart);
-      d.setDate(d.getDate() + i);
-      const dayIso = isoDate(d);
-      const holiday = bankHolidays.find((h) => h.date === dayIso);
-
-      return {
-        date: dayIso,
-        label: d.toLocaleDateString("en-GB", {
-          weekday: "short",
-          day: "2-digit",
-          month: "2-digit",
-        }),
-        is_bank_holiday: Boolean(holiday),
-        bank_holiday_label: holiday?.label ?? null,
-      };
-    });
+    const bankHolidays = (bankHolidayRes ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
+    const bankHolidayMap = new Map(bankHolidays.map((item) => [item.date, item.label]));
+    const liftPlanByJobId = new Map(liftPlans.map((row: any) => [String(row.job_id), row]));
 
     const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
-    const allocationLinkedJobs = allocations
-      .map((row: any) => first(row.jobs))
+    const activeJobById = new Map(activeJobs.map((job: any) => [String(job.id), job]));
+
+    const allAllocations = [...equipmentAllocations, ...jobAllocations]
       .filter((job: any) => job && isPlannerVisibleStatus(job?.status));
 
-    const activeJobById = new Map<string, any>();
+    const activeAllocations = allAllocations
+      .map((row: any) => {
+        if ("start_at" in row || "end_at" in row) {
+          return {
+            id: row.id,
+            allocation_source: "job_allocations",
+            job_id: row.job_id,
+            asset_type: row.asset_type,
+            crane_id: row.crane_id ?? row.equipment_id ?? null,
+            operator_id: row.operator_id ?? null,
+            start_date: dateOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
+            end_date: dateOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_date ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
+            start_time: timeOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_time ?? null,
+            end_time: timeOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_time ?? null,
+            source_type: row.asset_type === "crane" ? "owned" : null,
+            supplier_id: null,
+            supplier_reference: row.supplier_reference ?? null,
+            supplier_cost: num(row.agreed_cost),
+            agreed_sell_rate: 0,
+            item_name: null,
+            notes: row.notes ?? null,
+            jobs: row.jobs,
+            cranes: row.cranes,
+            operators: row.operators,
+            suppliers: [],
+          };
+        }
 
-    for (const job of activeJobs) {
-      activeJobById.set(String(job.id), job);
-    }
+        return {
+          ...row,
+          allocation_source: "job_equipment",
+          asset_type: looksLikeCraneAllocation(row) ? "crane" : "other",
+        };
+      })
+      .filter((row: any) => {
+        const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+        const excludeWeekends = Boolean(relatedJob?.exclude_weekends);
+        return overlapsWorkingWeek(
+          row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
+          row.end_date ?? relatedJob?.end_date ?? row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
+          weekStart,
+          weekEnd,
+          excludeWeekends
+        );
+      });
 
-    for (const job of allocationLinkedJobs) {
-      if (!activeJobById.has(String(job.id))) {
-        activeJobById.set(String(job.id), job);
-      }
-    }
-
-    const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
-    let linkedTransportJobs: any[] = [];
-
-    if (activeJobIds.length > 0) {
-      const linkedTransportRes = await supabase
-        .from("transport_jobs")
-        .select(`
-          id,
-          linked_job_id,
-          transport_number,
-          status,
-          archived
-        `)
-        .in("linked_job_id", activeJobIds)
-        .eq("archived", false);
-
-      if (linkedTransportRes.error) {
-        return NextResponse.json({ error: linkedTransportRes.error.message }, { status: 400 });
-      }
-
-      linkedTransportJobs = (linkedTransportRes.data ?? []).filter((row: any) =>
-        isPlannerVisibleStatus(row?.status)
-      );
-    }
-
-    const linkedTransportsByJobId = new Map<string, any[]>();
-    for (const row of linkedTransportJobs) {
-      const linkedJobId = String(row?.linked_job_id ?? "").trim();
-      if (!linkedJobId) continue;
-      const current = linkedTransportsByJobId.get(linkedJobId) ?? [];
-      current.push(row);
-      linkedTransportsByJobId.set(linkedJobId, current);
-    }
-
-    const getLinkedTransportMeta = (jobId: string | null | undefined) => {
-      const rows = linkedTransportsByJobId.get(String(jobId ?? "").trim()) ?? [];
-      return {
-        linked_transport_job_count: rows.length,
-        linked_transport_numbers: rows
-          .map((row: any) => String(row?.transport_number ?? "").trim())
-          .filter(Boolean),
-      };
-    };
-
-    const allAllocationRowsForActiveJobs = allocations.filter((row: any) =>
-      activeJobById.has(String(row.job_id))
+    const jobsInRange = activeJobs.filter((job: any) =>
+      overlapsWorkingWeek(
+        job.start_date ?? job.job_date ?? null,
+        job.end_date ?? job.start_date ?? job.job_date ?? null,
+        weekStart,
+        weekEnd,
+        Boolean(job.exclude_weekends)
+      )
     );
 
-    const jobsWithAnyAllocationRows = new Set(
-      allAllocationRowsForActiveJobs.map((row: any) => String(row.job_id))
-    );
-
+    const jobsWithAnyAllocationRows = new Set(activeAllocations.map((row: any) => String(row.job_id)));
     const jobsWithAnyCraneAllocationRows = new Set(
-      allAllocationRowsForActiveJobs
-        .filter((row: any) => looksLikeCraneAllocation(row))
+      activeAllocations
+        .filter((row: any) => looksLikeCraneAllocation(row) || looksLikeCrossHireCraneAllocation(row))
         .map((row: any) => String(row.job_id))
     );
 
-    const jobsInRange = activeJobs
-      .filter((job: any) =>
-        overlapsWorkingWeek(
-          job.start_date ?? job.job_date,
-          job.end_date ?? job.start_date ?? job.job_date,
-          from,
-          to,
-          Boolean(job.exclude_weekends)
-        )
-      )
-      .map((job: any) => {
-        const dateBounds = normaliseDateBounds(
-          job.start_date ?? job.job_date ?? null,
-          job.end_date ?? job.start_date ?? job.job_date ?? null
-        );
-        const workingDates = activeWorkingDates(
-          dateBounds.start,
-          dateBounds.end,
-          Boolean(job.exclude_weekends)
-        );
+    const linkedTransportRes = await supabase
+      .from("transport_jobs")
+      .select(`
+        id,
+        job_number,
+        linked_job_id,
+        status,
+        transport_date,
+        delivery_date
+      `)
+      .not("linked_job_id", "is", null);
 
-        return {
-          ...job,
-          start_date: dateBounds.start || null,
-          end_date: dateBounds.end || null,
-          working_dates: workingDates,
-          billable_days: countBillableDays(
-            dateBounds.start,
-            dateBounds.end,
-            Boolean(job.exclude_weekends)
-          ),
-          effective_price: effectiveJobPrice({
-            ...job,
-            start_date: dateBounds.start || job.start_date,
-            end_date: dateBounds.end || job.end_date,
-          }),
-        };
-      });
+    if (linkedTransportRes.error) {
+      return NextResponse.json({ error: linkedTransportRes.error.message }, { status: 400 });
+    }
 
-    const activeAllocations = allAllocationRowsForActiveJobs.filter((row: any) => {
-      const linkedJob = activeJobById.get(String(row.job_id));
-      if (!linkedJob) return false;
+    const linkedTransportByJobId = new Map<string, string[]>();
 
-      const dateBounds = normaliseDateBounds(
-        row.start_date ?? linkedJob.start_date ?? linkedJob.job_date,
-        row.end_date ??
-          row.start_date ??
-          linkedJob.end_date ??
-          linkedJob.start_date ??
-          linkedJob.job_date
-      );
-      const excludeWeekends = Boolean(linkedJob.exclude_weekends);
-
-      return overlapsWorkingWeek(
-        dateBounds.start,
-        dateBounds.end,
-        from,
-        to,
-        excludeWeekends
-      );
+    (linkedTransportRes.data ?? []).forEach((row: any) => {
+      if (!row?.linked_job_id) return;
+      if (!isPlannerVisibleStatus(row?.status)) return;
+      const key = String(row.linked_job_id);
+      const existing = linkedTransportByJobId.get(key) ?? [];
+      existing.push(row?.job_number ? `#${row.job_number}` : `T${row.id}`);
+      linkedTransportByJobId.set(key, existing);
     });
+
+    function getLinkedTransportMeta(jobId: string | null | undefined) {
+      const rows = linkedTransportByJobId.get(String(jobId ?? "")) ?? [];
+      return {
+        linked_transport_job_count: rows.length,
+        linked_transport_numbers: rows,
+      };
+    }
 
     const crossHireCraneAllocationRows = activeAllocations.filter((row: any) =>
       looksLikeCrossHireCraneAllocation(row)
@@ -639,6 +585,7 @@ export async function GET(req: Request) {
       const operator = first(row.operators);
       const crane = first(row.cranes);
       const client = first(job?.clients);
+      const liftPlan = liftPlanByJobId.get(String(row.job_id)) ?? null;
 
       const rowCraneId = row.crane_id ?? crane?.id ?? null;
       const dateBounds = normaliseDateBounds(
@@ -684,6 +631,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "allocated",
+        lift_plan_status: liftPlanStatusLabel(liftPlan),
       };
     });
 
@@ -692,6 +640,7 @@ export async function GET(req: Request) {
       const operator = first(row.operators);
       const client = first(job?.clients);
       const supplier = first(row.suppliers);
+      const liftPlan = liftPlanByJobId.get(String(row.job_id)) ?? null;
       const dateBounds = normaliseDateBounds(
         row.start_date ?? job?.start_date ?? job?.job_date ?? null,
         row.end_date ?? job?.end_date ?? row.start_date ?? job?.start_date ?? job?.job_date ?? null
@@ -735,6 +684,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "cross_hired",
+        lift_plan_status: liftPlanStatusLabel(liftPlan),
       };
     });
 
@@ -742,6 +692,7 @@ export async function GET(req: Request) {
       const job = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
       const operator = first(row.operators);
       const client = first(job?.clients);
+      const liftPlan = liftPlanByJobId.get(String(row.job_id)) ?? null;
       const dateBounds = normaliseDateBounds(
         row.start_date ?? job?.start_date ?? job?.job_date ?? null,
         row.end_date ??
@@ -787,6 +738,7 @@ export async function GET(req: Request) {
         linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
         linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
         planner_group: "labour_only",
+        lift_plan_status: liftPlanStatusLabel(liftPlan),
       };
     });
 
@@ -803,6 +755,7 @@ export async function GET(req: Request) {
       const mainCraneId = String(job.crane_id ?? "").trim();
       const linkedTransportMeta = getLinkedTransportMeta(job.id);
       const isCrossHiredDirect = Boolean(job?.supplier_id) || num(job?.cross_hire_cost_total) > 0;
+      const liftPlan = liftPlanByJobId.get(String(job.id)) ?? null;
 
       if (jobsWithAnyAllocationRows.has(jobId)) {
         return [];
@@ -842,6 +795,7 @@ export async function GET(req: Request) {
             linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
             linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
             planner_group: "allocated",
+            lift_plan_status: liftPlanStatusLabel(liftPlan),
           },
         ];
       }
@@ -865,20 +819,15 @@ export async function GET(req: Request) {
           site_address: job.site_address ?? null,
           operator_id: job.operator_id ?? null,
           equipment_id: null,
-          source_type: plannerGroup === "cross_hired" ? "cross_hire" : null,
-          item_name:
-            plannerGroup === "labour_only"
-              ? "Labour / Other"
-              : plannerGroup === "cross_hired"
-              ? "Cross-hired crane"
-              : null,
+          item_name: plannerGroup === "labour_only" ? "Labour / Other" : null,
           clients: client ? [client] : [],
           operators: operator ? [operator] : [],
           equipment: [],
           agreed_sell_rate: 0,
+          supplier_cost: num(job.cross_hire_cost_total),
           supplier_id: job.supplier_id ?? null,
           supplier_reference: null,
-          supplier_cost: plannerGroup === "cross_hired" ? num(job.cross_hire_cost_total) : 0,
+          source_type: plannerGroup === "cross_hired" ? "cross_hire" : null,
           price_mode: job.price_mode ?? "full_job",
           price_per_day: num(job.price_per_day),
           job_price: effectiveJobPrice(job),
@@ -889,23 +838,38 @@ export async function GET(req: Request) {
           linked_transport_job_count: linkedTransportMeta.linked_transport_job_count,
           linked_transport_numbers: linkedTransportMeta.linked_transport_numbers,
           planner_group: plannerGroup,
+          lift_plan_status: liftPlanStatusLabel(liftPlan),
         },
       ];
     });
 
+    const items = [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems];
+
+    const days = Array.from({ length: 7 }).map((_, index) => {
+      const dayDate = new Date(weekStartDate);
+      dayDate.setDate(weekStartDate.getDate() + index);
+      const dayIso = isoDate(dayDate);
+      const label = dayDate.toLocaleDateString("en-GB", {
+        weekday: "short",
+        day: "2-digit",
+        month: "2-digit",
+      });
+      return {
+        date: dayIso,
+        label,
+        is_bank_holiday: bankHolidayMap.has(dayIso),
+        bank_holiday_label: bankHolidayMap.get(dayIso) ?? null,
+      };
+    });
+
     return NextResponse.json({
-      week_start: from,
-      week_end: to,
+      week_start: weekStart,
+      week_end: weekEnd,
       days,
       bank_holidays: bankHolidays,
-      items: [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems],
-      operators: operators ?? [],
-      equipment:
-        cranes.map((row: any) => ({
-          id: row.id,
-          name: row.name ?? null,
-          asset_number: row.reg_number ?? null,
-        })) ?? [],
+      items,
+      operators,
+      equipment: cranes,
     });
   } catch (e: any) {
     return NextResponse.json(
