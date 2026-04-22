@@ -68,7 +68,13 @@ function fmtDateTime(value: string | null | undefined) {
   return date.toLocaleString("en-GB");
 }
 
-export default async function JobLiftPlanPage({ params }: { params: { id: string } }) {
+export default async function JobLiftPlanPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: { deleted?: string; delete_error?: string };
+}) {
   const supabase = createSupabaseServerClient();
 
   const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }, { data: documents, error: documentsError }] =
@@ -175,6 +181,9 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
   });
   const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || "";
 
+  const deletedOk = String(searchParams?.deleted ?? "") === "1";
+  const deleteError = String(searchParams?.delete_error ?? "").trim();
+
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
   const craneOptions = flatten((job as any)?.job_equipment)
     .filter((row) => {
@@ -221,6 +230,9 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
         </div>
 
         {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
+
+        {deletedOk ? <div style={successBox}>Document removed.</div> : null}
+        {deleteError ? <div style={errorBox}>{deleteError}</div> : null}
 
         <div style={summaryCard}>
           <div style={summaryTitle}>Job summary</div>
@@ -276,9 +288,12 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
                       <div style={docMeta}>
                         {documentTypeLabel(doc.document_type)} • Uploaded {fmtDateTime(doc.created_at)}
                       </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
                         <span style={appendixPill}>Pack appendix page</span>
                         {doc.share_with_operator ? <span style={neutralPill}>Shared with operator</span> : null}
+                        <form action={`/api/jobs/${params.id}/documents/${doc.id}/delete`} method="post" style={{ marginLeft: "auto" }}>
+                          <button type="submit" style={dangerBtn}>Remove</button>
+                        </form>
                       </div>
                     </div>
                   ))}
@@ -297,6 +312,11 @@ export default async function JobLiftPlanPage({ params }: { params: { id: string
                       <div style={{ fontWeight: 900 }}>{doc.file_name ?? "Untitled file"}</div>
                       <div style={docMeta}>
                         {documentTypeLabel(doc.document_type)} • Uploaded {fmtDateTime(doc.created_at)}
+                      </div>
+                      <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
+                        <form action={`/api/jobs/${params.id}/documents/${doc.id}/delete`} method="post">
+                          <button type="submit" style={dangerBtn}>Remove</button>
+                        </form>
                       </div>
                     </div>
                   ))}
@@ -437,6 +457,25 @@ const errorBox: CSSProperties = {
   borderRadius: 10,
   background: "rgba(180,0,0,0.12)",
   border: "1px solid rgba(180,0,0,0.16)",
+};
+
+const successBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,160,80,0.14)",
+  border: "1px solid rgba(0,160,80,0.18)",
+  color: "#0b6b34",
+  fontWeight: 700,
+};
+
+const dangerBtn: CSSProperties = {
+  padding: "8px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(180,0,0,0.18)",
+  background: "rgba(180,0,0,0.08)",
+  color: "#8b0000",
+  fontWeight: 800,
+  cursor: "pointer",
 };
 
 const secondaryBtn: CSSProperties = {
