@@ -55,6 +55,8 @@ export default function TransportJobDetailFormEnhancer() {
     const deliveryAddressInput = document.getElementById("delivery_address") as HTMLTextAreaElement | null;
     const loadDescriptionInput = document.getElementById("load_description") as HTMLTextAreaElement | null;
     const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
+    const abnormalLoadCheckbox = document.querySelector('input[name="abnormal_load_enabled"]') as HTMLInputElement | null;
+    const abnormalLoadFieldsWrap = document.getElementById("abnormal_load_fields_wrap") as HTMLDivElement | null;
 
     if (!sellRateInput || !subtotalInput || !vatInput || !totalInput) return;
 
@@ -217,6 +219,13 @@ export default function TransportJobDetailFormEnhancer() {
       });
     }
 
+    function syncAbnormalLoadVisibility() {
+      const enabled = !!abnormalLoadCheckbox?.checked;
+      if (abnormalLoadFieldsWrap) {
+        abnormalLoadFieldsWrap.style.display = enabled ? "block" : "none";
+      }
+    }
+
     function applyOnSiteLabels() {
       if (!jobTypeSelect) return;
       const isOnSite = jobTypeSelect.value === "on_site_hiab";
@@ -294,6 +303,7 @@ export default function TransportJobDetailFormEnhancer() {
     });
 
     jobTypeSelect?.addEventListener("change", applyOnSiteLabels);
+    abnormalLoadCheckbox?.addEventListener("change", syncAbnormalLoadVisibility);
     collectionAddressInput?.addEventListener("blur", applyOnSiteLabels);
 
     const checklistWatchers = [
