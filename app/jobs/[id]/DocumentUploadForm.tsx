@@ -5,32 +5,36 @@ import { useState } from "react";
 
 export default function DocumentUploadForm({
   jobId,
+  allowShareWithOperator = true,
 }: {
   jobId: string;
+  allowShareWithOperator?: boolean;
 }) {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
-  const [documentType, setDocumentType] = useState("other");
+  const [documentType, setDocumentType] = useState("site_drawing");
   const [shareWithOperator, setShareWithOperator] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setMsg(null);
+    setMessage(null);
 
     if (!file) {
-      setMsg("Please choose a file.");
+      setMessage("Please choose a file.");
       return;
     }
 
-    setSaving(true);
+    setUploading(true);
 
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("document_type", documentType);
-      formData.append("share_with_operator", shareWithOperator ? "true" : "false");
+      if (allowShareWithOperator) {
+        formData.append("share_with_operator", shareWithOperator ? "true" : "false");
+      }
 
       const res = await fetch(`/api/jobs/${jobId}/documents/upload`, {
         method: "POST",
@@ -40,37 +44,45 @@ export default function DocumentUploadForm({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMsg(data?.error || "Could not upload document.");
+        setMessage(data?.error || "Could not upload document.");
         return;
       }
 
       setFile(null);
-      setDocumentType("other");
+      setDocumentType("site_drawing");
       setShareWithOperator(false);
 
       const input = document.getElementById("job-doc-upload") as HTMLInputElement | null;
       if (input) input.value = "";
 
+      setMessage("Document uploaded.");
       router.refresh();
     } catch {
-      setMsg("Could not upload document.");
+      setMessage("Could not upload document.");
     } finally {
-      setSaving(false);
+      setUploading(false);
     }
   }
 
   return (
     <form onSubmit={onSubmit}>
       <div style={{ display: "grid", gap: 10 }}>
+        <div style={helperBox}>
+          Upload site sketches, crane position drawings, lift diagrams, photos, RAMS, and other lift plan documents.
+          <div style={{ marginTop: 6, fontSize: 12, opacity: 0.78 }}>
+            Image uploads on this page are appended into the full lift plan pack as extra appendix pages.
+          </div>
+        </div>
+
         <select
           value={documentType}
           onChange={(e) => setDocumentType(e.target.value)}
           style={selectStyle}
         >
-          <option value="rams">RAMS</option>
+          <option value="site_drawing">Site Drawing / Appendix Page</option>
+          <option value="photo">Photo / Diagram</option>
           <option value="lift_plan">Lift Plan</option>
-          <option value="site_drawing">Site Drawing</option>
-          <option value="photo">Photo</option>
+          <option value="rams">RAMS</option>
           <option value="delivery_note">Delivery Note</option>
           <option value="other">Other</option>
         </select>
@@ -78,30 +90,42 @@ export default function DocumentUploadForm({
         <input
           id="job-doc-upload"
           type="file"
+          accept="image/*,.pdf"
           onChange={(e) => setFile(e.target.files?.[0] ?? null)}
           style={inputStyle}
         />
 
-        <label style={checkboxRow}>
-          <input
-            type="checkbox"
-            checked={shareWithOperator}
-            onChange={(e) => setShareWithOperator(e.target.checked)}
-          />
-          <span>Share with operator</span>
-        </label>
+        {allowShareWithOperator ? (
+          <label style={checkboxRow}>
+            <input
+              type="checkbox"
+              checked={shareWithOperator}
+              onChange={(e) => setShareWithOperator(e.target.checked)}
+            />
+            <span>Share with operator</span>
+          </label>
+        ) : null}
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button type="submit" disabled={saving} style={primaryBtn}>
-            {saving ? "Uploading..." : "Upload document"}
+          <button type="submit" disabled={uploading} style={primaryBtn}>
+            {uploading ? "Uploading..." : "Upload document"}
           </button>
         </div>
 
-        {msg ? <div style={errorText}>{msg}</div> : null}
+        {message ? <div style={messageText}>{message}</div> : null}
       </div>
     </form>
   );
 }
+
+const helperBox: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 13,
+  lineHeight: 1.45,
+};
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -141,7 +165,7 @@ const primaryBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const errorText: React.CSSProperties = {
+const messageText: React.CSSProperties = {
   fontSize: 13,
-  color: "#b00020",
+  color: "#111",
 };
