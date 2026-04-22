@@ -222,13 +222,21 @@ function PageFooter() {
   );
 }
 
+function renderInfoValue(value: any) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return val(value);
+  }
+  return value;
+}
+
 function InfoTable({ rows }: { rows: Array<[string, any]> }) {
   return (
     <div style={infoTable}>
       {rows.map(([label, value], index) => (
         <div key={`${label}-${index}`} style={{ display: "contents" }}>
           <div style={infoLabel}>{label}</div>
-          <div style={infoValue}>{val(value)}</div>
+          <div style={infoValue}>{renderInfoValue(value)}</div>
         </div>
       ))}
     </div>
@@ -391,14 +399,110 @@ function AppendixPage({
   );
 }
 
+
+
+function defaultSectionText(
+  sections: StringMap,
+  key: keyof StringMap,
+  fallback: string
+) {
+  const value = sections[key];
+  return value && String(value).trim() ? String(value).trim() : fallback;
+}
+
+function EditableInput({
+  name,
+  defaultValue,
+  align = "left",
+}: {
+  name: string;
+  defaultValue: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <input
+      name={name}
+      defaultValue={defaultValue}
+      spellCheck={false}
+      style={{
+        ...inlineInputStyle,
+        textAlign: align,
+      }}
+    />
+  );
+}
+
+function EditableTextarea({
+  name,
+  defaultValue,
+  rows = 4,
+  compact = false,
+}: {
+  name: string;
+  defaultValue: string;
+  rows?: number;
+  compact?: boolean;
+}) {
+  return (
+    <textarea
+      name={name}
+      defaultValue={defaultValue}
+      rows={rows}
+      spellCheck={false}
+      style={{
+        ...inlineTextareaStyle,
+        minHeight: compact ? undefined : rows * 22,
+      }}
+    />
+  );
+}
+
+function isAppendixImageDocument(doc: any) {
+  const mime = String(doc?.file_type ?? "").toLowerCase();
+  const name = String(doc?.file_name ?? "").toLowerCase();
+  const documentType = String(doc?.document_type ?? "").toLowerCase();
+
+  return (
+    mime.startsWith("image/") ||
+    name.endsWith(".png") ||
+    name.endsWith(".jpg") ||
+    name.endsWith(".jpeg") ||
+    name.endsWith(".webp") ||
+    name.endsWith(".gif") ||
+    documentType === "site_drawing" ||
+    documentType === "photo"
+  );
+}
+
+async function signedJobDocumentMap(paths: string[]) {
+  const supabase = createSupabaseServerClient();
+  if (!paths.length) return new Map<string, string>();
+
+  const { data, error } = await supabase.storage
+    .from("job-documents")
+    .createSignedUrls(paths, 60 * 60);
+
+  if (error || !data) return new Map<string, string>();
+
+  const out = new Map<string, string>();
+  for (const row of data) {
+    if (row.path && row.signedUrl) {
+      out.set(row.path, row.signedUrl);
+    }
+  }
+  return out;
+}
+
 export default async function CraneLiftPlanPackPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams?: { saved?: string; error?: string };
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job }, { data: liftPlan }] = await Promise.all([
+  const [{ data: job }, { data: liftPlan }, { data: jobDocuments }] = await Promise.all([
     supabase
       .from("jobs")
       .select(`
@@ -463,6 +567,11 @@ export default async function CraneLiftPlanPackPage({
       .eq("id", params.id)
       .single(),
     supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
+    supabase
+      .from("job_documents")
+      .select("id, file_name, file_path, file_type, document_type, created_at")
+      .eq("job_id", params.id)
+      .order("created_at", { ascending: true }),
   ]);
 
   const sections: StringMap =
@@ -488,7 +597,24 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const appendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
+  const craneAppendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
+  const appendixImageDocs = ((jobDocuments as any[]) ?? []).filter(isAppendixImageDocument);
+  const signedJobDocs = await signedJobDocumentMap(
+    appendixImageDocs.map((doc: any) => String(doc?.file_path ?? "")).filter(Boolean)
+  );
+  const jobAppendixAssets: PackAppendixAssetItem[] = appendixImageDocs
+    .map((doc: any) => {
+      const imageUrl = signedJobDocs.get(String(doc?.file_path ?? ""));
+      if (!imageUrl) return null;
+      return {
+        title: doc?.file_name || "Uploaded appendix",
+        description: String(doc?.document_type ?? "").split("_").join(" "),
+        image_url: imageUrl,
+        page_number: null,
+      } as PackAppendixAssetItem;
+    })
+    .filter(Boolean) as PackAppendixAssetItem[];
+  const appendixAssets = [...craneAppendixAssets, ...jobAppendixAssets];
 
   const clientName = client?.company_name || "the client";
   const projectName =
@@ -518,6 +644,116 @@ export default async function CraneLiftPlanPackPage({
   const equipmentList = splitLines(sections.equipment_list || "").join("\n");
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
 
+  const coverProjectText = defaultSectionText(
+    sections,
+    "cover_project",
+    (job as any)?.site_name || `Job ${(job as any)?.job_number ?? ""}`.trim()
+  );
+  const liftClassificationText = defaultSectionText(
+    sections,
+    "lift_classification",
+    (job as any)?.hire_type || "Basic"
+  );
+  const boomConfigurationText = defaultSectionText(sections, "boom_configuration", boomConfig);
+  const boomLengthText = defaultSectionText(sections, "boom_length", boomLength);
+  const introductionText = defaultSectionText(
+    sections,
+    "introduction",
+    `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded within the CRM. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
+  );
+  const clientResponsibilitiesText = defaultSectionText(
+    sections,
+    "client_responsibilities",
+    `The client shall provide accurate load information, safe and suitable access, a suitable crane standing area, traffic and pedestrian controls where required, and details of any restrictions, underground services, permits or other site conditions that may affect the lifting operation. The client remains responsible for the structural integrity of the load and any client-supplied lifting points.`
+  );
+  const contractLiftArrivalText = defaultSectionText(
+    sections,
+    "contract_lift_arrival",
+    `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
+  );
+  const scopeOfWorksText = defaultSectionText(
+    sections,
+    "scope_of_works",
+    sections.scope_of_works || liftPlan?.load_description || scopeFallback
+  );
+  const communicationText = defaultSectionText(
+    sections,
+    "communication",
+    communicationFallback
+  );
+  const weatherConditionsText = defaultSectionText(
+    sections,
+    "weather_conditions",
+    sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote || `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
+  );
+  const siteAccessText = defaultSectionText(
+    sections,
+    "site_access_egress",
+    `The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must remain suitable for the crane size, weight and turning requirements.`
+  );
+  const groundConditionsText = defaultSectionText(
+    sections,
+    "ground_conditions",
+    sections.ground_conditions || liftPlan?.ground_conditions || `Ground conditions are to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load and the outrigger reactions. Additional ground protection must be used where required.`
+  );
+  const overheadText = defaultSectionText(
+    sections,
+    "overhead_obstructions",
+    sections.overhead_obstructions || liftPlan?.site_hazards || `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
+  );
+  const trafficText = defaultSectionText(
+    sections,
+    "traffic_pedestrian_management",
+    sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details || `The lifting area is to be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone during operations.`
+  );
+  const liftingEquipmentText = defaultSectionText(
+    sections,
+    "lifting_equipment_certification",
+    sections.lifting_equipment_certification || "All lifting tackle must hold current certification and be inspected before use."
+  );
+  const craneDetailsText = defaultSectionText(
+    sections,
+    "crane_details",
+    equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."
+  );
+  const craneSetupText = defaultSectionText(
+    sections,
+    "crane_setup_procedure",
+    sections.crane_setup_procedure || liftPlan?.crane_configuration || equipmentProfile?.configurationNote || `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
+  );
+  const liftingProcedureText = defaultSectionText(
+    sections,
+    "lifting_procedure",
+    sections.lifting_procedure ||
+      (methodStatementLines.length
+        ? methodStatementLines.join("\n")
+        : "1. Brief all personnel and confirm communication method.\n2. Establish exclusion zone and position the crane.\n3. Inspect lifting accessories and connect as planned.\n4. Take up slack and complete a controlled test lift.\n5. Hoist, slew and land the load under the direction of the designated signaller.\n6. Remove lifting accessories and prepare for the next operation.")
+  );
+  const deRigText = defaultSectionText(
+    sections,
+    "de_rig_procedure",
+    `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
+  );
+  const emergencyProcedureText = defaultSectionText(
+    sections,
+    "emergency_procedure",
+    sections.emergency_procedure || liftPlan?.emergency_procedures || `In the event of an emergency, lifting operations are to stop immediately. The load must be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation is to recommence until the situation has been resolved and the area declared safe.`
+  );
+  const riskSummaryText = defaultSectionText(
+    sections,
+    "risk_assessment_summary",
+    sections.risk_assessment_summary ||
+      (riskLines.length
+        ? riskLines.join("\n")
+        : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone.")
+  );
+  const emergencyContactsText = defaultSectionText(sections, "emergency_contacts", emergencyContacts);
+  const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
+  const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
+
+  const saveOk = String(searchParams?.saved ?? "") === "1";
+  const saveError = String(searchParams?.error ?? "").trim();
+
   const outreachRef = formatOutreachReference(equipmentProfile);
   const jibRef = formatJibReference(equipmentProfile);
 
@@ -527,16 +763,32 @@ export default async function CraneLiftPlanPackPage({
         @media print {
           .print-hide { display: none !important; }
           body { background: white !important; }
+          input, textarea {
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            resize: none !important;
+            overflow: visible !important;
+          }
           @page { size: A4; margin: 10mm; }
         }
       `}</style>
 
-      <div className="print-hide" style={toolbar}>
-        <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
-          ← Back to lift plan
-        </a>
-        <PrintPackButton />
-      </div>
+      <form action={`/api/jobs/${params.id}/lift-plan/pack-selections`} method="post">
+        <div className="print-hide" style={toolbar}>
+          <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
+            ← Back to lift plan
+          </a>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <button type="submit" style={saveButtonStyle}>
+              Save pack edits
+            </button>
+            <PrintPackButton />
+          </div>
+        </div>
+
+        {saveOk ? <div className="print-hide" style={saveOkStyle}>Pack edits saved.</div> : null}
+        {saveError ? <div className="print-hide" style={saveErrorStyle}>{saveError}</div> : null}
 
       <PageShell sectionTitle="Cover Sheet">
         <div style={coverHero}>
@@ -554,7 +806,7 @@ export default async function CraneLiftPlanPackPage({
         <InfoTable
           rows={[
             ["Client", clientName],
-            ["Project", projectName],
+            ["Project", <EditableInput name="cover_project" defaultValue={coverProjectText} />],
             ["Start Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
             [
               "Duration",
@@ -569,11 +821,11 @@ export default async function CraneLiftPlanPackPage({
             ["Prepared by", "ANNS CRANE HIRE LTD"],
             [
               "Lift Classification",
-              sections.lift_classification || (job as any)?.hire_type || "Basic",
+              <EditableInput name="lift_classification" defaultValue={liftClassificationText} />,
             ],
             ["Crane(s)", craneName],
-            ["Boom configuration", boomConfig],
-            ["Boom length", boomLength],
+            ["Boom configuration", <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
+            ["Boom length", <EditableInput name="boom_length" defaultValue={boomLengthText} />],
           ]}
         />
       </PageShell>
@@ -618,10 +870,7 @@ export default async function CraneLiftPlanPackPage({
       <PageShell sectionTitle="1. Introduction">
         <SectionTitle>1. Introduction</SectionTitle>
         <BoxedParagraph title="Method Statement – CPA Contract Lift">
-          {sentenceCase(
-            sections.introduction,
-            `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded within the CRM. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
-          )}
+          {<EditableTextarea name="introduction" defaultValue={introductionText} rows={8} />}
         </BoxedParagraph>
 
         <TwoColumnBoxes
@@ -639,7 +888,7 @@ export default async function CraneLiftPlanPackPage({
 
         <BoxedParagraph title="Job Planning Snapshot" compact>
           Client: {clientName}{"\n"}
-          Project: {projectName}{"\n"}
+          Project: {coverProjectText}{"\n"}
           Crane: {craneName}{"\n"}
           Lift Type: {(job as any)?.lift_type || "—"}{"\n"}
           Site Contact: {(job as any)?.contact_name || "—"}{"\n"}
@@ -661,23 +910,17 @@ export default async function CraneLiftPlanPackPage({
 
         <SectionTitle>3. Client Responsibilities and General Conditions</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.client_responsibilities,
-            `The client shall provide accurate load information, safe and suitable access, a suitable crane standing area, traffic and pedestrian controls where required, and details of any restrictions, underground services, permits or other site conditions that may affect the lifting operation. The client remains responsible for the structural integrity of the load and any client-supplied lifting points.`
-          )}
+          {<EditableTextarea name="client_responsibilities" defaultValue={clientResponsibilitiesText} rows={8} />}
         </BoxedParagraph>
 
         <SectionTitle>4. The Contract Lift and Arrival on Site</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.contract_lift_arrival,
-            `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
-          )}
+          {<EditableTextarea name="contract_lift_arrival" defaultValue={contractLiftArrivalText} rows={8} />}
         </BoxedParagraph>
 
         <SectionTitle>5. Brief Scope of Works</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(sections.scope_of_works || liftPlan?.load_description, scopeFallback)}
+          {<EditableTextarea name="scope_of_works" defaultValue={scopeOfWorksText} rows={8} />}
         </BoxedParagraph>
       </PageShell>
 
@@ -694,41 +937,26 @@ export default async function CraneLiftPlanPackPage({
 
         <SectionTitle>7. On Site Communication</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(sections.communication, communicationFallback)}
+          {<EditableTextarea name="communication" defaultValue={communicationText} rows={6} />}
         </BoxedParagraph>
 
         <SectionTitle>8. Weather Conditions</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote,
-            `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
-          )}
+          {<EditableTextarea name="weather_conditions" defaultValue={weatherConditionsText} rows={6} />}
         </BoxedParagraph>
 
         <TwoColumnBoxes
           leftTitle="9. Site Access and Egress"
-          leftBody={sentenceCase(
-            sections.site_access_egress,
-            `The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must remain suitable for the crane size, weight and turning requirements.`
-          )}
+          leftBody={<EditableTextarea name="site_access_egress" defaultValue={siteAccessText} rows={6} />}
           rightTitle="10. Ground Conditions"
-          rightBody={sentenceCase(
-            sections.ground_conditions || liftPlan?.ground_conditions,
-            `Ground conditions are to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load and the outrigger reactions. Additional ground protection must be used where required.`
-          )}
+          rightBody={<EditableTextarea name="ground_conditions" defaultValue={groundConditionsText} rows={6} />}
         />
 
         <TwoColumnBoxes
           leftTitle="11. Overhead Obstructions and Slewing Restrictions"
-          leftBody={sentenceCase(
-            sections.overhead_obstructions || liftPlan?.site_hazards,
-            `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
-          )}
+          leftBody={<EditableTextarea name="overhead_obstructions" defaultValue={overheadText} rows={6} />}
           rightTitle="12. Traffic and Pedestrian Management"
-          rightBody={sentenceCase(
-            sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details,
-            `The lifting area is to be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone during operations.`
-          )}
+          rightBody={<EditableTextarea name="traffic_pedestrian_management" defaultValue={trafficText} rows={6} />}
         />
       </PageShell>
 
@@ -740,8 +968,7 @@ export default async function CraneLiftPlanPackPage({
             ["Lifting accessories", liftPlan?.lifting_accessories],
             [
               "LOLER / certification",
-              sections.lifting_equipment_certification ||
-                "All lifting tackle must hold current certification and be inspected before use.",
+              <EditableTextarea name="lifting_equipment_certification" defaultValue={liftingEquipmentText} rows={4} compact />,
             ],
           ]}
         />
@@ -763,7 +990,7 @@ export default async function CraneLiftPlanPackPage({
               "Gross weight of lifting accessories",
               liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—",
             ],
-            ["Boom configuration", boomConfig],
+            ["Boom configuration", <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
             ["Boom / outreach reference", outreachRef],
             ["Jib / max outreach", jibRef],
             ["Max capacity", craneCapacity],
@@ -772,11 +999,7 @@ export default async function CraneLiftPlanPackPage({
         />
 
         <BoxedParagraph title="Crane specifications">
-          {sentenceCase(
-            sections.crane_details,
-            equipmentProfile?.summary ||
-              "Selected crane profile to be checked against the current manufacturer specification and load chart."
-          )}
+          {<EditableTextarea name="crane_details" defaultValue={craneDetailsText} rows={8} />}
         </BoxedParagraph>
 
         <BoxedParagraph title="Configuration / outrigger note">
@@ -823,10 +1046,7 @@ export default async function CraneLiftPlanPackPage({
       <PageShell sectionTitle="17. Crane Set-up Procedure">
         <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.crane_setup_procedure || liftPlan?.crane_configuration || equipmentProfile?.configurationNote,
-            `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
-          )}
+          {<EditableTextarea name="crane_setup_procedure" defaultValue={craneSetupText} rows={7} />}
         </BoxedParagraph>
         <BoxedParagraph compact>
           {sentenceCase(
@@ -839,40 +1059,26 @@ export default async function CraneLiftPlanPackPage({
       <PageShell sectionTitle="18–19. Lifting & De-Rig Procedure">
         <SectionTitle>18. Lifting Procedure</SectionTitle>
         <BoxedParagraph>
-          {sections.lifting_procedure
-            ? sections.lifting_procedure
-            : methodStatementLines.length
-            ? methodStatementLines.join("\n")
-            : "1. Brief all personnel and confirm communication method.\n2. Establish exclusion zone and position the crane.\n3. Inspect lifting accessories and connect as planned.\n4. Take up slack and complete a controlled test lift.\n5. Hoist, slew and land the load under the direction of the designated signaller.\n6. Remove lifting accessories and prepare for the next operation."}
+          {<EditableTextarea name="lifting_procedure" defaultValue={liftingProcedureText} rows={10} />}
         </BoxedParagraph>
 
         <SectionTitle>19. De-Rig Procedure</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.de_rig_procedure,
-            `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
-          )}
+          {<EditableTextarea name="de_rig_procedure" defaultValue={deRigText} rows={7} />}
         </BoxedParagraph>
       </PageShell>
 
       <PageShell sectionTitle="20–21. Emergency & Risk">
         <SectionTitle>20. Emergency Procedure</SectionTitle>
         <BoxedParagraph>
-          {sentenceCase(
-            sections.emergency_procedure || liftPlan?.emergency_procedures,
-            `In the event of an emergency, lifting operations are to stop immediately. The load must be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation is to recommence until the situation has been resolved and the area declared safe.`
-          )}
+          {<EditableTextarea name="emergency_procedure" defaultValue={emergencyProcedureText} rows={7} />}
         </BoxedParagraph>
 
         <SectionTitle>21. Risk Assessments</SectionTitle>
         <TwoColumnBoxes
           leftTitle="Risk assessment summary"
           leftBody={
-            sections.risk_assessment_summary
-              ? sections.risk_assessment_summary
-              : riskLines.length
-              ? riskLines.join("\n")
-              : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone."
+            <EditableTextarea name="risk_assessment_summary" defaultValue={riskSummaryText} rows={9} />
           }
           rightTitle="Site hazards"
           rightBody={
@@ -933,24 +1139,24 @@ export default async function CraneLiftPlanPackPage({
           <SignatureRow title="Client completion sign-off" name={(job as any)?.contact_name} />
         </div>
 
-        {toolboxNotes ? (
-          <BoxedParagraph title="Toolbox / sign-off notes">{toolboxNotes}</BoxedParagraph>
-        ) : null}
+        <BoxedParagraph title="Toolbox / sign-off notes">
+          {<EditableTextarea name="toolbox_notes" defaultValue={toolboxNotesText} rows={6} />}
+        </BoxedParagraph>
 
-        {emergencyContacts ? (
-          <BoxedParagraph title="Emergency contacts">{emergencyContacts}</BoxedParagraph>
-        ) : null}
+        <BoxedParagraph title="Emergency contacts">
+          {<EditableTextarea name="emergency_contacts" defaultValue={emergencyContactsText} rows={5} />}
+        </BoxedParagraph>
 
-        {equipmentList ? (
-          <BoxedParagraph title="Equipment list">{equipmentList}</BoxedParagraph>
-        ) : null}
+        <BoxedParagraph title="Equipment list">
+          {<EditableTextarea name="equipment_list" defaultValue={equipmentListText} rows={5} />}
+        </BoxedParagraph>
       </PageShell>
 
       <PageShell sectionTitle="Wind Speed Record Sheet" breakAfter={true}>
         <SectionTitle>Wind speed record sheet</SectionTitle>
         <InfoTable
           rows={[
-            ["Project", projectName],
+            ["Project", <EditableInput name="cover_project" defaultValue={coverProjectText} />],
             ["Lift Supervisor", liftSupervisor],
             ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
           ]}
@@ -962,6 +1168,7 @@ export default async function CraneLiftPlanPackPage({
       {appendixAssets.map((asset, index) => (
         <AppendixPage key={`${asset.title}-${asset.page_number}-${index}`} asset={asset} index={index + 1} />
       ))}
+      </form>
     </div>
   );
 }
@@ -993,6 +1200,66 @@ const buttonStyle: CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   border: "1px solid rgba(0,0,0,0.12)",
+};
+
+const saveButtonStyle: CSSProperties = {
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "#111",
+  color: "#fff",
+  fontWeight: 800,
+  border: "none",
+  cursor: "pointer",
+};
+
+const saveOkStyle: CSSProperties = {
+  width: "190mm",
+  margin: "0 auto 16px auto",
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,160,80,0.12)",
+  border: "1px solid rgba(0,160,80,0.18)",
+  color: "#0b6b34",
+  fontWeight: 700,
+};
+
+const saveErrorStyle: CSSProperties = {
+  width: "190mm",
+  margin: "0 auto 16px auto",
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(180,0,0,0.12)",
+  border: "1px solid rgba(180,0,0,0.18)",
+  color: "#8b0000",
+  fontWeight: 700,
+};
+
+const inlineInputStyle: CSSProperties = {
+  width: "100%",
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  margin: 0,
+  font: "inherit",
+  fontWeight: 600,
+  color: "#111",
+  outline: "none",
+};
+
+const inlineTextareaStyle: CSSProperties = {
+  width: "100%",
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  margin: 0,
+  font: "inherit",
+  color: "#111",
+  lineHeight: 1.5,
+  outline: "none",
+  resize: "vertical",
+  whiteSpace: "pre-wrap",
+  overflow: "hidden",
+  boxSizing: "border-box",
 };
 
 const pageStyle: CSSProperties = {
