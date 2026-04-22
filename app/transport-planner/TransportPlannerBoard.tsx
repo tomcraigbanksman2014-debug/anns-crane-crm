@@ -29,9 +29,13 @@ type PlannerItem = {
   price_per_day?: number | null;
   abnormal_load_enabled?: boolean | null;
   abnormal_load_category?: string | null;
+  movement_reference?: string | null;
   movement_order_reference?: string | null;
+  submission_method?: string | null;
   submission_status?: string | null;
   approval_status?: string | null;
+  approval_reference?: string | null;
+  authorised_to_move?: boolean | null;
 };
 
 type VehicleRow = {
@@ -190,6 +194,15 @@ function abnormalCategoryLabel(value: string | null | undefined) {
   if (raw === "escorted_movement") return "Escorted movement";
   if (raw === "modular_movement") return "Modular movement";
   return "Abnormal load";
+}
+
+function submissionStatusShortLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "ready_to_submit") return "Ready to submit";
+  if (raw === "awaiting_response") return "Awaiting response";
+  if (raw === "awaiting_approval") return "Awaiting approval";
+  if (raw === "amendments_required") return "Amendments needed";
+  return raw ? raw.replace(/_/g, " ") : "Not started";
 }
 
 function getTransportCardHighlightStyle(item: PlannerItem, compact = false): React.CSSProperties {
@@ -683,7 +696,15 @@ export default function TransportPlannerBoard() {
           {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
           {linkedCraneItem ? <div style={pillLinked}>Linked crane job</div> : null}
           {isAbnormalTransportItem(item) ? <div style={pillAbnormal}>{abnormalCategoryLabel(item.abnormal_load_category)}</div> : null}
+          {isAbnormalTransportItem(item) && item.submission_status ? <div style={pillSubmission}>{submissionStatusShortLabel(item.submission_status)}</div> : null}
+          {isAbnormalTransportItem(item) ? (
+            <div style={item.authorised_to_move ? pillAuthorised : pillNotAuthorised}>
+              {item.authorised_to_move ? "Authorised" : "Not authorised"}
+            </div>
+          ) : null}
           {item.movement_order_reference ? <div style={pillNeutral}>{item.movement_order_reference}</div> : null}
+          {item.movement_reference ? <div style={pillNeutral}>{item.movement_reference}</div> : null}
+          {item.approval_reference ? <div style={pillNeutral}>{item.approval_reference}</div> : null}
           {item.supplier_reference ? <div style={pillNeutral}>{item.supplier_reference}</div> : null}
           {!item.vehicle_id && item.planner_group !== "cross_hired" ? <div style={pillWarn}>No vehicle assigned</div> : null}
         </div>
@@ -1170,6 +1191,27 @@ const pillAbnormal: React.CSSProperties = {
   background: "rgba(127,90,240,0.14)",
   border: "1px solid rgba(127,90,240,0.24)",
   color: "#5a33b0",
+};
+
+const pillSubmission: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(34,197,94,0.12)",
+  border: "1px solid rgba(34,197,94,0.22)",
+  color: "#166534",
+};
+
+const pillAuthorised: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(16,185,129,0.14)",
+  border: "1px solid rgba(16,185,129,0.24)",
+  color: "#065f46",
+};
+
+const pillNotAuthorised: React.CSSProperties = {
+  ...pillNeutral,
+  background: "rgba(239,68,68,0.12)",
+  border: "1px solid rgba(239,68,68,0.24)",
+  color: "#991b1b",
 };
 
 const dropReadyCell: React.CSSProperties = {
