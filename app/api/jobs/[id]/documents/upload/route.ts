@@ -61,7 +61,7 @@ export async function POST(
 
     const formData = await req.formData();
     const file = formData.get("file");
-    const rawDocumentType = String(formData.get("document_type") ?? "other").trim();
+    const rawDocumentType = String(formData.get("document_type") ?? "other").trim().toLowerCase();
     const documentType = allowedTypes.has(rawDocumentType) ? rawDocumentType : "other";
     const shareWithOperator =
       String(formData.get("share_with_operator") ?? "false").trim().toLowerCase() === "true";
@@ -119,7 +119,7 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, file_path: filePath, document_type: documentType });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Could not upload file." },
