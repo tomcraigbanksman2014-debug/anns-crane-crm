@@ -398,9 +398,13 @@ function SignatureRow({
 function AppendixPage({
   asset,
   index,
+  titleNode,
+  captionNode,
 }: {
   asset: PackAppendixAssetItem;
   index: number;
+  titleNode?: ReactNode;
+  captionNode?: ReactNode;
 }) {
   const imageSrc = asset.image_url;
 
@@ -416,10 +420,14 @@ function AppendixPage({
     >
       <PageHeader sectionTitle={`Appendix ${index}`} />
       <div style={appendixPageBody}>
-        <div style={appendixTitle}>{asset.title}</div>
-        {asset.description ? <div style={appendixDescription}>{asset.description}</div> : null}
+        <div style={appendixTitle}>{titleNode ?? asset.title}</div>
+        {captionNode ? (
+          <div style={appendixDescription}>{captionNode}</div>
+        ) : asset.description ? (
+          <div style={appendixDescription}>{asset.description}</div>
+        ) : null}
         <div style={appendixFrame}>
-          <img src={imageSrc} alt={asset.title} style={appendixImage} />
+          <img src={imageSrc} alt={typeof asset.title === "string" ? asset.title : `Appendix ${index}`} style={appendixImage} />
         </div>
       </div>
     </section>
@@ -1281,7 +1289,13 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
       </PageShell>
 
       {appendixAssets.map((asset, index) => (
-        <AppendixPage key={`${asset.title}-${asset.page_number}-${index}`} asset={asset} index={index + 1} />
+        <AppendixPage
+          key={`${asset.title}-${asset.page_number}-${index}`}
+          asset={asset}
+          index={index + 1}
+          titleNode={inputField(`appendix_${index + 1}_title`, asset.title || `Appendix ${index + 1}`)}
+          captionNode={areaField(`appendix_${index + 1}_caption`, asset.description || "", 2, true)}
+        />
       ))}
       </form>
     </div>
