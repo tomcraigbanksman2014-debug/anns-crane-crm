@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireApiUser } from "../../../../lib/apiAuth";
-import { getEnglandWalesBankHolidays } from "../../../../lib/bankHolidays";
+import { requireApiUser } from "../../../lib/apiAuth";
+import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
