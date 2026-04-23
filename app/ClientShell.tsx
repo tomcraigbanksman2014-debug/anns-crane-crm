@@ -53,6 +53,7 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/planner")) return true;
   if (pathname.startsWith("/weekly-planner")) return true;
   if (pathname.startsWith("/transport-planner")) return true;
+  if (pathname.startsWith("/staff-planner")) return true;
   if (pathname.startsWith("/transport-map")) return true;
   if (pathname.startsWith("/purchase-orders")) return true;
   if (pathname.startsWith("/suppliers")) return true;
@@ -223,6 +224,7 @@ export default function ClientShell({
     { label: "Crane Planner", href: "/planner" },
     { label: "Weekly Planner", href: "/weekly-planner" },
     { label: "Transport Planner", href: "/transport-planner" },
+    { label: "Staff Planner", href: "/staff-planner" },
     { label: "Transport Map", href: "/transport-map" },
 
     { label: "Purchase Orders", href: "/purchase-orders" },
