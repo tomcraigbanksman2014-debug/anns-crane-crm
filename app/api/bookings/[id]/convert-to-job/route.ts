@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
+import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
 
 function toTimeOnly(value: string | null | undefined) {
   if (!value) return null;
@@ -169,6 +170,36 @@ export async function POST(
       return NextResponse.redirect(new URL(`/bookings/${params.id}`, req.url));
     }
 
+    if (jobPayload.operator_id) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: jobPayload.operator_id,
+        startDate: jobPayload.job_date,
+        endDate: jobPayload.job_date,
+        startTime: jobPayload.start_time,
+        endTime: jobPayload.end_time,
+      });
+    }
+
+    for (const row of equipmentRows) {
+      const operatorId = String(row?.operator_id ?? "").trim();
+      if (!operatorId) continue;
+
+      const rowStartDate = String(row?.booking_date ?? booking.start_date ?? "").trim();
+      const rowEndDate = String(row?.booking_date ?? booking.end_date ?? booking.start_date ?? "").trim() || rowStartDate;
+      const rowStartTime = row?.start_time ?? toTimeOnly(booking.start_at);
+      const rowEndTime = row?.end_time ?? toTimeOnly(booking.end_at);
+
+      if (!rowStartDate) continue;
+
+      await assertOperatorAvailable(supabase, {
+        operatorId,
+        startDate: rowStartDate,
+        endDate: rowEndDate || rowStartDate,
+        startTime: rowStartTime,
+        endTime: rowEndTime,
+      });
+    }
+
     const { data: job, error: jobError } = await supabase
       .from("jobs")
       .insert([jobPayload])
@@ -249,7 +280,13 @@ export async function POST(
     });
 
     return NextResponse.redirect(new URL(`/jobs/${job.id}`, req.url));
-  } catch {
+  } catch (e: any) {
+    const message = String(e?.message ?? "").trim();
+    if (message) {
+      return NextResponse.redirect(
+        new URL(`/bookings/${params.id}?error=${encodeURIComponent(message)}`, req.url)
+      );
+    }
     return NextResponse.redirect(new URL(`/bookings/${params.id}`, req.url));
   }
 }
