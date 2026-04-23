@@ -796,6 +796,7 @@ export default async function CraneLiftPlanPackPage({
 
   const saveOk = String(searchParams?.saved ?? "") === "1";
   const saveError = String(searchParams?.error ?? "").trim();
+  const isLocked = Boolean((liftPlan as any)?.paperwork_locked);
 
   const outreachRef = formatOutreachReference(equipmentProfile);
   const jibRef = formatJibReference(equipmentProfile);
@@ -823,16 +824,22 @@ export default async function CraneLiftPlanPackPage({
             ← Back to lift plan
           </a>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <button type="submit" style={saveButtonStyle}>
-              Save pack edits
+            <button type="submit" style={isLocked ? { ...saveButtonStyle, opacity: 0.55, cursor: "not-allowed" } : saveButtonStyle} disabled={isLocked}>
+              {isLocked ? "Lift plan locked" : "Save pack edits"}
             </button>
             <PrintPackButton />
           </div>
         </div>
 
+        {isLocked ? (
+          <div className="print-hide" style={lockedBannerStyle}>
+            This lift plan is locked. Pack fields are read-only on this page until the lock is removed.
+          </div>
+        ) : null}
         {saveOk ? <div className="print-hide" style={saveOkStyle}>Pack edits saved.</div> : null}
         {saveError ? <div className="print-hide" style={saveErrorStyle}>{saveError}</div> : null}
 
+      <fieldset disabled={isLocked} style={fieldsetStyle}>
       <PageShell
         sectionTitle={inputField("page_section_cover", "Cover Sheet", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
@@ -1297,10 +1304,29 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           captionNode={areaField(`appendix_${index + 1}_caption`, asset.description || "", 2, true)}
         />
       ))}
+      </fieldset>
       </form>
     </div>
   );
 }
+
+
+const fieldsetStyle: CSSProperties = {
+  border: 0,
+  margin: 0,
+  padding: 0,
+  minInlineSize: "auto",
+};
+
+const lockedBannerStyle: CSSProperties = {
+  margin: "0 0 16px",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(180,0,0,0.10)",
+  border: "1px solid rgba(180,0,0,0.16)",
+  color: "#8b0000",
+  fontWeight: 700,
+};
 
 const wrapper: CSSProperties = {
   background: "#f5f5f5",
