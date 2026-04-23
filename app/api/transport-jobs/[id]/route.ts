@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -705,6 +706,17 @@ export async function PATCH(
       body.status !== undefined ? clean(body.status) : existing.status,
       nextPayload
     );
+
+    if (nextPayload.operator_id) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: nextPayload.operator_id,
+        startDate: nextPayload.transport_date,
+        endDate: nextPayload.delivery_date ?? nextPayload.transport_date,
+        startTime: nextPayload.collection_time,
+        endTime: nextPayload.delivery_time,
+      });
+    }
+
     nextPayload.updated_at = new Date().toISOString();
 
     const { data, error } = await supabase
