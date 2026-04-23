@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
+import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
@@ -190,7 +191,7 @@ export async function POST(req: Request) {
 
     const { data: linkedJob, error: linkedJobError } = await supabase
       .from("jobs")
-      .select("id, exclude_weekends, supplier_id, cross_hire_cost_total")
+      .select("id, exclude_weekends, supplier_id, cross_hire_cost_total, start_date, end_date, job_date, start_time, end_time")
       .eq("id", jobId)
       .single();
 
@@ -202,6 +203,19 @@ export async function POST(req: Request) {
 
     const movingToCrossHire = targetPlannerGroup === "cross_hired";
     const movingToOwnedCrane = Boolean(craneId) && targetPlannerGroup !== "cross_hired";
+
+    const effectiveAssignmentStart = startDate ?? linkedJob.start_date ?? linkedJob.job_date ?? null;
+    const effectiveAssignmentEnd = endDate ?? linkedJob.end_date ?? linkedJob.start_date ?? linkedJob.job_date ?? null;
+
+    if (operatorId) {
+      await assertOperatorAvailable(supabase, {
+        operatorId,
+        startDate: effectiveAssignmentStart,
+        endDate: effectiveAssignmentEnd,
+        startTime,
+        endTime: endTime ?? startTime,
+      });
+    }
 
     const hasCrossHireMeta = (value: Record<string, any> | null | undefined) => {
       return Boolean(
