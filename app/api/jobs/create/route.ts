@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 type Payload = {
   client_id?: string | null;
@@ -96,6 +97,16 @@ export async function POST(req: Request) {
       archived: false,
       updated_at: new Date().toISOString(),
     };
+
+    if (payload.operator_id) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: payload.operator_id,
+        startDate: payload.start_date,
+        endDate: payload.end_date,
+        startTime: payload.start_time,
+        endTime: payload.end_time,
+      });
+    }
 
     const { data, error } = await supabase
       .from("jobs")
