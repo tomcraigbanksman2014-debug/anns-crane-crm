@@ -65,7 +65,17 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
+}function getMobilePageKind(pathname: string): "planner" | "default" {
+  if (pathname.startsWith("/planner")) return "planner";
+  if (pathname.startsWith("/transport-planner")) return "planner";
+  if (pathname.startsWith("/staff-planner")) return "planner";
+  if (pathname.startsWith("/weekly-planner")) return "planner";
+  if (pathname.startsWith("/calendar")) return "planner";
+  if (pathname.startsWith("/timesheets")) return "planner";
+  return "default";
 }
+
+
 
 export default function ClientShell({
   children,
@@ -252,6 +262,7 @@ export default function ClientShell({
   );
 
   const nav = role === "operator" ? operatorNav : officeNav;
+  const mobilePageKind = getMobilePageKind(pathname);
   const showOperatorMenuButton = role !== "operator";
 
   async function signOut() {
@@ -270,7 +281,7 @@ export default function ClientShell({
   if (role === "operator") {
     return (
       <div style={pageStyle}>
-        <main style={operatorMainStyle}>{children}</main>
+        <main data-mobile-safe-root data-mobile-page-kind="default" style={operatorMainStyle}>{children}</main>
       </div>
     );
   }
@@ -351,6 +362,8 @@ export default function ClientShell({
         </aside>
 
         <main
+          data-mobile-safe-root
+          data-mobile-page-kind={mobilePageKind}
           style={{
             ...mainStyle,
             ...(isMobile ? mobileMainStyle : {}),
