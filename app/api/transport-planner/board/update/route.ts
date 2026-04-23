@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { geocodeAddress } from "../../../../lib/geocode";
+import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
 
 function clean(value: any) {
   const s = String(value ?? "").trim();
@@ -42,7 +43,7 @@ export async function POST(req: Request) {
 
     const { data: existingJob, error: existingJobError } = await supabase
       .from("transport_jobs")
-      .select("id, supplier_id, supplier_reference, supplier_cost")
+      .select("id, supplier_id, supplier_reference, supplier_cost, operator_id, transport_date, delivery_date, collection_time, delivery_time")
       .eq("id", transportJobId)
       .single();
 
@@ -163,6 +164,19 @@ export async function POST(req: Request) {
       effectiveTransportDate
     ) {
       updatePayload.delivery_date = effectiveTransportDate;
+    }
+
+    const effectiveOperatorId =
+      updatePayload.operator_id !== undefined ? updatePayload.operator_id : existingJob.operator_id;
+
+    if (effectiveOperatorId) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: effectiveOperatorId,
+        startDate: effectiveTransportDate ?? existingJob.transport_date,
+        endDate: effectiveDeliveryDate ?? existingJob.delivery_date ?? effectiveTransportDate ?? existingJob.transport_date,
+        startTime: effectiveCollectionTime ?? existingJob.collection_time,
+        endTime: effectiveDeliveryTime ?? existingJob.delivery_time,
+      });
     }
 
     const { error } = await supabase
