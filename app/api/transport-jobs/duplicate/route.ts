@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function makeTransportNumber() {
   const d = new Date();
@@ -36,6 +36,18 @@ export async function POST(req: Request) {
         { error: readError?.message || "Transport job not found." },
         { status: 404 }
       );
+    }
+
+    const transportDate = String(job.transport_date ?? "").trim();
+
+    if (job.operator_id && transportDate) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: job.operator_id,
+        startDate: transportDate,
+        endDate: transportDate,
+        startTime: job.collection_time ?? null,
+        endTime: job.delivery_time ?? null,
+      });
     }
 
     const insertRow: Record<string, any> = { ...job };
