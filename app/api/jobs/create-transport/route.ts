@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function makeTransportNumber() {
   const d = new Date();
@@ -47,6 +47,16 @@ export async function POST(req: Request) {
         { error: readError?.message || "Crane job not found." },
         { status: 404 }
       );
+    }
+
+    if (job.operator_id && job.job_date) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: job.operator_id,
+        startDate: job.job_date,
+        endDate: job.job_date,
+        startTime: job.start_time,
+        endTime: job.end_time,
+      });
     }
 
     const pickupAddress = String(job.site_address ?? "").trim();
