@@ -175,10 +175,18 @@ function formatJibReference(profile: any) {
 function PageShell({
   children,
   sectionTitle,
+  headerTitle,
+  headerSubtitle,
+  headerMonth,
+  footerText,
   breakAfter = true,
 }: {
   children: ReactNode;
-  sectionTitle: string;
+  sectionTitle: ReactNode;
+  headerTitle?: ReactNode;
+  headerSubtitle?: ReactNode;
+  headerMonth?: ReactNode;
+  footerText?: ReactNode;
   breakAfter?: boolean;
 }) {
   return (
@@ -189,35 +197,50 @@ function PageShell({
         breakAfter: breakAfter ? "page" : "auto",
       }}
     >
-      <PageHeader sectionTitle={sectionTitle} />
+      <PageHeader
+        sectionTitle={sectionTitle}
+        title={headerTitle}
+        subtitle={headerSubtitle}
+        month={headerMonth}
+      />
       <div style={pageBody}>{children}</div>
-      <PageFooter />
+      <PageFooter text={footerText} />
     </section>
   );
 }
 
-function PageHeader({ sectionTitle }: { sectionTitle: string }) {
+function PageHeader({
+  sectionTitle,
+  title,
+  subtitle,
+  month,
+}: {
+  sectionTitle: ReactNode;
+  title?: ReactNode;
+  subtitle?: ReactNode;
+  month?: ReactNode;
+}) {
   return (
     <div style={pageHeader}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <img src="/icon.png" alt="AnnS Crane Hire logo" style={logoStyle} />
         <div>
-          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>ANNS – LIFTING PLAN – V1</div>
-          <div style={{ fontSize: 11, opacity: 0.72 }}>Anns Crane Hire Ltd</div>
+          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>{title ?? "ANNS – LIFTING PLAN – V1"}</div>
+          <div style={{ fontSize: 11, opacity: 0.72 }}>{subtitle ?? "Anns Crane Hire Ltd"}</div>
         </div>
       </div>
       <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 11, opacity: 0.7 }}>April 2026</div>
+        <div style={{ fontSize: 11, opacity: 0.7 }}>{month ?? "April 2026"}</div>
         <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
       </div>
     </div>
   );
 }
 
-function PageFooter() {
+function PageFooter({ text }: { text?: ReactNode }) {
   return (
     <div style={pageFooter}>
-      Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk
+      {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk"}
     </div>
   );
 }
@@ -230,7 +253,7 @@ function renderInfoValue(value: any) {
   return value;
 }
 
-function InfoTable({ rows }: { rows: Array<[string, any]> }) {
+function InfoTable({ rows }: { rows: Array<[ReactNode, any]> }) {
   return (
     <div style={infoTable}>
       {rows.map(([label, value], index) => (
@@ -252,7 +275,7 @@ function BoxedParagraph({
   children,
   compact = false,
 }: {
-  title?: string;
+  title?: ReactNode;
   children: ReactNode;
   compact?: boolean;
 }) {
@@ -270,9 +293,9 @@ function TwoColumnBoxes({
   rightTitle,
   rightBody,
 }: {
-  leftTitle: string;
+  leftTitle: ReactNode;
   leftBody: ReactNode;
-  rightTitle: string;
+  rightTitle: ReactNode;
   rightBody: ReactNode;
 }) {
   return (
@@ -284,21 +307,25 @@ function TwoColumnBoxes({
 }
 
 function CheckboxTable({
+  leftHeader,
+  rightHeader,
   left,
   right,
 }: {
-  left: string[];
-  right: string[];
+  leftHeader?: ReactNode;
+  rightHeader?: ReactNode;
+  left: ReactNode[];
+  right: ReactNode[];
 }) {
   const rows = Math.max(left.length, right.length);
   return (
     <table style={tableStyle}>
       <thead>
         <tr>
-          <th style={thStyle}>PRE-LIFT CHECK POINTS</th>
+          <th style={thStyle}>{leftHeader ?? "PRE-LIFT CHECK POINTS"}</th>
           <th style={thStyle}>Y</th>
           <th style={thStyle}>N</th>
-          <th style={thStyle}>ERECTION / COMPLETION CHECKS</th>
+          <th style={thStyle}>{rightHeader ?? "ERECTION / COMPLETION CHECKS"}</th>
           <th style={thStyle}>Y</th>
           <th style={thStyle}>N</th>
         </tr>
@@ -323,15 +350,15 @@ function BlankTable({
   headers,
   rows,
 }: {
-  headers: string[];
+  headers: ReactNode[];
   rows: number;
 }) {
   return (
     <table style={tableStyle}>
       <thead>
         <tr>
-          {headers.map((header) => (
-            <th key={header} style={thStyle}>
+          {headers.map((header, index) => (
+            <th key={index} style={thStyle}>
               {header}
             </th>
           ))}
@@ -340,8 +367,8 @@ function BlankTable({
       <tbody>
         {Array.from({ length: rows }).map((_, i) => (
           <tr key={i}>
-            {headers.map((header, idx) => (
-              <td key={`${header}-${idx}`} style={tdStyle}></td>
+            {headers.map((_, idx) => (
+              <td key={idx} style={tdStyle}></td>
             ))}
           </tr>
         ))}
@@ -354,7 +381,7 @@ function SignatureRow({
   title,
   name,
 }: {
-  title: string;
+  title: ReactNode;
   name?: string | null;
 }) {
   return (
@@ -751,106 +778,12 @@ export default async function CraneLiftPlanPackPage({
   const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
   const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
 
-  const siteInspectionText = defaultSectionText(
-    sections,
-    "site_inspection",
-    `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`
+  const fieldText = (key: string, fallback: string) => defaultSectionText(sections, key, fallback);
+  const inputField = (key: string, fallback: string, align: "left" | "right" = "left") => (
+    <EditableInput name={key} defaultValue={fieldText(key, fallback)} align={align} />
   );
-  const rolesResponsibilitiesText = defaultSectionText(
-    sections,
-    "roles_responsibilities",
-    `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`
-  );
-  const appointedPersonText = defaultSectionText(
-    sections,
-    "appointed_person_name",
-    appointedPerson
-  );
-  const preparedByText = defaultSectionText(
-    sections,
-    "prepared_by_name",
-    "ANNS CRANE HIRE LTD"
-  );
-  const approvedByText = defaultSectionText(
-    sections,
-    "approved_by_name",
-    liftPlan?.approved_by || ""
-  );
-  const approvedAtText = defaultSectionText(
-    sections,
-    "approved_at_text",
-    fmtDateTime(liftPlan?.approved_at)
-  );
-  const liftSupervisorText = defaultSectionText(
-    sections,
-    "lift_supervisor_name",
-    liftSupervisor
-  );
-  const craneOperatorText = defaultSectionText(
-    sections,
-    "crane_operator_name",
-    liftPlan?.crane_operator || operator?.full_name || ""
-  );
-  const siteContactText = defaultSectionText(
-    sections,
-    "client_site_contact_name",
-    (job as any)?.contact_name || ""
-  );
-  const slingTypeText = defaultSectionText(
-    sections,
-    "sling_type_text",
-    liftPlan?.sling_type || ""
-  );
-  const liftingAccessoriesText = defaultSectionText(
-    sections,
-    "lifting_accessories_text",
-    liftPlan?.lifting_accessories || ""
-  );
-  const configurationOutriggerNoteText = defaultSectionText(
-    sections,
-    "configuration_outrigger_note",
-    `${equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
-
-${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}`
-  );
-  const loadChartNoteText = defaultSectionText(
-    sections,
-    "load_chart_note",
-    "Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds."
-  );
-  const outriggerSetupNoteText = defaultSectionText(
-    sections,
-    "outrigger_setup_note",
-    sentenceCase(
-      liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
-      `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
-    )
-  );
-  const siteHazardsText = defaultSectionText(
-    sections,
-    "site_hazards",
-    hazardLines.length
-      ? hazardLines.join("\n")
-      : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."
-  );
-  const controlMeasuresText = defaultSectionText(
-    sections,
-    "control_measures",
-    controlLines.length
-      ? controlLines.join("\n")
-      : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
-  );
-  const ppeRequiredText = defaultSectionText(
-    sections,
-    "ppe_required",
-    ppeLines.length
-      ? ppeLines.join("\n")
-      : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
-  );
-  const windSpeedLiftSupervisorText = defaultSectionText(
-    sections,
-    "wind_speed_lift_supervisor",
-    liftSupervisorText
+  const areaField = (key: string, fallback: string, rows = 4, compact = false) => (
+    <EditableTextarea name={key} defaultValue={fieldText(key, fallback)} rows={rows} compact={compact} />
   );
 
   const saveOk = String(searchParams?.saved ?? "") === "1";
@@ -892,24 +825,30 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         {saveOk ? <div className="print-hide" style={saveOkStyle}>Pack edits saved.</div> : null}
         {saveError ? <div className="print-hide" style={saveErrorStyle}>{saveError}</div> : null}
 
-      <PageShell sectionTitle="Cover Sheet">
+      <PageShell
+        sectionTitle={inputField("page_section_cover", "Cover Sheet", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
         <div style={coverHero}>
           <div>
-            <div style={coverTitle}>ANNS – LIFTING PLAN – V1</div>
-            <div style={coverSubtitle}>April 2026</div>
+            <div style={coverTitle}>{inputField("cover_title", "ANNS – LIFTING PLAN – V1")}</div>
+            <div style={coverSubtitle}>{inputField("cover_subtitle", "April 2026")}</div>
           </div>
           <div style={coverCompany}>
-            <div>Anns Crane Hire Ltd</div>
-            <div>6 Bay St, Port Tennant, Swansea, SA1 8LB</div>
-            <div>01792 641653 • info@annscranehire.co.uk</div>
+            <div>{inputField("cover_company_line_1", "Anns Crane Hire Ltd")}</div>
+            <div>{inputField("cover_company_line_2", "6 Bay St, Port Tennant, Swansea, SA1 8LB")}</div>
+            <div>{inputField("cover_company_line_3", "01792 641653 • info@annscranehire.co.uk")}</div>
           </div>
         </div>
 
         <InfoTable
           rows={[
-            ["Client", clientName],
-            ["Project", <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            ["Start Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            [inputField("cover_label_client", "Client"), clientName],
+            [inputField("cover_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
+            [inputField("cover_label_start_date", "Start Date"), fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
             [
               "Duration",
               calcDuration(
@@ -917,72 +856,84 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
                 (job as any)?.end_date ?? (job as any)?.job_date
               ),
             ],
-            ["Site Address", coverAddress(job)],
-            ["Site Contact", <EditableInput name="client_site_contact_name" defaultValue={siteContactText} />],
-            ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
-            ["Prepared by", <EditableInput name="prepared_by_name" defaultValue={preparedByText} />],
+            [inputField("cover_label_site_address", "Site Address"), coverAddress(job)],
+            [inputField("cover_label_site_contact", "Site Contact"), (job as any)?.contact_name],
+            [inputField("cover_label_appointed_person", "Appointed Person"), appointedPerson],
+            [inputField("cover_label_prepared_by", "Prepared by"), inputField("cover_prepared_by_value", "ANNS CRANE HIRE LTD")],
             [
               "Lift Classification",
               <EditableInput name="lift_classification" defaultValue={liftClassificationText} />,
             ],
-            ["Crane(s)", craneName],
-            ["Boom configuration", <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
-            ["Boom length", <EditableInput name="boom_length" defaultValue={boomLengthText} />],
+            [inputField("cover_label_cranes", "Crane(s)"), craneName],
+            [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
+            [inputField("cover_label_boom_length", "Boom length"), <EditableInput name="boom_length" defaultValue={boomLengthText} />],
           ]}
         />
       </PageShell>
 
-      <PageShell sectionTitle="Table of Contents">
-        <SectionTitle>Table of Contents</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_toc", "Table of Contents", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("toc_title", "Table of Contents")}</SectionTitle>
         <div style={tocGrid}>
           {[
-            "1. Introduction",
-            "2. Appointed Person Declaration",
-            "3. Client Responsibilities and General Conditions",
-            "4. The Contract Lift and Arrival on Site",
-            "5. Brief Scope of Works",
-            "6. Lifting Personnel",
-            "7. On Site Communication",
-            "8. Weather Conditions",
-            "9. Site Access and Egress",
-            "10. Ground Conditions",
-            "11. Overhead Obstructions and Slewing Restrictions",
-            "12. Traffic and Pedestrian Management",
-            "13. Lifting Equipment to be used & Certification",
-            "14. Crane Details",
-            "15. Variation from Method Statement",
-            "16. Toolbox Talk Attendance",
-            "17. Crane Set-up Procedure",
-            "18. Lifting Procedure",
-            "19. De-Rig Procedure",
-            "20. Emergency Procedure",
-            "21. Risk Assessments",
-            "22. Check Lists and Sign Offs",
-          ].map((item) => (
-            <div key={item} style={tocItem}>
-              {item}
+            ["toc_item_1", "1. Introduction"],
+            ["toc_item_2", "2. Appointed Person Declaration"],
+            ["toc_item_3", "3. Client Responsibilities and General Conditions"],
+            ["toc_item_4", "4. The Contract Lift and Arrival on Site"],
+            ["toc_item_5", "5. Brief Scope of Works"],
+            ["toc_item_6", "6. Lifting Personnel"],
+            ["toc_item_7", "7. On Site Communication"],
+            ["toc_item_8", "8. Weather Conditions"],
+            ["toc_item_9", "9. Site Access and Egress"],
+            ["toc_item_10", "10. Ground Conditions"],
+            ["toc_item_11", "11. Overhead Obstructions and Slewing Restrictions"],
+            ["toc_item_12", "12. Traffic and Pedestrian Management"],
+            ["toc_item_13", "13. Lifting Equipment to be used & Certification"],
+            ["toc_item_14", "14. Crane Details"],
+            ["toc_item_15", "15. Variation from Method Statement"],
+            ["toc_item_16", "16. Toolbox Talk Attendance"],
+            ["toc_item_17", "17. Crane Set-up Procedure"],
+            ["toc_item_18", "18. Lifting Procedure"],
+            ["toc_item_19", "19. De-Rig Procedure"],
+            ["toc_item_20", "20. Emergency Procedure"],
+            ["toc_item_21", "21. Risk Assessments"],
+            ["toc_item_22", "22. Check Lists and Sign Offs"],
+          ].map(([key, item]) => (
+            <div key={String(key)} style={tocItem}>
+              {inputField(String(key), String(item))}
             </div>
           ))}
           {appendixAssets.length ? (
-            <div style={tocItem}>Appendix – Selected machine specification and chart pages</div>
+            <div style={tocItem}>{inputField("toc_item_appendix", "Appendix – Selected machine specification and chart pages")}</div>
           ) : null}
         </div>
       </PageShell>
 
-      <PageShell sectionTitle="1. Introduction">
-        <SectionTitle>1. Introduction</SectionTitle>
-        <BoxedParagraph title="Method Statement – CPA Contract Lift">
+      <PageShell
+        sectionTitle={inputField("page_section_1", "1. Introduction", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_1", "1. Introduction")}</SectionTitle>
+        <BoxedParagraph title={inputField("method_statement_title", "Method Statement – CPA Contract Lift")}>
           {<EditableTextarea name="introduction" defaultValue={introductionText} rows={8} />}
         </BoxedParagraph>
 
         <TwoColumnBoxes
-          leftTitle="Site Inspection"
-          leftBody={<EditableTextarea name="site_inspection" defaultValue={siteInspectionText} rows={6} />}
-          rightTitle="Roles and Responsibilities"
-          rightBody={<EditableTextarea name="roles_responsibilities" defaultValue={rolesResponsibilitiesText} rows={6} />}
+          leftTitle={inputField("site_inspection_title", "Site Inspection")}
+          leftBody={areaField("site_inspection_text", `A pre-lift planning review must confirm access and egress, crane standing area, ground conditions, exclusion zones, overhead obstructions, public interface, delivery positions and any site-specific restrictions before lifting operations commence.`, 8)}
+          rightTitle={inputField("roles_responsibilities_title", "Roles and Responsibilities")}
+          rightBody={areaField("roles_responsibilities_text", `The Appointed Person is responsible for the lift planning. The Lift Supervisor is responsible for implementing the plan on site. The Slinger/Signaller is responsible for directing the lift and ensuring correct attachment of lifting accessories. The crane operator must only operate within the approved configuration and under the agreed signalling method.`, 8)}
         />
 
-        <BoxedParagraph title="Job Planning Snapshot" compact>
+        <BoxedParagraph title={inputField("job_planning_snapshot_title", "Job Planning Snapshot")} compact>
           Client: {clientName}{"\n"}
           Project: {coverProjectText}{"\n"}
           Crane: {craneName}{"\n"}
@@ -992,188 +943,246 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="2–5. Planning & Scope">
-        <SectionTitle>2. Appointed Person Declaration</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_2_5", "2–5. Planning & Scope", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_2", "2. Appointed Person Declaration")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Name", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
-            ["Prepared for job", `#${(job as any)?.job_number ?? "—"}`],
-            ["Prepared by", <EditableInput name="prepared_by_name" defaultValue={preparedByText} />],
-            ["Approved by", <EditableInput name="approved_by_name" defaultValue={approvedByText} />],
-            ["Approved at", <EditableInput name="approved_at_text" defaultValue={approvedAtText} />],
+            [inputField("ap_decl_label_name", "Name"), appointedPerson],
+            [inputField("ap_decl_label_prepared_for", "Prepared for job"), `#${(job as any)?.job_number ?? "—"}`],
+            [inputField("cover_label_prepared_by", "Prepared by"), inputField("cover_prepared_by_value", "ANNS CRANE HIRE LTD")],
+            [inputField("ap_decl_label_approved_by", "Approved by"), liftPlan?.approved_by],
+            [inputField("ap_decl_label_approved_at", "Approved at"), fmtDateTime(liftPlan?.approved_at)],
           ]}
         />
 
-        <SectionTitle>3. Client Responsibilities and General Conditions</SectionTitle>
+        <SectionTitle>{inputField("section_title_3", "3. Client Responsibilities and General Conditions")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="client_responsibilities" defaultValue={clientResponsibilitiesText} rows={8} />}
         </BoxedParagraph>
 
-        <SectionTitle>4. The Contract Lift and Arrival on Site</SectionTitle>
+        <SectionTitle>{inputField("section_title_4", "4. The Contract Lift and Arrival on Site")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="contract_lift_arrival" defaultValue={contractLiftArrivalText} rows={8} />}
         </BoxedParagraph>
 
-        <SectionTitle>5. Brief Scope of Works</SectionTitle>
+        <SectionTitle>{inputField("section_title_5", "5. Brief Scope of Works")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="scope_of_works" defaultValue={scopeOfWorksText} rows={8} />}
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="6–12. Site Controls">
-        <SectionTitle>6. Lifting Personnel</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_6_12", "6–12. Site Controls", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_6", "6. Lifting Personnel")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
-            ["Lift Supervisor", <EditableInput name="lift_supervisor_name" defaultValue={liftSupervisorText} />],
-            ["Crane Operator", <EditableInput name="crane_operator_name" defaultValue={craneOperatorText} />],
-            ["Client / Site Contact", <EditableInput name="client_site_contact_name" defaultValue={siteContactText} />],
+            [inputField("cover_label_appointed_person", "Appointed Person"), appointedPerson],
+            [inputField("personnel_label_ls", "Lift Supervisor"), liftSupervisor],
+            [inputField("personnel_label_operator", "Crane Operator"), liftPlan?.crane_operator || operator?.full_name],
+            [inputField("personnel_label_client_contact", "Client / Site Contact"), (job as any)?.contact_name],
           ]}
         />
 
-        <SectionTitle>7. On Site Communication</SectionTitle>
+        <SectionTitle>{inputField("section_title_7", "7. On Site Communication")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="communication" defaultValue={communicationText} rows={6} />}
         </BoxedParagraph>
 
-        <SectionTitle>8. Weather Conditions</SectionTitle>
+        <SectionTitle>{inputField("section_title_8", "8. Weather Conditions")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="weather_conditions" defaultValue={weatherConditionsText} rows={6} />}
         </BoxedParagraph>
 
         <TwoColumnBoxes
-          leftTitle="9. Site Access and Egress"
+          leftTitle={inputField("section_title_9", "9. Site Access and Egress")}
           leftBody={<EditableTextarea name="site_access_egress" defaultValue={siteAccessText} rows={6} />}
-          rightTitle="10. Ground Conditions"
+          rightTitle={inputField("section_title_10", "10. Ground Conditions")}
           rightBody={<EditableTextarea name="ground_conditions" defaultValue={groundConditionsText} rows={6} />}
         />
 
         <TwoColumnBoxes
-          leftTitle="11. Overhead Obstructions and Slewing Restrictions"
+          leftTitle={inputField("section_title_11", "11. Overhead Obstructions and Slewing Restrictions")}
           leftBody={<EditableTextarea name="overhead_obstructions" defaultValue={overheadText} rows={6} />}
-          rightTitle="12. Traffic and Pedestrian Management"
+          rightTitle={inputField("section_title_12", "12. Traffic and Pedestrian Management")}
           rightBody={<EditableTextarea name="traffic_pedestrian_management" defaultValue={trafficText} rows={6} />}
         />
       </PageShell>
 
-      <PageShell sectionTitle="13. Equipment & Certification">
-        <SectionTitle>13. Lifting Equipment to be used & Certification</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_13", "13. Equipment & Certification", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_13", "13. Lifting Equipment to be used & Certification")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Sling type", <EditableInput name="sling_type_text" defaultValue={slingTypeText} />],
-            ["Lifting accessories", <EditableInput name="lifting_accessories_text" defaultValue={liftingAccessoriesText} />],
+            [inputField("equipment_label_sling_type", "Sling type"), liftPlan?.sling_type],
+            [inputField("equipment_label_lifting_accessories", "Lifting accessories"), liftPlan?.lifting_accessories],
             [
-              "LOLER / certification",
+              inputField("equipment_label_loler", "LOLER / certification"),
               <EditableTextarea name="lifting_equipment_certification" defaultValue={liftingEquipmentText} rows={4} compact />,
             ],
           ]}
         />
       </PageShell>
 
-      <PageShell sectionTitle="14. Crane Details">
-        <SectionTitle>14. Crane Details</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_14", "14. Crane Details", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_14", "14. Crane Details")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Crane type", craneName],
+            [inputField("crane_label_type", "Crane type"), craneName],
             [
-              "Crane gross weight",
+              inputField("crane_label_gross_weight", "Crane gross weight"),
               crane?.capacity
                 ? `${crane?.capacity}`
-                : "See selected machine profile / manufacturer information",
+                : inputField("crane_gross_weight_fallback", "See selected machine profile / manufacturer information"),
             ],
-            ["Gross weight of load", loadWeight],
+            [inputField("crane_label_load_weight", "Gross weight of load"), loadWeight],
             [
-              "Gross weight of lifting accessories",
-              liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—",
+              inputField("crane_label_lifting_accessories_weight", "Gross weight of lifting accessories"),
+              liftPlan?.lifting_accessories ? inputField("crane_lifting_accessories_weight_text", "Included within planned lift accessories.") : "—",
             ],
-            ["Boom configuration", <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
-            ["Boom / outreach reference", outreachRef],
-            ["Jib / max outreach", jibRef],
-            ["Max capacity", craneCapacity],
-            ["Crane utilisation %", utilisation],
+            [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
+            [inputField("crane_label_outreach_reference", "Boom / outreach reference"), outreachRef],
+            [inputField("crane_label_jib_reference", "Jib / max outreach"), jibRef],
+            [inputField("crane_label_max_capacity", "Max capacity"), craneCapacity],
+            [inputField("crane_label_utilisation", "Crane utilisation %"), utilisation],
           ]}
         />
 
-        <BoxedParagraph title="Crane specifications">
+        <BoxedParagraph title={inputField("crane_specifications_title", "Crane specifications")}>
           {<EditableTextarea name="crane_details" defaultValue={craneDetailsText} rows={8} />}
         </BoxedParagraph>
 
-        <BoxedParagraph title="Configuration / outrigger note">
-          {equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
-          {"\n\n"}
-          {equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}
+        <BoxedParagraph title={inputField("configuration_outrigger_title", "Configuration / outrigger note")}>
+          {areaField("configuration_outrigger_note", `${equipmentProfile?.configurationNote || "The crane is to be configured and rigged only in the arrangement approved for the planned lift."}
+
+${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required by the selected duty and site restrictions on suitable support mats / spreaders."}`, 7)}
         </BoxedParagraph>
 
-        <BoxedParagraph title="Load chart note">
-          Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds.
+        <BoxedParagraph title={inputField("load_chart_note_title", "Load chart note")}>
+          {areaField("load_chart_note", "Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds.", 5)}
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="15–16. Variation & Toolbox">
-        <SectionTitle>15. Variation from Method Statement</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_15_16", "15–16. Variation & Toolbox", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_15", "15. Variation from Method Statement")}</SectionTitle>
         <BlankTable
-          headers={["Variation Details", "Time / Date", "AP Contact", "Initials"]}
+          headers={[
+            inputField("variation_header_1", "Variation Details"),
+            inputField("variation_header_2", "Time / Date"),
+            inputField("variation_header_3", "AP Contact"),
+            inputField("variation_header_4", "Initials"),
+          ]}
           rows={5}
         />
 
         <div style={avoidBreak}>
-          <SectionTitle>16. Toolbox Talk Attendance</SectionTitle>
+          <SectionTitle>{inputField("section_title_16", "16. Toolbox Talk Attendance")}</SectionTitle>
           <CheckboxTable
+            leftHeader={inputField("checklist_left_header", "PRE-LIFT CHECK POINTS")}
+            rightHeader={inputField("checklist_right_header", "ERECTION / COMPLETION CHECKS")}
             left={[
-              "Crane test certificates",
-              "Crane thorough examination report",
-              "Operator weekly inspection form",
-              "Test certificates / thorough exam reports for lifting accessories",
-              "Toolbox talk delivered and recorded",
-              "Appropriate PPE",
+              inputField("check_left_1", "Crane test certificates"),
+              inputField("check_left_2", "Crane thorough examination report"),
+              inputField("check_left_3", "Operator weekly inspection form"),
+              inputField("check_left_4", "Test certificates / thorough exam reports for lifting accessories"),
+              inputField("check_left_5", "Toolbox talk delivered and recorded"),
+              inputField("check_left_6", "Appropriate PPE"),
             ]}
             right={[
-              "Working area cordoned off",
-              "Crane set in correct location",
-              "Crane limits & load indicator OK",
-              "Rigging fitted as detailed",
-              "Weather within acceptable limits",
-              "Site cleared",
+              inputField("check_right_1", "Working area cordoned off"),
+              inputField("check_right_2", "Crane set in correct location"),
+              inputField("check_right_3", "Crane limits & load indicator OK"),
+              inputField("check_right_4", "Rigging fitted as detailed"),
+              inputField("check_right_5", "Weather within acceptable limits"),
+              inputField("check_right_6", "Site cleared"),
             ]}
           />
         </div>
       </PageShell>
 
-      <PageShell sectionTitle="17. Crane Set-up Procedure">
-        <SectionTitle>17. Crane Set-up Procedure</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_17", "17. Crane Set-up Procedure", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_17", "17. Crane Set-up Procedure")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="crane_setup_procedure" defaultValue={craneSetupText} rows={7} />}
         </BoxedParagraph>
-        <BoxedParagraph compact>
-          <EditableTextarea name="outrigger_setup_note" defaultValue={outriggerSetupNoteText} rows={4} compact />
+        <BoxedParagraph title={inputField("outrigger_setup_note_title", "Outrigger / set-up note")} compact>
+          {areaField("outrigger_setup_note", sentenceCase(
+            liftPlan?.outrigger_setup || equipmentProfile?.outriggersNote,
+            `Outriggers are to be deployed as required by the selected configuration and the site restrictions. Suitable mats / spreaders are to be used where necessary.`
+          ), 4, true)}
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="18–19. Lifting & De-Rig Procedure">
-        <SectionTitle>18. Lifting Procedure</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_18_19", "18–19. Lifting & De-Rig Procedure", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_18", "18. Lifting Procedure")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="lifting_procedure" defaultValue={liftingProcedureText} rows={10} />}
         </BoxedParagraph>
 
-        <SectionTitle>19. De-Rig Procedure</SectionTitle>
+        <SectionTitle>{inputField("section_title_19", "19. De-Rig Procedure")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="de_rig_procedure" defaultValue={deRigText} rows={7} />}
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="20–21. Emergency & Risk">
-        <SectionTitle>20. Emergency Procedure</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_20_21", "20–21. Emergency & Risk", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_20", "20. Emergency Procedure")}</SectionTitle>
         <BoxedParagraph>
           {<EditableTextarea name="emergency_procedure" defaultValue={emergencyProcedureText} rows={7} />}
         </BoxedParagraph>
 
-        <SectionTitle>21. Risk Assessments</SectionTitle>
+        <SectionTitle>{inputField("section_title_21", "21. Risk Assessments")}</SectionTitle>
         <TwoColumnBoxes
-          leftTitle="Risk assessment summary"
+          leftTitle={inputField("risk_assessment_summary_title", "Risk assessment summary")}
           leftBody={
             <EditableTextarea name="risk_assessment_summary" defaultValue={riskSummaryText} rows={9} />
           }
-          rightTitle="Site hazards"
+          rightTitle={inputField("site_hazards_title", "Site hazards")}
           rightBody={
             hazardLines.length
               ? hazardLines.join("\n")
@@ -1182,13 +1191,13 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         />
 
         <TwoColumnBoxes
-          leftTitle="Control measures"
+          leftTitle={inputField("control_measures_title", "Control measures")}
           leftBody={
             controlLines.length
               ? controlLines.join("\n")
               : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
           }
-          rightTitle="PPE required"
+          rightTitle={inputField("ppe_required_title", "PPE required")}
           rightBody={
             ppeLines.length
               ? ppeLines.join("\n")
@@ -1197,65 +1206,78 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         />
       </PageShell>
 
-      <PageShell sectionTitle="22. Check Lists & Sign Offs">
-        <SectionTitle>22. Check Lists and Sign Offs</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_22", "22. Check Lists & Sign Offs", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <SectionTitle>{inputField("section_title_22", "22. Check Lists and Sign Offs")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Lift plan complete", yesNo(liftPlan?.lift_plan_complete)],
-            ["RAMS complete", yesNo(liftPlan?.rams_complete)],
-            ["Approved by", <EditableInput name="approved_by_name" defaultValue={approvedByText} />],
-            ["Approved at", <EditableInput name="approved_at_text" defaultValue={approvedAtText} />],
-            ["Approval notes", <EditableTextarea name="approval_notes_text" defaultValue={defaultSectionText(sections, "approval_notes_text", liftPlan?.approval_notes || "")} rows={4} compact />],
+            [inputField("signoff_label_lift_plan_complete", "Lift plan complete"), yesNo(liftPlan?.lift_plan_complete)],
+            [inputField("signoff_label_rams_complete", "RAMS complete"), yesNo(liftPlan?.rams_complete)],
+            [inputField("ap_decl_label_approved_by", "Approved by"), liftPlan?.approved_by],
+            [inputField("ap_decl_label_approved_at", "Approved at"), fmtDateTime(liftPlan?.approved_at)],
+            [inputField("signoff_label_approval_notes", "Approval notes"), liftPlan?.approval_notes],
           ]}
         />
 
         <div style={avoidBreak}>
-          <div style={subHeading}>Attendance Record</div>
-          <BlankTable headers={["Name", "Employer", "Signature"]} rows={4} />
+          <div style={subHeading}>{inputField("attendance_record_title", "Attendance Record")}</div>
+          <BlankTable headers={[inputField("attendance_header_1", "Name"), inputField("attendance_header_2", "Employer"), inputField("attendance_header_3", "Signature")]} rows={4} />
         </div>
 
         <div style={avoidBreak}>
-          <div style={subHeading}>Delegation of Duties</div>
+          <div style={subHeading}>{inputField("delegation_title", "Delegation of Duties")}</div>
           <InfoTable
             rows={[
-              ["Appointed Person", <EditableInput name="appointed_person_name" defaultValue={appointedPersonText} />],
-              ["Lift Supervisor", <EditableInput name="lift_supervisor_name" defaultValue={liftSupervisorText} />],
-              ["Crane Operator", <EditableInput name="crane_operator_name" defaultValue={craneOperatorText} />],
+              [inputField("delegation_label_ap", "Appointed Person"), appointedPerson],
+              [inputField("delegation_label_ls", "Lift Supervisor"), liftSupervisor],
+              [inputField("delegation_label_operator", "Crane Operator"), liftPlan?.crane_operator || operator?.full_name],
             ]}
           />
         </div>
 
         <div style={signatureGrid}>
-          <SignatureRow title="Appointed Person signature" name={appointedPersonText} />
-          <SignatureRow title="Lift Supervisor signature" name={liftSupervisorText} />
-          <SignatureRow title="Crane Operator signature" name={craneOperatorText} />
-          <SignatureRow title="Client completion sign-off" name={siteContactText} />
+          <SignatureRow title={inputField("signature_title_ap", "Appointed Person signature")} name={appointedPerson} />
+          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} />
+          <SignatureRow title={inputField("signature_title_operator", "Crane Operator signature")} name={liftPlan?.crane_operator || operator?.full_name} />
+          <SignatureRow title={inputField("signature_title_client", "Client completion sign-off")} name={(job as any)?.contact_name} />
         </div>
 
-        <BoxedParagraph title="Toolbox / sign-off notes">
+        <BoxedParagraph title={inputField("toolbox_notes_title", "Toolbox / sign-off notes")}>
           {<EditableTextarea name="toolbox_notes" defaultValue={toolboxNotesText} rows={6} />}
         </BoxedParagraph>
 
-        <BoxedParagraph title="Emergency contacts">
+        <BoxedParagraph title={inputField("emergency_contacts_title", "Emergency contacts")}>
           {<EditableTextarea name="emergency_contacts" defaultValue={emergencyContactsText} rows={5} />}
         </BoxedParagraph>
 
-        <BoxedParagraph title="Equipment list">
+        <BoxedParagraph title={inputField("equipment_list_title", "Equipment list")}>
           {<EditableTextarea name="equipment_list" defaultValue={equipmentListText} rows={5} />}
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="Wind Speed Record Sheet" breakAfter={true}>
-        <SectionTitle>Wind speed record sheet</SectionTitle>
+      <PageShell
+        sectionTitle={inputField("page_section_wind", "Wind Speed Record Sheet", "right")}
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+        breakAfter={true}
+      >
+        <SectionTitle>{inputField("section_title_wind", "Wind speed record sheet")}</SectionTitle>
         <InfoTable
           rows={[
-            ["Project", <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            ["Lift Supervisor", <EditableInput name="wind_speed_lift_supervisor" defaultValue={windSpeedLiftSupervisorText} />],
-            ["Date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            [inputField("wind_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
+            [inputField("wind_label_lift_supervisor", "Lift Supervisor"), liftSupervisor],
+            [inputField("wind_label_date", "Date"), fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
           ]}
         />
         <div style={{ height: 8 }} />
-        <BlankTable headers={["Time", "Wind Speed", "OK To Work (Y / N)", "Notes"]} rows={12} />
+        <BlankTable headers={[inputField("wind_header_1", "Time"), inputField("wind_header_2", "Wind Speed"), inputField("wind_header_3", "OK To Work (Y / N)"), inputField("wind_header_4", "Notes")]} rows={12} />
       </PageShell>
 
       {appendixAssets.map((asset, index) => (
