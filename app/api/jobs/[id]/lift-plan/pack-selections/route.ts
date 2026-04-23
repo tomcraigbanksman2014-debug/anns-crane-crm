@@ -26,12 +26,16 @@ async function saveSections(jobId: string, sections: DynamicPackSectionsPayload)
 
   const { data: existing, error: existingError } = await supabase
     .from("lift_plans")
-    .select("id, pack_sections")
+    .select("id, pack_sections, paperwork_locked")
     .eq("job_id", jobId)
     .maybeSingle();
 
   if (existingError) {
     throw new Error(existingError.message);
+  }
+
+  if (existing?.paperwork_locked) {
+    throw new Error("This lift plan is locked and cannot be edited.");
   }
 
   const mergedSections = {
@@ -77,11 +81,9 @@ export async function POST(
     } else {
       const formData = await request.formData();
       const formValues: Record<string, unknown> = {};
-
       formData.forEach((value, key) => {
         formValues[key] = value;
       });
-
       sections = sanitiseSections(formValues);
     }
 
