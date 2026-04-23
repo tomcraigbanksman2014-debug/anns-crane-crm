@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -110,6 +111,36 @@ export async function PATCH(
     }
     if (body.supplier_cost !== undefined || body.agreed_cost !== undefined) {
       updates.supplier_cost = supplierCost;
+    }
+
+    const nextJobId = body.job_id !== undefined ? clean(body.job_id) : existing.job_id;
+    let linkedJob = null as any;
+    if (nextJobId) {
+      const linkedJobRes = await supabase
+        .from("jobs")
+        .select("id, start_date, end_date, job_date, start_time, end_time")
+        .eq("id", nextJobId)
+        .single();
+      if (linkedJobRes.error || !linkedJobRes.data) {
+        return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      }
+      linkedJob = linkedJobRes.data;
+    }
+
+    const nextOperatorId = body.operator_id !== undefined ? clean(body.operator_id) : existing.operator_id;
+    const effectiveStartDate = dateBounds.start_date ?? existing.start_date ?? linkedJob?.start_date ?? linkedJob?.job_date ?? null;
+    const effectiveEndDate = dateBounds.end_date ?? existing.end_date ?? effectiveStartDate ?? linkedJob?.end_date ?? linkedJob?.start_date ?? linkedJob?.job_date ?? null;
+    const effectiveStartTime = body.start_time !== undefined ? clean(body.start_time) : existing.start_time ?? linkedJob?.start_time ?? null;
+    const effectiveEndTime = body.end_time !== undefined ? clean(body.end_time) : existing.end_time ?? linkedJob?.end_time ?? null;
+
+    if (nextOperatorId) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: nextOperatorId,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
+        startTime: effectiveStartTime,
+        endTime: effectiveEndTime,
+      });
     }
 
     const { data, error } = await supabase
