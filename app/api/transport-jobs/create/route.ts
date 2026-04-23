@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -258,6 +259,16 @@ export async function POST(req: Request) {
     };
 
     payload.status = inferStatus(clean(body.status), payload);
+
+    if (payload.operator_id) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: payload.operator_id,
+        startDate: payload.transport_date,
+        endDate: payload.delivery_date ?? payload.transport_date,
+        startTime: payload.collection_time,
+        endTime: payload.delivery_time,
+      });
+    }
 
     const { data, error } = await supabase
       .from("transport_jobs")
