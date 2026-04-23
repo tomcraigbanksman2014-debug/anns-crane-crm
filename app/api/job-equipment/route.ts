@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { assertOperatorAvailable } from "../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -84,6 +85,31 @@ export async function POST(req: Request) {
       );
     }
 
+    const { data: linkedJob, error: linkedJobError } = await supabase
+      .from("jobs")
+      .select("id, start_date, end_date, job_date, start_time, end_time")
+      .eq("id", jobId)
+      .single();
+
+    if (linkedJobError || !linkedJob) {
+      return NextResponse.json({ error: "Job not found." }, { status: 404 });
+    }
+
+    const effectiveStartDate = startDate ?? linkedJob.start_date ?? linkedJob.job_date;
+    const effectiveEndDate = endDate ?? linkedJob.end_date ?? linkedJob.start_date ?? linkedJob.job_date;
+    const effectiveStartTime = startTime ?? linkedJob.start_time;
+    const effectiveEndTime = endTime ?? linkedJob.end_time;
+
+    if (operatorId) {
+      await assertOperatorAvailable(supabase, {
+        operatorId,
+        startDate: effectiveStartDate,
+        endDate: effectiveEndDate,
+        startTime: effectiveStartTime,
+        endTime: effectiveEndTime,
+      });
+    }
+
     const payload: Record<string, unknown> = {
       job_id: jobId,
       asset_type: assetType,
@@ -95,10 +121,10 @@ export async function POST(req: Request) {
       purchase_order_id: purchaseOrderId,
       item_name: itemName,
       source_type: sourceType,
-      start_date: startDate,
-      end_date: endDate,
-      start_time: startTime,
-      end_time: endTime,
+      start_date: effectiveStartDate,
+      end_date: effectiveEndDate,
+      start_time: effectiveStartTime,
+      end_time: effectiveEndTime,
       agreed_cost: agreedCost,
       agreed_sell_rate: agreedSellRate,
       supplier_cost: supplierCost,
