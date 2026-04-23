@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { requireApiUser } from "../../../../../lib/apiAuth";
-import { defaultBlocksAssignment } from "../../../../../lib/staffAvailability";
+import { requireApiUser } from "../../../../lib/apiAuth";
+import { defaultBlocksAssignment } from "../../../../lib/staffAvailability";
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
