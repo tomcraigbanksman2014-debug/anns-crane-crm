@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 
 function makeJobTimestamp() {
   const d = new Date();
@@ -42,6 +42,46 @@ export async function POST(req: Request) {
       .from("job_equipment")
       .select("*")
       .eq("job_id", jobId);
+
+    const jobStartDate = String(job.start_date ?? job.job_date ?? "").trim();
+    const jobEndDate = String(job.end_date ?? job.start_date ?? job.job_date ?? "").trim() || jobStartDate;
+
+    if (job.operator_id && jobStartDate) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: job.operator_id,
+        startDate: jobStartDate,
+        endDate: jobEndDate,
+        startTime: job.start_time ?? null,
+        endTime: job.end_time ?? null,
+      });
+    }
+
+    if (job.main_operator_id && job.main_operator_id !== job.operator_id && jobStartDate) {
+      await assertOperatorAvailable(supabase, {
+        operatorId: job.main_operator_id,
+        startDate: jobStartDate,
+        endDate: jobEndDate,
+        startTime: job.start_time ?? null,
+        endTime: job.end_time ?? null,
+      });
+    }
+
+    for (const row of allocations ?? []) {
+      const operatorId = String(row?.operator_id ?? "").trim();
+      if (!operatorId) continue;
+
+      const rowStartDate = String(row?.start_date ?? job.start_date ?? job.job_date ?? "").trim();
+      const rowEndDate = String(row?.end_date ?? row?.start_date ?? job.end_date ?? job.start_date ?? job.job_date ?? "").trim() || rowStartDate;
+      if (!rowStartDate) continue;
+
+      await assertOperatorAvailable(supabase, {
+        operatorId,
+        startDate: rowStartDate,
+        endDate: rowEndDate,
+        startTime: row?.start_time ?? job.start_time ?? null,
+        endTime: row?.end_time ?? job.end_time ?? null,
+      });
+    }
 
     const insertRow: Record<string, any> = { ...job };
 
