@@ -12,11 +12,11 @@ function normaliseText(value: unknown) {
 function sanitiseSections(input: Record<string, unknown>) {
   const next: DynamicPackSectionsPayload = {};
 
-  for (const [key, value] of Object.entries(input)) {
-    if (!key) continue;
-    if (key.startsWith("$ACTION_")) continue;
+  Object.entries(input).forEach(([key, value]) => {
+    if (!key) return;
+    if (key.startsWith("$ACTION_")) return;
     next[key] = normaliseText(value);
-  }
+  });
 
   return next;
 }
@@ -77,9 +77,11 @@ export async function POST(
     } else {
       const formData = await request.formData();
       const formValues: Record<string, unknown> = {};
-      for (const [key, value] of formData.entries()) {
+
+      formData.forEach((value, key) => {
         formValues[key] = value;
-      }
+      });
+
       sections = sanitiseSections(formValues);
     }
 
