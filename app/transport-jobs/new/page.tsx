@@ -54,6 +54,71 @@ function generateTransportNumber() {
   return `TR-${y}${m}${day}-${stamp}`;
 }
 
+
+const POLICE_ESCORT_ROW_COUNT = 5;
+
+function normaliseMovementOrderStatus(value: FormDataEntryValue | null, required: boolean) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!required) return "not_required";
+  if (["required", "submitted", "approved", "rejected", "other"].includes(raw)) return raw;
+  return "required";
+}
+
+function parsePoliceEscortRows(formData: FormData) {
+  const rows: Array<{
+    sort_order: number;
+    force_name: string;
+    collection_from: string | null;
+    collection_to: string | null;
+    collection_time: string | null;
+    police_contact_name: string | null;
+    police_contact_phone: string | null;
+    police_contact_email: string | null;
+  }> = [];
+
+  for (let i = 0; i < POLICE_ESCORT_ROW_COUNT; i++) {
+    const forceName = clean(formData.get(`police_escort_force_${i}`));
+    const collectionFrom = clean(formData.get(`police_escort_collection_from_${i}`)) || null;
+    const collectionTo = clean(formData.get(`police_escort_collection_to_${i}`)) || null;
+    const collectionTime = clean(formData.get(`police_escort_time_${i}`)) || null;
+    const policeContactName = clean(formData.get(`police_escort_contact_name_${i}`)) || null;
+    const policeContactPhone = clean(formData.get(`police_escort_contact_phone_${i}`)) || null;
+    const policeContactEmail = clean(formData.get(`police_escort_contact_email_${i}`)) || null;
+
+    if (!forceName && !collectionFrom && !collectionTo && !collectionTime && !policeContactName && !policeContactPhone && !policeContactEmail) {
+      continue;
+    }
+
+    rows.push({
+      sort_order: rows.length,
+      force_name: forceName || `Escort ${rows.length + 1}`,
+      collection_from: collectionFrom,
+      collection_to: collectionTo,
+      collection_time: collectionTime,
+      police_contact_name: policeContactName,
+      police_contact_phone: policeContactPhone,
+      police_contact_email: policeContactEmail,
+    });
+  }
+
+  return rows;
+}
+
+function legacySubmissionStatusFromMovement(status: string) {
+  if (status === "submitted") return "submitted";
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  if (status === "not_required") return "not_started";
+  return "not_started";
+}
+
+function legacyApprovalStatusFromMovement(status: string) {
+  if (status === "approved") return "approved";
+  if (status === "rejected") return "rejected";
+  if (status === "not_required") return "not_required";
+  return "not_started";
+}
+
 const INVOICE_STATUSES = [
   "Not Invoiced",
   "Invoiced",
@@ -387,6 +452,11 @@ async function createTransportJob(formData: FormData) {
   }
 
   const abnormalLoadEnabled = checkboxValue(formData.get("abnormal_load_enabled"));
+  const movementOrderRequired = abnormalLoadEnabled ? checkboxValue(formData.get("movement_order_required")) : false;
+  const movementOrderStatus = abnormalLoadEnabled ? normaliseMovementOrderStatus(formData.get("movement_order_status"), movementOrderRequired) : "not_required";
+  const selfEscortRequired = abnormalLoadEnabled ? checkboxValue(formData.get("self_escort_required")) : false;
+  const policeEscortRequired = abnormalLoadEnabled ? checkboxValue(formData.get("police_escort_required")) : false;
+  const policeEscortRows = abnormalLoadEnabled && policeEscortRequired ? parsePoliceEscortRows(formData) : [];
 
   const payload: Record<string, any> = {
     transport_number: transportNumber,
@@ -443,17 +513,26 @@ async function createTransportJob(formData: FormData) {
     movement_finish_time: abnormalLoadEnabled ? clean(formData.get("movement_finish_time")) || null : null,
     trailer_type: abnormalLoadEnabled ? clean(formData.get("trailer_type")) || null : null,
     tractor_unit_type: abnormalLoadEnabled ? clean(formData.get("tractor_unit_type")) || null : null,
-    escort_required: abnormalLoadEnabled ? checkboxValue(formData.get("escort_required")) : false,
-    escort_details: abnormalLoadEnabled ? clean(formData.get("escort_details")) || null : null,
+    escort_required: abnormalLoadEnabled ? selfEscortRequired || policeEscortRequired : false,
+    escort_details: null,
     route_notes: abnormalLoadEnabled ? clean(formData.get("route_notes")) || null : null,
     restriction_notes: abnormalLoadEnabled ? clean(formData.get("restriction_notes")) || null : null,
     police_notes: abnormalLoadEnabled ? clean(formData.get("police_notes")) || null : null,
     council_notes: abnormalLoadEnabled ? clean(formData.get("council_notes")) || null : null,
     bridge_notes: abnormalLoadEnabled ? clean(formData.get("bridge_notes")) || null : null,
-    submission_status: abnormalLoadEnabled ? clean(formData.get("submission_status")) || "not_started" : "not_started",
+    submission_status: abnormalLoadEnabled ? legacySubmissionStatusFromMovement(movementOrderStatus) : "not_started",
     movement_order_reference: abnormalLoadEnabled ? clean(formData.get("movement_order_reference")) || null : null,
+    movement_order_required: abnormalLoadEnabled ? movementOrderRequired : false,
+    movement_order_status: abnormalLoadEnabled ? movementOrderStatus : "not_required",
+    movement_order_cover_from: abnormalLoadEnabled ? dateTimeOrNull(formData.get("movement_order_cover_from")) : null,
+    movement_order_cover_to: abnormalLoadEnabled ? dateTimeOrNull(formData.get("movement_order_cover_to")) : null,
+    self_escort_required: abnormalLoadEnabled ? selfEscortRequired : false,
+    self_escort_van_reg: abnormalLoadEnabled && selfEscortRequired ? clean(formData.get("self_escort_van_reg")) || null : null,
+    self_escort_driver_name: abnormalLoadEnabled && selfEscortRequired ? clean(formData.get("self_escort_driver_name")) || null : null,
+    self_escort_driver_phone: abnormalLoadEnabled && selfEscortRequired ? clean(formData.get("self_escort_driver_phone")) || null : null,
+    police_escort_required: abnormalLoadEnabled ? policeEscortRequired : false,
     movement_order_submitted_at: abnormalLoadEnabled ? dateTimeOrNull(formData.get("movement_order_submitted_at")) : null,
-    approval_status: abnormalLoadEnabled ? clean(formData.get("approval_status")) || "not_started" : "not_started",
+    approval_status: abnormalLoadEnabled ? legacyApprovalStatusFromMovement(movementOrderStatus) : "not_started",
     approval_notes: abnormalLoadEnabled ? clean(formData.get("approval_notes")) || null : null,
     submitted_by_name: abnormalLoadEnabled ? clean(formData.get("submitted_by_name")) || null : null,
 
@@ -964,29 +1043,62 @@ export default async function NewTransportJobPage({
                 </div>
 
                 <div>
-                  <div style={subsectionTitle}>Escort and move-day</div>
+                  <div style={subsectionTitle}>Movement order</div>
                   <div style={gridStyle}>
                     <label style={checkboxRow}>
-                      <input type="checkbox" name="escort_required" value="true" />
-                      <span>Escort required</span>
+                      <input type="checkbox" name="movement_order_required" value="true" />
+                      <span>Movement order required</span>
                     </label>
-                    <Field label="Escort provider" name="escort_provider" />
-                    <Field label="Escort contact name" name="escort_contact_name" />
-                    <Field label="Escort contact phone" name="escort_contact_phone" />
+                    <SelectField
+                      label="Movement order status"
+                      name="movement_order_status"
+                      defaultValue="not_required"
+                      options={[
+                        { value: "not_required", label: "Not required" },
+                        { value: "required", label: "Required" },
+                        { value: "submitted", label: "Submitted" },
+                        { value: "approved", label: "Approved" },
+                        { value: "rejected", label: "Rejected" },
+                        { value: "other", label: "Other" },
+                      ]}
+                    />
+                    <Field label="Movement order reference" name="movement_order_reference" placeholder="Reference" />
+                    <Field label="Covers from" name="movement_order_cover_from" type="datetime-local" />
+                    <Field label="Covers to" name="movement_order_cover_to" type="datetime-local" />
                   </div>
+
                   <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <div>
-                      <label style={labelStyle}>Escort details</label>
-                      <textarea name="escort_details" rows={2} style={textareaStyle} placeholder="Police escort, private escort, source and timing notes" />
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="self_escort_required" value="true" />
+                      <span>Self escort required</span>
+                    </label>
+                    <div style={gridStyle}>
+                      <Field label="Self escort van reg" name="self_escort_van_reg" />
+                      <Field label="Self escort driver name" name="self_escort_driver_name" />
+                      <Field label="Self escort driver number" name="self_escort_driver_phone" />
                     </div>
-                    <div>
-                      <label style={labelStyle}>Police notes</label>
-                      <textarea name="police_notes" rows={2} style={textareaStyle} />
+
+                    <label style={checkboxRow}>
+                      <input type="checkbox" name="police_escort_required" value="true" />
+                      <span>Police escort required</span>
+                    </label>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => (
+                        <div key={`police-escort-${index}`} style={{ ...miniCard, display: "grid", gap: 10 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13 }}>Police escort #{index + 1}</div>
+                          <div style={gridStyle}>
+                            <Field label="Force" name={`police_escort_force_${index}`} />
+                            <Field label="Collection from" name={`police_escort_collection_from_${index}`} />
+                            <Field label="Collection to" name={`police_escort_collection_to_${index}`} />
+                            <Field label="Time" name={`police_escort_time_${index}`} type="time" />
+                            <Field label="Police contact" name={`police_escort_contact_name_${index}`} />
+                            <Field label="Police number" name={`police_escort_contact_phone_${index}`} />
+                            <Field label="Police email" name={`police_escort_contact_email_${index}`} type="email" />
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div>
-                      <label style={labelStyle}>Council / highway notes</label>
-                      <textarea name="council_notes" rows={2} style={textareaStyle} />
-                    </div>
+
                     <div>
                       <label style={labelStyle}>Special instructions</label>
                       <textarea name="special_instructions" rows={2} style={textareaStyle} />
@@ -995,112 +1107,6 @@ export default async function NewTransportJobPage({
                       <label style={labelStyle}>Contingency notes</label>
                       <textarea name="contingency_notes" rows={2} style={textareaStyle} />
                     </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div style={subsectionTitle}>Submission and approval</div>
-                  <div style={gridStyle}>
-                    <SelectField
-                      label="Submission method"
-                      name="submission_method"
-                      defaultValue="esdal"
-                      options={[
-                        { value: "esdal", label: "ESDAL" },
-                        { value: "portal", label: "Portal" },
-                        { value: "email", label: "Email" },
-                        { value: "phone", label: "Phone" },
-                        { value: "manual", label: "Manual" },
-                      ]}
-                    />
-                    <SelectField
-                      label="Submission status"
-                      name="submission_status"
-                      defaultValue="not_started"
-                      options={[
-                        { value: "not_started", label: "Not started" },
-                        { value: "drafting", label: "Drafting" },
-                        { value: "ready_to_submit", label: "Ready to submit" },
-                        { value: "submitted", label: "Submitted" },
-                        { value: "awaiting_response", label: "Awaiting response" },
-                        { value: "awaiting_approval", label: "Awaiting approval" },
-                        { value: "approved", label: "Approved" },
-                        { value: "rejected", label: "Rejected" },
-                        { value: "amendments_required", label: "Amendments required" },
-                        { value: "completed", label: "Completed" },
-                      ]}
-                    />
-                    <Field label="Submitted by" name="submitted_by_name" placeholder="Dispatcher / planner name" />
-                    <Field label="Submitted at" name="movement_order_submitted_at" type="datetime-local" />
-                    <SelectField
-                      label="Approval status"
-                      name="approval_status"
-                      defaultValue="not_started"
-                      options={[
-                        { value: "not_started", label: "Not started" },
-                        { value: "awaiting_response", label: "Awaiting response" },
-                        { value: "awaiting_approval", label: "Awaiting approval" },
-                        { value: "approved", label: "Approved" },
-                        { value: "restricted", label: "Approved with restrictions" },
-                        { value: "rejected", label: "Rejected" },
-                        { value: "queried", label: "Queried / more info needed" },
-                        { value: "not_required", label: "Not required" },
-                      ]}
-                    />
-                    <Field label="Approval received at" name="approval_received_at" type="datetime-local" />
-                    <Field label="Approval reference" name="approval_reference" />
-                    <label style={checkboxRow}>
-                      <input type="checkbox" name="authorised_to_move" value="true" />
-                      <span>Authorised to move</span>
-                    </label>
-                  </div>
-                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <div>
-                      <label style={labelStyle}>Submission notes</label>
-                      <textarea name="submission_notes" rows={3} style={textareaStyle} placeholder="ESDAL / authority submission notes" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Approval / permit notes</label>
-                      <textarea name="approval_notes" rows={3} style={textareaStyle} placeholder="Approvals, restrictions, authority responses or permit conditions" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Authorised move notes</label>
-                      <textarea name="authorised_move_notes" rows={2} style={textareaStyle} placeholder="Anything the crew needs to know once approved" />
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div style={subsectionTitle}>Authority references</div>
-                  <div style={gridStyle}>
-                    <Field label="Police reference" name="police_reference" />
-                    <Field label="Highways reference" name="highways_reference" />
-                    <Field label="Bridge reference" name="bridge_reference" />
-                    <Field label="Council reference" name="council_reference" />
-                    <Field label="Special Order reference" name="special_order_reference" />
-                    <Field label="VR1 reference" name="vr1_reference" />
-                  </div>
-                </div>
-
-                <div>
-                  <div style={subsectionTitle}>Submission checklist</div>
-                  <div style={checklistGrid}>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_dimensions_confirmed" value="true" /><span>Dimensions confirmed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_weight_confirmed" value="true" /><span>Weight confirmed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_vehicle_confirmed" value="true" /><span>Vehicle confirmed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_axle_data_confirmed" value="true" /><span>Axle data confirmed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_route_checked" value="true" /><span>Route checked</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_trailer_checked" value="true" /><span>Trailer checked</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_escort_checked" value="true" /><span>Escort checked</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_site_access_checked" value="true" /><span>Site access checked</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_contacts_confirmed" value="true" /><span>Contacts confirmed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_authorities_identified" value="true" /><span>Authorities identified</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_customer_approved" value="true" /><span>Customer approved</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_supplier_booked" value="true" /><span>Supplier booked</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_documents_uploaded" value="true" /><span>Documents uploaded</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_submission_reviewed" value="true" /><span>Submission reviewed</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_movement_order_submitted" value="true" /><span>Movement order submitted</span></label>
-                    <label style={checkboxRow}><input type="checkbox" name="checklist_approval_received" value="true" /><span>Approval / permit received</span></label>
                   </div>
                 </div>
               </div>
