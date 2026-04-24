@@ -370,6 +370,7 @@ export default function TransportMapClient() {
   const [jobTypeFilter, setJobTypeFilter] = useState("all");
   const [routePlannerStops, setRoutePlannerStops] = useState<RouteStop[]>([]);
   const [routeDirty, setRouteDirty] = useState(false);
+  const [routedSegments, setRoutedSegments] = useState<Record<string, LatLngExpression[]>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -620,6 +621,72 @@ export default function TransportMapClient() {
       setRoutePlannerStops(derivedRouteStops);
     }
   }, [derivedRouteStops, routeDirty]);
+
+  const routedSegmentRequests = useMemo(() => {
+    const requests: Array<{ key: string; fromLat: number; fromLng: number; toLat: number; toLng: number }> = [];
+
+    if (routePlannerStops.length > 1) {
+      const orderedStops = [...routePlannerStops].filter((stop) => hasCoords(stop.lat, stop.lng)).sort((a, b) => a.stopOrder - b.stopOrder);
+      for (let i = 0; i < orderedStops.length - 1; i++) {
+        const from = orderedStops[i];
+        const to = orderedStops[i + 1];
+        requests.push({
+          key: `route:${from.key}:${to.key}`,
+          fromLat: Number(from.lat),
+          fromLng: Number(from.lng),
+          toLat: Number(to.lat),
+          toLng: Number(to.lng),
+        });
+      }
+      return requests;
+    }
+
+    filtered.forEach((item) => {
+      if (!hasCoords(item.collection_lat, item.collection_lng) || !hasCoords(item.delivery_lat, item.delivery_lng)) return;
+      requests.push({
+        key: `job:${item.id}`,
+        fromLat: Number(item.collection_lat),
+        fromLng: Number(item.collection_lng),
+        toLat: Number(item.delivery_lat),
+        toLng: Number(item.delivery_lng),
+      });
+    });
+
+    return requests;
+  }, [filtered, routePlannerStops]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRoutes() {
+      if (!routedSegmentRequests.length) {
+        if (!cancelled) setRoutedSegments({});
+        return;
+      }
+
+      const next: Record<string, LatLngExpression[]> = {};
+
+      for (const req of routedSegmentRequests) {
+        try {
+          const res = await fetch("/api/transport-route", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fromLat: req.fromLat, fromLng: req.fromLng, toLat: req.toLat, toLng: req.toLng }),
+          });
+          const json = await res.json().catch(() => null);
+          const path = Array.isArray(json?.path) ? json.path : [];
+          next[req.key] = path.length > 1 ? path as LatLngExpression[] : [asLatLng(req.fromLat, req.fromLng), asLatLng(req.toLat, req.toLng)];
+        } catch {
+          next[req.key] = [asLatLng(req.fromLat, req.fromLng), asLatLng(req.toLat, req.toLng)];
+        }
+      }
+
+      if (!cancelled) setRoutedSegments(next);
+    }
+
+    loadRoutes();
+    return () => { cancelled = true; };
+  }, [routedSegmentRequests]);
 
   const orderedRoutePoints = useMemo(() => {
     return routePlannerStops
@@ -972,12 +1039,20 @@ export default function TransportMapClient() {
                 );
               })}
 
-              {orderedRoutePoints.length > 1 ? (
-                <SafePolyline
-                  positions={orderedRoutePoints}
-                  pathOptions={{ color: "#ef4444", weight: 4, opacity: 0.85 }}
-                />
-              ) : null}
+              {routePlannerStops.length > 1
+                ? routedSegmentRequests.map((segment) => {
+                    const positions = routedSegments[segment.key] ?? [asLatLng(segment.fromLat, segment.fromLng), asLatLng(segment.toLat, segment.toLng)];
+                    return positions.length > 1 ? (
+                      <SafePolyline key={segment.key} positions={positions} pathOptions={{ color: "#ef4444", weight: 4, opacity: 0.85 }} />
+                    ) : null;
+                  })
+                : filtered.map((item) => {
+                    if (!hasCoords(item.collection_lat, item.collection_lng) || !hasCoords(item.delivery_lat, item.delivery_lng)) return null;
+                    const positions = routedSegments[`job:${item.id}`] ?? [asLatLng(Number(item.collection_lat), Number(item.collection_lng)), asLatLng(Number(item.delivery_lat), Number(item.delivery_lng))];
+                    return positions.length > 1 ? (
+                      <SafePolyline key={`job-route-${item.id}`} positions={positions} pathOptions={{ color: "#ef4444", weight: 3, opacity: 0.65 }} />
+                    ) : null;
+                  })}
 
               {routePlannerStops.map((stop) => {
                 if (!hasCoords(stop.lat, stop.lng)) return null;
