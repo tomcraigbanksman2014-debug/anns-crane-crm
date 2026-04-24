@@ -911,207 +911,118 @@ export default async function NewTransportJobPage({
             </section>
 
             <section style={sectionCard}>
-              <div style={sectionTitle}>Abnormal load / movement order</div>
-              <div style={helperText}>Fill this in for abnormal loads, escorted movements, heavy haulage or modular moves.</div>
+  <div style={sectionTitle}>Movement order</div>
+  <div style={helperText}>Use this only where a movement order is required.</div>
 
-              <label style={{ ...checkboxRow, marginTop: 12 }}>
-                <input type="checkbox" name="abnormal_load_enabled" value="true" />
-                <span>This transport job needs abnormal load / movement order control</span>
-              </label>
+  <label style={{ ...checkboxRow, marginTop: 12 }}>
+    <input type="checkbox" name="abnormal_load_enabled" value="true" />
+    <span>Movement order required</span>
+  </label>
 
-              <div id="abnormal_load_fields_wrap" style={{ display: "none", marginTop: 12 }}>
-                <div style={{ ...softPanel, marginTop: 0 }}>
-                  <div style={{ fontWeight: 900, marginBottom: 8 }}>Submission guidance</div>
-                  <div style={helperText}>Use this section to capture the route, vehicle, authority, document and approval details needed for a ready-to-submit movement order pack.</div>
-                </div>
+  <div id="abnormal_load_fields_wrap" style={{ display: "none", marginTop: 12 }}>
+    <input type="hidden" name="movement_order_required" value="true" />
 
-                <div id="abnormal_load_fields_panel" style={{ marginTop: 14, display: "grid", gap: 14 }}>
-                <div>
-                  <div style={subsectionTitle}>Movement setup</div>
-                  <div style={gridStyle}>
-                    <SelectField
-                      label="Category"
-                      name="abnormal_load_category"
-                      defaultValue="abnormal_load"
-                      options={[
-                        { value: "abnormal_load", label: "Abnormal load" },
-                        { value: "heavy_haulage", label: "Heavy haulage" },
-                        { value: "escorted_movement", label: "Escorted movement" },
-                        { value: "modular_movement", label: "Modular / cabin movement" },
-                      ]}
-                    />
-                    <Field label="Preferred move window" name="preferred_move_window" placeholder="Eg. 07:00–13:00 / Nights only" />
-                    <Field label="Movement start time" name="movement_start_time" type="time" />
-                    <Field label="Movement finish time" name="movement_finish_time" type="time" />
-                    <Field label="Movement reference" name="movement_reference" placeholder="Internal move ref" />
-                    <Field label="Movement order reference" name="movement_order_reference" placeholder="Eg. ANNC/717/1#1" />
-                  </div>
-                </div>
+    <div id="abnormal_load_fields_panel" style={{ marginTop: 14, display: "grid", gap: 14 }}>
+      <div>
+        <div style={subsectionTitle}>Movement order details</div>
+        <div style={gridStyle}>
+          <SelectField
+            label="Movement order status"
+            name="movement_order_status"
+            defaultValue="required"
+            options={[
+              { value: "required", label: "Required" },
+              { value: "submitted", label: "Submitted" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "other", label: "Other" },
+            ]}
+          />
+          <Field
+            label="Movement order reference"
+            name="movement_order_reference"
+            placeholder="Reference"
+          />
+          <Field
+            label="Covers from"
+            name="movement_order_cover_from"
+            type="datetime-local"
+          />
+          <Field
+            label="Covers to"
+            name="movement_order_cover_to"
+            type="datetime-local"
+          />
+        </div>
+      </div>
 
-                <div>
-                  <div style={subsectionTitle}>Vehicle and trailer</div>
-                  <div style={gridStyle}>
-                    <Field label="Tractor unit registration" name="tractor_unit_registration" />
-                    <Field label="Tractor unit type" name="tractor_unit_type" placeholder="4x2 / 6x4 / ballast tractor" />
-                    <Field label="Tractor unit fleet ID" name="tractor_unit_fleet_id" />
-                    <Field label="Trailer registration" name="trailer_registration" />
-                    <Field label="Trailer type" name="trailer_type" placeholder="Step frame / low loader / extender" />
-                    <Field label="Trailer fleet ID" name="trailer_fleet_id" />
-                    <Field label="Haulier contact name" name="haulier_contact_name" />
-                    <Field label="Haulier contact phone" name="haulier_contact_phone" />
-                  </div>
-                </div>
+      <div>
+        <div style={subsectionTitle}>Self escort</div>
+        <label style={{ ...checkboxRow, marginTop: 8 }}>
+          <input type="checkbox" name="self_escort_required" value="true" />
+          <span>Self escort required</span>
+        </label>
 
-                <div>
-                  <div style={subsectionTitle}>Load dimensions</div>
-                  <div style={gridStyle}>
-                    <Field label="Load length (m)" name="load_length_m" type="number" step="0.01" />
-                    <Field label="Load width (m)" name="load_width_m" type="number" step="0.01" />
-                    <Field label="Load height (m)" name="load_height_m" type="number" step="0.01" />
-                    <Field label="Load weight (t)" name="load_weight_t" type="number" step="0.01" />
-                  </div>
-                </div>
+        <div style={{ ...gridStyle, marginTop: 10 }}>
+          <Field label="Van reg" name="self_escort_van_reg" />
+          <Field label="Driver name" name="self_escort_driver_name" />
+          <Field label="Driver number" name="self_escort_driver_phone" />
+        </div>
+      </div>
 
-                <div>
-                  <div style={subsectionTitle}>Overall transport dimensions</div>
-                  <div style={gridStyle}>
-                    <Field label="Overall length (m)" name="transport_length_m" type="number" step="0.01" />
-                    <Field label="Overall width (m)" name="transport_width_m" type="number" step="0.01" />
-                    <Field label="Overall height (m)" name="transport_height_m" type="number" step="0.01" />
-                    <Field label="Gross weight (t)" name="transport_gross_weight_t" type="number" step="0.01" />
-                  </div>
-                </div>
+      <div>
+        <div style={subsectionTitle}>Police escort</div>
+        <label style={{ ...checkboxRow, marginTop: 8 }}>
+          <input type="checkbox" name="police_escort_required" value="true" />
+          <span>Police escort required</span>
+        </label>
 
-                <div>
-                  <div style={subsectionTitle}>Axle and configuration</div>
-                  <div style={gridStyle}>
-                    <Field label="Axle configuration" name="axle_configuration" placeholder="Eg. 1 steer / 2 drive / 4 trailer" />
-                    <Field label="Front axle (t)" name="front_axle_t" type="number" step="0.01" />
-                    <Field label="Drive axle (t)" name="drive_axle_t" type="number" step="0.01" />
-                    <Field label="Trailer axle 1 (t)" name="trailer_axle_1_t" type="number" step="0.01" />
-                    <Field label="Trailer axle 2 (t)" name="trailer_axle_2_t" type="number" step="0.01" />
-                    <Field label="Trailer axle 3 (t)" name="trailer_axle_3_t" type="number" step="0.01" />
-                    <Field label="Trailer axle 4 (t)" name="trailer_axle_4_t" type="number" step="0.01" />
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <label style={labelStyle}>Axle weights / axle notes</label>
-                    <textarea name="axle_weight_notes" rows={3} style={textareaStyle} placeholder="Axle weights, weight spread or trailer setup notes" />
-                  </div>
-                </div>
-
-                <div>
-                  <div style={subsectionTitle}>Contacts and route checks</div>
-                  <div style={gridStyle}>
-                    <Field label="Collection contact" name="collection_contact_name" />
-                    <Field label="Collection contact phone" name="collection_contact_phone" />
-                    <Field label="Delivery contact" name="delivery_contact_name" />
-                    <Field label="Delivery contact phone" name="delivery_contact_phone" />
-                    <Field label="Route start location" name="route_start" placeholder="Start point / depot / first pickup location" />
-                    <Field label="Route finish location" name="route_finish" placeholder="Final destination / delivery location" />
-                  </div>
-
-                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <div>
-                      <label style={labelStyle}>Planned route</label>
-                      <textarea name="planned_route" rows={3} style={textareaStyle} placeholder="Planned route description or ESDAL route detail" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Route notes</label>
-                      <textarea name="route_notes" rows={3} style={textareaStyle} placeholder="Movement windows, ferry / motorway notes, diversions" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Restrictions / access notes</label>
-                      <textarea name="restriction_notes" rows={3} style={textareaStyle} placeholder="Width restrictions, closures, delivery access, permits" />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Bridge notes</label>
-                      <textarea name="bridge_notes" rows={2} style={textareaStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Access notes</label>
-                      <textarea name="access_notes" rows={2} style={textareaStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Authority areas</label>
-                      <textarea name="authority_areas" rows={2} style={textareaStyle} placeholder="Police / council / highways areas affected" />
-                    </div>
-                    <label style={checkboxRow}>
-                      <input type="checkbox" name="route_checked" value="true" />
-                      <span>Route checked</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div>
-                  <div style={subsectionTitle}>Movement order</div>
-                  <div style={gridStyle}>
-                    <label style={checkboxRow}>
-                      <input type="checkbox" name="movement_order_required" value="true" />
-                      <span>Movement order required</span>
-                    </label>
-                    <SelectField
-                      label="Movement order status"
-                      name="movement_order_status"
-                      defaultValue="not_required"
-                      options={[
-                        { value: "not_required", label: "Not required" },
-                        { value: "required", label: "Required" },
-                        { value: "submitted", label: "Submitted" },
-                        { value: "approved", label: "Approved" },
-                        { value: "rejected", label: "Rejected" },
-                        { value: "other", label: "Other" },
-                      ]}
-                    />
-                    <Field label="Movement order reference" name="movement_order_reference" placeholder="Reference" />
-                    <Field label="Covers from" name="movement_order_cover_from" type="datetime-local" />
-                    <Field label="Covers to" name="movement_order_cover_to" type="datetime-local" />
-                  </div>
-
-                  <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                    <label style={checkboxRow}>
-                      <input type="checkbox" name="self_escort_required" value="true" />
-                      <span>Self escort required</span>
-                    </label>
-                    <div style={gridStyle}>
-                      <Field label="Self escort van reg" name="self_escort_van_reg" />
-                      <Field label="Self escort driver name" name="self_escort_driver_name" />
-                      <Field label="Self escort driver number" name="self_escort_driver_phone" />
-                    </div>
-
-                    <label style={checkboxRow}>
-                      <input type="checkbox" name="police_escort_required" value="true" />
-                      <span>Police escort required</span>
-                    </label>
-                    <div style={{ display: "grid", gap: 10 }}>
-                      {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => (
-                        <div key={`police-escort-${index}`} style={{ ...miniCard, display: "grid", gap: 10 }}>
-                          <div style={{ fontWeight: 800, fontSize: 13 }}>Police escort #{index + 1}</div>
-                          <div style={gridStyle}>
-                            <Field label="Force" name={`police_escort_force_${index}`} />
-                            <Field label="Collection from" name={`police_escort_collection_from_${index}`} />
-                            <Field label="Collection to" name={`police_escort_collection_to_${index}`} />
-                            <Field label="Time" name={`police_escort_time_${index}`} type="time" />
-                            <Field label="Police contact" name={`police_escort_contact_name_${index}`} />
-                            <Field label="Police number" name={`police_escort_contact_phone_${index}`} />
-                            <Field label="Police email" name={`police_escort_contact_email_${index}`} type="email" />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div>
-                      <label style={labelStyle}>Special instructions</label>
-                      <textarea name="special_instructions" rows={2} style={textareaStyle} />
-                    </div>
-                    <div>
-                      <label style={labelStyle}>Contingency notes</label>
-                      <textarea name="contingency_notes" rows={2} style={textareaStyle} />
-                    </div>
-                  </div>
-                </div>
+        <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+          {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => (
+            <div
+              key={`police-escort-${index}`}
+              style={{ ...miniCard, display: "grid", gap: 10 }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 13 }}>
+                Police escort #{index + 1}
               </div>
+
+              <div style={gridStyle}>
+                <Field label="Force" name={`police_escort_force_${index}`} />
+                <Field
+                  label="Collection from"
+                  name={`police_escort_collection_from_${index}`}
+                />
+                <Field
+                  label="Collection to"
+                  name={`police_escort_collection_to_${index}`}
+                />
+                <Field
+                  label="Time"
+                  name={`police_escort_time_${index}`}
+                  type="time"
+                />
+                <Field
+                  label="Police contact"
+                  name={`police_escort_contact_name_${index}`}
+                />
+                <Field
+                  label="Police number"
+                  name={`police_escort_contact_phone_${index}`}
+                />
+                <Field
+                  label="Police email"
+                  name={`police_escort_contact_email_${index}`}
+                  type="email"
+                />
               </div>
-            </section>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
             <section id="invoice_details_section" style={sectionCard}>
               <div style={sectionTitle}>Invoice</div>
