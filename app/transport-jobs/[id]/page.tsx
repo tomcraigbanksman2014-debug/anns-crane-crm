@@ -101,41 +101,52 @@ function normaliseMovementOrderStatus(value: FormDataEntryValue | null, required
 function parsePoliceEscortRows(formData: FormData) {
   const rows: Array<{
     sort_order: number;
-    force: string | null;
+    force_name: string | null;
     collection_from: string | null;
     collection_to: string | null;
-    escort_time: string | null;
+    collection_time: string | null;
     police_contact_name: string | null;
-    police_contact_number: string | null;
+    police_contact_phone: string | null;
     police_contact_email: string | null;
   }> = [];
 
   for (let index = 0; index < POLICE_ESCORT_ROW_COUNT; index++) {
-    const force = clean(formData.get(`police_force_${index}`)) || null;
-    const collectionFrom = clean(formData.get(`police_collection_from_${index}`)) || null;
-    const collectionTo = clean(formData.get(`police_collection_to_${index}`)) || null;
-    const escortTime = clean(formData.get(`police_time_${index}`)) || null;
-    const contactName = clean(formData.get(`police_contact_name_${index}`)) || null;
-    const contactNumber = clean(formData.get(`police_contact_number_${index}`)) || null;
-    const contactEmail = clean(formData.get(`police_contact_email_${index}`)) || null;
+    const forceName = clean(formData.get(`police_escort_force_${index}`)) || null;
+    const collectionFrom = clean(formData.get(`police_escort_collection_from_${index}`)) || null;
+    const collectionTo = clean(formData.get(`police_escort_collection_to_${index}`)) || null;
+    const collectionTime = clean(formData.get(`police_escort_time_${index}`)) || null;
+    const contactName = clean(formData.get(`police_escort_contact_name_${index}`)) || null;
+    const contactPhone = clean(formData.get(`police_escort_contact_phone_${index}`)) || null;
+    const contactEmail = clean(formData.get(`police_escort_contact_email_${index}`)) || null;
 
-    if (!force && !collectionFrom && !collectionTo && !escortTime && !contactName && !contactNumber && !contactEmail) {
+    if (!forceName && !collectionFrom && !collectionTo && !collectionTime && !contactName && !contactPhone && !contactEmail) {
       continue;
     }
 
     rows.push({
       sort_order: index,
-      force,
+      force_name: forceName,
       collection_from: collectionFrom,
       collection_to: collectionTo,
-      escort_time: escortTime,
+      collection_time: collectionTime,
       police_contact_name: contactName,
-      police_contact_number: contactNumber,
+      police_contact_phone: contactPhone,
       police_contact_email: contactEmail,
     });
   }
 
   return rows;
+}
+
+function movementOrderStatusLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "not_required") return "Not required";
+  if (raw === "required") return "Required";
+  if (raw === "submitted") return "Submitted";
+  if (raw === "approved") return "Approved";
+  if (raw === "rejected") return "Rejected";
+  if (raw === "other") return "Other";
+  return raw ? raw.replace(/_/g, " ") : "Not required";
 }
 
 function legacySubmissionStatusFromMovement(status: string) {
@@ -2085,6 +2096,13 @@ const successBox: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(16,185,129,0.12)",
   border: "1px solid rgba(16,185,129,0.24)",
+};
+
+const miniCard: React.CSSProperties = {
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.08)",
+  background: "rgba(255,255,255,0.72)",
+  padding: 12,
 };
 
 const detailsCard: React.CSSProperties = {
