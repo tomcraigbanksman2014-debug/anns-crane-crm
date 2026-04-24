@@ -1,6 +1,5 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
-import CopyTextButton from "../../components/CopyTextButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -9,7 +8,7 @@ import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
 import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
 import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
-import { approvalStatusLabel, authorisationStatusLabel, buildAbnormalLoadReadiness, buildMovementOrderSummary, isAbnormalLoadTransport, movementStatusLabel, abnormalLoadCategoryLabel, submissionMethodLabel } from "../../lib/transportAbnormal";
+import { isAbnormalLoadTransport } from "../../lib/transportAbnormal";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -829,12 +828,6 @@ export default async function TransportJobDetailPage({
 
   const parsedOtherSupplier = parseOtherSupplierReference((item as any)?.supplier_reference);
   const isOtherSupplier = !(item as any)?.supplier_id && !!parsedOtherSupplier.otherSupplierName;
-  const abnormalReadiness = buildAbnormalLoadReadiness(item as any);
-  const movementSummary = buildMovementOrderSummary({
-    ...(item as any),
-    client_name: client?.company_name ?? null,
-    supplier_name: isOtherSupplier ? parsedOtherSupplier.otherSupplierName : supplierFromLookup?.company_name ?? null,
-  });
   const movementDocumentTypes = new Set([
     "movement_order",
     "movement_order_request",
@@ -973,9 +966,7 @@ export default async function TransportJobDetailPage({
                   <SummaryCard
                     title="Movement Order"
                     rows={[
-                      { label: "Category", value: abnormalLoadCategoryLabel((item as any)?.abnormal_load_category) },
-                      { label: "Readiness", value: `${abnormalReadiness.label} • ${abnormalReadiness.score}%` },
-                      { label: "Movement order status", value: movementOrderStatusLabel((item as any)?.movement_order_status) },
+                      { label: "Status", value: movementOrderStatusLabel((item as any)?.movement_order_status) },
                       { label: "Reference", value: (item as any)?.movement_order_reference ?? "—" },
                       { label: "Covers from", value: fmtDateTime((item as any)?.movement_order_cover_from) },
                       { label: "Covers to", value: fmtDateTime((item as any)?.movement_order_cover_to) },
@@ -1312,260 +1303,162 @@ export default async function TransportJobDetailPage({
                 </details>
 
                 <section style={sectionCard}>
-                  <div style={sectionTitle}>Abnormal load / movement order</div>
-                  <div style={helperText}>Use this section to hold the route, vehicle, authority, document and approval details for a ready-to-submit movement order pack.</div>
+  <div style={sectionTitle}>Movement order</div>
+  <div style={helperText}>Use this only where a movement order is required.</div>
 
-                  <div
-                    style={{
-                      ...softPanel,
-                      marginTop: 12,
-                      border:
-                        abnormalReadiness.tone === "green"
-                          ? "1px solid rgba(24,140,84,0.18)"
-                          : abnormalReadiness.tone === "amber"
-                            ? "1px solid rgba(214,137,16,0.18)"
-                            : abnormalReadiness.tone === "red"
-                              ? "1px solid rgba(200,55,55,0.18)"
-                              : "1px solid rgba(0,0,0,0.08)",
-                      background:
-                        abnormalReadiness.tone === "green"
-                          ? "rgba(24,140,84,0.10)"
-                          : abnormalReadiness.tone === "amber"
-                            ? "rgba(214,137,16,0.10)"
-                            : abnormalReadiness.tone === "red"
-                              ? "rgba(200,55,55,0.10)"
-                              : "rgba(255,255,255,0.78)",
-                    }}
-                  >
-                    <div style={{ fontWeight: 900, marginBottom: 6 }}>
-                      {abnormalReadiness.enabled ? abnormalReadiness.label : "Standard transport job"}
-                    </div>
-                    <div style={helperText}>
-                      {abnormalReadiness.enabled
-                        ? `Movement order completion score ${abnormalReadiness.score}%`
-                        : "Enable this section when the job needs abnormal-load controls, movement orders or permit tracking."}
-                    </div>
+  <label style={{ ...checkboxRow, marginTop: 12 }}>
+    <input
+      type="checkbox"
+      name="abnormal_load_enabled"
+      value="true"
+      defaultChecked={Boolean((item as any)?.abnormal_load_enabled)}
+    />
+    <span>Movement order required</span>
+  </label>
 
-                    {abnormalReadiness.enabled && (abnormalReadiness.missingCritical.length > 0 || abnormalReadiness.missingRecommended.length > 0 || abnormalReadiness.checklistMissing.length > 0) ? (
-                      <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
-                        {abnormalReadiness.missingCritical.length > 0 ? (
-                          <div style={{ fontSize: 13, fontWeight: 800, color: "#8a1c1c" }}>
-                            Critical missing: {abnormalReadiness.missingCritical.join(", ")}
-                          </div>
-                        ) : null}
-                        {abnormalReadiness.missingRecommended.length > 0 ? (
-                          <div style={{ fontSize: 13, fontWeight: 700 }}>
-                            Recommended missing: {abnormalReadiness.missingRecommended.join(", ")}
-                          </div>
-                        ) : null}
-                        {abnormalReadiness.checklistMissing.length > 0 ? (
-                          <div style={{ fontSize: 13, fontWeight: 700 }}>
-                            Checklist missing: {abnormalReadiness.checklistMissing.join(", ")}
-                          </div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
+  <div id="abnormal_load_fields_wrap" style={{ display: "none", marginTop: 12 }}>
+    <input type="hidden" name="movement_order_required" value="true" />
 
-                  <label style={{ ...checkboxRow, marginTop: 12 }}>
-                    <input type="checkbox" name="abnormal_load_enabled" value="true" defaultChecked={Boolean((item as any)?.abnormal_load_enabled)} />
-                    <span>This transport job needs abnormal load / movement order control</span>
-                  </label>
+    <div id="abnormal_load_fields_panel" style={{ marginTop: 14, display: "grid", gap: 14 }}>
+      <div>
+        <div style={subsectionTitle}>Movement order details</div>
+        <div style={gridStyle}>
+          <SelectField
+            label="Movement order status"
+            name="movement_order_status"
+            defaultValue={(item as any)?.movement_order_status ?? "required"}
+            options={[
+              { value: "required", label: "Required" },
+              { value: "submitted", label: "Submitted" },
+              { value: "approved", label: "Approved" },
+              { value: "rejected", label: "Rejected" },
+              { value: "other", label: "Other" },
+            ]}
+          />
+          <Field
+            label="Movement order reference"
+            name="movement_order_reference"
+            defaultValue={(item as any)?.movement_order_reference ?? ""}
+          />
+          <Field
+            label="Covers from"
+            name="movement_order_cover_from"
+            type="datetime-local"
+            defaultValue={String((item as any)?.movement_order_cover_from ?? "").slice(0, 16)}
+          />
+          <Field
+            label="Covers to"
+            name="movement_order_cover_to"
+            type="datetime-local"
+            defaultValue={String((item as any)?.movement_order_cover_to ?? "").slice(0, 16)}
+          />
+        </div>
+      </div>
 
-                  <div
-                    id="abnormal_load_fields_wrap"
-                    style={{ display: Boolean((item as any)?.abnormal_load_enabled) ? "block" : "none", marginTop: 12 }}
-                  >
-                    <div style={{ marginTop: 14, display: "grid", gap: 14 }}>
-                    <div>
-                      <div style={subsectionTitle}>Movement setup</div>
-                      <div style={gridStyle}>
-                        <SelectField
-                          label="Category"
-                          name="abnormal_load_category"
-                          defaultValue={(item as any)?.abnormal_load_category ?? "abnormal_load"}
-                          options={[
-                            { value: "abnormal_load", label: "Abnormal load" },
-                            { value: "heavy_haulage", label: "Heavy haulage" },
-                            { value: "escorted_movement", label: "Escorted movement" },
-                            { value: "modular_movement", label: "Modular / cabin movement" },
-                          ]}
-                        />
-                        <Field label="Preferred move window" name="preferred_move_window" defaultValue={(item as any)?.preferred_move_window ?? ""} />
-                        <Field label="Movement start time" name="movement_start_time" type="time" defaultValue={(item as any)?.movement_start_time ?? ""} />
-                        <Field label="Movement finish time" name="movement_finish_time" type="time" defaultValue={(item as any)?.movement_finish_time ?? ""} />
-                        <Field label="Movement reference" name="movement_reference" defaultValue={(item as any)?.movement_reference ?? ""} />
-                        <Field label="Movement order reference" name="movement_order_reference" defaultValue={(item as any)?.movement_order_reference ?? ""} />
-                      </div>
-                    </div>
+      <div>
+        <div style={subsectionTitle}>Self escort</div>
+        <label style={{ ...checkboxRow, marginTop: 8 }}>
+          <input
+            type="checkbox"
+            name="self_escort_required"
+            value="true"
+            defaultChecked={Boolean((item as any)?.self_escort_required)}
+          />
+          <span>Self escort required</span>
+        </label>
 
-                    <div>
-                      <div style={subsectionTitle}>Vehicle and trailer</div>
-                      <div style={gridStyle}>
-                        <Field label="Tractor unit registration" name="tractor_unit_registration" defaultValue={(item as any)?.tractor_unit_registration ?? ""} />
-                        <Field label="Tractor unit type" name="tractor_unit_type" defaultValue={(item as any)?.tractor_unit_type ?? ""} />
-                        <Field label="Tractor unit fleet ID" name="tractor_unit_fleet_id" defaultValue={(item as any)?.tractor_unit_fleet_id ?? ""} />
-                        <Field label="Trailer registration" name="trailer_registration" defaultValue={(item as any)?.trailer_registration ?? ""} />
-                        <Field label="Trailer type" name="trailer_type" defaultValue={(item as any)?.trailer_type ?? ""} />
-                        <Field label="Trailer fleet ID" name="trailer_fleet_id" defaultValue={(item as any)?.trailer_fleet_id ?? ""} />
-                        <Field label="Haulier contact name" name="haulier_contact_name" defaultValue={(item as any)?.haulier_contact_name ?? ""} />
-                        <Field label="Haulier contact phone" name="haulier_contact_phone" defaultValue={(item as any)?.haulier_contact_phone ?? ""} />
-                      </div>
-                    </div>
+        <div style={{ ...gridStyle, marginTop: 10 }}>
+          <Field
+            label="Van reg"
+            name="self_escort_van_reg"
+            defaultValue={(item as any)?.self_escort_van_reg ?? ""}
+          />
+          <Field
+            label="Driver name"
+            name="self_escort_driver_name"
+            defaultValue={(item as any)?.self_escort_driver_name ?? ""}
+          />
+          <Field
+            label="Driver number"
+            name="self_escort_driver_phone"
+            defaultValue={(item as any)?.self_escort_driver_phone ?? ""}
+          />
+        </div>
+      </div>
 
-                    <div>
-                      <div style={subsectionTitle}>Load dimensions</div>
-                      <div style={gridStyle}>
-                        <Field label="Load length (m)" name="load_length_m" type="number" step="0.01" defaultValue={String((item as any)?.load_length_m ?? "")} />
-                        <Field label="Load width (m)" name="load_width_m" type="number" step="0.01" defaultValue={String((item as any)?.load_width_m ?? "")} />
-                        <Field label="Load height (m)" name="load_height_m" type="number" step="0.01" defaultValue={String((item as any)?.load_height_m ?? "")} />
-                        <Field label="Load weight (t)" name="load_weight_t" type="number" step="0.01" defaultValue={String((item as any)?.load_weight_t ?? "")} />
-                      </div>
-                    </div>
+      <div>
+        <div style={subsectionTitle}>Police escort</div>
+        <label style={{ ...checkboxRow, marginTop: 8 }}>
+          <input
+            type="checkbox"
+            name="police_escort_required"
+            value="true"
+            defaultChecked={Boolean((item as any)?.police_escort_required)}
+          />
+          <span>Police escort required</span>
+        </label>
 
-                    <div>
-                      <div style={subsectionTitle}>Overall transport dimensions</div>
-                      <div style={gridStyle}>
-                        <Field label="Overall length (m)" name="transport_length_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_length_m ?? "")} />
-                        <Field label="Overall width (m)" name="transport_width_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_width_m ?? "")} />
-                        <Field label="Overall height (m)" name="transport_height_m" type="number" step="0.01" defaultValue={String((item as any)?.transport_height_m ?? "")} />
-                        <Field label="Gross weight (t)" name="transport_gross_weight_t" type="number" step="0.01" defaultValue={String((item as any)?.transport_gross_weight_t ?? "")} />
-                      </div>
-                    </div>
+        <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
+          {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => {
+            const row = policeEscortRows[index] ?? null;
 
-                    <div>
-                      <div style={subsectionTitle}>Axle and configuration</div>
-                      <div style={gridStyle}>
-                        <Field label="Axle configuration" name="axle_configuration" defaultValue={(item as any)?.axle_configuration ?? ""} />
-                        <Field label="Front axle (t)" name="front_axle_t" type="number" step="0.01" defaultValue={String((item as any)?.front_axle_t ?? "")} />
-                        <Field label="Drive axle (t)" name="drive_axle_t" type="number" step="0.01" defaultValue={String((item as any)?.drive_axle_t ?? "")} />
-                        <Field label="Trailer axle 1 (t)" name="trailer_axle_1_t" type="number" step="0.01" defaultValue={String((item as any)?.trailer_axle_1_t ?? "")} />
-                        <Field label="Trailer axle 2 (t)" name="trailer_axle_2_t" type="number" step="0.01" defaultValue={String((item as any)?.trailer_axle_2_t ?? "")} />
-                        <Field label="Trailer axle 3 (t)" name="trailer_axle_3_t" type="number" step="0.01" defaultValue={String((item as any)?.trailer_axle_3_t ?? "")} />
-                        <Field label="Trailer axle 4 (t)" name="trailer_axle_4_t" type="number" step="0.01" defaultValue={String((item as any)?.trailer_axle_4_t ?? "")} />
-                      </div>
-                      <div style={{ marginTop: 12 }}>
-                        <label style={labelStyle}>Axle weights / axle notes</label>
-                        <textarea name="axle_weight_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.axle_weight_notes ?? ""} />
-                      </div>
-                    </div>
+            return (
+              <div
+                key={`police-escort-${index}`}
+                style={{ ...miniCard, display: "grid", gap: 10 }}
+              >
+                <div style={{ fontWeight: 800, fontSize: 13 }}>
+                  Police escort #{index + 1}
+                </div>
 
-                    <div>
-                      <div style={subsectionTitle}>Contacts and route checks</div>
-                      <div style={gridStyle}>
-                        <Field label="Collection contact" name="collection_contact_name" defaultValue={(item as any)?.collection_contact_name ?? ""} />
-                        <Field label="Collection contact phone" name="collection_contact_phone" defaultValue={(item as any)?.collection_contact_phone ?? ""} />
-                        <Field label="Delivery contact" name="delivery_contact_name" defaultValue={(item as any)?.delivery_contact_name ?? ""} />
-                        <Field label="Delivery contact phone" name="delivery_contact_phone" defaultValue={(item as any)?.delivery_contact_phone ?? ""} />
-                        <Field label="Route start location" name="route_start" defaultValue={(item as any)?.route_start ?? ""} />
-                        <Field label="Route finish location" name="route_finish" defaultValue={(item as any)?.route_finish ?? ""} />
-                      </div>
+                <div style={gridStyle}>
+                  <Field
+                    label="Force"
+                    name={`police_escort_force_${index}`}
+                    defaultValue={row?.force_name ?? ""}
+                  />
+                  <Field
+                    label="Collection from"
+                    name={`police_escort_collection_from_${index}`}
+                    defaultValue={row?.collection_from ?? ""}
+                  />
+                  <Field
+                    label="Collection to"
+                    name={`police_escort_collection_to_${index}`}
+                    defaultValue={row?.collection_to ?? ""}
+                  />
+                  <Field
+                    label="Time"
+                    name={`police_escort_time_${index}`}
+                    type="time"
+                    defaultValue={String(row?.collection_time ?? "").slice(0, 5)}
+                  />
+                  <Field
+                    label="Police contact"
+                    name={`police_escort_contact_name_${index}`}
+                    defaultValue={row?.police_contact_name ?? ""}
+                  />
+                  <Field
+                    label="Police number"
+                    name={`police_escort_contact_phone_${index}`}
+                    defaultValue={row?.police_contact_phone ?? ""}
+                  />
+                  <Field
+                    label="Police email"
+                    name={`police_escort_contact_email_${index}`}
+                    type="email"
+                    defaultValue={row?.police_contact_email ?? ""}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
-                      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                        <div>
-                          <label style={labelStyle}>Planned route</label>
-                          <textarea name="planned_route" rows={3} style={textareaStyle} defaultValue={(item as any)?.planned_route ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Route notes</label>
-                          <textarea name="route_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.route_notes ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Restrictions / access notes</label>
-                          <textarea name="restriction_notes" rows={3} style={textareaStyle} defaultValue={(item as any)?.restriction_notes ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Bridge notes</label>
-                          <textarea name="bridge_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.bridge_notes ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Access notes</label>
-                          <textarea name="access_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.access_notes ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Authority areas</label>
-                          <textarea name="authority_areas" rows={2} style={textareaStyle} defaultValue={(item as any)?.authority_areas ?? ""} />
-                        </div>
-                        <label style={checkboxRow}>
-                          <input type="checkbox" name="route_checked" value="true" defaultChecked={Boolean((item as any)?.route_checked)} />
-                          <span>Route checked</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div style={subsectionTitle}>Movement order</div>
-                      <div style={gridStyle}>
-                        <label style={checkboxRow}>
-                          <input type="checkbox" name="movement_order_required" value="true" defaultChecked={Boolean((item as any)?.movement_order_required)} />
-                          <span>Movement order required</span>
-                        </label>
-                        <SelectField
-                          label="Movement order status"
-                          name="movement_order_status"
-                          defaultValue={(item as any)?.movement_order_status ?? "not_required"}
-                          options={[
-                            { value: "not_required", label: "Not required" },
-                            { value: "required", label: "Required" },
-                            { value: "submitted", label: "Submitted" },
-                            { value: "approved", label: "Approved" },
-                            { value: "rejected", label: "Rejected" },
-                            { value: "other", label: "Other" },
-                          ]}
-                        />
-                        <Field label="Movement order reference" name="movement_order_reference" defaultValue={(item as any)?.movement_order_reference ?? ""} />
-                        <Field label="Covers from" name="movement_order_cover_from" type="datetime-local" defaultValue={String((item as any)?.movement_order_cover_from ?? "").slice(0, 16)} />
-                        <Field label="Covers to" name="movement_order_cover_to" type="datetime-local" defaultValue={String((item as any)?.movement_order_cover_to ?? "").slice(0, 16)} />
-                      </div>
-
-                      <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-                        <label style={checkboxRow}>
-                          <input type="checkbox" name="self_escort_required" value="true" defaultChecked={Boolean((item as any)?.self_escort_required)} />
-                          <span>Self escort required</span>
-                        </label>
-                        <div style={gridStyle}>
-                          <Field label="Self escort van reg" name="self_escort_van_reg" defaultValue={(item as any)?.self_escort_van_reg ?? ""} />
-                          <Field label="Self escort driver name" name="self_escort_driver_name" defaultValue={(item as any)?.self_escort_driver_name ?? ""} />
-                          <Field label="Self escort driver number" name="self_escort_driver_phone" defaultValue={(item as any)?.self_escort_driver_phone ?? ""} />
-                        </div>
-
-                        <label style={checkboxRow}>
-                          <input type="checkbox" name="police_escort_required" value="true" defaultChecked={Boolean((item as any)?.police_escort_required)} />
-                          <span>Police escort required</span>
-                        </label>
-                        <div style={{ display: "grid", gap: 10 }}>
-                          {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => {
-                            const row = policeEscortRows[index] ?? null;
-                            return (
-                              <div key={`police-escort-${index}`} style={{ ...miniCard, display: "grid", gap: 10 }}>
-                                <div style={{ fontWeight: 800, fontSize: 13 }}>Police escort #{index + 1}</div>
-                                <div style={gridStyle}>
-                                  <Field label="Force" name={`police_escort_force_${index}`} defaultValue={row?.force_name ?? ""} />
-                                  <Field label="Collection from" name={`police_escort_collection_from_${index}`} defaultValue={row?.collection_from ?? ""} />
-                                  <Field label="Collection to" name={`police_escort_collection_to_${index}`} defaultValue={row?.collection_to ?? ""} />
-                                  <Field label="Time" name={`police_escort_time_${index}`} type="time" defaultValue={String(row?.collection_time ?? "").slice(0,5)} />
-                                  <Field label="Police contact" name={`police_escort_contact_name_${index}`} defaultValue={row?.police_contact_name ?? ""} />
-                                  <Field label="Police number" name={`police_escort_contact_phone_${index}`} defaultValue={row?.police_contact_phone ?? ""} />
-                                  <Field label="Police email" name={`police_escort_contact_email_${index}`} type="email" defaultValue={row?.police_contact_email ?? ""} />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div>
-                          <label style={labelStyle}>Special instructions</label>
-                          <textarea name="special_instructions" rows={2} style={textareaStyle} defaultValue={(item as any)?.special_instructions ?? ""} />
-                        </div>
-                        <div>
-                          <label style={labelStyle}>Contingency notes</label>
-                          <textarea name="contingency_notes" rows={2} style={textareaStyle} defaultValue={(item as any)?.contingency_notes ?? ""} />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  </div>
-                </section>
 
                 <section style={sectionCard}>
                   <div style={sectionTitle}>Invoice</div>
@@ -1619,18 +1512,6 @@ export default async function TransportJobDetailPage({
                   </ServerSubmitButton>
                 </div>
               </form>
-
-              {isAbnormalLoadTransport(item as any) ? (
-                <section style={{ ...sectionCard, marginTop: 18 }}>
-                  <div style={sectionTitle}>Movement order summary</div>
-                  <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-                    <CopyTextButton text={movementSummary} label="Copy summary" copiedLabel="Summary copied" />
-                  </div>
-                  <div style={{ marginTop: 12 }}>
-                    <textarea value={movementSummary} readOnly rows={18} style={{ ...textareaStyle, background: "rgba(255,255,255,0.72)", fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }} />
-                  </div>
-                </section>
-              ) : null}
 
               <section style={{ ...sectionCard, marginTop: 18 }}>
                 <div style={sectionTitle}>Transport Documents</div>
