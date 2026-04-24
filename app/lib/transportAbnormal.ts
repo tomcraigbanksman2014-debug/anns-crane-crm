@@ -51,6 +51,15 @@ export type AbnormalTransportRowLike = {
   submission_status?: string | null;
   submission_notes?: string | null;
   movement_order_reference?: string | null;
+  movement_order_required?: boolean | null;
+  movement_order_status?: string | null;
+  movement_order_cover_from?: string | null;
+  movement_order_cover_to?: string | null;
+  self_escort_required?: boolean | null;
+  self_escort_van_reg?: string | null;
+  self_escort_driver_name?: string | null;
+  self_escort_driver_phone?: string | null;
+  police_escort_required?: boolean | null;
   movement_order_submitted_at?: string | null;
   approval_status?: string | null;
   approval_notes?: string | null;
@@ -411,4 +420,16 @@ export function buildMovementOrderSummary(row: AbnormalTransportRowLike | null |
   }
 
   return lines.join("\n").replace(/\n{3,}/g, "\n\n");
+}
+
+
+export function simpleMovementOrderStatusLabel(value: string | null | undefined) {
+  const raw = clean(value).toLowerCase();
+  if (raw === "not_required") return "Not required";
+  if (raw === "required") return "Required";
+  if (raw === "submitted") return "Submitted";
+  if (raw === "approved") return "Approved";
+  if (raw === "rejected") return "Rejected";
+  if (raw === "other") return "Other";
+  return raw ? raw.replace(/_/g, " ") : "Not required";
 }
