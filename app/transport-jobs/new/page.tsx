@@ -1329,6 +1329,14 @@ const secondaryBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.10)",
 };
 
+
+const miniCard: React.CSSProperties = {
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.08)",
+  background: "rgba(255,255,255,0.72)",
+  padding: 12,
+};
+
 const errorBox: React.CSSProperties = {
   marginTop: 14,
   padding: "10px 12px",
