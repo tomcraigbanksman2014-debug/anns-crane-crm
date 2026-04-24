@@ -72,70 +72,6 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-const POLICE_ESCORT_ROW_COUNT = 5;
-
-function normaliseMovementOrderStatus(value: FormDataEntryValue | null, required: boolean) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (!required) return "not_required";
-  if (["required", "submitted", "approved", "rejected", "other"].includes(raw)) return raw;
-  return "required";
-}
-
-function parsePoliceEscortRows(formData: FormData) {
-  const rows: Array<{
-    sort_order: number;
-    force_name: string;
-    collection_from: string | null;
-    collection_to: string | null;
-    collection_time: string | null;
-    police_contact_name: string | null;
-    police_contact_phone: string | null;
-    police_contact_email: string | null;
-  }> = [];
-
-  for (let i = 0; i < POLICE_ESCORT_ROW_COUNT; i++) {
-    const forceName = clean(formData.get(`police_escort_force_${i}`));
-    const collectionFrom = clean(formData.get(`police_escort_collection_from_${i}`)) || null;
-    const collectionTo = clean(formData.get(`police_escort_collection_to_${i}`)) || null;
-    const collectionTime = clean(formData.get(`police_escort_time_${i}`)) || null;
-    const policeContactName = clean(formData.get(`police_escort_contact_name_${i}`)) || null;
-    const policeContactPhone = clean(formData.get(`police_escort_contact_phone_${i}`)) || null;
-    const policeContactEmail = clean(formData.get(`police_escort_contact_email_${i}`)) || null;
-
-    if (!forceName && !collectionFrom && !collectionTo && !collectionTime && !policeContactName && !policeContactPhone && !policeContactEmail) {
-      continue;
-    }
-
-    rows.push({
-      sort_order: rows.length,
-      force_name: forceName || `Escort ${rows.length + 1}`,
-      collection_from: collectionFrom,
-      collection_to: collectionTo,
-      collection_time: collectionTime,
-      police_contact_name: policeContactName,
-      police_contact_phone: policeContactPhone,
-      police_contact_email: policeContactEmail,
-    });
-  }
-
-  return rows;
-}
-
-function legacySubmissionStatusFromMovement(status: string) {
-  if (status === "submitted") return "submitted";
-  if (status === "approved") return "approved";
-  if (status === "rejected") return "rejected";
-  if (status === "not_required") return "not_started";
-  return "not_started";
-}
-
-function legacyApprovalStatusFromMovement(status: string) {
-  if (status === "approved") return "approved";
-  if (status === "rejected") return "rejected";
-  if (status === "not_required") return "not_required";
-  return "not_started";
-}
-
 const INVOICE_STATUSES = ["Not Invoiced", "Invoiced", "Part Paid", "Paid"];
 
 function buildTimeOptions() {
@@ -151,6 +87,81 @@ function buildTimeOptions() {
   }
 
   return options;
+}
+
+const POLICE_ESCORT_ROW_COUNT = 3;
+
+function normaliseMovementOrderStatus(value: FormDataEntryValue | null, required: boolean) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!required) return "not_required";
+  if (["required", "submitted", "approved", "rejected"].includes(raw)) return raw;
+  return "required";
+}
+
+function parsePoliceEscortRows(formData: FormData) {
+  const rows: Array<{
+    sort_order: number;
+    force: string | null;
+    collection_from: string | null;
+    collection_to: string | null;
+    escort_time: string | null;
+    police_contact_name: string | null;
+    police_contact_number: string | null;
+    police_contact_email: string | null;
+  }> = [];
+
+  for (let index = 0; index < POLICE_ESCORT_ROW_COUNT; index++) {
+    const force = clean(formData.get(`police_force_${index}`)) || null;
+    const collectionFrom = clean(formData.get(`police_collection_from_${index}`)) || null;
+    const collectionTo = clean(formData.get(`police_collection_to_${index}`)) || null;
+    const escortTime = clean(formData.get(`police_time_${index}`)) || null;
+    const contactName = clean(formData.get(`police_contact_name_${index}`)) || null;
+    const contactNumber = clean(formData.get(`police_contact_number_${index}`)) || null;
+    const contactEmail = clean(formData.get(`police_contact_email_${index}`)) || null;
+
+    if (!force && !collectionFrom && !collectionTo && !escortTime && !contactName && !contactNumber && !contactEmail) {
+      continue;
+    }
+
+    rows.push({
+      sort_order: index,
+      force,
+      collection_from: collectionFrom,
+      collection_to: collectionTo,
+      escort_time: escortTime,
+      police_contact_name: contactName,
+      police_contact_number: contactNumber,
+      police_contact_email: contactEmail,
+    });
+  }
+
+  return rows;
+}
+
+function legacySubmissionStatusFromMovement(status: string) {
+  switch (status) {
+    case "submitted":
+    case "approved":
+    case "rejected":
+      return "submitted";
+    case "required":
+      return "not_started";
+    default:
+      return "not_started";
+  }
+}
+
+function legacyApprovalStatusFromMovement(status: string) {
+  switch (status) {
+    case "approved":
+      return "approved";
+    case "rejected":
+      return "rejected";
+    case "submitted":
+      return "pending";
+    default:
+      return "not_started";
+  }
 }
 
 function parseDateTime(dateValue: string | null, timeValue: string | null) {
