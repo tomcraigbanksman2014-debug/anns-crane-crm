@@ -31,6 +31,7 @@ type PlannerItem = {
   abnormal_load_category?: string | null;
   movement_reference?: string | null;
   movement_order_reference?: string | null;
+  movement_order_status?: string | null;
   submission_method?: string | null;
   submission_status?: string | null;
   approval_status?: string | null;
@@ -196,7 +197,7 @@ function abnormalCategoryLabel(value: string | null | undefined) {
   return "Abnormal load";
 }
 
-function submissionStatusShortLabel(value: string | null | undefined) {
+function movementOrderStatusShortLabel(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (raw === "ready_to_submit") return "Ready to submit";
   if (raw === "awaiting_response") return "Awaiting response";
@@ -696,7 +697,7 @@ export default function TransportPlannerBoard() {
           {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
           {linkedCraneItem ? <div style={pillLinked}>Linked crane job</div> : null}
           {isAbnormalTransportItem(item) ? <div style={pillAbnormal}>{abnormalCategoryLabel(item.abnormal_load_category)}</div> : null}
-          {isAbnormalTransportItem(item) && item.submission_status ? <div style={pillSubmission}>{submissionStatusShortLabel(item.submission_status)}</div> : null}
+          {isAbnormalTransportItem(item) && item.submission_status ? <div style={pillSubmission}>{movementOrderStatusShortLabel(item.movement_order_status ?? item.submission_status)}</div> : null}
           {isAbnormalTransportItem(item) ? (
             <div style={item.authorised_to_move ? pillAuthorised : pillNotAuthorised}>
               {item.authorised_to_move ? "Authorised" : "Not authorised"}
