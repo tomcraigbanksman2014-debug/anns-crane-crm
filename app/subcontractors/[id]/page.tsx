@@ -1,6 +1,6 @@
-import ClientShell from "../../../ClientShell";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { getQualificationSummary } from "../../../lib/utils/qualificationStatus";
+import ClientShell from "../../ClientShell";
+import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { getQualificationSummary } from "../../lib/utils/qualificationStatus";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
