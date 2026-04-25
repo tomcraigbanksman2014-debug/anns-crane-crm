@@ -1,6 +1,6 @@
-import ClientShell from "../../../../ClientShell";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import { geocodeAddress } from "../../../../lib/geocode";
+import ClientShell from "../../../ClientShell";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { geocodeAddress } from "../../../lib/geocode";
 import { redirect } from "next/navigation";
 import SubcontractorForm from "../../SubcontractorForm";
 
