@@ -1388,71 +1388,84 @@ export default async function TransportJobDetailPage({
 
       <div>
         <div style={subsectionTitle}>Police escort</div>
-        <label style={{ ...checkboxRow, marginTop: 8 }}>
-          <input
-            type="checkbox"
-            name="police_escort_required"
-            value="true"
-            defaultChecked={Boolean((item as any)?.police_escort_required)}
-          />
-          <span>Police escort required</span>
-        </label>
+        <div style={{ marginTop: 8, display: "grid", gap: 10 }}>
+          <label style={checkboxRow}>
+            <input
+              id="police_escort_required"
+              type="checkbox"
+              name="police_escort_required"
+              value="true"
+              defaultChecked={Boolean((item as any)?.police_escort_required)}
+            />
+            <span>Police escort required</span>
+          </label>
 
-        <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-          {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => {
-            const row = policeEscortRows[index] ?? null;
+          <div
+            id="police_escort_fields_wrap"
+            style={{ display: Boolean((item as any)?.police_escort_required) ? "grid" : "none", gap: 10 }}
+          >
+            {Array.from({ length: POLICE_ESCORT_ROW_COUNT }).map((_, index) => {
+              const row = policeEscortRows[index] ?? null;
+              const initialVisibleCount = Math.max(1, policeEscortRows.length);
 
-            return (
-              <div
-                key={`police-escort-${index}`}
-                style={{ ...miniCard, display: "grid", gap: 10 }}
-              >
-                <div style={{ fontWeight: 800, fontSize: 13 }}>
-                  Police escort #{index + 1}
+              return (
+                <div
+                  key={`police-escort-${index}`}
+                  data-police-escort-row="true"
+                  data-police-escort-index={index}
+                  style={{ ...miniCard, display: index < initialVisibleCount ? "grid" : "none", gap: 10 }}
+                >
+                  <div style={{ fontWeight: 800, fontSize: 13 }}>
+                    Police escort #{index + 1}
+                  </div>
+
+                  <div style={gridStyle}>
+                    <Field
+                      label="Force"
+                      name={`police_escort_force_${index}`}
+                      defaultValue={row?.force_name ?? ""}
+                    />
+                    <Field
+                      label="Collection from"
+                      name={`police_escort_collection_from_${index}`}
+                      defaultValue={row?.collection_from ?? ""}
+                    />
+                    <Field
+                      label="Collection to"
+                      name={`police_escort_collection_to_${index}`}
+                      defaultValue={row?.collection_to ?? ""}
+                    />
+                    <Field
+                      label="Time"
+                      name={`police_escort_time_${index}`}
+                      type="time"
+                      defaultValue={String(row?.collection_time ?? "").slice(0, 5)}
+                    />
+                    <Field
+                      label="Police contact"
+                      name={`police_escort_contact_name_${index}`}
+                      defaultValue={row?.police_contact_name ?? ""}
+                    />
+                    <Field
+                      label="Police number"
+                      name={`police_escort_contact_phone_${index}`}
+                      defaultValue={row?.police_contact_phone ?? ""}
+                    />
+                    <Field
+                      label="Police email"
+                      name={`police_escort_contact_email_${index}`}
+                      type="email"
+                      defaultValue={row?.police_contact_email ?? ""}
+                    />
+                  </div>
                 </div>
+              );
+            })}
 
-                <div style={gridStyle}>
-                  <Field
-                    label="Force"
-                    name={`police_escort_force_${index}`}
-                    defaultValue={row?.force_name ?? ""}
-                  />
-                  <Field
-                    label="Collection from"
-                    name={`police_escort_collection_from_${index}`}
-                    defaultValue={row?.collection_from ?? ""}
-                  />
-                  <Field
-                    label="Collection to"
-                    name={`police_escort_collection_to_${index}`}
-                    defaultValue={row?.collection_to ?? ""}
-                  />
-                  <Field
-                    label="Time"
-                    name={`police_escort_time_${index}`}
-                    type="time"
-                    defaultValue={String(row?.collection_time ?? "").slice(0, 5)}
-                  />
-                  <Field
-                    label="Police contact"
-                    name={`police_escort_contact_name_${index}`}
-                    defaultValue={row?.police_contact_name ?? ""}
-                  />
-                  <Field
-                    label="Police number"
-                    name={`police_escort_contact_phone_${index}`}
-                    defaultValue={row?.police_contact_phone ?? ""}
-                  />
-                  <Field
-                    label="Police email"
-                    name={`police_escort_contact_email_${index}`}
-                    type="email"
-                    defaultValue={row?.police_contact_email ?? ""}
-                  />
-                </div>
-              </div>
-            );
-          })}
+            <button type="button" id="add_police_escort_row_btn" style={secondaryBtn}>
+              Add another police escort
+            </button>
+          </div>
         </div>
       </div>
     </div>
