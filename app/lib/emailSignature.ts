@@ -4,7 +4,7 @@ export const SHARED_EMAIL_SIGNATURE_LINES = [
   "Ann’s Crane Hire Ltd",
   "",
   "📞 01792 641653",
-  "📧 info@annscranehire.co.uk",
+  "📧 sales@annscranehire.co.uk",
   "https://www.linkedin.com/company/annscranehire/",
   "📍 6 Bay Street, Port Tennant, Swansea, SA1 8LB",
 ];
@@ -87,7 +87,7 @@ function htmlParagraphsFromPlainText(value: string) {
 export function buildSharedEmailSignatureHtml(origin?: string | null) {
   const safeOrigin = String(origin ?? "").trim().replace(/\/$/, "");
   const logoUrl = safeOrigin ? `${safeOrigin}/logo.png` : "";
-  const emailHref = "mailto:info@annscranehire.co.uk";
+  const emailHref = "mailto:sales@annscranehire.co.uk";
   const linkedInHref = "https://www.linkedin.com/company/annscranehire/";
 
   return `
@@ -105,7 +105,7 @@ export function buildSharedEmailSignatureHtml(origin?: string | null) {
     <td style=\"padding:0 0 6px 0;\">📞 01792 641653</td>
   </tr>
   <tr>
-    <td style=\"padding:0 0 6px 0;\">📧 <a href=\"${emailHref}\" style=\"color:#0b57d0;text-decoration:underline;\">info@annscranehire.co.uk</a></td>
+    <td style=\"padding:0 0 6px 0;\">📧 <a href=\"${emailHref}\" style=\"color:#0b57d0;text-decoration:underline;\">sales@annscranehire.co.uk</a></td>
   </tr>
   <tr>
     <td style=\"padding:0 0 6px 0;\"><a href=\"${linkedInHref}\" style=\"color:#0b57d0;text-decoration:underline;\">https://www.linkedin.com/company/annscranehire/</a></td>
