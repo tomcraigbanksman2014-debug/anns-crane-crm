@@ -76,7 +76,13 @@ export function buildGoogleOAuthUrl(args: {
   url.searchParams.set("client_id", getGoogleClientId());
   url.searchParams.set("redirect_uri", getGoogleRedirectUri(args.origin));
   url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "https://www.googleapis.com/auth/gmail.send");
+  url.searchParams.set(
+    "scope",
+    [
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/gmail.send",
+    ].join(" ")
+  );
   url.searchParams.set("access_type", "offline");
   url.searchParams.set("include_granted_scopes", "true");
   url.searchParams.set("prompt", "consent");
@@ -135,18 +141,18 @@ export async function exchangeGoogleCodeForTokens(args: {
 }
 
 export async function getGmailProfile(accessToken: string) {
-  const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+  const res = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
 
   const data = await parseGoogleJson(res);
 
   if (!res.ok) {
-    throw new Error(data?.error?.message || "Could not read connected Gmail profile.");
+    throw new Error(data?.error?.message || "Could not read connected Google account email.");
   }
 
   return {
-    emailAddress: String(data?.emailAddress ?? "").trim().toLowerCase(),
+    emailAddress: String(data?.email ?? "").trim().toLowerCase(),
   };
 }
 
