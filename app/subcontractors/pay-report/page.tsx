@@ -47,14 +47,28 @@ function workingDaysInWeek(startDate: string | null | undefined, endDate: string
   if (!start || !end) return [] as string[];
   return dateRangeInclusive(start, end).filter((date) => date >= weekStart && date <= weekEnd);
 }
+function overrideOrNull(...values: Array<number | string | null | undefined>) {
+  for (const value of values) {
+    const n = Number(value ?? 0);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
 function payFor(operator: any, days: number, overrideAmount?: number | null) {
-  const override = Number(overrideAmount ?? 0);
-  if (Number.isFinite(override) && override > 0) return override;
+  const override = overrideOrNull(overrideAmount);
+  if (override != null) return override;
   const dayRate = Number(operator?.standard_day_rate ?? 0);
   if (Number.isFinite(dayRate) && dayRate > 0) return dayRate * days;
   const hourlyRate = Number(operator?.standard_hourly_rate ?? 0);
   if (Number.isFinite(hourlyRate) && hourlyRate > 0) return hourlyRate * 8 * days;
   return 0;
+}
+
+function payBasisLabel(operator: any, overrideAmount?: number | string | null | undefined) {
+  const override = overrideOrNull(overrideAmount);
+  if (override != null) return `Job override £${override.toFixed(2)}`;
+  return String(operator?.pay_basis ?? "day_rate");
 }
 function fmtMoney(value: number) { return `£${value.toFixed(2)}`; }
 
@@ -107,6 +121,7 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
         transport_date,
         delivery_date,
         status,
+        supplier_cost,
         collection_address,
         delivery_address
       `)
@@ -120,7 +135,7 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
   const operatorMap = new Map(subcontractors.map((item: any) => [String(item.id), item]));
 
   const grouped = subcontractors.map((operator: any) => {
-    const entries: Array<{ label: string; dates: string[]; amount: number; kind: string }> = [];
+    const entries: Array<{ label: string; dates: string[]; amount: number; kind: string; basis: string }> = [];
 
     jobRows
       .filter((row: any) => String(row.operator_id) === String(operator.id))
@@ -132,8 +147,9 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
         entries.push({
           label: `Job #${job?.job_number ?? "—"} • ${job?.site_name ?? "No site"}`,
           dates,
-          amount: payFor(operator, dates.length, Number(row.agreed_cost ?? 0)),
+          amount: payFor(operator, dates.length, overrideOrNull(row.agreed_cost, row.supplier_cost)),
           kind: "Crane / job",
+          basis: payBasisLabel(operator, overrideOrNull(row.agreed_cost, row.supplier_cost)),
         });
       });
 
@@ -146,8 +162,9 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
         entries.push({
           label: `Transport ${row.transport_number ?? row.id} • ${row.collection_address ?? ""} → ${row.delivery_address ?? ""}`,
           dates,
-          amount: payFor(operator, dates.length, null),
+          amount: payFor(operator, dates.length, overrideOrNull(row.supplier_cost)),
           kind: "Transport",
+          basis: payBasisLabel(operator, overrideOrNull(row.supplier_cost)),
         });
       });
 
@@ -206,7 +223,7 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
                         <td style={tdStyle}>{entry.kind}</td>
                         <td style={tdStyle}>{entry.label}</td>
                         <td style={tdStyle}>{entry.dates.join(", ")}</td>
-                        <td style={tdStyle}>{operator.pay_basis || "day_rate"}</td>
+                        <td style={tdStyle}>{entry.basis}</td>
                         <td style={{ ...tdStyle, textAlign: "right", fontWeight: 900 }}>{fmtMoney(entry.amount)}</td>
                       </tr>
                     ))}
