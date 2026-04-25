@@ -57,6 +57,10 @@ export default function TransportJobDetailFormEnhancer() {
     const hiabNotice = document.getElementById("on_site_hiab_notice") as HTMLDivElement | null;
     const abnormalLoadCheckbox = document.querySelector('input[name="abnormal_load_enabled"]') as HTMLInputElement | null;
     const abnormalLoadFieldsWrap = document.getElementById("abnormal_load_fields_wrap") as HTMLDivElement | null;
+    const policeEscortCheckbox = document.getElementById("police_escort_required") as HTMLInputElement | null;
+    const policeEscortFieldsWrap = document.getElementById("police_escort_fields_wrap") as HTMLDivElement | null;
+    const addPoliceEscortRowBtn = document.getElementById("add_police_escort_row_btn") as HTMLButtonElement | null;
+    const policeEscortRows = Array.from(document.querySelectorAll('[data-police-escort-row="true"]')) as HTMLDivElement[];
 
     if (!sellRateInput || !subtotalInput || !vatInput || !totalInput) return;
 
@@ -219,11 +223,47 @@ export default function TransportJobDetailFormEnhancer() {
       });
     }
 
+    function updatePoliceEscortAddButton() {
+      if (!addPoliceEscortRowBtn) return;
+      const abnormalEnabled = !!abnormalLoadCheckbox?.checked;
+      const policeEnabled = !!policeEscortCheckbox?.checked;
+      const hiddenCount = policeEscortRows.filter((row) => row.style.display === "none").length;
+      addPoliceEscortRowBtn.style.display = abnormalEnabled && policeEnabled && hiddenCount > 0 ? "inline-block" : "none";
+    }
+
+    function syncPoliceEscortVisibility() {
+      const abnormalEnabled = !!abnormalLoadCheckbox?.checked;
+      const policeEnabled = !!policeEscortCheckbox?.checked;
+      const enabled = abnormalEnabled && policeEnabled;
+
+      if (policeEscortFieldsWrap) {
+        policeEscortFieldsWrap.style.display = enabled ? "grid" : "none";
+      }
+
+      if (enabled) {
+        const hasVisible = policeEscortRows.some((row) => row.style.display !== "none");
+        if (!hasVisible && policeEscortRows[0]) {
+          policeEscortRows[0].style.display = "grid";
+        }
+      }
+
+      updatePoliceEscortAddButton();
+    }
+
+    function addPoliceEscortRow() {
+      const nextHidden = policeEscortRows.find((row) => row.style.display === "none");
+      if (nextHidden) {
+        nextHidden.style.display = "grid";
+      }
+      updatePoliceEscortAddButton();
+    }
+
     function syncAbnormalLoadVisibility() {
       const enabled = !!abnormalLoadCheckbox?.checked;
       if (abnormalLoadFieldsWrap) {
         abnormalLoadFieldsWrap.style.display = enabled ? "block" : "none";
       }
+      syncPoliceEscortVisibility();
     }
 
     function applyOnSiteLabels() {
@@ -304,6 +344,8 @@ export default function TransportJobDetailFormEnhancer() {
 
     jobTypeSelect?.addEventListener("change", applyOnSiteLabels);
     abnormalLoadCheckbox?.addEventListener("change", syncAbnormalLoadVisibility);
+    policeEscortCheckbox?.addEventListener("change", syncPoliceEscortVisibility);
+    addPoliceEscortRowBtn?.addEventListener("click", addPoliceEscortRow);
     collectionAddressInput?.addEventListener("blur", applyOnSiteLabels);
 
     const checklistWatchers = [
@@ -329,6 +371,7 @@ export default function TransportJobDetailFormEnhancer() {
     autoSyncDeliveryTime();
     applyOnSiteLabels();
     syncSellRateFromPricingMode();
+    syncPoliceEscortVisibility();
     syncMovementChecklist();
 
     return () => {
@@ -346,6 +389,9 @@ export default function TransportJobDetailFormEnhancer() {
       collectionTimeInput?.removeEventListener("change", autoSyncDeliveryTime);
       jobTypeSelect?.removeEventListener("change", applyOnSiteLabels);
       collectionAddressInput?.removeEventListener("blur", applyOnSiteLabels);
+      abnormalLoadCheckbox?.removeEventListener("change", syncAbnormalLoadVisibility);
+      policeEscortCheckbox?.removeEventListener("change", syncPoliceEscortVisibility);
+      addPoliceEscortRowBtn?.removeEventListener("click", addPoliceEscortRow);
       checklistWatchers.forEach((id) => {
         const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
         el?.removeEventListener("input", checklistSyncHandler);
