@@ -57,6 +57,10 @@ export default function TransportJobFormEnhancer() {
     const abnormalLoadCheckbox = document.querySelector('input[name="abnormal_load_enabled"]') as HTMLInputElement | null;
     const abnormalLoadFieldsWrap = document.getElementById("abnormal_load_fields_wrap") as HTMLDivElement | null;
     const abnormalLoadFieldsPanel = document.getElementById("abnormal_load_fields_panel") as HTMLDivElement | null;
+    const policeEscortCheckbox = document.getElementById("police_escort_required") as HTMLInputElement | null;
+    const policeEscortFieldsWrap = document.getElementById("police_escort_fields_wrap") as HTMLDivElement | null;
+    const addPoliceEscortRowBtn = document.getElementById("add_police_escort_row_btn") as HTMLButtonElement | null;
+    const policeEscortRows = Array.from(document.querySelectorAll('[data-police-escort-row="true"]')) as HTMLDivElement[];
 
 
     let lastSyncedSubtotal = subtotalInput ? parseValue(subtotalInput) : 0;
@@ -200,6 +204,41 @@ export default function TransportJobFormEnhancer() {
       }
     }
 
+    function updatePoliceEscortAddButton() {
+      if (!addPoliceEscortRowBtn) return;
+      const abnormalEnabled = !!abnormalLoadCheckbox?.checked;
+      const policeEnabled = !!policeEscortCheckbox?.checked;
+      const hiddenCount = policeEscortRows.filter((row) => row.style.display === "none").length;
+      addPoliceEscortRowBtn.style.display = abnormalEnabled && policeEnabled && hiddenCount > 0 ? "inline-block" : "none";
+    }
+
+    function syncPoliceEscortVisibility() {
+      const abnormalEnabled = !!abnormalLoadCheckbox?.checked;
+      const policeEnabled = !!policeEscortCheckbox?.checked;
+      const enabled = abnormalEnabled && policeEnabled;
+
+      if (policeEscortFieldsWrap) {
+        policeEscortFieldsWrap.style.display = enabled ? "grid" : "none";
+      }
+
+      if (enabled) {
+        const hasVisible = policeEscortRows.some((row) => row.style.display !== "none");
+        if (!hasVisible && policeEscortRows[0]) {
+          policeEscortRows[0].style.display = "grid";
+        }
+      }
+
+      updatePoliceEscortAddButton();
+    }
+
+    function addPoliceEscortRow() {
+      const nextHidden = policeEscortRows.find((row) => row.style.display === "none");
+      if (nextHidden) {
+        nextHidden.style.display = "grid";
+      }
+      updatePoliceEscortAddButton();
+    }
+
     function syncAbnormalLoadVisibility() {
       const enabled = !!abnormalLoadCheckbox?.checked;
       if (abnormalLoadFieldsWrap) {
@@ -208,6 +247,7 @@ export default function TransportJobFormEnhancer() {
       if (abnormalLoadFieldsPanel) {
         abnormalLoadFieldsPanel.style.display = enabled ? "grid" : "none";
       }
+      syncPoliceEscortVisibility();
     }
 
 
@@ -313,6 +353,8 @@ export default function TransportJobFormEnhancer() {
     customerSelect?.addEventListener("change", toggleOtherCustomer);
     supplierSelect?.addEventListener("change", toggleOtherSupplier);
     abnormalLoadCheckbox?.addEventListener("change", syncAbnormalLoadVisibility);
+    policeEscortCheckbox?.addEventListener("change", syncPoliceEscortVisibility);
+    addPoliceEscortRowBtn?.addEventListener("click", addPoliceEscortRow);
 
     collectionDateInput?.addEventListener("input", autoSyncDeliveryDate);
     collectionDateInput?.addEventListener("change", autoSyncDeliveryDate);
@@ -364,6 +406,7 @@ export default function TransportJobFormEnhancer() {
     maybeOpenSupplierSection();
     maybeOpenInvoiceSection();
     syncAbnormalLoadVisibility();
+    syncPoliceEscortVisibility();
     syncMovementChecklist();
 
     return () => {
@@ -376,6 +419,8 @@ export default function TransportJobFormEnhancer() {
       customerSelect?.removeEventListener("change", toggleOtherCustomer);
       supplierSelect?.removeEventListener("change", toggleOtherSupplier);
       abnormalLoadCheckbox?.removeEventListener("change", syncAbnormalLoadVisibility);
+      policeEscortCheckbox?.removeEventListener("change", syncPoliceEscortVisibility);
+      addPoliceEscortRowBtn?.removeEventListener("click", addPoliceEscortRow);
 
       collectionDateInput?.removeEventListener("input", autoSyncDeliveryDate);
       collectionDateInput?.removeEventListener("change", autoSyncDeliveryDate);
