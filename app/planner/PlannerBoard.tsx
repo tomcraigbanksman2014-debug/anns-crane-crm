@@ -74,6 +74,14 @@ type DropTarget = {
   plannerGroup?: string | null;
 };
 
+type PlannerViewMode = "rolling_7_days" | "current_week";
+
+const DEFAULT_PLANNER_VIEW_MODE: PlannerViewMode = "rolling_7_days";
+const PLANNER_VIEW_LABELS: Record<PlannerViewMode, string> = {
+  rolling_7_days: "Rolling 7 days",
+  current_week: "Current week",
+};
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -107,26 +115,15 @@ function isoDateLocal(value: Date) {
   return `${year}-${month}-${day}`;
 }
 
-type PlannerViewMode = "rolling" | "current_week";
-
-const PLANNER_VIEW_MODE_STORAGE_KEY = "anns_planner_view_mode";
+function plannerStartForMode(mode: PlannerViewMode, base = new Date()) {
+  if (mode === "current_week") return isoDateLocal(mondayOf(base));
+  return isoDateLocal(base);
+}
 
 function normalisePlannerViewMode(value: unknown): PlannerViewMode {
-  return value === "current_week" ? "current_week" : "rolling";
-}
-
-function getInitialPlannerViewMode(): PlannerViewMode {
-  if (typeof window === "undefined") return "rolling";
-  return normalisePlannerViewMode(window.localStorage.getItem(PLANNER_VIEW_MODE_STORAGE_KEY));
-}
-
-function plannerStartForMode(mode: PlannerViewMode, base = new Date()) {
-  return isoDateLocal(mode === "current_week" ? mondayOf(base) : base);
-}
-
-
-function getPlannerViewModeLabel(mode: PlannerViewMode) {
-  return mode === "current_week" ? "Current week" : "Rolling 7 days";
+  return value === "current_week" || value === "rolling_7_days"
+    ? value
+    : DEFAULT_PLANNER_VIEW_MODE;
 }
 
 function parseDateOnly(value: string | null | undefined) {
@@ -415,8 +412,10 @@ function isNoDragTarget(target: EventTarget | null) {
 function stopNoDragEvent() {}
 
 export default function PlannerBoard() {
-  const [viewMode, setViewMode] = useState<PlannerViewMode>("rolling");
-  const [weekStart, setWeekStart] = useState<string>(() => plannerStartForMode("rolling"));
+  const [plannerViewMode, setPlannerViewMode] = useState<PlannerViewMode>(DEFAULT_PLANNER_VIEW_MODE);
+  const [preferenceLoading, setPreferenceLoading] = useState(true);
+  const [preferenceError, setPreferenceError] = useState("");
+  const [weekStart, setWeekStart] = useState<string>(() => plannerStartForMode(DEFAULT_PLANNER_VIEW_MODE));
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<PlannerResponse | null>(null);
   const [loadError, setLoadError] = useState("");
@@ -432,18 +431,12 @@ export default function PlannerBoard() {
   const dragPointerYRef = useRef<number | null>(null);
   const dragAutoScrollFrameRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    const savedMode = getInitialPlannerViewMode();
-    setViewMode(savedMode);
-    setWeekStart(plannerStartForMode(savedMode));
-  }, []);
-
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
     setLoadError("");
 
     try {
-      const res = await fetch(`/api/planner/board?date=${encodeURIComponent(targetWeekStart)}&view=${encodeURIComponent(viewMode)}`, {
+      const res = await fetch(`/api/planner/board?date=${encodeURIComponent(targetWeekStart)}`, {
         cache: "no-store",
       });
       const json = await res.json();
@@ -461,8 +454,34 @@ export default function PlannerBoard() {
   }
 
   useEffect(() => {
-    loadBoard(weekStart);
-  }, [weekStart, viewMode]);
+    async function loadPlannerPreference() {
+      setPreferenceLoading(true);
+      setPreferenceError("");
+
+      try {
+        const res = await fetch("/api/user-preferences/planner-view", { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok) throw new Error(json?.error || "Could not load planner view preference.");
+
+        const nextMode = normalisePlannerViewMode(json?.planner_view_mode);
+        setPlannerViewMode(nextMode);
+        setWeekStart(plannerStartForMode(nextMode));
+      } catch (e: any) {
+        setPreferenceError(e?.message || "Could not load planner view preference.");
+        setPlannerViewMode(DEFAULT_PLANNER_VIEW_MODE);
+        setWeekStart(plannerStartForMode(DEFAULT_PLANNER_VIEW_MODE));
+      } finally {
+        setPreferenceLoading(false);
+      }
+    }
+
+    loadPlannerPreference();
+  }, []);
+
+  useEffect(() => {
+    if (!preferenceLoading) loadBoard(weekStart);
+  }, [weekStart, preferenceLoading]);
 
   useEffect(() => {
     function syncMobile() {
@@ -620,16 +639,27 @@ export default function PlannerBoard() {
     setWeekStart(isoDateLocal(addDays(base, delta * 7)));
   }
 
-  function jumpToCurrentPlannerRange() {
-    setWeekStart(plannerStartForMode(viewMode));
+  function jumpToCurrentWindow() {
+    setWeekStart(plannerStartForMode(plannerViewMode));
   }
 
-  function changePlannerViewMode(nextMode: PlannerViewMode) {
-    setViewMode(nextMode);
-    setWeekStart(plannerStartForMode(nextMode));
+  async function savePlannerViewMode(nextMode: PlannerViewMode) {
+    const safeMode = normalisePlannerViewMode(nextMode);
+    setPlannerViewMode(safeMode);
+    setWeekStart(plannerStartForMode(safeMode));
+    setPreferenceError("");
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(PLANNER_VIEW_MODE_STORAGE_KEY, nextMode);
+    try {
+      const res = await fetch("/api/user-preferences/planner-view", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planner_view_mode: safeMode }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not save planner view preference.");
+      showMessage(`Planner view saved: ${PLANNER_VIEW_LABELS[safeMode]}.`);
+    } catch (e: any) {
+      setPreferenceError(e?.message || "Could not save planner view preference.");
     }
   }
 
@@ -1052,39 +1082,42 @@ export default function PlannerBoard() {
           <div style={{ marginTop: 6, opacity: 0.75 }}>
             Showing from {data?.week_start ?? weekStart} to {data?.week_end ?? visibleDays[visibleDays.length - 1]?.date ?? weekStart}
           </div>
-          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-            View mode: {getPlannerViewModeLabel(viewMode)}
+          <div style={{ marginTop: 4, opacity: 0.72, fontSize: 13 }}>
+            View mode: <strong>{PLANNER_VIEW_LABELS[plannerViewMode]}</strong>
+            {preferenceLoading ? " • loading saved preference…" : ""}
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <a href="/jobs/new" style={primaryBtn}>
-            + Add Job
-          </a>
           <div style={viewToggleWrap} aria-label="Planner view mode">
             <button
               type="button"
-              onClick={() => changePlannerViewMode("rolling")}
-              style={viewMode === "rolling" ? viewToggleBtnActive : viewToggleBtn}
+              onClick={() => savePlannerViewMode("rolling_7_days")}
+              style={plannerViewMode === "rolling_7_days" ? viewToggleActive : viewToggleBtn}
+              disabled={preferenceLoading}
             >
               Rolling 7 days
             </button>
             <button
               type="button"
-              onClick={() => changePlannerViewMode("current_week")}
-              style={viewMode === "current_week" ? viewToggleBtnActive : viewToggleBtn}
+              onClick={() => savePlannerViewMode("current_week")}
+              style={plannerViewMode === "current_week" ? viewToggleActive : viewToggleBtn}
+              disabled={preferenceLoading}
             >
               Current week
             </button>
           </div>
+          <a href="/jobs/new" style={primaryBtn}>
+            + Add Job
+          </a>
           <button type="button" onClick={() => moveWeek(-1)} style={secondaryBtn}>
-            {viewMode === "current_week" ? "← Previous week" : "← Previous 7 days"}
+            {plannerViewMode === "current_week" ? "← Previous week" : "← Previous 7 days"}
           </button>
-          <button type="button" onClick={jumpToCurrentPlannerRange} style={secondaryBtn}>
-            {viewMode === "current_week" ? "This week" : "Today"}
+          <button type="button" onClick={jumpToCurrentWindow} style={secondaryBtn}>
+            {plannerViewMode === "current_week" ? "This week" : "Today"}
           </button>
           <button type="button" onClick={() => moveWeek(1)} style={secondaryBtn}>
-            {viewMode === "current_week" ? "Next week →" : "Next 7 days →"}
+            {plannerViewMode === "current_week" ? "Next week →" : "Next 7 days →"}
           </button>
         </div>
       </div>
@@ -1126,7 +1159,8 @@ export default function PlannerBoard() {
         </div>
       ) : null}
 
-      {loading ? <div style={infoBox}>Loading planner…</div> : null}
+      {preferenceError ? <div style={errorBox}>{preferenceError}</div> : null}
+      {loading || preferenceLoading ? <div style={infoBox}>Loading planner…</div> : null}
       {loadError ? <div style={errorBox}>{loadError}</div> : null}
       {actionError ? <div style={errorBox}>{actionError}</div> : null}
       {message ? <div style={successBox}>{message}</div> : null}
@@ -1600,6 +1634,31 @@ const mobileDayCell: React.CSSProperties = {
   gap: 8,
 };
 
+const viewToggleWrap: React.CSSProperties = {
+  display: "inline-flex",
+  gap: 4,
+  padding: 4,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.70)",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const viewToggleBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  background: "transparent",
+  color: "#111",
+  fontWeight: 900,
+  border: "none",
+  cursor: "pointer",
+};
+
+const viewToggleActive: React.CSSProperties = {
+  ...viewToggleBtn,
+  background: "#111",
+  color: "#fff",
+};
+
 function desktopGrid(days: number): React.CSSProperties {
   return {
     display: "grid",
@@ -1766,34 +1825,6 @@ const menuItemBtn: React.CSSProperties = {
   fontWeight: 700,
   cursor: "pointer",
   borderBottom: "1px solid rgba(0,0,0,0.06)",
-};
-
-
-const viewToggleWrap: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 4,
-  padding: 4,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.10)",
-};
-
-const viewToggleBtn: React.CSSProperties = {
-  padding: "8px 10px",
-  borderRadius: 9,
-  border: "1px solid transparent",
-  background: "transparent",
-  color: "#111",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const viewToggleBtnActive: React.CSSProperties = {
-  ...viewToggleBtn,
-  background: "#111",
-  color: "#fff",
-  border: "1px solid #111",
 };
 
 const dropReadyCell: React.CSSProperties = {
