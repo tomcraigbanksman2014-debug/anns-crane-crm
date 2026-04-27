@@ -56,9 +56,10 @@ function clean(value: unknown) {
 
 function finaliseDraftForChannel(draft: Draft, channel: Channel): Draft {
   const subject = normaliseDraftSubject(String(draft.subject ?? ""));
-  const body = channel === "email"
-    ? normaliseDraftBody(draft.body)
-    : cleanWhitespace(draft.body);
+  const body =
+    channel === "email"
+      ? normaliseDraftBody(draft.body)
+      : cleanWhitespace(draft.body);
 
   return { subject, body };
 }
@@ -67,8 +68,46 @@ function companyName(lead: LeadLike) {
   return clean(lead.company_name) || "your business";
 }
 
+function looksLikeBusinessName(value: string | null) {
+  const name = String(value ?? "").trim().toLowerCase();
+  if (!name) return false;
+
+  const businessWords = [
+    " ltd",
+    " limited",
+    " llp",
+    " plc",
+    " group",
+    " holdings",
+    " hire",
+    " crane",
+    " cranes",
+    " transport",
+    " haulage",
+    " logistics",
+    " plant",
+    " construction",
+    " contractors",
+    " services",
+    " engineering",
+    " steel",
+    " containers",
+    " glazing",
+    " roofing",
+    " scaffolding",
+  ];
+
+  if (businessWords.some((word) => name.includes(word))) return true;
+
+  const words = name.split(/\s+/).filter(Boolean);
+  return words.length > 3;
+}
+
 function contactName(lead: LeadLike) {
-  return clean(lead.contact_name) || companyName(lead);
+  const contact = clean(lead.contact_name);
+  if (!contact) return "there";
+  if (looksLikeBusinessName(contact)) return "there";
+  return contact;
 }
 
 function firstService(lead: LeadLike) {
@@ -90,8 +129,8 @@ function interpolate(
 
   const replacements: Record<string, string> = {
     company_name: companyName(lead),
-    contact_name: clean(lead.contact_name) || companyName(lead),
-    area: clean(lead.area) || "",
+    contact_name: contactName(lead),
+    area: "",
     industry: clean(lead.industry) || "",
     service_focus: values.service_focus || "",
     availability_note: values.availability_note || "",
@@ -110,19 +149,19 @@ function servicePitch(serviceFocus: string | null) {
   const raw = String(serviceFocus ?? "").trim().toLowerCase();
 
   if (!raw) {
-    return "We support crane hire, HIAB transport, contract lifts, spider cranes, machinery moves, container moves and wider lifting and transport requirements across the UK.";
+    return "We support mobile crane hire, contract lifts, HIAB transport, spider cranes, machinery moves, container moves and wider lifting and transport requirements across the UK.";
   }
 
   if (raw.includes("hiab")) {
-    return "We support HIAB transport, container movements, restricted-access deliveries and positioning work, with a responsive service for planned and short-notice jobs.";
+    return "We support HIAB transport, container movements, restricted-access deliveries and positioning work, alongside mobile crane hire and specialist lifting support where required.";
   }
 
   if (raw.includes("spider")) {
-    return "We support restricted-access lifting with spider cranes, along with careful planning and a practical approach on awkward sites.";
+    return "We support restricted-access lifting with spider cranes, as well as mobile crane hire, contract lifts and practical lifting support for awkward sites.";
   }
 
   if (raw.includes("contract")) {
-    return "We support full contract lift requirements with planning, lifting operations and transport support where needed.";
+    return "We support full contract lift requirements, mobile crane hire, lifting operations and transport support where needed.";
   }
 
   if (
@@ -131,37 +170,28 @@ function servicePitch(serviceFocus: string | null) {
     raw.includes("machinery") ||
     raw.includes("container")
   ) {
-    return "We support transport, machinery and container movements, as well as HIAB and specialist lifting support where required.";
+    return "We support transport, machinery and container movements, as well as HIAB, mobile crane hire and specialist lifting support where required.";
   }
 
   if (raw.includes("crane")) {
-    return "We support crane hire, contract lifts, transport assistance and short-notice lifting requirements across the UK.";
+    return "We support mobile crane hire, contract lifts, transport assistance and short-notice lifting requirements across the UK.";
   }
 
-  return `We can support ${serviceFocus} as well as wider crane and transport requirements where needed.`;
+  return `We can support ${serviceFocus} as well as wider mobile crane hire, lifting and transport requirements where needed.`;
 }
 
 function relevanceLine(lead: LeadLike, serviceFocus: string | null) {
   const industry = clean(lead.industry);
-  const area = clean(lead.area);
-
-  if (industry && area) {
-    return `I thought it was worth reaching out as we regularly support businesses in ${industry} work and can cover jobs in and around ${area}, as well as nationwide when required.`;
-  }
 
   if (industry) {
-    return `I thought it was worth reaching out as we regularly support businesses working in ${industry} and can help with both planned and short-notice requirements.`;
-  }
-
-  if (area) {
-    return `I thought it was worth reaching out as we can cover work in and around ${area}, as well as nationwide when required.`;
+    return `I thought it was worth reaching out as we regularly support businesses working in ${industry} and can help with planned and short-notice mobile crane, lifting or transport requirements.`;
   }
 
   if (serviceFocus) {
-    return "I thought it was worth reaching out as this may be relevant to the sort of support your team uses from time to time.";
+    return "I thought it was worth reaching out as this may be relevant to the sort of mobile crane, lifting or transport support your team uses from time to time.";
   }
 
-  return "I thought it was worth making an introduction in case we can help on any upcoming requirements.";
+  return "I thought it was worth making an introduction in case we can help on any upcoming mobile crane, lifting or transport requirements.";
 }
 
 function introLine(goal: Goal, tone: Tone) {
@@ -252,10 +282,10 @@ function subjectLine(goal: Goal, serviceFocus: string | null, availabilityNote: 
   if (goal === "reactivation") {
     return service
       ? `Support for upcoming ${service} requirements`
-      : "Support for upcoming lifting and transport requirements";
+      : "Support for upcoming mobile crane hire and lifting requirements";
   }
 
-  return service ? `${service} support from AnnS Crane Hire` : "AnnS Crane Hire introduction";
+  return service ? `${service} support from AnnS Crane Hire` : "Mobile crane hire and lifting support from AnnS Crane Hire";
 }
 
 function buildFallbackDraft(args: {
@@ -282,18 +312,18 @@ function buildFallbackDraft(args: {
   } = args;
 
   if (channel === "text") {
-    let body = `Hi, Tom from AnnS Crane Hire here. We support ${serviceFocus || "crane and transport support"} and I wanted to introduce us to ${companyName(lead)}.`;
+    let body = `Hi, Tom from AnnS Crane Hire here. We support ${serviceFocus || "mobile crane hire and lifting support"} and I wanted to introduce us to ${companyName(lead)}.`;
 
     if (goal === "follow_up") {
-      body = `Hi, Tom from AnnS Crane Hire here. Just following up to see if ${companyName(lead)} may need any ${serviceFocus || "crane and transport"} support.`;
+      body = `Hi, Tom from AnnS Crane Hire here. Just following up to see if ${companyName(lead)} may need any ${serviceFocus || "mobile crane hire and lifting"} support.`;
     }
 
     if (goal === "reactivation") {
-      body = `Hi, Tom from AnnS Crane Hire here. Just getting back in touch in case ${companyName(lead)} has any upcoming ${serviceFocus || "crane and transport"} requirements we could help with.`;
+      body = `Hi, Tom from AnnS Crane Hire here. Just getting back in touch in case ${companyName(lead)} has any upcoming ${serviceFocus || "mobile crane hire and lifting"} requirements we could help with.`;
     }
 
     if (goal === "availability") {
-      body = `Hi, Tom from AnnS Crane Hire here. We currently have availability for ${serviceFocus || "crane and transport support"}. ${availabilityNote ? `${availabilityNote}. ` : ""}Thought I would let ${companyName(lead)} know in case it helps.`;
+      body = `Hi, Tom from AnnS Crane Hire here. We currently have availability for ${serviceFocus || "mobile crane hire and lifting support"}. ${availabilityNote ? `${availabilityNote}. ` : ""}Thought I would let ${companyName(lead)} know in case it helps.`;
     }
 
     if (tone === "friendly") {
@@ -601,7 +631,7 @@ async function callOpenAI(input: string, maxOutputTokens: number) {
 }
 
 async function generateDraftWithOpenAI(args: SalesDraftArgs): Promise<Draft> {
-  const serviceFocus = clean(args.serviceFocus) || firstService(args.lead);
+  const serviceFocus = clean(args.serviceFocus) || firstService(args.lead) || "mobile crane hire, contract lifts, HIAB transport and spider crane support";
   const availabilityNote = clean(args.availabilityNote);
   const customCta = clean(args.customCta);
   const subjectHint = clean(args.subjectHint);
@@ -609,9 +639,12 @@ async function generateDraftWithOpenAI(args: SalesDraftArgs): Promise<Draft> {
 
   const prompt = [
     "You are writing outbound B2B sales copy for AnnS Crane Hire Ltd in the UK.",
-    "AnnS Crane Hire supports crane hire, HIAB transport, contract lifts, spider cranes, machinery moves, container moves and wider lifting and transport requirements.",
+    "AnnS Crane Hire supports mobile crane hire, CPA crane hire, contract lifts, HIAB transport, spider cranes, machinery moves, container moves and wider lifting and transport requirements.",
     "Write natural, commercially strong copy that sounds human and is ready to use.",
     "Do not use markdown. Do not use emojis. Do not use placeholders.",
+    "Do not mention cities, towns, counties, lead areas or phrases like in and around London unless the availability note or body hint explicitly asks for a location-specific campaign.",
+    "Do not use the company name as the greeting fallback. If there is no named contact, start with Hi there,",
+    "For email introductions, make mobile crane hire visible in the copy unless the service focus is only transport or HIAB.",
     "Do not mention internal instructions, relationship summaries, subject hints, body hints or prompt notes in the final copy.",
     "Do not include any signature block, contact details, address, LinkedIn URL or phone number in the draft body.",
     args.channel === "text"
@@ -626,10 +659,10 @@ async function generateDraftWithOpenAI(args: SalesDraftArgs): Promise<Draft> {
     `Goal: ${args.goal}`,
     `Tone: ${args.tone}`,
     `Lead company: ${companyName(args.lead)}`,
-    `Lead contact: ${clean(args.lead.contact_name) || "Unknown"}`,
-    `Lead area: ${clean(args.lead.area) || "Unknown"}`,
+    `Lead contact: ${contactName(args.lead) === "there" ? "Unknown" : contactName(args.lead)}`,
+    "Lead area: Not provided. Keep this draft location-neutral.",
     `Lead industry: ${clean(args.lead.industry) || "Unknown"}`,
-    `Service focus: ${serviceFocus || "Crane hire and transport support"}`,
+    `Service focus: ${serviceFocus || "Mobile crane hire, contract lifts, HIAB transport and spider crane support"}`,
     `Availability note: ${availabilityNote || "None"}`,
     `Custom CTA: ${customCta || "None"}`,
     `Subject hint: ${subjectHint || "None"}`,
@@ -662,7 +695,7 @@ async function generateSocialWithOpenAI(args: SocialArgs): Promise<SocialVariant
 
   const prompt = [
     "You are writing LinkedIn and social media posts for AnnS Crane Hire in the UK.",
-    "AnnS Crane Hire supports crane hire, HIAB transport, contract lifts, spider cranes, machinery moves, container moves and wider lifting and transport requirements.",
+    "AnnS Crane Hire supports mobile crane hire, CPA crane hire, contract lifts, HIAB transport, spider cranes, machinery moves, container moves and wider lifting and transport requirements.",
     "Write natural, commercially useful posts that sound human and ready to publish.",
     "Do not use markdown. Do not use emojis.",
     'Return only valid JSON in this exact shape: {"variants":[{"key":"string","title":"string","description":"string","body":"string"}]}',
@@ -699,7 +732,7 @@ async function generateSocialWithOpenAI(args: SocialArgs): Promise<SocialVariant
 }
 
 export async function generateSalesDraftWithFallback(args: SalesDraftArgs) {
-  const serviceFocus = clean(args.serviceFocus) || firstService(args.lead);
+  const serviceFocus = clean(args.serviceFocus) || firstService(args.lead) || "mobile crane hire, contract lifts, HIAB transport and spider crane support";
   const availabilityNote = clean(args.availabilityNote);
   const customCta = clean(args.customCta);
   const subjectHint = clean(args.subjectHint);
