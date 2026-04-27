@@ -331,7 +331,7 @@ export default function JobEquipmentManager({
   function useAllocationAsTemplate(item: Allocation) {
     setDraft(buildDraftFromAllocation(item));
     setMessage(
-      "Allocation copied into the add section. Change the operator and dates, then click Add allocation."
+      "Allocation copied into the add section. Change the operator/subcontractor and dates, then click Add allocation."
     );
     window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
   }
@@ -343,6 +343,30 @@ export default function JobEquipmentManager({
       ...clearAssetIds(),
       item_name: label,
     }));
+  }
+
+  function startSubcontractorAllocation() {
+    setDraft((prev) => ({
+      ...prev,
+      asset_type: "other",
+      ...clearAssetIds(),
+      source_type: "owned",
+      supplier_id: "",
+      purchase_order_id: "",
+      item_name: prev.item_name || "Subcontractor Operator",
+      notes:
+        prev.notes ||
+        "Subcontractor labour. Add the agreed job-specific cost in the Subcontractor / supplier cost field.",
+    }));
+    setMessage(
+      "Subcontractor row ready. Select the subcontractor in Operator / subcontractor, add the dates, then enter what we are paying them in Subcontractor / supplier cost."
+    );
+    window.setTimeout(() => {
+      document.getElementById("add-allocation-section")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 50);
   }
 
   async function addAllocation() {
@@ -521,24 +545,30 @@ export default function JobEquipmentManager({
             Allocations & Labour
           </h2>
           <div style={{ opacity: 0.72 }}>
-            Add cranes, equipment, vehicles, labour-only rows, and split labour across different days.
+            Add cranes, equipment, vehicles, labour-only rows, subcontractors, and split labour across different days.
           </div>
         </div>
 
-        <div style={totalsBox}>
-          <div style={totalsText}>Cranes: {totals.cranes}</div>
-          <div style={totalsText}>Vehicles: {totals.vehicles}</div>
-          <div style={totalsText}>Equipment: {totals.equipment}</div>
-          <div style={totalsText}>Labour / Other: {totals.other}</div>
-          <div style={totalsStrong}>Sell total: {money(totals.totalSell)}</div>
-          <div style={totalsStrong}>Cost total: {money(totals.totalCost)}</div>
+        <div style={topActions}>
+          <div style={totalsBox}>
+            <div style={totalsText}>Cranes: {totals.cranes}</div>
+            <div style={totalsText}>Vehicles: {totals.vehicles}</div>
+            <div style={totalsText}>Equipment: {totals.equipment}</div>
+            <div style={totalsText}>Labour / Other: {totals.other}</div>
+            <div style={totalsStrong}>Sell total: {money(totals.totalSell)}</div>
+            <div style={totalsStrong}>Cost total: {money(totals.totalCost)}</div>
+          </div>
+
+          <button type="button" onClick={startSubcontractorAllocation} style={subcontractorBtn}>
+            Assign subcontractor
+          </button>
         </div>
       </div>
 
       <div style={helpBox}>
-        For multi-day jobs with different labour each day, keep the crane allocation as one row and
-        add separate labour rows for each operator/date range. Use <strong>Use as template</strong> to
-        copy a row, then change the operator and dates before saving.
+        Use <strong>Assign subcontractor</strong> when an outside operator, slinger, AP, lift supervisor or labour-only person is covering part of the job.
+        Enter <strong>Charge rate</strong> as what we are charging the customer and <strong>Subcontractor / supplier cost</strong> as what we are paying out on this job.
+        For multi-day jobs with different labour each day, keep the crane allocation as one row and add separate labour rows for each operator/date range.
       </div>
 
       {message ? <div style={messageBox}>{message}</div> : null}
@@ -598,7 +628,7 @@ export default function JobEquipmentManager({
                   )}
 
                   <SelectField
-                    label="Operator"
+                    label="Operator / subcontractor"
                     value={row.operator_id}
                     options={operatorOptions}
                     onChange={(value) => updateRowDraft(item.id, { operator_id: value })}
@@ -609,8 +639,8 @@ export default function JobEquipmentManager({
                     label="Source"
                     value={row.source_type}
                     options={[
-                      { value: "owned", label: "Owned" },
-                      { value: "cross_hire", label: "Cross Hire" },
+                      { value: "owned", label: "Owned / internal" },
+                      { value: "cross_hire", label: "Cross-hire / supplier" },
                     ]}
                     onChange={(value) =>
                       updateRowDraft(item.id, {
@@ -673,7 +703,7 @@ export default function JobEquipmentManager({
                   />
 
                   <TextField
-                    label="Supplier cost"
+                    label="Subcontractor / supplier cost"
                     value={row.supplier_cost}
                     type="text"
                     inputMode="decimal"
@@ -687,7 +717,7 @@ export default function JobEquipmentManager({
                   />
 
                   <TextField
-                    label="Supplier reference"
+                    label="Supplier / subcontractor reference"
                     value={row.supplier_reference}
                     onChange={(value) => updateRowDraft(item.id, { supplier_reference: value })}
                     disabled={savingId === item.id}
@@ -696,7 +726,7 @@ export default function JobEquipmentManager({
                   {row.source_type === "cross_hire" ? (
                     <>
                       <SelectField
-                        label="Supplier"
+                        label="Supplier company"
                         value={row.supplier_id}
                         options={filteredSupplierOptions}
                         onChange={(value) => updateRowDraft(item.id, { supplier_id: value })}
@@ -729,7 +759,7 @@ export default function JobEquipmentManager({
                   <div style={{ fontSize: 13, opacity: 0.72 }}>
                     {assetTypeLabel(assetType)} • {allocationDisplayName(item)} •{" "}
                     {item.operators?.full_name ?? "No operator"} •{" "}
-                    {item.suppliers?.company_name ?? "No supplier"} • Sell{" "}
+                    {item.suppliers?.company_name ?? (assetType === "other" ? "Labour/subcontractor row" : "No supplier")} • Sell{" "}
                     {money(item.agreed_sell_rate ?? item.agreed_cost)} • Cost{" "}
                     {money(item.supplier_cost ?? item.agreed_cost)}
                   </div>
@@ -769,11 +799,14 @@ export default function JobEquipmentManager({
         )}
       </div>
 
-      <div style={{ ...allocationCard, marginTop: 16 }}>
+      <div id="add-allocation-section" style={{ ...allocationCard, marginTop: 16 }}>
         <h3 style={{ marginTop: 0, marginBottom: 10 }}>Add allocation</h3>
 
         <div style={presetRow}>
-          <span style={presetLabel}>Quick labour rows:</span>
+          <span style={presetLabel}>Quick labour / subcontractor rows:</span>
+          <button type="button" style={subcontractorPresetBtn} onClick={startSubcontractorAllocation}>
+            Assign subcontractor
+          </button>
           <button type="button" style={presetBtn} onClick={() => setLabourPreset("Slinger")}>
             Slinger
           </button>
@@ -789,6 +822,10 @@ export default function JobEquipmentManager({
           <button type="button" style={presetBtn} onClick={() => setLabourPreset("Labour Only")}>
             Labour Only
           </button>
+        </div>
+
+        <div style={miniHelpBox}>
+          Subcontractor/operator costs are job-specific. Use the cost field for what we pay them on this job; use charge rate for what we charge the customer.
         </div>
 
         <div style={gridStyle}>
@@ -834,7 +871,7 @@ export default function JobEquipmentManager({
           )}
 
           <SelectField
-            label="Operator"
+            label="Operator / subcontractor"
             value={draft.operator_id}
             options={operatorOptions}
             onChange={(value) => setDraft((prev) => ({ ...prev, operator_id: value }))}
@@ -844,8 +881,8 @@ export default function JobEquipmentManager({
             label="Source"
             value={draft.source_type}
             options={[
-              { value: "owned", label: "Owned" },
-              { value: "cross_hire", label: "Cross Hire" },
+              { value: "owned", label: "Owned / internal" },
+              { value: "cross_hire", label: "Cross-hire / supplier" },
             ]}
             onChange={(value) =>
               setDraft((prev) => ({
@@ -902,7 +939,7 @@ export default function JobEquipmentManager({
           />
 
           <TextField
-            label="Supplier cost"
+            label="Subcontractor / supplier cost"
             value={draft.supplier_cost}
             type="text"
             inputMode="decimal"
@@ -916,7 +953,7 @@ export default function JobEquipmentManager({
           />
 
           <TextField
-            label="Supplier reference"
+            label="Supplier / subcontractor reference"
             value={draft.supplier_reference}
             onChange={(value) => setDraft((prev) => ({ ...prev, supplier_reference: value }))}
           />
@@ -924,7 +961,7 @@ export default function JobEquipmentManager({
           {draft.source_type === "cross_hire" ? (
             <>
               <SelectField
-                label="Supplier"
+                label="Supplier company"
                 value={draft.supplier_id}
                 options={filterSuppliersByAssetType(draft.asset_type, supplierOptions)}
                 onChange={(value) => setDraft((prev) => ({ ...prev, supplier_id: value }))}
@@ -1039,12 +1076,30 @@ const topRow: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
+const topActions: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  justifyContent: "flex-end",
+  flexWrap: "wrap",
+};
+
 const helpBox: React.CSSProperties = {
   marginTop: 12,
   padding: "10px 12px",
   borderRadius: 10,
   background: "rgba(0,120,255,0.10)",
   border: "1px solid rgba(0,120,255,0.18)",
+  fontSize: 13,
+  fontWeight: 700,
+};
+
+const miniHelpBox: React.CSSProperties = {
+  marginBottom: 12,
+  padding: "9px 11px",
+  borderRadius: 10,
+  background: "rgba(255,170,0,0.10)",
+  border: "1px solid rgba(255,170,0,0.18)",
   fontSize: 13,
   fontWeight: 700,
 };
@@ -1113,6 +1168,17 @@ const presetBtn: React.CSSProperties = {
   cursor: "pointer",
 };
 
+const subcontractorPresetBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "8px 10px",
+  borderRadius: 999,
+  background: "rgba(255,170,0,0.16)",
+  color: "#111",
+  fontWeight: 900,
+  border: "1px solid rgba(255,170,0,0.30)",
+  cursor: "pointer",
+};
+
 const labelStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 800,
@@ -1147,6 +1213,17 @@ const saveBtn: React.CSSProperties = {
   color: "#fff",
   fontWeight: 900,
   border: "none",
+  cursor: "pointer",
+};
+
+const subcontractorBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  background: "rgba(255,170,0,0.16)",
+  color: "#111",
+  fontWeight: 900,
+  border: "1px solid rgba(255,170,0,0.30)",
   cursor: "pointer",
 };
 
