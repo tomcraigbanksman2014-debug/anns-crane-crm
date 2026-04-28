@@ -39,6 +39,7 @@ export default async function CampaignRunnerPage({
     { data: campaign, error },
     { count: leadCount },
     { count: customerCount },
+    { count: supplierCount },
   ] = await Promise.all([
     admin
       .from("sales_campaigns")
@@ -51,6 +52,10 @@ export default async function CampaignRunnerPage({
       .eq("campaign_id", params.id),
     admin
       .from("sales_campaign_customers")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", params.id),
+    admin
+      .from("sales_campaign_suppliers")
       .select("id", { count: "exact", head: true })
       .eq("campaign_id", params.id),
   ]);
@@ -82,7 +87,7 @@ export default async function CampaignRunnerPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Campaign Runner</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Generate drafts across all leads and customers linked to this campaign.
+              Generate drafts across all leads, customers and suppliers linked to this campaign.
             </p>
           </div>
 
@@ -108,7 +113,11 @@ export default async function CampaignRunnerPage({
           <StatCard label="Tone" value={String((campaign as any).tone ?? "professional")} />
           <StatCard label="Linked leads" value={String(leadCount ?? 0)} />
           <StatCard label="Linked customers" value={String(customerCount ?? 0)} />
-          <StatCard label="Total targets" value={String((leadCount ?? 0) + (customerCount ?? 0))} />
+          <StatCard label="Linked suppliers" value={String(supplierCount ?? 0)} />
+          <StatCard
+            label="Total targets"
+            value={String((leadCount ?? 0) + (customerCount ?? 0) + (supplierCount ?? 0))}
+          />
         </div>
 
         <div style={{ marginTop: 16 }}>
