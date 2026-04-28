@@ -47,6 +47,18 @@ type CustomerRollup = {
   imported_history_count: number | null;
 };
 
+type SupplierRow = {
+  id: string;
+  company_name: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  category: string | null;
+  address: string | null;
+  notes: string | null;
+  archived: boolean | null;
+};
+
 type TemplateRow = {
   id: string;
   name: string;
@@ -63,27 +75,39 @@ type TemplateRow = {
 };
 
 const SALES_LEAD_SELECT = `
-        id,
-        company_name,
-        contact_name,
-        email,
-        phone,
-        area,
-        industry,
-        lead_source,
-        status,
-        services,
-        assigned_to_username,
-        archived,
-        do_not_contact,
-        opportunity_value,
-        probability_percent,
-        expected_close_date,
-        next_follow_up_on,
-        updated_at
-      `;
+  id,
+  company_name,
+  contact_name,
+  email,
+  phone,
+  area,
+  industry,
+  lead_source,
+  status,
+  services,
+  assigned_to_username,
+  archived,
+  do_not_contact,
+  opportunity_value,
+  probability_percent,
+  expected_close_date,
+  next_follow_up_on,
+  updated_at
+`;
 
 const SALES_LEAD_BATCH_SIZE = 1000;
+
+const GOAL_OPTIONS = [
+  { value: "introduction", label: "General introduction" },
+  { value: "recent_customer_thank_you", label: "Recent customer thank-you" },
+  { value: "supplier_cross_hire", label: "Supplier / cross-hire request" },
+  { value: "dormant_recovery", label: "Dormant customer recovery" },
+  { value: "quote_follow_up", label: "Quote follow-up" },
+  { value: "cross_sell", label: "Cross-sell services" },
+  { value: "availability", label: "Availability notice" },
+  { value: "follow_up", label: "General follow up" },
+  { value: "reactivation", label: "General reactivation" },
+];
 
 async function fetchAllActiveSalesLeads(supabase: any) {
   const rows: LeadRow[] = [];
@@ -98,17 +122,12 @@ async function fetchAllActiveSalesLeads(supabase: any) {
       .order("id", { ascending: true })
       .range(from, from + SALES_LEAD_BATCH_SIZE - 1);
 
-    if (error) {
-      return { data: null, error };
-    }
+    if (error) return { data: null, error };
 
     const batch = ((data ?? []) as LeadRow[]).filter(Boolean);
     rows.push(...batch);
 
-    if (batch.length < SALES_LEAD_BATCH_SIZE) {
-      break;
-    }
-
+    if (batch.length < SALES_LEAD_BATCH_SIZE) break;
     from += SALES_LEAD_BATCH_SIZE;
   }
 
@@ -120,11 +139,24 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
+function clean(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text;
+}
+
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("en-GB");
+}
+
+function daysBetween(from: string | null | undefined, to = new Date()) {
+  if (!from) return null;
+  const d = new Date(from);
+  if (Number.isNaN(d.getTime())) return null;
+  const diff = to.getTime() - d.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
 function moneyGBP(value: number | null | undefined) {
@@ -138,9 +170,7 @@ function moneyGBP(value: number | null | undefined) {
 
 function probabilityForLead(lead: LeadRow) {
   const manual = Number(lead.probability_percent);
-  if (Number.isFinite(manual)) {
-    return Math.max(0, Math.min(100, manual));
-  }
+  if (Number.isFinite(manual)) return Math.max(0, Math.min(100, manual));
 
   const status = String(lead.status ?? "").toLowerCase();
 
@@ -158,14 +188,6 @@ function weightedValueForLead(lead: LeadRow) {
   return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
 }
 
-function daysBetween(from: string | null | undefined, to = new Date()) {
-  if (!from) return null;
-  const d = new Date(from);
-  if (Number.isNaN(d.getTime())) return null;
-  const diff = to.getTime() - d.getTime();
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-}
-
 function getActivityInfo(lastActivityDate: string | null | undefined) {
   const days = daysBetween(lastActivityDate);
 
@@ -181,7 +203,7 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   if (days <= 30) {
     return {
       key: "active",
-      label: "Active",
+      label: "Last 30 days",
       bg: "rgba(0,160,80,0.14)",
       color: "#0b6b34",
     };
@@ -190,7 +212,7 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   if (days <= 90) {
     return {
       key: "recent",
-      label: "Recent",
+      label: "31–90 days",
       bg: "rgba(255,180,0,0.16)",
       color: "#8a6200",
     };
@@ -204,104 +226,163 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   };
 }
 
+function customerMatchesSuggestedGroup(customer: CustomerRow, rollup: CustomerRollup | null, group: string) {
+  if (group === "all") return true;
+
+  const days = daysBetween(rollup?.last_activity_date ?? null);
+  const jobCount = Number(rollup?.crm_job_count ?? 0);
+  const transportCount = Number(rollup?.crm_transport_job_count ?? 0);
+  const quoteCount = Number(rollup?.crm_quote_count ?? 0);
+
+  if (group === "recent_30") return days !== null && days <= 30;
+  if (group === "dormant_90") return days === null || days >= 90;
+  if (group === "dormant_180") return days === null || days >= 180;
+  if (group === "dormant_365") return days === null || days >= 365;
+  if (group === "quote_follow_up") return quoteCount > 0;
+  if (group === "transport_cross_sell") return transportCount > 0 && jobCount <= 0;
+  if (group === "crane_cross_sell") return jobCount > 0 && transportCount <= 0;
+
+  return true;
+}
+
 function fillTokens(text: string, values: Record<string, string>) {
   return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_, key) => values[key] ?? "");
 }
 
-function buildDefaultBody(channel: string, goal: string, audience: "lead" | "customer") {
-  const introWord = audience === "customer" ? "check in" : "introduce our business";
+function defaultSubject(goal: string, serviceFocus: string) {
+  if (goal === "recent_customer_thank_you") return "Thank you from AnnS Crane Hire";
+  if (goal === "supplier_cross_hire") return serviceFocus ? `Cross-hire request – ${serviceFocus}` : "Cross-hire request from AnnS Crane Hire";
+  if (goal === "dormant_recovery") return "Checking in from AnnS Crane Hire";
+  if (goal === "quote_follow_up") return "Following up on our quote";
+  if (goal === "cross_sell") return "More ways AnnS Crane Hire can support you";
+  if (goal === "availability") return serviceFocus ? `${serviceFocus} availability from AnnS Crane Hire` : "Availability from AnnS Crane Hire";
+  if (goal === "follow_up") return "Following up from AnnS Crane Hire";
+  if (goal === "reactivation") return "Checking in from AnnS Crane Hire";
+  return serviceFocus ? `${serviceFocus} support from AnnS Crane Hire` : "Introduction from AnnS Crane Hire";
+}
 
-  if (channel === "text") {
-    if (goal === "availability") {
-      return "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. We currently have {{service_focus}} availability {{availability_note}}. Let me know if you have anything coming up that we can price for you. {{cta}}";
-    }
-    if (goal === "reactivation") {
-      return audience === "customer"
-        ? "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. Just checking back in as we haven’t worked together for a little while and wanted to see if you have any upcoming lifting or transport requirements. {{cta}}"
-        : "Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. Just reaching out as we haven’t spoken before and wanted to see if you have any upcoming lifting or transport requirements. {{cta}}";
-    }
-    return `Hi {{contact_name}}, it’s Tom from AnnS Crane Hire. I wanted to ${introWord} and let you know we support businesses with {{service_focus}} across the UK. {{cta}}`;
+function defaultBody(goal: string, audience: "lead" | "customer" | "supplier") {
+  if (goal === "recent_customer_thank_you") {
+    return `Hi {{contact_name}},
+
+Thank you for using AnnS Crane Hire recently. We really appreciate the work.
+
+I also wanted to keep our wider services on your radar for any future requirements. We support mobile crane hire, contract lifts, CPA hire, spider cranes, HIAB transport, low loaders, machinery moves, container moves, mats and lifting personnel.
+
+If you have anything else coming up, we would be happy to help again.
+
+Kind regards
+Tom Craig
+AnnS Crane Hire Ltd`;
   }
 
-  if (channel === "linkedin") {
-    if (goal === "availability") {
-      return "Hi {{contact_name}}, I wanted to reach out as we currently have {{service_focus}} availability {{availability_note}}. If you have any upcoming requirements, I’d be happy to help.";
-    }
-    if (goal === "reactivation") {
-      return audience === "customer"
-        ? "Hi {{contact_name}}, I hope you’re well. I wanted to reconnect and see whether you have any upcoming lifting or transport requirements we may be able to support again."
-        : "Hi {{contact_name}}, I hope you’re well. I wanted to introduce AnnS Crane Hire and see whether you have any upcoming lifting or transport requirements we may be able to support.";
-    }
-    return `Hi {{contact_name}}, I’m reaching out from AnnS Crane Hire. We support businesses across the UK with {{service_focus}}, and I thought it would be useful to ${audience === "customer" ? "check in" : "introduce ourselves"}.`;
+  if (goal === "supplier_cross_hire") {
+    return `Hi {{contact_name}},
+
+I hope you are well.
+
+I am getting in touch from AnnS Crane Hire as we may have a cross-hire requirement for {{service_focus}}.
+
+{{availability_note}}
+
+If you can help, please send over availability, rates and any details you need from us.
+
+Kind regards
+Tom Craig
+AnnS Crane Hire Ltd`;
+  }
+
+  if (goal === "dormant_recovery") {
+    return `Hi {{contact_name}},
+
+I hope you are well.
+
+I wanted to check back in as we have not worked together for a little while and see whether you have any upcoming lifting, crane hire or transport requirements we may be able to support.
+
+We can support mobile crane hire, contract lifts, CPA hire, HIAB transport, low loaders, spider cranes and wider lifting or transport requirements.
+
+Kind regards
+Tom Craig
+AnnS Crane Hire Ltd`;
+  }
+
+  if (goal === "quote_follow_up") {
+    return `Hi {{contact_name}},
+
+I wanted to follow up on the quote and check whether the job is still live or if you need anything amended.
+
+If the dates or details have changed, I would be happy to update this for you and confirm availability.
+
+Kind regards
+Tom Craig
+AnnS Crane Hire Ltd`;
+  }
+
+  if (goal === "cross_sell") {
+    return `Hi {{contact_name}},
+
+I wanted to get in touch to make sure you are aware of the wider services AnnS Crane Hire can provide.
+
+Alongside {{service_focus}}, we can also support mobile crane hire, contract lifts, CPA hire, spider cranes, HIAB transport, low loaders, machinery movements, container moves, mats and lifting personnel.
+
+If any of this would be useful on upcoming work, please keep us in mind.
+
+Kind regards
+Tom Craig
+AnnS Crane Hire Ltd`;
   }
 
   if (goal === "availability") {
     return `Hi {{contact_name}},
 
-I’m reaching out from AnnS Crane Hire as we currently have {{service_focus}} availability {{availability_note}}.
+I wanted to let you know that we currently have availability for {{service_focus}}.
 
-If you have any upcoming requirements, we’d be very happy to help with pricing and availability.
+{{availability_note}}
 
-{{cta}}
+If this could help with any upcoming or short-notice work, I would be happy to send over availability and pricing.
 
-Kind regards,
+Kind regards
 Tom Craig
-AnnS Crane Hire`;
+AnnS Crane Hire Ltd`;
   }
 
-  if (goal === "reactivation") {
+  if (audience === "supplier") {
     return `Hi {{contact_name}},
 
-I hope you’re well.
+I am getting in touch from AnnS Crane Hire to check whether you may be able to support us with {{service_focus}}.
 
-I wanted to get back in touch from AnnS Crane Hire ${audience === "customer" ? "as we haven’t worked together for a little while" : "to introduce our business"}, and just wanted to see whether you have any upcoming lifting or transport requirements we may be able to support.
+{{availability_note}}
 
-We cover the UK with cranes and transport and would be happy to assist if anything is coming up.
+Please let me know if you have availability and what rate would apply.
 
-{{cta}}
-
-Kind regards,
+Kind regards
 Tom Craig
-AnnS Crane Hire`;
-  }
-
-  if (goal === "follow_up") {
-    return `Hi {{contact_name}},
-
-I just wanted to follow up from AnnS Crane Hire regarding your current or upcoming requirements.
-
-We can support with {{service_focus}} and would be happy to provide availability and pricing if useful.
-
-{{cta}}
-
-Kind regards,
-Tom Craig
-AnnS Crane Hire`;
+AnnS Crane Hire Ltd`;
   }
 
   return `Hi {{contact_name}},
 
-I’m reaching out from AnnS Crane Hire to ${audience === "customer" ? "check in and see if we can help again" : "introduce our business"}.
+I hope you are well.
 
-We support customers across the UK with {{service_focus}}, offering a professional and responsive service for both crane and transport requirements.
+I am reaching out from AnnS Crane Hire to introduce our business and see whether we may be able to support {{company_name}}.
 
-{{cta}}
+We support customers across the UK with {{service_focus}}, including mobile crane hire, contract lifts, HIAB transport, low loaders, spider cranes and specialist lifting support.
 
-Kind regards,
+If it would be useful, I would be happy to have a quick call or send over more information.
+
+Kind regards
 Tom Craig
-AnnS Crane Hire`;
+AnnS Crane Hire Ltd`;
 }
 
-function buildLeadPreview({
-  lead,
-  template,
-  channel,
-  goal,
-  tone,
-  serviceFocus,
-  availabilityNote,
-}: {
-  lead: LeadRow;
+function buildPreview(args: {
+  audience: "lead" | "customer" | "supplier";
+  target: {
+    company_name: string | null;
+    contact_name: string | null;
+    industry?: string | null;
+    category?: string | null;
+  };
   template: TemplateRow | null;
   channel: string;
   goal: string;
@@ -309,31 +390,22 @@ function buildLeadPreview({
   serviceFocus: string;
   availabilityNote: string;
 }) {
-  const cta =
-    template?.custom_cta?.trim() ||
-    "If this would be of interest, please let me know and I’d be happy to help.";
-
   const tokenValues = {
-    company_name: String(lead.company_name ?? ""),
-    contact_name: String(lead.contact_name ?? "there"),
-    service_focus: serviceFocus || "crane hire and transport support",
-    availability_note: availabilityNote || "",
-    cta,
-    area: String(lead.area ?? ""),
-    industry: String(lead.industry ?? ""),
-    lead_source: String(lead.lead_source ?? ""),
-    tone,
+    company_name: String(args.target.company_name ?? ""),
+    contact_name: String(args.target.contact_name ?? args.target.company_name ?? "there"),
+    service_focus: args.serviceFocus || "crane hire and transport support",
+    availability_note: args.availabilityNote || "",
+    cta: "If this would be useful, please let me know and I’d be happy to help.",
+    area: "",
+    industry: String(args.target.industry ?? args.target.category ?? ""),
+    tone: args.tone,
   };
 
   const subjectTemplate =
-    template?.subject_hint?.trim() ||
-    (goal === "availability"
-      ? "{{service_focus}} availability for {{company_name}}"
-      : goal === "reactivation"
-      ? "Checking in from AnnS Crane Hire"
-      : "Introduction from AnnS Crane Hire");
+    args.template?.subject_hint?.trim() || defaultSubject(args.goal, args.serviceFocus);
 
-  const bodyTemplate = template?.body_hint?.trim() || buildDefaultBody(channel, goal, "lead");
+  const bodyTemplate =
+    args.template?.body_hint?.trim() || defaultBody(args.goal, args.audience);
 
   return {
     subject: fillTokens(subjectTemplate, tokenValues).trim(),
@@ -341,66 +413,8 @@ function buildLeadPreview({
   };
 }
 
-function buildCustomerPreview({
-  customer,
-  rollup,
-  template,
-  channel,
-  goal,
-  tone,
-  serviceFocus,
-  availabilityNote,
-}: {
-  customer: CustomerRow;
-  rollup: CustomerRollup | null;
-  template: TemplateRow | null;
-  channel: string;
-  goal: string;
-  tone: string;
-  serviceFocus: string;
-  availabilityNote: string;
-}) {
-  const cta =
-    template?.custom_cta?.trim() ||
-    "If this would be useful, please let me know and I’d be happy to help.";
-
-  const tokenValues = {
-    company_name: String(customer.company_name ?? ""),
-    contact_name: String(customer.contact_name ?? customer.company_name ?? "there"),
-    service_focus: serviceFocus || "crane hire and transport support",
-    availability_note: availabilityNote || "",
-    cta,
-    area: "",
-    industry: "",
-    lead_source: "existing customer",
-    tone,
-  };
-
-  const bodyTemplate =
-    template?.body_hint?.trim() || buildDefaultBody(channel, goal, "customer");
-
-  const subjectTemplate =
-    template?.subject_hint?.trim() ||
-    (goal === "availability"
-      ? "{{service_focus}} availability from AnnS Crane Hire"
-      : goal === "reactivation"
-      ? "Checking in from AnnS Crane Hire"
-      : "Following up from AnnS Crane Hire");
-
-  const relationshipLine = [
-    Number(rollup?.crm_job_count ?? 0) > 0 ? `${rollup?.crm_job_count} jobs` : "",
-    Number(rollup?.crm_transport_job_count ?? 0) > 0 ? `${rollup?.crm_transport_job_count} transport jobs` : "",
-    Number(rollup?.imported_history_count ?? 0) > 0 ? `${rollup?.imported_history_count} imported history entries` : "",
-  ]
-    .filter(Boolean)
-    .join(" • ");
-
-  const body = fillTokens(bodyTemplate, tokenValues).trim();
-
-  return {
-    subject: fillTokens(subjectTemplate, tokenValues).trim(),
-    body: relationshipLine ? `${body}\n\n[Relationship context: ${relationshipLine}]` : body,
-  };
+function goalLabel(goal: string) {
+  return GOAL_OPTIONS.find((item) => item.value === goal)?.label ?? goal;
 }
 
 type CampaignsPageProps = {
@@ -411,7 +425,10 @@ type CampaignsPageProps = {
     industry?: string;
     status?: string;
     customer_activity?: string;
+    customer_group?: string;
     customer_imported?: string;
+    supplier_category?: string;
+    supplier_search?: string;
     template_id?: string;
     channel?: string;
     goal?: string;
@@ -432,22 +449,29 @@ export default async function SalesCampaignsPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const currentUsername = fromAuthEmail(user?.email ?? null);
 
+  const currentUsername = fromAuthEmail(user?.email ?? null);
   const canManage = !!access.user && canCreateCustomers(access);
 
   const [
     { data: leads, error: leadsError },
     { data: customers, error: customersError },
+    { data: suppliers, error: suppliersError },
     { data: templates, error: templatesError },
     { data: campaigns, error: campaignsError },
     { data: campaignLeadLinks },
     { data: campaignCustomerLinks },
+    { data: campaignSupplierLinks },
   ] = await Promise.all([
     fetchAllActiveSalesLeads(supabase),
     supabase
       .from("clients")
       .select("id, company_name, contact_name, email, phone, notes, archived, created_at")
+      .eq("archived", false)
+      .order("company_name", { ascending: true }),
+    supabase
+      .from("suppliers")
+      .select("id, company_name, contact_name, email, phone, category, address, notes, archived")
       .eq("archived", false)
       .order("company_name", { ascending: true }),
     supabase
@@ -459,42 +483,45 @@ export default async function SalesCampaignsPage({
       .from("sales_campaigns")
       .select("*")
       .order("created_at", { ascending: false })
-      .limit(8),
+      .limit(10),
     supabase.from("sales_campaign_leads").select("campaign_id, lead_id"),
     supabase.from("sales_campaign_customers").select("campaign_id, client_id"),
+    supabase.from("sales_campaign_suppliers").select("campaign_id, supplier_id"),
   ]);
 
   const allLeads = (leads ?? []) as LeadRow[];
   const allCustomers = (customers ?? []) as CustomerRow[];
+  const allSuppliers = (suppliers ?? []) as SupplierRow[];
   const activeTemplates = (templates ?? []) as TemplateRow[];
+
   const customerRollupById = await getCustomerActivityRollups(
     supabase,
     allCustomers.map((customer) => String(customer.id ?? "")).filter(Boolean)
   );
 
-  const selectedOwner = String(searchParams?.owner ?? "all").trim();
-  const selectedService = String(searchParams?.service ?? "all").trim();
-  const selectedArea = String(searchParams?.area ?? "all").trim();
-  const selectedIndustry = String(searchParams?.industry ?? "all").trim();
-  const selectedStatus = String(searchParams?.status ?? "all").trim();
-  const selectedCustomerActivity = String(searchParams?.customer_activity ?? "all").trim();
-  const selectedCustomerImported = String(searchParams?.customer_imported ?? "all").trim();
-  const selectedTemplateId =
-    String(searchParams?.template_id ?? "").trim() || String(activeTemplates[0]?.id ?? "");
+  const selectedOwner = clean(searchParams?.owner) || "all";
+  const selectedService = clean(searchParams?.service) || "all";
+  const selectedArea = clean(searchParams?.area) || "all";
+  const selectedIndustry = clean(searchParams?.industry) || "all";
+  const selectedStatus = clean(searchParams?.status) || "all";
+  const selectedCustomerActivity = clean(searchParams?.customer_activity) || "all";
+  const selectedCustomerGroup = clean(searchParams?.customer_group) || "all";
+  const selectedCustomerImported = clean(searchParams?.customer_imported) || "all";
+  const selectedSupplierCategory = clean(searchParams?.supplier_category) || "all";
+  const selectedSupplierSearch = clean(searchParams?.supplier_search);
+  const selectedTemplateId = clean(searchParams?.template_id) || String(activeTemplates[0]?.id ?? "");
   const selectedTemplate = activeTemplates.find((item) => String(item.id) === selectedTemplateId) || null;
-  const selectedChannel = String(searchParams?.channel ?? "").trim() || String(selectedTemplate?.channel ?? "email");
-  const selectedGoal = String(searchParams?.goal ?? "").trim() || String(selectedTemplate?.goal ?? "introduction");
-  const selectedTone = String(searchParams?.tone ?? "").trim() || String(selectedTemplate?.tone ?? "professional");
+  const selectedChannel = clean(searchParams?.channel) || String(selectedTemplate?.channel ?? "email");
+  const selectedGoal = clean(searchParams?.goal) || String(selectedTemplate?.goal ?? "introduction");
+  const selectedTone = clean(searchParams?.tone) || String(selectedTemplate?.tone ?? "professional");
   const selectedServiceFocus =
-    String(searchParams?.service_focus ?? "").trim() ||
+    clean(searchParams?.service_focus) ||
     String(selectedTemplate?.service_focus ?? "") ||
-    "crane hire and transport support";
+    (selectedGoal === "supplier_cross_hire" ? "crane, low loader or HIAB cross-hire" : "crane hire and transport support");
   const selectedAvailabilityNote =
-    String(searchParams?.availability_note ?? "").trim() || String(selectedTemplate?.availability_note ?? "");
+    clean(searchParams?.availability_note) || String(selectedTemplate?.availability_note ?? "");
 
-  const totalLeadCount = allLeads.length;
-
-  const ownerOptions: string[] = Array.from(
+  const ownerOptions = Array.from(
     new Set(
       allLeads
         .map((lead) => String(lead.assigned_to_username ?? "").trim())
@@ -503,45 +530,37 @@ export default async function SalesCampaignsPage({
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const serviceOptions: string[] = Array.from(
+  const serviceOptions = Array.from(
     new Set(
       allLeads.flatMap((lead) =>
-        Array.isArray(lead.services) ? lead.services.map((item) => String(item).trim()).filter(Boolean) : []
+        Array.isArray(lead.services)
+          ? lead.services.map((item) => String(item).trim()).filter(Boolean)
+          : []
       )
     )
   ).sort((a, b) => a.localeCompare(b));
 
-  const areaOptions: string[] = Array.from(
+  const areaOptions = Array.from(
     new Set(allLeads.map((lead) => String(lead.area ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
-  const industryOptions: string[] = Array.from(
+  const industryOptions = Array.from(
     new Set(allLeads.map((lead) => String(lead.industry ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
-  const hasLeadRows = totalLeadCount > 0;
-  const hasActiveTemplates = activeTemplates.length > 0;
-  const ownerFilterDisabled = !hasLeadRows;
-  const serviceFilterDisabled = !hasLeadRows || serviceOptions.length === 0;
-  const areaFilterDisabled = !hasLeadRows || areaOptions.length === 0;
-  const industryFilterDisabled = !hasLeadRows || industryOptions.length === 0;
-  const statusFilterDisabled = !hasLeadRows;
-
-  const missingLeadFilterFields: string[] = [];
-  if (hasLeadRows && serviceOptions.length === 0) missingLeadFilterFields.push("services");
-  if (hasLeadRows && areaOptions.length === 0) missingLeadFilterFields.push("areas");
-  if (hasLeadRows && industryOptions.length === 0) missingLeadFilterFields.push("industries");
-
-  const leadFilterNotice = !hasLeadRows
-    ? "No lead records are currently loaded in Sales Leads, so the lead owner/service/area/industry/status dropdowns will only show their default “All …” options until leads exist. Customer campaign filters still work below."
-    : missingLeadFilterFields.length
-    ? `Lead records are loaded, but none currently have ${missingLeadFilterFields.join(", ")} populated, so those dropdowns will stay on their default “All …” options until those fields are filled on the leads.`
-    : "";
+  const supplierCategoryOptions = Array.from(
+    new Set(allSuppliers.map((supplier) => String(supplier.category ?? "").trim()).filter(Boolean))
+  ).sort((a, b) => a.localeCompare(b));
 
   const filteredLeads = allLeads.filter((lead) => {
     if (lead.do_not_contact) return false;
     if (selectedOwner !== "all" && String(lead.assigned_to_username ?? "").trim() !== selectedOwner) return false;
-    if (selectedService !== "all" && !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))) return false;
+    if (
+      selectedService !== "all" &&
+      !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))
+    ) {
+      return false;
+    }
     if (selectedArea !== "all" && String(lead.area ?? "").trim() !== selectedArea) return false;
     if (selectedIndustry !== "all" && String(lead.industry ?? "").trim() !== selectedIndustry) return false;
     if (selectedStatus !== "all" && String(lead.status ?? "").trim() !== selectedStatus) return false;
@@ -554,8 +573,31 @@ export default async function SalesCampaignsPage({
     const importedCount = Number(rollup?.imported_history_count ?? 0);
 
     if (selectedCustomerActivity !== "all" && activity.key !== selectedCustomerActivity) return false;
+    if (!customerMatchesSuggestedGroup(customer, rollup, selectedCustomerGroup)) return false;
     if (selectedCustomerImported === "with_imported" && importedCount <= 0) return false;
     if (selectedCustomerImported === "without_imported" && importedCount > 0) return false;
+    return true;
+  });
+
+  const filteredSuppliers = allSuppliers.filter((supplier) => {
+    if (selectedSupplierCategory !== "all" && String(supplier.category ?? "").trim() !== selectedSupplierCategory) return false;
+
+    if (selectedSupplierSearch) {
+      const haystack = [
+        supplier.company_name,
+        supplier.contact_name,
+        supplier.email,
+        supplier.phone,
+        supplier.category,
+        supplier.address,
+        supplier.notes,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (!haystack.includes(selectedSupplierSearch.toLowerCase())) return false;
+    }
+
     return true;
   });
 
@@ -573,12 +615,20 @@ export default async function SalesCampaignsPage({
     customerCountByCampaign.set(key, (customerCountByCampaign.get(key) ?? 0) + 1);
   }
 
-  const leadPreviews = filteredLeads.slice(0, 3).map((lead) => ({
+  const supplierCountByCampaign = new Map<string, number>();
+  for (const link of campaignSupplierLinks ?? []) {
+    const key = String((link as any).campaign_id ?? "");
+    if (!key) continue;
+    supplierCountByCampaign.set(key, (supplierCountByCampaign.get(key) ?? 0) + 1);
+  }
+
+  const leadPreviews = filteredLeads.slice(0, 2).map((lead) => ({
     type: "lead" as const,
     name: lead.company_name,
     subtitle: `${lead.contact_name || "No contact"} • ${lead.status || "New"}`,
-    preview: buildLeadPreview({
-      lead,
+    preview: buildPreview({
+      audience: "lead",
+      target: lead,
       template: selectedTemplate,
       channel: selectedChannel,
       goal: selectedGoal,
@@ -588,13 +638,15 @@ export default async function SalesCampaignsPage({
     }),
   }));
 
-  const customerPreviews = filteredCustomers.slice(0, 3).map((customer) => ({
+  const customerPreviews = filteredCustomers.slice(0, 2).map((customer) => ({
     type: "customer" as const,
     name: customer.company_name,
-    subtitle: `${customer.contact_name || "No contact"} • ${getActivityInfo(customerRollupById.get(String(customer.id))?.last_activity_date).label}`,
-    preview: buildCustomerPreview({
-      customer,
-      rollup: customerRollupById.get(String(customer.id)) ?? null,
+    subtitle: `${customer.contact_name || "No contact"} • ${
+      getActivityInfo(customerRollupById.get(String(customer.id))?.last_activity_date ?? null).label
+    }`,
+    preview: buildPreview({
+      audience: "customer",
+      target: customer,
       template: selectedTemplate,
       channel: selectedChannel,
       goal: selectedGoal,
@@ -603,23 +655,48 @@ export default async function SalesCampaignsPage({
       availabilityNote: selectedAvailabilityNote,
     }),
   }));
+
+  const supplierPreviews = filteredSuppliers.slice(0, 2).map((supplier) => ({
+    type: "supplier" as const,
+    name: supplier.company_name,
+    subtitle: `${supplier.contact_name || "No contact"} • ${supplier.category || "Supplier"}`,
+    preview: buildPreview({
+      audience: "supplier",
+      target: supplier,
+      template: selectedTemplate,
+      channel: selectedChannel,
+      goal: selectedGoal,
+      tone: selectedTone,
+      serviceFocus: selectedServiceFocus,
+      availabilityNote: selectedAvailabilityNote,
+    }),
+  }));
+
+  const previews = [...leadPreviews, ...customerPreviews, ...supplierPreviews].slice(0, 5);
 
   const stats = {
     totalLeads: filteredLeads.length,
     totalCustomers: filteredCustomers.length,
+    totalSuppliers: filteredSuppliers.length,
     templates: activeTemplates.length,
     activeCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Active").length,
     draftCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Draft").length,
   };
 
+  const createDisabled =
+    !canManage ||
+    (selectedGoal === "supplier_cross_hire"
+      ? filteredSuppliers.length === 0
+      : filteredLeads.length === 0 && filteredCustomers.length === 0 && filteredSuppliers.length === 0);
+
   return (
     <ClientShell>
-      <div style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+      <div style={{ width: "min(1450px, 96vw)", margin: "0 auto" }}>
         <div style={topBar}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Campaign Execution</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Build target lists, preview outreach and create campaigns for both leads and returning customers.
+              Build targeted campaigns for leads, returning customers and supplier cross-hire requests.
             </p>
           </div>
 
@@ -633,78 +710,117 @@ export default async function SalesCampaignsPage({
         {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
         {customersError ? <div style={errorCard}>{customersError.message}</div> : null}
+        {suppliersError ? <div style={errorCard}>{suppliersError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
 
         <div style={statsGrid}>
           <StatCard label="Filtered leads" value={String(stats.totalLeads)} />
           <StatCard label="Filtered customers" value={String(stats.totalCustomers)} />
-          <StatCard label="Active templates" value={String(stats.templates)} />
+          <StatCard label="Filtered suppliers" value={String(stats.totalSuppliers)} />
+          <StatCard label="Templates" value={String(stats.templates)} />
           <StatCard label="Draft campaigns" value={String(stats.draftCampaigns)} />
           <StatCard label="Active campaigns" value={String(stats.activeCampaigns)} />
         </div>
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
           <h2 style={sectionTitle}>Targeting and message settings</h2>
-          {leadFilterNotice ? <div style={infoCard}>{leadFilterNotice}</div> : null}
 
           <form method="get" action="/sales-hub/campaigns" style={filterGrid}>
             <div>
+              <label style={labelStyle}>Campaign type</label>
+              <select name="goal" defaultValue={selectedGoal} style={inputStyle}>
+                {GOAL_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Channel</label>
+              <select name="channel" defaultValue={selectedChannel} style={inputStyle}>
+                <option value="email">Email</option>
+                <option value="text">Text</option>
+                <option value="linkedin">LinkedIn</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Tone</label>
+              <select name="tone" defaultValue={selectedTone} style={inputStyle}>
+                <option value="professional">Professional</option>
+                <option value="friendly">Friendly</option>
+                <option value="direct">Direct</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Template</label>
+              <select name="template_id" defaultValue={selectedTemplateId} style={inputStyle}>
+                <option value="">No template</option>
+                {activeTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Service focus</label>
+              <input
+                name="service_focus"
+                defaultValue={selectedServiceFocus}
+                style={inputStyle}
+                placeholder="e.g. low loader, HIAB, Grove 80t"
+              />
+            </div>
+
+            <div>
+              <label style={labelStyle}>Availability / request note</label>
+              <input
+                name="availability_note"
+                defaultValue={selectedAvailabilityNote}
+                style={inputStyle}
+                placeholder="e.g. needed next Tuesday in South Wales"
+              />
+            </div>
+
+            <div>
               <label style={labelStyle}>Lead owner</label>
-              <select
-                name="owner"
-                defaultValue={selectedOwner}
-                disabled={ownerFilterDisabled}
-                style={ownerFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
+              <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
                 <option value="all">All owners</option>
                 {ownerOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
+
             <div>
               <label style={labelStyle}>Lead service</label>
-              <select
-                name="service"
-                defaultValue={selectedService}
-                disabled={serviceFilterDisabled}
-                style={serviceFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
+              <select name="service" defaultValue={selectedService} style={inputStyle}>
                 <option value="all">All services</option>
                 {serviceOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
+
             <div>
               <label style={labelStyle}>Lead area</label>
-              <select
-                name="area"
-                defaultValue={selectedArea}
-                disabled={areaFilterDisabled}
-                style={areaFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
+              <select name="area" defaultValue={selectedArea} style={inputStyle}>
                 <option value="all">All areas</option>
                 {areaOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
+
             <div>
               <label style={labelStyle}>Lead industry</label>
-              <select
-                name="industry"
-                defaultValue={selectedIndustry}
-                disabled={industryFilterDisabled}
-                style={industryFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
+              <select name="industry" defaultValue={selectedIndustry} style={inputStyle}>
                 <option value="all">All industries</option>
                 {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
+
             <div>
               <label style={labelStyle}>Lead status</label>
-              <select
-                name="status"
-                defaultValue={selectedStatus}
-                disabled={statusFilterDisabled}
-                style={statusFilterDisabled ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
+              <select name="status" defaultValue={selectedStatus} style={inputStyle}>
                 <option value="all">All statuses</option>
                 <option value="New">New</option>
                 <option value="To Contact">To Contact</option>
@@ -716,96 +832,88 @@ export default async function SalesCampaignsPage({
                 <option value="Lost">Lost</option>
               </select>
             </div>
+
             <div>
               <label style={labelStyle}>Customer activity</label>
               <select name="customer_activity" defaultValue={selectedCustomerActivity} style={inputStyle}>
                 <option value="all">All customers</option>
-                <option value="active">Active customers</option>
-                <option value="recent">Recent customers</option>
-                <option value="dormant">Dormant customers</option>
+                <option value="active">Last 30 days</option>
+                <option value="recent">31–90 days</option>
+                <option value="dormant">Dormant</option>
                 <option value="no_activity">No activity</option>
               </select>
             </div>
+
             <div>
-              <label style={labelStyle}>Customer imported history</label>
+              <label style={labelStyle}>Suggested customer group</label>
+              <select name="customer_group" defaultValue={selectedCustomerGroup} style={inputStyle}>
+                <option value="all">All matching customers</option>
+                <option value="recent_30">Completed/active in last 30 days</option>
+                <option value="dormant_90">Dormant 90+ days</option>
+                <option value="dormant_180">Dormant 180+ days</option>
+                <option value="dormant_365">Dormant 365+ days</option>
+                <option value="quote_follow_up">Customers with quote history</option>
+                <option value="transport_cross_sell">Transport customers to cross-sell cranes</option>
+                <option value="crane_cross_sell">Crane customers to cross-sell transport</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Imported history</label>
               <select name="customer_imported" defaultValue={selectedCustomerImported} style={inputStyle}>
                 <option value="all">All customers</option>
                 <option value="with_imported">With imported history</option>
                 <option value="without_imported">Without imported history</option>
               </select>
             </div>
+
             <div>
-              <label style={labelStyle}>Template</label>
-              <select
-                name="template_id"
-                defaultValue={selectedTemplateId}
-                disabled={!hasActiveTemplates}
-                style={!hasActiveTemplates ? { ...inputStyle, ...disabledInputStyle } : inputStyle}
-              >
-                {!hasActiveTemplates ? <option value="">No active templates</option> : null}
-                {activeTemplates.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              <label style={labelStyle}>Supplier category</label>
+              <select name="supplier_category" defaultValue={selectedSupplierCategory} style={inputStyle}>
+                <option value="all">All supplier categories</option>
+                {supplierCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </div>
+
             <div>
-              <label style={labelStyle}>Channel</label>
-              <select name="channel" defaultValue={selectedChannel} style={inputStyle}>
-                <option value="email">Email</option>
-                <option value="text">Text</option>
-                <option value="linkedin">LinkedIn</option>
-              </select>
+              <label style={labelStyle}>Supplier search</label>
+              <input
+                name="supplier_search"
+                defaultValue={selectedSupplierSearch}
+                style={inputStyle}
+                placeholder="e.g. low loader, HIAB, crane"
+              />
             </div>
+
             <div>
-              <label style={labelStyle}>Goal</label>
-              <select name="goal" defaultValue={selectedGoal} style={inputStyle}>
-                <option value="introduction">Introduction</option>
-                <option value="follow_up">Follow up</option>
-                <option value="reactivation">Reactivation</option>
-                <option value="availability">Availability</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Tone</label>
-              <select name="tone" defaultValue={selectedTone} style={inputStyle}>
-                <option value="professional">Professional</option>
-                <option value="friendly">Friendly</option>
-                <option value="direct">Direct</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Service focus</label>
-              <input name="service_focus" defaultValue={selectedServiceFocus} style={inputStyle} />
-            </div>
-            <div>
-              <label style={labelStyle}>Availability note</label>
-              <input name="availability_note" defaultValue={selectedAvailabilityNote} style={inputStyle} />
-            </div>
-            <div style={{ display: "flex", gap: 10, alignItems: "end", flexWrap: "wrap" }}>
-              <ServerSubmitButton style={primaryBtn} pendingText="Working…">Refresh preview</ServerSubmitButton>
-              <a href="/sales-hub/campaigns" style={secondaryBtn}>Clear</a>
+              <button type="submit" style={primaryBtn}>Apply filters</button>
             </div>
           </form>
         </section>
 
-        <div style={twoColGrid}>
+        <div style={twoColumnGrid}>
           <section style={{ ...panelStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Message preview</h2>
-            {leadPreviews.length === 0 && customerPreviews.length === 0 ? (
-              <p style={{ margin: 0, opacity: 0.78 }}>No leads or customers match the current filters.</p>
+
+            {previews.length === 0 ? (
+              <div style={mutedBox}>No preview available for the current filters.</div>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
-                {[...leadPreviews, ...customerPreviews].map((row, index) => (
-                  <div key={`${row.type}-${index}`} style={previewCard}>
-                    <div style={{ fontWeight: 900 }}>{row.name}</div>
-                    <div style={{ marginTop: 6, fontSize: 13, opacity: 0.72 }}>
-                      {row.type.toUpperCase()} • {row.subtitle} • {selectedChannel.toUpperCase()} • {selectedGoal} • {selectedTone}
+                {previews.map((item) => (
+                  <div key={`${item.type}-${item.name}`} style={previewCard}>
+                    <div style={{ fontWeight: 900 }}>{item.name}</div>
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                      {item.type.toUpperCase()} • {item.subtitle}
                     </div>
-                    <div style={{ marginTop: 10 }}>
-                      <div style={miniLabel}>Subject / opener</div>
-                      <div style={messageBox}>{row.preview.subject || "—"}</div>
-                    </div>
+                    {selectedChannel === "email" ? (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={miniLabel}>Subject</div>
+                        <div style={{ fontWeight: 800 }}>{item.preview.subject}</div>
+                      </div>
+                    ) : null}
                     <div style={{ marginTop: 10 }}>
                       <div style={miniLabel}>Body</div>
-                      <div style={messageBox}>{row.preview.body || "—"}</div>
+                      <pre style={previewBody}>{item.preview.body}</pre>
                     </div>
                   </div>
                 ))}
@@ -815,6 +923,7 @@ export default async function SalesCampaignsPage({
 
           <section style={{ ...panelStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Recent campaigns</h2>
+
             {!campaigns?.length ? (
               <p style={{ margin: 0, opacity: 0.78 }}>No campaigns created yet.</p>
             ) : (
@@ -823,11 +932,17 @@ export default async function SalesCampaignsPage({
                   const currentCampaignId = String(campaign?.id ?? "");
                   const leadCount = leadCountByCampaign.get(currentCampaignId) ?? 0;
                   const customerCount = customerCountByCampaign.get(currentCampaignId) ?? 0;
+                  const supplierCount = supplierCountByCampaign.get(currentCampaignId) ?? 0;
+
                   return (
                     <a key={currentCampaignId} href={`/sales-hub/campaigns/${currentCampaignId}/runner`} style={recentCard}>
                       <div style={{ fontWeight: 900 }}>{campaign.name}</div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{campaign.channel} • {campaign.goal} • {campaign.status}</div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{leadCount} linked leads • {customerCount} linked customers</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                        {campaign.channel} • {goalLabel(String(campaign.goal ?? ""))} • {campaign.status}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
+                        {leadCount} linked leads • {customerCount} linked customers • {supplierCount} linked suppliers
+                      </div>
                     </a>
                   );
                 })}
@@ -838,10 +953,11 @@ export default async function SalesCampaignsPage({
 
         <section style={{ ...panelStyle, marginTop: 16 }}>
           <h2 style={sectionTitle}>Create campaign</h2>
+
           {!canManage ? (
             <div style={mutedBox}>You do not have permission to create campaigns.</div>
-          ) : !filteredLeads.length && !filteredCustomers.length ? (
-            <div style={mutedBox}>No leads or customers match the current targeting filters.</div>
+          ) : createDisabled ? (
+            <div style={mutedBox}>No targets match the current filters.</div>
           ) : (
             <form method="post" action="/api/sales-campaigns/create">
               <input type="hidden" name="template_id" value={selectedTemplateId} />
@@ -852,39 +968,51 @@ export default async function SalesCampaignsPage({
               <input type="hidden" name="availability_note" value={selectedAvailabilityNote} />
               <input type="hidden" name="all_lead_ids" value={filteredLeads.map((lead) => String(lead.id)).join(",")} />
               <input type="hidden" name="all_customer_ids" value={filteredCustomers.map((customer) => String(customer.id)).join(",")} />
+              <input type="hidden" name="all_supplier_ids" value={filteredSuppliers.map((supplier) => String(supplier.id)).join(",")} />
 
               <div style={createGrid}>
                 <div>
                   <label style={labelStyle}>Campaign name</label>
-                  <input name="name" defaultValue={`${selectedGoal} campaign ${new Date().toLocaleDateString("en-GB")}`} style={inputStyle} />
+                  <input
+                    name="name"
+                    defaultValue={`${goalLabel(selectedGoal)} ${new Date().toLocaleDateString("en-GB")}`}
+                    style={inputStyle}
+                  />
                 </div>
+
                 <div>
                   <label style={labelStyle}>Description</label>
-                  <input name="description" defaultValue={`Targeted ${selectedChannel} outreach for ${selectedServiceFocus}`} style={inputStyle} />
+                  <input
+                    name="description"
+                    defaultValue={`Targeted ${selectedChannel} campaign for ${selectedServiceFocus}`}
+                    style={inputStyle}
+                  />
                 </div>
               </div>
 
               <div style={selectionGrid}>
                 <div>
                   <div style={miniLabel}>Select leads to include</div>
+
                   {filteredLeads.length ? (
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700 }}>
+                    <label style={checkboxHeader}>
                       <input type="checkbox" name="select_all_leads" value="1" />
                       Include all filtered leads
                     </label>
                   ) : null}
+
                   {!filteredLeads.length ? (
-                    <div style={mutedBox}>No leads match the current lead filters.</div>
+                    <div style={mutedBox}>No leads match the current filters.</div>
                   ) : (
                     <div style={leadList}>
                       {filteredLeads.map((lead) => (
                         <label key={lead.id} style={leadRow}>
                           <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <input type="checkbox" name="lead_ids" value={lead.id} style={{ width: 18, height: 18, marginTop: 2 }} />
+                            <input type="checkbox" name="lead_ids" value={lead.id} style={checkboxInput} />
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{lead.contact_name || "No contact"} • {lead.status || "New"} • {lead.assigned_to_username || "Unassigned"}</div>
-                              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{lead.area || "No area"} • {lead.industry || "No industry"} • Weighted {moneyGBP(weightedValueForLead(lead))}</div>
+                              <div style={smallText}>{lead.contact_name || "No contact"} • {lead.status || "New"} • {lead.email || lead.phone || "No contact detail"}</div>
+                              <div style={smallText}>{lead.area || "No area"} • {lead.industry || "No industry"} • Weighted {moneyGBP(weightedValueForLead(lead))}</div>
                             </div>
                           </div>
                         </label>
@@ -895,14 +1023,16 @@ export default async function SalesCampaignsPage({
 
                 <div>
                   <div style={miniLabel}>Select customers to include</div>
+
                   {filteredCustomers.length ? (
-                    <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginBottom: 10, fontSize: 13, fontWeight: 700 }}>
+                    <label style={checkboxHeader}>
                       <input type="checkbox" name="select_all_customers" value="1" />
                       Include all filtered customers
                     </label>
                   ) : null}
+
                   {!filteredCustomers.length ? (
-                    <div style={mutedBox}>No customers match the current customer filters.</div>
+                    <div style={mutedBox}>No customers match the current filters.</div>
                   ) : (
                     <div style={leadList}>
                       {filteredCustomers.map((customer) => {
@@ -913,13 +1043,13 @@ export default async function SalesCampaignsPage({
                         return (
                           <label key={customer.id} style={leadRow}>
                             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                              <input type="checkbox" name="customer_ids" value={customer.id} style={{ width: 18, height: 18, marginTop: 2 }} />
+                              <input type="checkbox" name="customer_ids" value={customer.id} style={checkboxInput} />
                               <div style={{ minWidth: 0 }}>
                                 <div style={{ fontWeight: 900 }}>{customer.company_name}</div>
-                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{customer.contact_name || "No contact"} • {customer.email || customer.phone || "No direct contact"}</div>
-                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                                  <span style={{ display: "inline-block", padding: "2px 8px", borderRadius: 999, background: activity.bg, color: activity.color, fontWeight: 800, marginRight: 8 }}>{activity.label}</span>
-                                  {fmtDate(rollup?.last_activity_date ?? null)} • {liveJobs} live jobs • {importedCount} imported
+                                <div style={smallText}>{customer.contact_name || "No contact"} • {customer.email || customer.phone || "No contact detail"}</div>
+                                <div style={smallText}>
+                                  <span style={{ ...activityBadge, background: activity.bg, color: activity.color }}>{activity.label}</span>
+                                  {fmtDate(rollup?.last_activity_date ?? null)} • {liveJobs} jobs • {importedCount} imported
                                 </div>
                               </div>
                             </div>
@@ -929,10 +1059,42 @@ export default async function SalesCampaignsPage({
                     </div>
                   )}
                 </div>
+
+                <div>
+                  <div style={miniLabel}>Select suppliers to include</div>
+
+                  {filteredSuppliers.length ? (
+                    <label style={checkboxHeader}>
+                      <input type="checkbox" name="select_all_suppliers" value="1" />
+                      Include all filtered suppliers
+                    </label>
+                  ) : null}
+
+                  {!filteredSuppliers.length ? (
+                    <div style={mutedBox}>No suppliers match the current filters.</div>
+                  ) : (
+                    <div style={leadList}>
+                      {filteredSuppliers.map((supplier) => (
+                        <label key={supplier.id} style={leadRow}>
+                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <input type="checkbox" name="supplier_ids" value={supplier.id} style={checkboxInput} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontWeight: 900 }}>{supplier.company_name}</div>
+                              <div style={smallText}>{supplier.contact_name || "No contact"} • {supplier.email || supplier.phone || "No contact detail"}</div>
+                              <div style={smallText}>{supplier.category || "No category"} • {supplier.address || "No address"}</div>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div style={{ marginTop: 16 }}>
-                <ServerSubmitButton style={primaryBtn} pendingText="Creating campaign…">Create campaign from selected leads and customers</ServerSubmitButton>
+                <ServerSubmitButton style={primaryBtn} pendingText="Creating campaign…">
+                  Create campaign from selected targets
+                </ServerSubmitButton>
               </div>
             </form>
           )}
@@ -962,8 +1124,14 @@ const topBar: CSSProperties = {
 
 const statsGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
   gap: 12,
+};
+
+const twoColumnGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  gap: 16,
 };
 
 const panelStyle: CSSProperties = {
@@ -1002,7 +1170,7 @@ const createGrid: CSSProperties = {
 
 const selectionGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
   gap: 16,
   marginTop: 16,
 };
@@ -1023,7 +1191,7 @@ const inputStyle: CSSProperties = {
   outline: "none",
   fontSize: 15,
   background: "rgba(255,255,255,0.85)",
-  boxSizing: "border-box" as const,
+  boxSizing: "border-box",
 };
 
 const primaryBtn: CSSProperties = {
@@ -1065,84 +1233,93 @@ const errorCard: CSSProperties = {
   marginBottom: 12,
 };
 
-const infoCard: CSSProperties = {
-  background: "rgba(0,88,160,0.10)",
+const mutedBox: CSSProperties = {
   padding: 12,
   borderRadius: 12,
-  border: "1px solid rgba(0,88,160,0.18)",
-  marginBottom: 12,
-  fontWeight: 700,
-  lineHeight: 1.45,
-};
-
-const twoColGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(0, 1.1fr) minmax(320px, 0.9fr)",
-  gap: 16,
+  background: "rgba(255,255,255,0.52)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  opacity: 0.8,
 };
 
 const previewCard: CSSProperties = {
-  padding: "12px 14px",
+  padding: 14,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
+  background: "rgba(255,255,255,0.62)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const previewBody: CSSProperties = {
+  margin: 0,
+  marginTop: 4,
+  whiteSpace: "pre-wrap",
+  fontFamily: "inherit",
+  fontSize: 14,
+  lineHeight: 1.45,
+  background: "rgba(255,255,255,0.58)",
+  padding: 12,
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.07)",
 };
 
 const recentCard: CSSProperties = {
   display: "block",
-  textDecoration: "none",
-  color: "#111",
-  padding: "12px 14px",
+  padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
+  background: "rgba(255,255,255,0.62)",
   border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const miniLabel: CSSProperties = {
-  fontSize: 12,
-  fontWeight: 800,
-  opacity: 0.68,
-};
-
-const messageBox: CSSProperties = {
-  marginTop: 4,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,255,255,0.82)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  whiteSpace: "pre-wrap" as const,
-  fontSize: 14,
-  lineHeight: 1.5,
+  color: "#111",
+  textDecoration: "none",
 };
 
 const leadList: CSSProperties = {
   display: "grid",
-  gap: 10,
-  maxHeight: 520,
-  overflow: "auto" as const,
+  gap: 8,
+  maxHeight: 420,
+  overflow: "auto",
   paddingRight: 4,
 };
 
 const leadRow: CSSProperties = {
   display: "block",
-  padding: "12px 14px",
+  padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
+  background: "rgba(255,255,255,0.62)",
   border: "1px solid rgba(0,0,0,0.08)",
   cursor: "pointer",
 };
 
-const mutedBox: CSSProperties = {
-  padding: "12px 14px",
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.72)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  opacity: 0.82,
+const checkboxInput: CSSProperties = {
+  width: 18,
+  height: 18,
+  marginTop: 2,
+};
+
+const checkboxHeader: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 8,
+  marginBottom: 10,
+  fontSize: 13,
   fontWeight: 700,
 };
 
-const disabledInputStyle: CSSProperties = {
-  background: "rgba(235,235,235,0.92)",
-  color: "rgba(17,17,17,0.72)",
-  cursor: "not-allowed",
+const miniLabel: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 900,
+  opacity: 0.72,
+  marginBottom: 6,
+};
+
+const smallText: CSSProperties = {
+  marginTop: 4,
+  fontSize: 13,
+  opacity: 0.72,
+};
+
+const activityBadge: CSSProperties = {
+  display: "inline-block",
+  padding: "2px 8px",
+  borderRadius: 999,
+  fontWeight: 800,
+  marginRight: 8,
 };
