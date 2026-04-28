@@ -67,7 +67,9 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
-}function getMobilePageKind(pathname: string): "planner" | "default" {
+}
+
+function getMobilePageKind(pathname: string): "planner" | "default" {
   if (pathname.startsWith("/planner")) return "planner";
   if (pathname.startsWith("/transport-planner")) return "planner";
   if (pathname.startsWith("/staff-planner")) return "planner";
@@ -76,8 +78,6 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/timesheets")) return "planner";
   return "default";
 }
-
-
 
 export default function ClientShell({
   children,
@@ -224,46 +224,46 @@ export default function ClientShell({
     setMenuOpen(false);
   }, [pathname]);
 
- const officeNav = useMemo<NavItem[]>(
-  () => [
-    { label: "Dashboard", href: "/" },
-    { label: "Search", href: "/search" },
+  const officeNav = useMemo<NavItem[]>(
+    () => [
+      { label: "Dashboard", href: "/" },
+      { label: "Search", href: "/search" },
 
-    { label: "Quotes", href: "/quotes" },
-    { label: "Customers", href: "/customers" },
-    { label: "Sales Hub", href: "/sales-hub" },
+      { label: "Quotes", href: "/quotes" },
+      { label: "Customers", href: "/customers" },
+      { label: "Sales Hub", href: "/sales-hub" },
 
-    { label: "Jobs", href: "/jobs" },
-    { label: "Transport Jobs", href: "/transport-jobs" },
+      { label: "Jobs", href: "/jobs" },
+      { label: "Transport Jobs", href: "/transport-jobs" },
 
-    { label: "Crane Planner", href: "/planner" },
-    { label: "Weekly Planner", href: "/weekly-planner" },
-    { label: "Transport Planner", href: "/transport-planner" },
-    { label: "Staff Planner", href: "/staff-planner" },
-    { label: "Daily Log", href: "/daily-log" },
-    { label: "Subcontractors", href: "/subcontractors" },
-    { label: "Subcontractor Pay", href: "/subcontractors/pay-report" },
-    { label: "Transport Map", href: "/transport-map" },
+      { label: "Crane Planner", href: "/planner" },
+      { label: "Weekly Planner", href: "/weekly-planner" },
+      { label: "Transport Planner", href: "/transport-planner" },
+      { label: "Staff Planner", href: "/staff-planner" },
+      { label: "Daily Log", href: "/daily-log" },
+      { label: "Subcontractors", href: "/subcontractors" },
+      { label: "Subcontractor Pay", href: "/subcontractors/pay-report" },
+      { label: "Transport Map", href: "/transport-map" },
 
-    { label: "Purchase Orders", href: "/purchase-orders" },
-    { label: "Suppliers", href: "/suppliers" },
+      { label: "Purchase Orders", href: "/purchase-orders" },
+      { label: "Suppliers", href: "/suppliers" },
 
-    { label: "Cranes", href: "/cranes" },
-    { label: "Vehicles", href: "/vehicles" },
-    { label: "Equipment", href: "/equipment" },
-    ...(isMasterAdmin ? [{ label: "Asset Locations", href: "/equipment/locations" }] : []),
-    { label: "Operators", href: "/operators" },
-    { label: "Timesheets", href: "/timesheets" },
+      { label: "Cranes", href: "/cranes" },
+      { label: "Vehicles", href: "/vehicles" },
+      { label: "Equipment", href: "/equipment" },
+      { label: "Asset Locations", href: "/equipment/locations" },
+      { label: "Operators", href: "/operators" },
+      { label: "Timesheets", href: "/timesheets" },
 
-    { label: "My Jobs", href: "/operator/jobs" },
+      { label: "My Jobs", href: "/operator/jobs" },
 
-    { label: "Settings", href: "/settings" },
-    { label: "Qualification Rules", href: "/admin/qualification-rules" },
-    { label: "Staff Accounts", href: "/admin/users" },
-    { label: "Audit Log", href: "/admin/audit" },
-  ],
-  [isMasterAdmin]
-);
+      { label: "Settings", href: "/settings" },
+      { label: "Qualification Rules", href: "/admin/qualification-rules" },
+      { label: "Staff Accounts", href: "/admin/users" },
+      { label: "Audit Log", href: "/admin/audit" },
+    ],
+    [isMasterAdmin]
+  );
 
   const operatorNav = useMemo<NavItem[]>(
     () => [{ label: "My Jobs", href: "/operator/jobs" }],
@@ -290,7 +290,9 @@ export default function ClientShell({
   if (role === "operator") {
     return (
       <div style={pageStyle}>
-        <main data-mobile-safe-root data-mobile-page-kind="default" style={operatorMainStyle}>{children}</main>
+        <main data-mobile-safe-root data-mobile-page-kind="default" style={operatorMainStyle}>
+          {children}
+        </main>
       </div>
     );
   }
