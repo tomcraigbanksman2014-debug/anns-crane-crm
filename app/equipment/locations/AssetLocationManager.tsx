@@ -64,6 +64,20 @@ type Draft = {
   notes: string;
 };
 
+type QuickFilter =
+  | "all"
+  | "not_in_yard"
+  | "dropped_on_site"
+  | "in_transit"
+  | "in_yard"
+  | "overdue";
+
+type GeocodeResult = {
+  lat: number;
+  lng: number;
+  displayName?: string;
+};
+
 const CATEGORY_OPTIONS = [
   { value: "trailer", label: "Trailer" },
   { value: "vehicle", label: "Vehicle" },
@@ -155,10 +169,8 @@ function safeText(value: string | null | undefined) {
 
 function asNumber(value: unknown) {
   if (value === null || value === undefined) return null;
-
   const raw = String(value).trim();
   if (!raw) return null;
-
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
@@ -168,9 +180,6 @@ function usableCoordinates(row: Pick<LocationEvent, "latitude" | "longitude">) {
   const lng = asNumber(row.longitude);
 
   if (lat === null || lng === null) return null;
-
-  // Prevent blank/null coordinates being treated as 0,0.
-  // For this UK asset register, 0,0 is not a useful saved asset location.
   if (lat === 0 && lng === 0) return null;
 
   return { lat, lng };
@@ -197,7 +206,7 @@ function isOverdue(value: string | null | undefined) {
 }
 
 function eventAssetKey(event: LocationEvent) {
-  return `${event.asset_type}:${event.asset_id || event.asset_label}`;
+  return `${event.asset_category}:${event.asset_type}:${event.asset_id || event.asset_label}`;
 }
 
 function latestByAsset(events: LocationEvent[]) {
@@ -235,6 +244,16 @@ function ownershipBadgeStyle(value: string | null | undefined): React.CSSPropert
   return greyBadge;
 }
 
+function geocodeQueryParts(row: LocationEvent) {
+  return [row.location_name, row.address, row.postcode]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+}
+
+function canGeocodeRow(row: LocationEvent) {
+  return geocodeQueryParts(row).length > 0;
+}
+
 function mapsHref(row: LocationEvent) {
   const coords = usableCoordinates(row);
 
@@ -245,12 +264,59 @@ function mapsHref(row: LocationEvent) {
   const w3wLink = w3wHref(row.what3words);
   if (w3wLink) return w3wLink;
 
-  const q = [row.location_name, row.address, row.postcode]
-    .map((v) => String(v ?? "").trim())
-    .filter(Boolean)
-    .join(" ");
-
+  const q = geocodeQueryParts(row).join(" ");
   return q ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(q)}` : "";
+}
+
+function quickFilterLabel(value: QuickFilter) {
+  if (value === "not_in_yard") return "Not in yard";
+  if (value === "dropped_on_site") return "Dropped on site";
+  if (value === "in_transit") return "In transit";
+  if (value === "in_yard") return "In yard";
+  if (value === "overdue") return "Overdue collection";
+  return "Assets tracked";
+}
+
+function rowMatchesQuickFilter(row: LocationEvent, filter: QuickFilter) {
+  if (filter === "all") return true;
+  if (filter === "not_in_yard") return row.status !== "in_yard";
+  if (filter === "dropped_on_site") return row.status === "dropped_on_site";
+  if (filter === "in_transit") return row.status === "in_transit";
+  if (filter === "in_yard") return row.status === "in_yard";
+  if (filter === "overdue") return row.status !== "in_yard" && isOverdue(row.collection_due_at);
+  return true;
+}
+
+async function geocodeLocation(args: {
+  location_name?: string | null;
+  address?: string | null;
+  postcode?: string | null;
+}) {
+  const res = await fetch("/api/asset-location-events/geocode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify(args),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || !data?.ok) {
+    throw new Error(data?.error || "Could not find map location.");
+  }
+
+  const lat = Number(data.latitude);
+  const lng = Number(data.longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error("Map lookup did not return valid coordinates.");
+  }
+
+  return {
+    lat,
+    lng,
+    displayName: String(data.displayName ?? ""),
+  };
 }
 
 function ensureLeafletCss() {
@@ -277,9 +343,16 @@ function AssetMap({
   const leafletRef = useRef<any>(null);
   const onPickRef = useRef(onPickLocation);
 
+  const [geocodeCache, setGeocodeCache] = useState<Record<string, GeocodeResult | null>>({});
+  const geocodeCacheRef = useRef<Record<string, GeocodeResult | null>>({});
+
   useEffect(() => {
     onPickRef.current = onPickLocation;
   }, [onPickLocation]);
+
+  useEffect(() => {
+    geocodeCacheRef.current = geocodeCache;
+  }, [geocodeCache]);
 
   useEffect(() => {
     let cancelled = false;
@@ -330,6 +403,58 @@ function AssetMap({
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function geocodeMissingRows() {
+      let lookedUp = 0;
+
+      for (const row of rows) {
+        if (cancelled) return;
+        if (usableCoordinates(row)) continue;
+        if (!canGeocodeRow(row)) continue;
+
+        const key = row.id;
+        if (Object.prototype.hasOwnProperty.call(geocodeCacheRef.current, key)) continue;
+
+        if (lookedUp >= 12) return;
+        lookedUp += 1;
+
+        try {
+          const result = await geocodeLocation({
+            location_name: row.location_name,
+            address: row.address,
+            postcode: row.postcode,
+          });
+
+          if (cancelled) return;
+
+          geocodeCacheRef.current = {
+            ...geocodeCacheRef.current,
+            [key]: result,
+          };
+          setGeocodeCache({ ...geocodeCacheRef.current });
+        } catch {
+          if (cancelled) return;
+
+          geocodeCacheRef.current = {
+            ...geocodeCacheRef.current,
+            [key]: null,
+          };
+          setGeocodeCache({ ...geocodeCacheRef.current });
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 350));
+      }
+    }
+
+    geocodeMissingRows();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rows]);
+
+  useEffect(() => {
     const L = leafletRef.current;
     const map = mapRef.current;
     const layer = layerRef.current;
@@ -341,7 +466,10 @@ function AssetMap({
     const bounds: Array<[number, number]> = [];
 
     rows.forEach((row) => {
-      const coords = usableCoordinates(row);
+      const savedCoords = usableCoordinates(row);
+      const cachedCoords = geocodeCache[row.id];
+
+      const coords = savedCoords || cachedCoords;
       if (!coords) return;
 
       const { lat, lng } = coords;
@@ -357,6 +485,10 @@ function AssetMap({
                 ? "#555"
                 : "#0b57d0";
 
+      const sourceLine = savedCoords
+        ? ""
+        : "<br /><em>Pin estimated from address/postcode. Save the location again to store exact coordinates.</em>";
+
       const popupHtml = [
         `<strong>${row.asset_label}</strong>`,
         `<br />${categoryLabel(row.asset_category)} • ${ownershipLabel(row.ownership_type)}`,
@@ -365,6 +497,7 @@ function AssetMap({
         row.postcode ? `<br />${row.postcode}` : "",
         row.what3words ? `<br />///${row.what3words}` : "",
         row.collection_due_at ? `<br /><strong>Collection:</strong> ${fmtDateTime(row.collection_due_at)}` : "",
+        sourceLine,
       ].join("");
 
       L.circleMarker([lat, lng], {
@@ -383,13 +516,13 @@ function AssetMap({
     } else {
       map.setView([53.6, -2.5], 6);
     }
-  }, [rows]);
+  }, [rows, geocodeCache]);
 
   return (
     <div style={mapWrapStyle}>
       <div ref={containerRef} style={mapStyle} />
       <div style={mapHintStyle}>
-        Click the map to fill latitude/longitude for the next update. What3Words-only records open in What3Words rather than showing a CRM map pin.
+        Click the map to fill latitude/longitude for the next update. If no saved pin exists, the CRM will try to estimate one from the address/postcode. What3Words-only records open in What3Words.
       </div>
     </div>
   );
@@ -416,13 +549,33 @@ export default function AssetLocationManager({
   const [statusFilter, setStatusFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [ownershipFilter, setOwnershipFilter] = useState("all");
+  const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
+  const [selectedAssetKey, setSelectedAssetKey] = useState("");
 
   const currentLocations = useMemo(() => latestByAsset(events), [events]);
+
+  const quickFilteredLocations = useMemo(() => {
+    return currentLocations.filter((row) => rowMatchesQuickFilter(row, quickFilter));
+  }, [currentLocations, quickFilter]);
+
+  const quickAssetOptions = useMemo(() => {
+    return quickFilteredLocations.map((row) => ({
+      value: eventAssetKey(row),
+      label: `${row.asset_label} — ${statusLabel(row.status)} — ${safeText(row.location_name)}`,
+    }));
+  }, [quickFilteredLocations]);
+
+  useEffect(() => {
+    if (!selectedAssetKey) return;
+    const stillExists = quickFilteredLocations.some((row) => eventAssetKey(row) === selectedAssetKey);
+    if (!stillExists) setSelectedAssetKey("");
+  }, [quickFilteredLocations, selectedAssetKey]);
 
   const filteredCurrentLocations = useMemo(() => {
     const search = q.trim().toLowerCase();
 
-    return currentLocations.filter((row) => {
+    return quickFilteredLocations.filter((row) => {
+      if (selectedAssetKey && eventAssetKey(row) !== selectedAssetKey) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (categoryFilter !== "all" && row.asset_category !== categoryFilter) return false;
       if (ownershipFilter !== "all" && row.ownership_type !== ownershipFilter) return false;
@@ -447,7 +600,14 @@ export default function AssetLocationManager({
 
       return true;
     });
-  }, [currentLocations, q, statusFilter, categoryFilter, ownershipFilter]);
+  }, [
+    quickFilteredLocations,
+    selectedAssetKey,
+    q,
+    statusFilter,
+    categoryFilter,
+    ownershipFilter,
+  ]);
 
   const assetOptions = useMemo(() => {
     const type = assetTypeForCategory(draft.asset_category);
@@ -493,6 +653,11 @@ export default function AssetLocationManager({
       postcode: "SA1 8LB",
       collection_due_at: "",
     }));
+  }
+
+  function activateQuickFilter(filter: QuickFilter) {
+    setQuickFilter(filter);
+    setSelectedAssetKey("");
   }
 
   function duplicateFromCurrent(row: LocationEvent, status?: string) {
@@ -548,6 +713,32 @@ export default function AssetLocationManager({
     setSaving(true);
 
     try {
+      let latitude = draft.latitude.trim();
+      let longitude = draft.longitude.trim();
+      let geocoded = false;
+
+      if (!latitude || !longitude) {
+        const hasAddressForLookup = [draft.location_name, draft.address, draft.postcode]
+          .map((v) => String(v ?? "").trim())
+          .filter(Boolean).length > 0;
+
+        if (hasAddressForLookup) {
+          try {
+            const found = await geocodeLocation({
+              location_name: draft.location_name,
+              address: draft.address,
+              postcode: draft.postcode,
+            });
+
+            latitude = found.lat.toFixed(6);
+            longitude = found.lng.toFixed(6);
+            geocoded = true;
+          } catch {
+            // Save without a CRM map pin. What3Words/address link still works.
+          }
+        }
+      }
+
       const res = await fetch("/api/asset-location-events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -560,8 +751,8 @@ export default function AssetLocationManager({
           address: draft.address.trim() || null,
           postcode: draft.postcode.trim() || null,
           what3words: draft.what3words.trim() || null,
-          latitude: draft.latitude.trim() || null,
-          longitude: draft.longitude.trim() || null,
+          latitude: latitude || null,
+          longitude: longitude || null,
           linked_job_id: draft.linked_job_id || null,
           linked_transport_job_id: draft.linked_transport_job_id || null,
           moved_by_vehicle_id: draft.moved_by_vehicle_id || null,
@@ -586,7 +777,11 @@ export default function AssetLocationManager({
 
       setDraft(emptyDraft());
       setMessageType("success");
-      setMessage("Asset location saved.");
+      setMessage(
+        geocoded
+          ? "Asset location saved and a map pin was found from the address/postcode."
+          : "Asset location saved."
+      );
       router.refresh();
     } catch {
       setMessageType("error");
@@ -599,21 +794,77 @@ export default function AssetLocationManager({
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={summaryGridStyle}>
-        <SummaryCard label="Assets tracked" value={String(counts.tracked)} />
-        <SummaryCard label="Not in yard" value={String(counts.notInYard)} tone="amber" />
-        <SummaryCard label="Dropped on site" value={String(counts.dropped)} tone="blue" />
-        <SummaryCard label="In transit" value={String(counts.inTransit)} tone="purple" />
-        <SummaryCard label="In yard" value={String(counts.inYard)} tone="green" />
-        <SummaryCard label="Overdue collection" value={String(counts.overdue)} tone="red" />
+        <SummaryCard
+          label="Assets tracked"
+          value={String(counts.tracked)}
+          active={quickFilter === "all"}
+          onClick={() => activateQuickFilter("all")}
+        />
+        <SummaryCard
+          label="Not in yard"
+          value={String(counts.notInYard)}
+          tone="amber"
+          active={quickFilter === "not_in_yard"}
+          onClick={() => activateQuickFilter("not_in_yard")}
+        />
+        <SummaryCard
+          label="Dropped on site"
+          value={String(counts.dropped)}
+          tone="blue"
+          active={quickFilter === "dropped_on_site"}
+          onClick={() => activateQuickFilter("dropped_on_site")}
+        />
+        <SummaryCard
+          label="In transit"
+          value={String(counts.inTransit)}
+          tone="purple"
+          active={quickFilter === "in_transit"}
+          onClick={() => activateQuickFilter("in_transit")}
+        />
+        <SummaryCard
+          label="In yard"
+          value={String(counts.inYard)}
+          tone="green"
+          active={quickFilter === "in_yard"}
+          onClick={() => activateQuickFilter("in_yard")}
+        />
+        <SummaryCard
+          label="Overdue collection"
+          value={String(counts.overdue)}
+          tone="red"
+          active={quickFilter === "overdue"}
+          onClick={() => activateQuickFilter("overdue")}
+        />
       </div>
+
+      <section style={quickSelectorStyle}>
+        <div>
+          <div style={{ fontWeight: 1000 }}>Quick view: {quickFilterLabel(quickFilter)}</div>
+          <div style={smallMutedStyle}>
+            Click a card above to filter, then select a specific asset if needed.
+          </div>
+        </div>
+
+        <select
+          value={selectedAssetKey}
+          onChange={(e) => setSelectedAssetKey(e.target.value)}
+          style={{ ...inputStyle, maxWidth: 520 }}
+        >
+          <option value="">All assets in this view</option>
+          {quickAssetOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </section>
 
       <section style={cardStyle}>
         <div style={sectionHeaderStyle}>
           <div>
             <h2 style={sectionTitleStyle}>Map</h2>
             <p style={mutedTextStyle}>
-              Pins show the latest location for filtered assets where latitude and longitude have been saved.
-              What3Words-only records open in What3Words instead of showing a CRM map pin.
+              Pins show saved coordinates first. If no pin was saved, the CRM tries to estimate a pin from the address/postcode. What3Words-only records open in What3Words.
             </p>
           </div>
         </div>
@@ -999,10 +1250,14 @@ function SummaryCard({
   label,
   value,
   tone,
+  active,
+  onClick,
 }: {
   label: string;
   value: string;
   tone?: "green" | "blue" | "amber" | "purple" | "red";
+  active?: boolean;
+  onClick: () => void;
 }) {
   const border =
     tone === "green"
@@ -1018,10 +1273,19 @@ function SummaryCard({
               : "rgba(0,0,0,0.08)";
 
   return (
-    <div style={{ ...summaryCardStyle, border: `1px solid ${border}` }}>
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        ...summaryCardStyle,
+        border: active ? "2px solid #111" : `1px solid ${border}`,
+        cursor: "pointer",
+        textAlign: "left",
+      }}
+    >
       <div style={summaryLabelStyle}>{label}</div>
       <div style={summaryValueStyle}>{value}</div>
-    </div>
+    </button>
   );
 }
 
@@ -1114,6 +1378,18 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const quickSelectorStyle: React.CSSProperties = {
+  background: "rgba(255,255,255,0.38)",
+  padding: 14,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.45)",
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
 const sectionHeaderStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
@@ -1143,6 +1419,7 @@ const summaryCardStyle: React.CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: "rgba(255,255,255,0.62)",
+  appearance: "none",
 };
 
 const summaryLabelStyle: React.CSSProperties = {
