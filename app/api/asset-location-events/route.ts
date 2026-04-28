@@ -32,6 +32,8 @@ const VALID_STATUSES = new Set([
   "in_transit",
   "with_subcontractor",
   "at_supplier_repair",
+  "returned_to_owner",
+  "tracking_closed",
   "unknown",
 ]);
 
