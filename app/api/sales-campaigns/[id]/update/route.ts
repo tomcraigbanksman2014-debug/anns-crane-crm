@@ -7,7 +7,6 @@ const CHANNELS = new Set(["email", "text", "linkedin"]);
 const GOALS = new Set([
   "introduction",
   "recent_customer_thank_you",
-  "supplier_cross_hire",
   "dormant_recovery",
   "quote_follow_up",
   "cross_sell",
@@ -59,7 +58,8 @@ export async function POST(
     const description = clean(body?.description);
     const status = STATUSES.has(String(body?.status ?? "")) ? String(body.status) : "Draft";
     const channel = CHANNELS.has(String(body?.channel ?? "")) ? String(body.channel) : "email";
-    const goal = GOALS.has(String(body?.goal ?? "")) ? String(body.goal) : "introduction";
+    const incomingGoal = String(body?.goal ?? "").trim();
+    const goal = GOALS.has(incomingGoal) ? incomingGoal : "introduction";
     const tone = TONES.has(String(body?.tone ?? "")) ? String(body.tone) : "professional";
     const template_id = clean(body?.template_id);
     const service_focus = clean(body?.service_focus);
