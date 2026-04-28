@@ -9,7 +9,7 @@ import {
 } from "../../../../lib/emailSignature";
 
 type DraftRow = {
-  target_type: "lead" | "customer";
+  target_type: "lead" | "customer" | "supplier";
   target_id: string;
   company_name: string;
   contact_name: string;
@@ -22,7 +22,7 @@ type DraftRow = {
 };
 
 type SkippedRow = {
-  target_type: "lead" | "customer";
+  target_type: "lead" | "customer" | "supplier";
   target_id: string;
   company_name: string;
   reason: string;
@@ -388,13 +388,14 @@ export default function CampaignRunner({
 
   const leadDrafts = drafts.filter((row) => row.target_type === "lead").length;
   const customerDrafts = drafts.filter((row) => row.target_type === "customer").length;
+  const supplierDrafts = drafts.filter((row) => row.target_type === "supplier").length;
   const gmailConnected = Boolean(gmailStatus?.connected);
 
   return (
     <div style={cardStyle}>
       <h2 style={{ marginTop: 0, fontSize: 24 }}>Campaign Runner</h2>
       <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Generate one set of drafts across all leads and customers linked to <strong>{campaignName}</strong>.
+        Generate one set of drafts across all leads, customers and suppliers linked to <strong>{campaignName}</strong>.
       </p>
       <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
         Outlook deeplinks can prefill the recipient and subject, but they cannot inject the AnnS HTML signature and logo by themselves. Use the formatted-email buttons below so the message opens in Outlook with the branded signature copied and ready to paste.
@@ -424,6 +425,7 @@ export default function CampaignRunner({
         <SummaryCard label="Drafts" value={String(drafts.length)} />
         <SummaryCard label="Lead drafts" value={String(leadDrafts)} />
         <SummaryCard label="Customer drafts" value={String(customerDrafts)} />
+        <SummaryCard label="Supplier drafts" value={String(supplierDrafts)} />
         <SummaryCard label="Skipped" value={String(skipped.length)} />
       </div>
 
@@ -591,7 +593,9 @@ export default function CampaignRunner({
             const openHref =
               draft.target_type === "lead"
                 ? `/sales-hub/leads/${draft.target_id}`
-                : `/customers/${draft.target_id}`;
+                : draft.target_type === "customer"
+                  ? `/customers/${draft.target_id}`
+                  : `/suppliers`;
 
             const key = draftKey(draft, index);
             const alreadySent = gmailSentKeys.includes(key);
