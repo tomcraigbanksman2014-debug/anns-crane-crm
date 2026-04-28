@@ -102,6 +102,7 @@ type QuickFilter =
   | "dropped_on_site"
   | "in_transit"
   | "in_yard"
+  | "returned_closed"
   | "overdue";
 
 type PickerMode = "crane" | "transport" | null;
@@ -138,6 +139,8 @@ const STATUS_OPTIONS = [
   { value: "in_transit", label: "In transit" },
   { value: "at_supplier_repair", label: "At supplier / repair" },
   { value: "with_subcontractor", label: "With subcontractor" },
+  { value: "returned_to_owner", label: "Returned to owner / supplier" },
+  { value: "tracking_closed", label: "Tracking closed" },
   { value: "unknown", label: "Unknown" },
 ];
 
@@ -187,6 +190,14 @@ function assetTypeForCategory(category: string) {
     return "equipment";
   }
   return "other";
+}
+
+function isClosedStatus(status: string | null | undefined) {
+  return status === "returned_to_owner" || status === "tracking_closed";
+}
+
+function isActiveStatus(status: string | null | undefined) {
+  return !isClosedStatus(status);
 }
 
 function categoryLabel(value: string | null | undefined) {
@@ -284,6 +295,7 @@ function statusBadgeStyle(value: string | null | undefined): CSSProperties {
   if (v === "dropped_on_site" || v === "on_job") return blueBadge;
   if (v === "in_transit") return purpleBadge;
   if (v === "at_supplier_repair" || v === "with_subcontractor") return amberBadge;
+  if (v === "returned_to_owner" || v === "tracking_closed") return greyBadge;
   return greyBadge;
 }
 
@@ -325,17 +337,19 @@ function quickFilterLabel(value: QuickFilter) {
   if (value === "dropped_on_site") return "Dropped on site";
   if (value === "in_transit") return "In transit";
   if (value === "in_yard") return "In yard";
+  if (value === "returned_closed") return "Returned / closed";
   if (value === "overdue") return "Overdue collection";
-  return "Assets tracked";
+  return "Active assets";
 }
 
 function rowMatchesQuickFilter(row: LocationEvent, filter: QuickFilter) {
-  if (filter === "all") return true;
-  if (filter === "not_in_yard") return row.status !== "in_yard";
+  if (filter === "all") return isActiveStatus(row.status);
+  if (filter === "not_in_yard") return isActiveStatus(row.status) && row.status !== "in_yard";
   if (filter === "dropped_on_site") return row.status === "dropped_on_site";
   if (filter === "in_transit") return row.status === "in_transit";
   if (filter === "in_yard") return row.status === "in_yard";
-  if (filter === "overdue") return row.status !== "in_yard" && isOverdue(row.collection_due_at);
+  if (filter === "returned_closed") return isClosedStatus(row.status);
+  if (filter === "overdue") return isActiveStatus(row.status) && row.status !== "in_yard" && isOverdue(row.collection_due_at);
   return true;
 }
 
@@ -592,9 +606,11 @@ function AssetMap({
             ? "#4f2bbd"
             : row.status === "at_supplier_repair" || row.status === "with_subcontractor"
               ? "#8a5200"
-              : row.status === "unknown"
+              : isClosedStatus(row.status)
                 ? "#555"
-                : "#0b57d0";
+                : row.status === "unknown"
+                  ? "#555"
+                  : "#0b57d0";
 
       const ownerLine =
         row.ownership_type && row.ownership_type !== "owned"
@@ -942,15 +958,17 @@ export default function AssetLocationManager({
   }, [draft.asset_category, equipmentOptions, vehicleOptions, craneOptions]);
 
   const counts = useMemo(() => {
-    const notInYard = currentLocations.filter((row) => row.status !== "in_yard").length;
+    const active = currentLocations.filter((row) => isActiveStatus(row.status)).length;
+    const notInYard = currentLocations.filter((row) => isActiveStatus(row.status) && row.status !== "in_yard").length;
     const dropped = currentLocations.filter((row) => row.status === "dropped_on_site").length;
     const inTransit = currentLocations.filter((row) => row.status === "in_transit").length;
     const inYard = currentLocations.filter((row) => row.status === "in_yard").length;
+    const returnedClosed = currentLocations.filter((row) => isClosedStatus(row.status)).length;
     const overdue = currentLocations.filter(
-      (row) => row.status !== "in_yard" && isOverdue(row.collection_due_at)
+      (row) => isActiveStatus(row.status) && row.status !== "in_yard" && isOverdue(row.collection_due_at)
     ).length;
 
-    return { tracked: currentLocations.length, notInYard, dropped, inTransit, inYard, overdue };
+    return { active, notInYard, dropped, inTransit, inYard, returnedClosed, overdue };
   }, [currentLocations]);
 
   function updateDraft(patch: Partial<Draft>) {
@@ -1000,6 +1018,7 @@ export default function AssetLocationManager({
       address: "6 Bay Street, Port Tennant, Swansea",
       postcode: "SA1 8LB",
       collection_due_at: "",
+      notes: current.notes || "Returned to yard.",
     }));
   }
 
@@ -1060,7 +1079,7 @@ export default function AssetLocationManager({
       moved_by_operator_id: row.moved_by_operator_id || "",
       event_time: nowLocalDateTime(),
       collection_due_at:
-        status === "in_yard"
+        status === "in_yard" || status === "returned_to_owner" || status === "tracking_closed"
           ? ""
           : row.collection_due_at
             ? String(row.collection_due_at).slice(0, 16)
@@ -1070,6 +1089,68 @@ export default function AssetLocationManager({
 
     setMessageType("success");
     setMessage("Asset copied into the update form. Change what is needed and save a new location event.");
+
+    window.setTimeout(() => {
+      document.getElementById("asset-location-form")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 60);
+  }
+
+  function returnOrCloseFromCurrent(row: LocationEvent) {
+    const owned = row.ownership_type === "owned";
+    const nonOwnedKnown =
+      row.ownership_type === "hired_in" ||
+      row.ownership_type === "subcontractor_supplied" ||
+      row.ownership_type === "customer_supplied";
+
+    const nextStatus = owned ? "in_yard" : nonOwnedKnown ? "returned_to_owner" : "tracking_closed";
+    const nextLocation = owned
+      ? "Swansea yard"
+      : row.owner_company_name || "Owner / supplier";
+    const nextAddress = owned ? "6 Bay Street, Port Tennant, Swansea" : "";
+    const nextPostcode = owned ? "SA1 8LB" : "";
+    const nextNotes = owned
+      ? "Returned to yard. Tracking updated."
+      : nonOwnedKnown
+        ? "Returned to owner / supplier. Tracking closed."
+        : "Tracking closed.";
+
+    setDraft({
+      asset_category: row.asset_category || "other",
+      asset_id: row.asset_id || "",
+      asset_label: row.asset_id ? "" : row.asset_label || "",
+      ownership_type: row.ownership_type || "unknown",
+      owner_company_name: row.owner_company_name || "",
+      owner_contact_name: row.owner_contact_name || "",
+      owner_phone: row.owner_phone || "",
+      owner_email: row.owner_email || "",
+      owner_reference: row.owner_reference || "",
+      status: nextStatus,
+      location_name: nextLocation,
+      address: nextAddress,
+      postcode: nextPostcode,
+      what3words: "",
+      latitude: "",
+      longitude: "",
+      linked_job_id: row.linked_job_id || "",
+      linked_transport_job_id: row.linked_transport_job_id || "",
+      moved_by_vehicle_id: row.moved_by_vehicle_id || "",
+      moved_by_operator_id: row.moved_by_operator_id || "",
+      event_time: nowLocalDateTime(),
+      collection_due_at: "",
+      notes: nextNotes,
+    });
+
+    setMessageType("success");
+    setMessage(
+      owned
+        ? "Return/close prepared: owned asset will be marked back in the yard."
+        : nonOwnedKnown
+          ? "Return/close prepared: non-owned asset will be marked returned to owner/supplier."
+          : "Return/close prepared: asset tracking will be closed."
+    );
 
     window.setTimeout(() => {
       document.getElementById("asset-location-form")?.scrollIntoView({
@@ -1180,11 +1261,12 @@ export default function AssetLocationManager({
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={summaryGridStyle}>
-        <SummaryCard label="Assets tracked" value={String(counts.tracked)} active={quickFilter === "all"} onClick={() => activateQuickFilter("all")} />
+        <SummaryCard label="Active assets" value={String(counts.active)} active={quickFilter === "all"} onClick={() => activateQuickFilter("all")} />
         <SummaryCard label="Not in yard" value={String(counts.notInYard)} tone="amber" active={quickFilter === "not_in_yard"} onClick={() => activateQuickFilter("not_in_yard")} />
         <SummaryCard label="Dropped on site" value={String(counts.dropped)} tone="blue" active={quickFilter === "dropped_on_site"} onClick={() => activateQuickFilter("dropped_on_site")} />
         <SummaryCard label="In transit" value={String(counts.inTransit)} tone="purple" active={quickFilter === "in_transit"} onClick={() => activateQuickFilter("in_transit")} />
         <SummaryCard label="In yard" value={String(counts.inYard)} tone="green" active={quickFilter === "in_yard"} onClick={() => activateQuickFilter("in_yard")} />
+        <SummaryCard label="Returned / closed" value={String(counts.returnedClosed)} active={quickFilter === "returned_closed"} onClick={() => activateQuickFilter("returned_closed")} />
         <SummaryCard label="Overdue collection" value={String(counts.overdue)} tone="red" active={quickFilter === "overdue"} onClick={() => activateQuickFilter("overdue")} />
       </div>
 
@@ -1384,7 +1466,7 @@ export default function AssetLocationManager({
           <div>
             <h2 style={sectionTitleStyle}>Current asset locations</h2>
             <p style={mutedTextStyle}>
-              One row per asset, based on the latest saved location update. This table follows the quick view, asset type tick boxes, asset dropdown and filters.
+              One row per asset, based on the latest saved location update. Returned/closed assets stay in history but disappear from active views.
             </p>
           </div>
         </div>
@@ -1479,7 +1561,7 @@ export default function AssetLocationManager({
                       <td style={tdStyle}>
                         <span
                           style={
-                            isOverdue(row.collection_due_at) && row.status !== "in_yard"
+                            isOverdue(row.collection_due_at) && row.status !== "in_yard" && isActiveStatus(row.status)
                               ? overdueTextStyle
                               : undefined
                           }
@@ -1514,9 +1596,15 @@ export default function AssetLocationManager({
                             Update
                           </button>
 
-                          <button type="button" onClick={() => duplicateFromCurrent(row, "in_yard")} style={tinyBtnStyle}>
-                            In yard
+                          <button type="button" onClick={() => returnOrCloseFromCurrent(row)} style={tinyBtnStyle}>
+                            Return / close
                           </button>
+
+                          {row.ownership_type === "owned" && row.status !== "in_yard" ? (
+                            <button type="button" onClick={() => duplicateFromCurrent(row, "in_yard")} style={tinyBtnStyle}>
+                              In yard
+                            </button>
+                          ) : null}
                         </div>
                       </td>
                     </tr>
