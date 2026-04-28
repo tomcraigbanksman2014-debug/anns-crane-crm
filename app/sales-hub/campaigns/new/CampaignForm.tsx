@@ -26,7 +26,17 @@ type TemplateOption = {
 
 const STATUSES = ["Draft", "Active", "Completed", "Cancelled"];
 const CHANNELS = ["email", "text", "linkedin"];
-const GOALS = ["introduction", "follow_up", "reactivation", "availability"];
+const GOALS = [
+  { value: "introduction", label: "General introduction" },
+  { value: "recent_customer_thank_you", label: "Recent customer thank-you" },
+  { value: "supplier_cross_hire", label: "Supplier / cross-hire request" },
+  { value: "dormant_recovery", label: "Dormant customer recovery" },
+  { value: "quote_follow_up", label: "Quote follow-up" },
+  { value: "cross_sell", label: "Cross-sell services" },
+  { value: "availability", label: "Availability notice" },
+  { value: "follow_up", label: "General follow up" },
+  { value: "reactivation", label: "General reactivation" },
+];
 const TONES = ["professional", "friendly", "direct"];
 
 function localDateInputValue(value: string | null | undefined) {
@@ -174,8 +184,8 @@ export default function CampaignForm({
         <Field label="Goal">
           <select value={goal} onChange={(e) => setGoal(e.target.value)} style={inputStyle}>
             {GOALS.map((item) => (
-              <option key={item} value={item}>
-                {item}
+              <option key={item.value} value={item.value}>
+                {item.label}
               </option>
             ))}
           </select>
