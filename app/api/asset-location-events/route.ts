@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { writeAuditLog } from "../../lib/audit";
+import { getAccessContext } from "../../lib/access";
 
 const VALID_ASSET_CATEGORIES = new Set([
   "trailer",
@@ -122,6 +123,12 @@ export async function POST(req: Request) {
 
     if (userError || !user) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    }
+
+    const access = await getAccessContext();
+
+    if (access.role !== "admin" && access.role !== "staff") {
+      return NextResponse.json({ error: "Office access required." }, { status: 403 });
     }
 
     const body = await req.json().catch(() => ({}));
