@@ -705,41 +705,11 @@ function MiniPlannerPicker({
       </div>
 
       <div style={pickerControlsStyle}>
-        <button
-          type="button"
-          onClick={() => setRange("today")}
-          style={range === "today" ? activePickerBtnStyle : pickerBtnStyle}
-        >
-          Today
-        </button>
-        <button
-          type="button"
-          onClick={() => setRange("tomorrow")}
-          style={range === "tomorrow" ? activePickerBtnStyle : pickerBtnStyle}
-        >
-          Tomorrow
-        </button>
-        <button
-          type="button"
-          onClick={() => setRange("current_week")}
-          style={range === "current_week" ? activePickerBtnStyle : pickerBtnStyle}
-        >
-          Current week
-        </button>
-        <button
-          type="button"
-          onClick={() => setRange("next_7")}
-          style={range === "next_7" ? activePickerBtnStyle : pickerBtnStyle}
-        >
-          Next 7 days
-        </button>
-        <button
-          type="button"
-          onClick={() => setRange("all")}
-          style={range === "all" ? activePickerBtnStyle : pickerBtnStyle}
-        >
-          All visible jobs
-        </button>
+        <button type="button" onClick={() => setRange("today")} style={range === "today" ? activePickerBtnStyle : pickerBtnStyle}>Today</button>
+        <button type="button" onClick={() => setRange("tomorrow")} style={range === "tomorrow" ? activePickerBtnStyle : pickerBtnStyle}>Tomorrow</button>
+        <button type="button" onClick={() => setRange("current_week")} style={range === "current_week" ? activePickerBtnStyle : pickerBtnStyle}>Current week</button>
+        <button type="button" onClick={() => setRange("next_7")} style={range === "next_7" ? activePickerBtnStyle : pickerBtnStyle}>Next 7 days</button>
+        <button type="button" onClick={() => setRange("all")} style={range === "all" ? activePickerBtnStyle : pickerBtnStyle}>All visible jobs</button>
 
         <input
           value={search}
@@ -883,11 +853,11 @@ export default function AssetLocationManager({
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [ownershipFilter, setOwnershipFilter] = useState("all");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [selectedAssetKey, setSelectedAssetKey] = useState("");
   const [pickerMode, setPickerMode] = useState<PickerMode>(null);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
 
   const currentLocations = useMemo(() => latestByAsset(events), [events]);
 
@@ -900,13 +870,17 @@ export default function AssetLocationManager({
   }, [plannerTransportJobs, draft.linked_transport_job_id]);
 
   const quickFilteredLocations = useMemo(() => {
-    return currentLocations.filter((row) => rowMatchesQuickFilter(row, quickFilter));
-  }, [currentLocations, quickFilter]);
+    return currentLocations.filter((row) => {
+      if (!rowMatchesQuickFilter(row, quickFilter)) return false;
+      if (selectedCategories.length > 0 && !selectedCategories.includes(row.asset_category)) return false;
+      return true;
+    });
+  }, [currentLocations, quickFilter, selectedCategories]);
 
   const quickAssetOptions = useMemo(() => {
     return quickFilteredLocations.map((row) => ({
       value: eventAssetKey(row),
-      label: `${row.asset_label} — ${statusLabel(row.status)} — ${safeText(row.location_name)}`,
+      label: `${row.asset_label} — ${categoryLabel(row.asset_category)} — ${statusLabel(row.status)} — ${safeText(row.location_name)}`,
     }));
   }, [quickFilteredLocations]);
 
@@ -922,7 +896,6 @@ export default function AssetLocationManager({
     return quickFilteredLocations.filter((row) => {
       if (selectedAssetKey && eventAssetKey(row) !== selectedAssetKey) return false;
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
-      if (categoryFilter !== "all" && row.asset_category !== categoryFilter) return false;
       if (ownershipFilter !== "all" && row.ownership_type !== ownershipFilter) return false;
 
       if (search) {
@@ -955,7 +928,6 @@ export default function AssetLocationManager({
     selectedAssetKey,
     q,
     statusFilter,
-    categoryFilter,
     ownershipFilter,
   ]);
 
@@ -983,6 +955,20 @@ export default function AssetLocationManager({
 
   function updateDraft(patch: Partial<Draft>) {
     setDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function toggleCategory(category: string) {
+    setSelectedAssetKey("");
+    setSelectedCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category]
+    );
+  }
+
+  function clearCategoryFilters() {
+    setSelectedAssetKey("");
+    setSelectedCategories([]);
   }
 
   function changeCategory(category: string) {
@@ -1194,55 +1180,39 @@ export default function AssetLocationManager({
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={summaryGridStyle}>
-        <SummaryCard
-          label="Assets tracked"
-          value={String(counts.tracked)}
-          active={quickFilter === "all"}
-          onClick={() => activateQuickFilter("all")}
-        />
-        <SummaryCard
-          label="Not in yard"
-          value={String(counts.notInYard)}
-          tone="amber"
-          active={quickFilter === "not_in_yard"}
-          onClick={() => activateQuickFilter("not_in_yard")}
-        />
-        <SummaryCard
-          label="Dropped on site"
-          value={String(counts.dropped)}
-          tone="blue"
-          active={quickFilter === "dropped_on_site"}
-          onClick={() => activateQuickFilter("dropped_on_site")}
-        />
-        <SummaryCard
-          label="In transit"
-          value={String(counts.inTransit)}
-          tone="purple"
-          active={quickFilter === "in_transit"}
-          onClick={() => activateQuickFilter("in_transit")}
-        />
-        <SummaryCard
-          label="In yard"
-          value={String(counts.inYard)}
-          tone="green"
-          active={quickFilter === "in_yard"}
-          onClick={() => activateQuickFilter("in_yard")}
-        />
-        <SummaryCard
-          label="Overdue collection"
-          value={String(counts.overdue)}
-          tone="red"
-          active={quickFilter === "overdue"}
-          onClick={() => activateQuickFilter("overdue")}
-        />
+        <SummaryCard label="Assets tracked" value={String(counts.tracked)} active={quickFilter === "all"} onClick={() => activateQuickFilter("all")} />
+        <SummaryCard label="Not in yard" value={String(counts.notInYard)} tone="amber" active={quickFilter === "not_in_yard"} onClick={() => activateQuickFilter("not_in_yard")} />
+        <SummaryCard label="Dropped on site" value={String(counts.dropped)} tone="blue" active={quickFilter === "dropped_on_site"} onClick={() => activateQuickFilter("dropped_on_site")} />
+        <SummaryCard label="In transit" value={String(counts.inTransit)} tone="purple" active={quickFilter === "in_transit"} onClick={() => activateQuickFilter("in_transit")} />
+        <SummaryCard label="In yard" value={String(counts.inYard)} tone="green" active={quickFilter === "in_yard"} onClick={() => activateQuickFilter("in_yard")} />
+        <SummaryCard label="Overdue collection" value={String(counts.overdue)} tone="red" active={quickFilter === "overdue"} onClick={() => activateQuickFilter("overdue")} />
       </div>
 
       <section style={quickSelectorStyle}>
-        <div>
+        <div style={{ minWidth: 260 }}>
           <div style={{ fontWeight: 1000 }}>Quick view: {quickFilterLabel(quickFilter)}</div>
           <div style={smallMutedStyle}>
-            Click a card above to filter, then select a specific asset if needed.
+            Tick asset types to narrow the view. If none are ticked, all asset types are shown.
           </div>
+        </div>
+
+        <div style={categoryCheckboxWrapStyle}>
+          {CATEGORY_OPTIONS.map((category) => (
+            <label key={category.value} style={checkboxLabelStyle}>
+              <input
+                type="checkbox"
+                checked={selectedCategories.includes(category.value)}
+                onChange={() => toggleCategory(category.value)}
+              />
+              <span>{category.label}</span>
+            </label>
+          ))}
+
+          {selectedCategories.length > 0 ? (
+            <button type="button" onClick={clearCategoryFilters} style={clearFiltersBtnStyle}>
+              Clear asset types
+            </button>
+          ) : null}
         </div>
 
         <select
@@ -1264,7 +1234,7 @@ export default function AssetLocationManager({
           <div>
             <h2 style={sectionTitleStyle}>Map</h2>
             <p style={mutedTextStyle}>
-              Pins show saved coordinates first. If no pin was saved, the CRM tries to estimate a pin from the address/postcode. What3Words-only records open in What3Words.
+              Pins follow the selected quick view, asset type tick boxes and selected asset dropdown.
             </p>
           </div>
         </div>
@@ -1299,12 +1269,7 @@ export default function AssetLocationManager({
 
         <form onSubmit={submit} style={{ marginTop: 14 }}>
           <div style={formGridStyle}>
-            <SelectField
-              label="Asset category"
-              value={draft.asset_category}
-              options={CATEGORY_OPTIONS}
-              onChange={changeCategory}
-            />
+            <SelectField label="Asset category" value={draft.asset_category} options={CATEGORY_OPTIONS} onChange={changeCategory} />
 
             <SelectField
               label="Existing CRM asset"
@@ -1331,173 +1296,50 @@ export default function AssetLocationManager({
               placeholder="Use if not in CRM list"
             />
 
-            <SelectField
-              label="Ownership"
-              value={draft.ownership_type}
-              options={OWNERSHIP_OPTIONS}
-              onChange={changeOwnership}
-            />
+            <SelectField label="Ownership" value={draft.ownership_type} options={OWNERSHIP_OPTIONS} onChange={changeOwnership} />
 
             {showOwnerFields ? (
               <div style={{ gridColumn: "1 / -1" }}>
                 <div style={ownerBoxStyle}>
                   <div style={{ fontWeight: 1000, marginBottom: 8 }}>Owner / supplier details</div>
                   <div style={ownerGridStyle}>
-                    <TextField
-                      label="Owner / supplier company"
-                      value={draft.owner_company_name}
-                      onChange={(value) => updateDraft({ owner_company_name: value })}
-                      placeholder="e.g. ABC Trailer Hire / customer / subcontractor"
-                    />
-
-                    <TextField
-                      label="Contact name"
-                      value={draft.owner_contact_name}
-                      onChange={(value) => updateDraft({ owner_contact_name: value })}
-                      placeholder="Optional"
-                    />
-
-                    <TextField
-                      label="Contact number"
-                      value={draft.owner_phone}
-                      onChange={(value) => updateDraft({ owner_phone: value })}
-                      placeholder="Optional"
-                    />
-
-                    <TextField
-                      label="Contact email"
-                      value={draft.owner_email}
-                      onChange={(value) => updateDraft({ owner_email: value })}
-                      placeholder="Optional"
-                      type="email"
-                    />
-
+                    <TextField label="Owner / supplier company" value={draft.owner_company_name} onChange={(value) => updateDraft({ owner_company_name: value })} placeholder="e.g. ABC Trailer Hire / customer / subcontractor" />
+                    <TextField label="Contact name" value={draft.owner_contact_name} onChange={(value) => updateDraft({ owner_contact_name: value })} placeholder="Optional" />
+                    <TextField label="Contact number" value={draft.owner_phone} onChange={(value) => updateDraft({ owner_phone: value })} placeholder="Optional" />
+                    <TextField label="Contact email" value={draft.owner_email} onChange={(value) => updateDraft({ owner_email: value })} placeholder="Optional" type="email" />
                     <div style={{ gridColumn: "1 / -1" }}>
-                      <TextField
-                        label="Reference / hire note"
-                        value={draft.owner_reference}
-                        onChange={(value) => updateDraft({ owner_reference: value })}
-                        placeholder="e.g. hire ref, supplied by customer, return instructions"
-                      />
+                      <TextField label="Reference / hire note" value={draft.owner_reference} onChange={(value) => updateDraft({ owner_reference: value })} placeholder="e.g. hire ref, supplied by customer, return instructions" />
                     </div>
                   </div>
                 </div>
               </div>
             ) : null}
 
-            <SelectField
-              label="Status"
-              value={draft.status}
-              options={STATUS_OPTIONS}
-              onChange={(value) => updateDraft({ status: value })}
-            />
-
-            <TextField
-              label="Location / site"
-              value={draft.location_name}
-              onChange={(value) => updateDraft({ location_name: value })}
-              placeholder="e.g. ABC Steel / Yard / Repair depot"
-            />
-
-            <TextField
-              label="Postcode"
-              value={draft.postcode}
-              onChange={(value) => updateDraft({ postcode: value })}
-              placeholder="e.g. SA1 8LB"
-            />
-
-            <TextField
-              label="What3Words"
-              value={draft.what3words}
-              onChange={(value) => updateDraft({ what3words: value.replace(/^\/+/, "") })}
-              placeholder="e.g. filled.count.soap"
-            />
-
-            <TextField
-              label="Latitude"
-              value={draft.latitude}
-              onChange={(value) => updateDraft({ latitude: value })}
-              placeholder="Optional, click map to fill"
-              inputMode="decimal"
-            />
-
-            <TextField
-              label="Longitude"
-              value={draft.longitude}
-              onChange={(value) => updateDraft({ longitude: value })}
-              placeholder="Optional, click map to fill"
-              inputMode="decimal"
-            />
+            <SelectField label="Status" value={draft.status} options={STATUS_OPTIONS} onChange={(value) => updateDraft({ status: value })} />
+            <TextField label="Location / site" value={draft.location_name} onChange={(value) => updateDraft({ location_name: value })} placeholder="e.g. ABC Steel / Yard / Repair depot" />
+            <TextField label="Postcode" value={draft.postcode} onChange={(value) => updateDraft({ postcode: value })} placeholder="e.g. SA1 8LB" />
+            <TextField label="What3Words" value={draft.what3words} onChange={(value) => updateDraft({ what3words: value.replace(/^\/+/, "") })} placeholder="e.g. filled.count.soap" />
+            <TextField label="Latitude" value={draft.latitude} onChange={(value) => updateDraft({ latitude: value })} placeholder="Optional, click map to fill" inputMode="decimal" />
+            <TextField label="Longitude" value={draft.longitude} onChange={(value) => updateDraft({ longitude: value })} placeholder="Optional, click map to fill" inputMode="decimal" />
 
             <div style={{ gridColumn: "1 / -1", display: "grid", gap: 10 }}>
-              <LinkedJobSelector
-                title="Linked crane job"
-                selected={selectedCraneJob}
-                helperText="Select from a small read-only crane planner instead of scrolling a long dropdown."
-                onOpen={() => setPickerMode(pickerMode === "crane" ? null : "crane")}
-                onRemove={() => updateDraft({ linked_job_id: "" })}
-              />
+              <LinkedJobSelector title="Linked crane job" selected={selectedCraneJob} helperText="Select from a small read-only crane planner instead of scrolling a long dropdown." onOpen={() => setPickerMode(pickerMode === "crane" ? null : "crane")} onRemove={() => updateDraft({ linked_job_id: "" })} />
 
               {pickerMode === "crane" ? (
-                <MiniPlannerPicker
-                  title="Mini crane planner picker"
-                  kind="crane"
-                  items={plannerJobs}
-                  selectedId={draft.linked_job_id}
-                  onSelect={applyCraneJob}
-                  onClose={() => setPickerMode(null)}
-                />
+                <MiniPlannerPicker title="Mini crane planner picker" kind="crane" items={plannerJobs} selectedId={draft.linked_job_id} onSelect={applyCraneJob} onClose={() => setPickerMode(null)} />
               ) : null}
 
-              <LinkedJobSelector
-                title="Linked transport job"
-                selected={selectedTransportJob}
-                helperText="Select from a small read-only transport planner instead of scrolling a long dropdown."
-                onOpen={() => setPickerMode(pickerMode === "transport" ? null : "transport")}
-                onRemove={() => updateDraft({ linked_transport_job_id: "" })}
-              />
+              <LinkedJobSelector title="Linked transport job" selected={selectedTransportJob} helperText="Select from a small read-only transport planner instead of scrolling a long dropdown." onOpen={() => setPickerMode(pickerMode === "transport" ? null : "transport")} onRemove={() => updateDraft({ linked_transport_job_id: "" })} />
 
               {pickerMode === "transport" ? (
-                <MiniPlannerPicker
-                  title="Mini transport planner picker"
-                  kind="transport"
-                  items={plannerTransportJobs}
-                  selectedId={draft.linked_transport_job_id}
-                  onSelect={applyTransportJob}
-                  onClose={() => setPickerMode(null)}
-                />
+                <MiniPlannerPicker title="Mini transport planner picker" kind="transport" items={plannerTransportJobs} selectedId={draft.linked_transport_job_id} onSelect={applyTransportJob} onClose={() => setPickerMode(null)} />
               ) : null}
             </div>
 
-            <SelectField
-              label="Moved by vehicle"
-              value={draft.moved_by_vehicle_id}
-              options={vehicleOptions}
-              onChange={(value) => updateDraft({ moved_by_vehicle_id: value })}
-              placeholder="Not set"
-            />
-
-            <SelectField
-              label="Moved by operator"
-              value={draft.moved_by_operator_id}
-              options={operatorOptions}
-              onChange={(value) => updateDraft({ moved_by_operator_id: value })}
-              placeholder="Not set"
-            />
-
-            <TextField
-              label="Event date/time"
-              value={draft.event_time}
-              onChange={(value) => updateDraft({ event_time: value })}
-              type="datetime-local"
-            />
-
-            <TextField
-              label="Collection due"
-              value={draft.collection_due_at}
-              onChange={(value) => updateDraft({ collection_due_at: value })}
-              type="datetime-local"
-            />
+            <SelectField label="Moved by vehicle" value={draft.moved_by_vehicle_id} options={vehicleOptions} onChange={(value) => updateDraft({ moved_by_vehicle_id: value })} placeholder="Not set" />
+            <SelectField label="Moved by operator" value={draft.moved_by_operator_id} options={operatorOptions} onChange={(value) => updateDraft({ moved_by_operator_id: value })} placeholder="Not set" />
+            <TextField label="Event date/time" value={draft.event_time} onChange={(value) => updateDraft({ event_time: value })} type="datetime-local" />
+            <TextField label="Collection due" value={draft.collection_due_at} onChange={(value) => updateDraft({ collection_due_at: value })} type="datetime-local" />
 
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={fieldWrapStyle}>
@@ -1541,7 +1383,9 @@ export default function AssetLocationManager({
         <div style={sectionHeaderStyle}>
           <div>
             <h2 style={sectionTitleStyle}>Current asset locations</h2>
-            <p style={mutedTextStyle}>One row per asset, based on the latest saved location update.</p>
+            <p style={mutedTextStyle}>
+              One row per asset, based on the latest saved location update. This table follows the quick view, asset type tick boxes, asset dropdown and filters.
+            </p>
           </div>
         </div>
 
@@ -1553,23 +1397,8 @@ export default function AssetLocationManager({
             style={inputStyle}
           />
 
-          <FilterSelect
-            value={statusFilter}
-            options={[{ value: "all", label: "All statuses" }, ...STATUS_OPTIONS]}
-            onChange={setStatusFilter}
-          />
-
-          <FilterSelect
-            value={categoryFilter}
-            options={[{ value: "all", label: "All categories" }, ...CATEGORY_OPTIONS]}
-            onChange={setCategoryFilter}
-          />
-
-          <FilterSelect
-            value={ownershipFilter}
-            options={[{ value: "all", label: "All ownership" }, ...OWNERSHIP_OPTIONS]}
-            onChange={setOwnershipFilter}
-          />
+          <FilterSelect value={statusFilter} options={[{ value: "all", label: "All statuses" }, ...STATUS_OPTIONS]} onChange={setStatusFilter} />
+          <FilterSelect value={ownershipFilter} options={[{ value: "all", label: "All ownership" }, ...OWNERSHIP_OPTIONS]} onChange={setOwnershipFilter} />
         </div>
 
         {filteredCurrentLocations.length === 0 ? (
@@ -1620,9 +1449,7 @@ export default function AssetLocationManager({
                           <div style={{ marginTop: 7 }}>
                             <div style={{ fontWeight: 900 }}>{safeText(row.owner_company_name)}</div>
                             <div style={smallMutedStyle}>
-                              {[row.owner_contact_name, row.owner_phone, row.owner_email]
-                                .filter(Boolean)
-                                .join(" • ") || "—"}
+                              {[row.owner_contact_name, row.owner_phone, row.owner_email].filter(Boolean).join(" • ") || "—"}
                             </div>
                             {row.owner_reference ? (
                               <div style={smallMutedStyle}>Ref: {row.owner_reference}</div>
@@ -1687,11 +1514,7 @@ export default function AssetLocationManager({
                             Update
                           </button>
 
-                          <button
-                            type="button"
-                            onClick={() => duplicateFromCurrent(row, "in_yard")}
-                            style={tinyBtnStyle}
-                          >
+                          <button type="button" onClick={() => duplicateFromCurrent(row, "in_yard")} style={tinyBtnStyle}>
                             In yard
                           </button>
                         </div>
@@ -1878,11 +1701,39 @@ const quickSelectorStyle: CSSProperties = {
   padding: 14,
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.45)",
-  display: "flex",
-  justifyContent: "space-between",
+  display: "grid",
   gap: 12,
-  alignItems: "center",
+};
+
+const categoryCheckboxWrapStyle: CSSProperties = {
+  display: "flex",
   flexWrap: "wrap",
+  gap: 8,
+  alignItems: "center",
+};
+
+const checkboxLabelStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "7px 10px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.74)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const clearFiltersBtnStyle: CSSProperties = {
+  padding: "7px 10px",
+  borderRadius: 999,
+  background: "#111",
+  color: "#fff",
+  border: "none",
+  fontSize: 13,
+  fontWeight: 900,
+  cursor: "pointer",
 };
 
 const sectionHeaderStyle: CSSProperties = {
@@ -1943,7 +1794,7 @@ const ownerGridStyle: CSSProperties = {
 
 const filtersGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(240px, 1.4fr) repeat(3, minmax(170px, 1fr))",
+  gridTemplateColumns: "minmax(240px, 1.4fr) repeat(2, minmax(170px, 1fr))",
   gap: 10,
   marginTop: 14,
 };
