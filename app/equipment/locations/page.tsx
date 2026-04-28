@@ -1,7 +1,6 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { getAccessContext } from "../../lib/access";
-import { isMasterAdminEmail } from "../../lib/admin";
 import { redirect } from "next/navigation";
 import AssetLocationManager from "./AssetLocationManager";
 
@@ -86,10 +85,12 @@ function transportPlannerItem(job: any) {
 
 export default async function AssetLocationsPage() {
   const access = await getAccessContext();
-  const email = String(access.user?.email ?? "").trim().toLowerCase();
 
   if (!access.user) redirect("/login?next=/equipment/locations");
-  if (!isMasterAdminEmail(email)) redirect("/");
+
+  if (access.role !== "admin" && access.role !== "staff") {
+    redirect(access.role === "operator" ? "/operator/jobs" : "/");
+  }
 
   const admin = createSupabaseAdminClient();
 
@@ -220,7 +221,7 @@ export default async function AssetLocationsPage() {
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Asset Locations</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Masteradmin-only testing page for tracking where trailers, mats, cranes, vehicles and hired-in assets were last left.
+              Office asset register for tracking where trailers, mats, cranes, vehicles and hired-in assets were last left.
             </p>
           </div>
 
