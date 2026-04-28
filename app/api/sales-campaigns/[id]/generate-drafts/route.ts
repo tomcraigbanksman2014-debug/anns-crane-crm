@@ -11,7 +11,16 @@ import {
 } from "../../../../lib/emailSignature";
 
 type Channel = "email" | "text" | "linkedin";
-type Goal = "introduction" | "follow_up" | "reactivation" | "availability";
+type Goal =
+  | "introduction"
+  | "recent_customer_thank_you"
+  | "supplier_cross_hire"
+  | "dormant_recovery"
+  | "quote_follow_up"
+  | "cross_sell"
+  | "follow_up"
+  | "reactivation"
+  | "availability";
 type Tone = "professional" | "friendly" | "direct";
 
 function fromAuthEmail(email: string | null) {
@@ -57,7 +66,25 @@ function normaliseChannel(value: unknown): Channel {
 
 function normaliseGoal(value: unknown): Goal {
   const v = String(value ?? "").trim().toLowerCase();
-  if (v === "follow_up" || v === "reactivation" || v === "availability") return v;
+  if (
+    v === "recent_customer_thank_you" ||
+    v === "supplier_cross_hire" ||
+    v === "dormant_recovery" ||
+    v === "quote_follow_up" ||
+    v === "cross_sell" ||
+    v === "follow_up" ||
+    v === "reactivation" ||
+    v === "availability"
+  ) {
+    return v;
+  }
+  return "introduction";
+}
+
+function aiSafeGoal(goal: Goal): "introduction" | "follow_up" | "reactivation" | "availability" {
+  if (goal === "follow_up" || goal === "reactivation" || goal === "availability") return goal;
+  if (goal === "dormant_recovery") return "reactivation";
+  if (goal === "quote_follow_up") return "follow_up";
   return "introduction";
 }
 
@@ -222,6 +249,34 @@ function relevanceLine(lead: LeadLike, serviceFocus: string | null) {
 }
 
 function introLine(goal: Goal, tone: Tone) {
+  if (goal === "recent_customer_thank_you") {
+    if (tone === "direct") return "Thank you for using AnnS Crane Hire recently. I wanted to follow up and keep our wider services on your radar.";
+    return "Thank you for using AnnS Crane Hire recently. I wanted to say we appreciate the work and keep our wider support on your radar.";
+  }
+
+  if (goal === "supplier_cross_hire") {
+    if (tone === "direct") return "I am getting in touch because we may have a cross-hire requirement and wanted to check your availability.";
+    return "I hope you are well. I am getting in touch from AnnS Crane Hire to check whether you may be able to help with a cross-hire requirement.";
+  }
+
+  if (goal === "dormant_recovery") {
+    if (tone === "friendly") return "I just wanted to check back in and put AnnS Crane Hire back on your radar.";
+    if (tone === "direct") return "I am checking back in to see whether you have any upcoming lifting or transport requirements we could support.";
+    return "I wanted to check back in as we have not worked together for a little while and see whether we can support anything coming up.";
+  }
+
+  if (goal === "quote_follow_up") {
+    if (tone === "friendly") return "I just wanted to follow up on the quote and check whether you need anything amended.";
+    if (tone === "direct") return "I am following up on the quote to confirm whether the dates or requirements are still live.";
+    return "I wanted to follow up on the quote and check whether you need anything amended or confirmed.";
+  }
+
+  if (goal === "cross_sell") {
+    if (tone === "friendly") return "I wanted to check in and make sure you know the full range of support we can provide.";
+    if (tone === "direct") return "I am reaching out to make sure you are aware of the wider crane, transport and lifting services we can support.";
+    return "I wanted to get in touch to make sure you are aware of the wider services AnnS Crane Hire can provide.";
+  }
+
   if (goal === "follow_up") {
     if (tone === "friendly") return "I just wanted to follow up in case my last message was missed.";
     if (tone === "direct") return "I am following up on my earlier message to see whether this is something worth discussing.";
@@ -247,6 +302,28 @@ function introLine(goal: Goal, tone: Tone) {
 
 function ctaLine(goal: Goal, channel: Channel, customCta: string | null) {
   if (customCta) return customCta;
+
+  if (goal === "supplier_cross_hire") {
+    return channel === "text"
+      ? "Please reply with availability, rate and any details you need from us."
+      : "If you can help, please send over availability, rates and any information you need from us.";
+  }
+
+  if (goal === "recent_customer_thank_you") {
+    return "If you have any further lifting, transport, HIAB, low loader, spider crane or contract lift requirements coming up, we would be happy to help again.";
+  }
+
+  if (goal === "quote_follow_up") {
+    return "If the job is still live, I would be happy to firm up availability or make any amendments required.";
+  }
+
+  if (goal === "cross_sell") {
+    return "If any of these services would be useful on upcoming work, please keep us in mind and I would be happy to help with pricing or availability.";
+  }
+
+  if (goal === "dormant_recovery") {
+    return "If you have anything coming up, I would be glad to discuss how we may be able to help.";
+  }
 
   if (channel === "text") {
     if (goal === "availability") {
@@ -303,6 +380,12 @@ AnnS Crane Hire Ltd`;
 
 function subjectLine(goal: Goal, serviceFocus: string | null, availabilityNote: string | null) {
   const service = clean(serviceFocus);
+
+  if (goal === "recent_customer_thank_you") return "Thank you from AnnS Crane Hire";
+  if (goal === "supplier_cross_hire") return service ? `Cross-hire request – ${service}` : "Cross-hire request from AnnS Crane Hire";
+  if (goal === "dormant_recovery") return "Checking in from AnnS Crane Hire";
+  if (goal === "quote_follow_up") return "Following up on our quote";
+  if (goal === "cross_sell") return "More ways AnnS Crane Hire can support you";
 
   if (goal === "availability") {
     return service
@@ -428,6 +511,7 @@ export async function POST(
       { data: campaign, error: campaignError },
       { data: leadLinks, error: leadLinksError },
       { data: customerLinks, error: customerLinksError },
+      { data: supplierLinks, error: supplierLinksError },
     ] = await Promise.all([
       supabase
         .from("sales_campaigns")
@@ -485,6 +569,25 @@ export async function POST(
         `)
         .eq("campaign_id", params.id)
         .order("created_at", { ascending: true }),
+      supabase
+        .from("sales_campaign_suppliers")
+        .select(`
+          id,
+          supplier_id,
+          suppliers:supplier_id (
+            id,
+            company_name,
+            contact_name,
+            email,
+            phone,
+            category,
+            address,
+            notes,
+            archived
+          )
+        `)
+        .eq("campaign_id", params.id)
+        .order("created_at", { ascending: true }),
     ]);
 
     if (campaignError || !campaign) {
@@ -499,16 +602,27 @@ export async function POST(
       return NextResponse.json({ error: customerLinksError.message }, { status: 400 });
     }
 
+    if (supplierLinksError) {
+      return NextResponse.json({ error: supplierLinksError.message }, { status: 400 });
+    }
+
     const template = safeArray((campaign as any).sales_templates)[0] ?? null;
     const channel = normaliseChannel((campaign as any).channel || template?.channel);
     const goal = normaliseGoal((campaign as any).goal || template?.goal);
     const tone = normaliseTone((campaign as any).tone || template?.tone);
 
-    const totalTargets = (leadLinks?.length ?? 0) + (customerLinks?.length ?? 0);
-    const forceFallback = totalTargets > 25;
+    const totalTargets = (leadLinks?.length ?? 0) + (customerLinks?.length ?? 0) + (supplierLinks?.length ?? 0);
+    const purposeSpecificFallbackGoals: Goal[] = [
+      "recent_customer_thank_you",
+      "supplier_cross_hire",
+      "dormant_recovery",
+      "quote_follow_up",
+      "cross_sell",
+    ];
+    const forceFallback = totalTargets > 25 || purposeSpecificFallbackGoals.includes(goal);
 
     const drafts: Array<{
-      target_type: "lead" | "customer";
+      target_type: "lead" | "customer" | "supplier";
       target_id: string;
       company_name: string;
       contact_name: string;
@@ -521,7 +635,7 @@ export async function POST(
     }> = [];
 
     const skipped: Array<{
-      target_type: "lead" | "customer";
+      target_type: "lead" | "customer" | "supplier";
       target_id: string;
       company_name: string;
       reason: string;
@@ -594,7 +708,7 @@ export async function POST(
 
       const { draft, provider } = forceFallback
         ? { draft: buildQuickCampaignDraft(leadArgs), provider: "fallback" as const }
-        : await generateSalesDraftWithFallback(leadArgs);
+        : await generateSalesDraftWithFallback({ ...leadArgs, goal: aiSafeGoal(goal) });
 
       const finalDraft = finaliseCampaignDraftOutput({
         channel,
@@ -660,14 +774,7 @@ export async function POST(
         clean(template?.availability_note);
 
       const customCta = clean(template?.custom_cta);
-
-      const subjectHint =
-        clean(template?.subject_hint) ||
-        (goal === "availability"
-          ? "{{service_focus}} availability from AnnS Crane Hire"
-          : goal === "reactivation"
-            ? "Checking in from AnnS Crane Hire"
-            : "Following up from AnnS Crane Hire");
+      const subjectHint = clean(template?.subject_hint);
 
       const customerArgs = {
         lead: {
@@ -689,7 +796,7 @@ export async function POST(
 
       const { draft, provider } = forceFallback
         ? { draft: buildQuickCampaignDraft(customerArgs), provider: "fallback" as const }
-        : await generateSalesDraftWithFallback(customerArgs);
+        : await generateSalesDraftWithFallback({ ...customerArgs, goal: aiSafeGoal(goal) });
 
       const finalDraft = finaliseCampaignDraftOutput({
         channel,
@@ -711,6 +818,97 @@ export async function POST(
       });
     }
 
+    for (const row of supplierLinks ?? []) {
+      const supplier = safeArray((row as any).suppliers)[0] ?? null;
+      if (!supplier?.id) continue;
+
+      if (supplier.archived) {
+        skipped.push({
+          target_type: "supplier",
+          target_id: String(supplier.id),
+          company_name: String(supplier.company_name ?? "Unknown supplier"),
+          reason: "Supplier is archived.",
+        });
+        continue;
+      }
+
+      if (channel === "email" && !supplier.email) {
+        skipped.push({
+          target_type: "supplier",
+          target_id: String(supplier.id),
+          company_name: String(supplier.company_name ?? "Unknown supplier"),
+          reason: "Supplier has no email saved.",
+        });
+        continue;
+      }
+
+      if (channel === "text" && !supplier.phone) {
+        skipped.push({
+          target_type: "supplier",
+          target_id: String(supplier.id),
+          company_name: String(supplier.company_name ?? "Unknown supplier"),
+          reason: "Supplier has no phone saved.",
+        });
+        continue;
+      }
+
+      const serviceFocus =
+        clean((campaign as any).service_focus) ||
+        clean(template?.service_focus) ||
+        clean(supplier.category) ||
+        "crane, transport or HIAB cross-hire";
+
+      const availabilityNote =
+        clean((campaign as any).availability_note) ||
+        clean(template?.availability_note) ||
+        "Please confirm availability, rate, location and any requirements you need from us.";
+
+      const customCta = clean(template?.custom_cta);
+      const subjectHint = clean(template?.subject_hint) || "Cross-hire request from AnnS Crane Hire";
+      const bodyHint = clean(template?.body_hint);
+
+      const supplierArgs = {
+        lead: {
+          company_name: supplier.company_name,
+          contact_name: supplier.contact_name,
+          area: clean(supplier.address),
+          industry: clean(supplier.category) || "supplier",
+          services: serviceFocus ? [serviceFocus] : null,
+        },
+        channel,
+        goal: (goal === "supplier_cross_hire" ? goal : "supplier_cross_hire") as Goal,
+        tone,
+        serviceFocus,
+        availabilityNote,
+        customCta,
+        subjectHint,
+        bodyHint,
+      };
+
+      const { draft, provider } = forceFallback
+        ? { draft: buildQuickCampaignDraft(supplierArgs), provider: "fallback" as const }
+        : await generateSalesDraftWithFallback({ ...supplierArgs, goal: aiSafeGoal("supplier_cross_hire") });
+
+      const finalDraft = finaliseCampaignDraftOutput({
+        channel,
+        subject: draft.subject,
+        body: draft.body,
+      });
+
+      drafts.push({
+        target_type: "supplier",
+        target_id: String(supplier.id),
+        company_name: String(supplier.company_name ?? "Unknown supplier"),
+        contact_name: String(supplier.contact_name ?? ""),
+        channel,
+        subject: finalDraft.subject,
+        body: finalDraft.body,
+        provider,
+        target_email: String(supplier.email ?? "").trim() || null,
+        target_phone: String(supplier.phone ?? "").trim() || null,
+      });
+    }
+
     await writeAuditLog({
       actor_user_id: user.id,
       actor_username: fromAuthEmail(user.email ?? null) || null,
@@ -720,6 +918,7 @@ export async function POST(
       meta: {
         lead_draft_count: drafts.filter((row) => row.target_type === "lead").length,
         customer_draft_count: drafts.filter((row) => row.target_type === "customer").length,
+        supplier_draft_count: drafts.filter((row) => row.target_type === "supplier").length,
         skipped_count: skipped.length,
         provider_mode: forceFallback ? "fallback_batch" : "ai_or_fallback",
         total_targets: totalTargets,
