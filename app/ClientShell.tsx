@@ -90,6 +90,7 @@ export default function ClientShell({
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
   const [role, setRole] = useState<"admin" | "staff" | "operator" | "">("");
+  const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -138,6 +139,7 @@ export default function ClientShell({
       return {
         resolvedRole,
         usernameFromEmail,
+        isMaster,
       };
     }
 
@@ -162,7 +164,7 @@ export default function ClientShell({
         return;
       }
 
-      const { resolvedRole, usernameFromEmail } = await resolveRoleForUser(user);
+      const { resolvedRole, usernameFromEmail, isMaster } = await resolveRoleForUser(user);
 
       if (!mounted) return;
 
@@ -173,6 +175,7 @@ export default function ClientShell({
 
       setUsername(usernameFromEmail);
       setRole(resolvedRole);
+      setIsMasterAdmin(isMaster);
       setLoading(false);
 
       if (resolvedRole === "operator") {
@@ -248,6 +251,7 @@ export default function ClientShell({
     { label: "Cranes", href: "/cranes" },
     { label: "Vehicles", href: "/vehicles" },
     { label: "Equipment", href: "/equipment" },
+    ...(isMasterAdmin ? [{ label: "Asset Locations", href: "/equipment/locations" }] : []),
     { label: "Operators", href: "/operators" },
     { label: "Timesheets", href: "/timesheets" },
 
@@ -258,7 +262,7 @@ export default function ClientShell({
     { label: "Staff Accounts", href: "/admin/users" },
     { label: "Audit Log", href: "/admin/audit" },
   ],
-  []
+  [isMasterAdmin]
 );
 
   const operatorNav = useMemo<NavItem[]>(
