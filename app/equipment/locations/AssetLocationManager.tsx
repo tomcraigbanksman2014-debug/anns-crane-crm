@@ -125,7 +125,14 @@ function emptyDraft(): Draft {
 function assetTypeForCategory(category: string) {
   if (category === "trailer" || category === "vehicle") return "vehicle";
   if (category === "crane") return "crane";
-  if (category === "mats" || category === "attachment" || category === "rigging_gear" || category === "plant_equipment") return "equipment";
+  if (
+    category === "mats" ||
+    category === "attachment" ||
+    category === "rigging_gear" ||
+    category === "plant_equipment"
+  ) {
+    return "equipment";
+  }
   return "other";
 }
 
@@ -147,8 +154,26 @@ function safeText(value: string | null | undefined) {
 }
 
 function asNumber(value: unknown) {
-  const n = Number(value);
+  if (value === null || value === undefined) return null;
+
+  const raw = String(value).trim();
+  if (!raw) return null;
+
+  const n = Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+function usableCoordinates(row: Pick<LocationEvent, "latitude" | "longitude">) {
+  const lat = asNumber(row.latitude);
+  const lng = asNumber(row.longitude);
+
+  if (lat === null || lng === null) return null;
+
+  // Prevent blank/null coordinates being treated as 0,0.
+  // For this UK asset register, 0,0 is not a useful saved asset location.
+  if (lat === 0 && lng === 0) return null;
+
+  return { lat, lng };
 }
 
 function fmtDateTime(value: string | null | undefined) {
@@ -177,10 +202,12 @@ function eventAssetKey(event: LocationEvent) {
 
 function latestByAsset(events: LocationEvent[]) {
   const map = new Map<string, LocationEvent>();
+
   for (const event of events) {
     const key = eventAssetKey(event);
     if (!map.has(key)) map.set(key, event);
   }
+
   return Array.from(map.values());
 }
 
@@ -209,17 +236,27 @@ function ownershipBadgeStyle(value: string | null | undefined): React.CSSPropert
 }
 
 function mapsHref(row: LocationEvent) {
-  const lat = asNumber(row.latitude);
-  const lng = asNumber(row.longitude);
-  if (lat !== null && lng !== null) return `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=17/${lat}/${lng}`;
+  const coords = usableCoordinates(row);
 
-  const q = [row.location_name, row.address, row.postcode].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ");
+  if (coords) {
+    return `https://www.openstreetmap.org/?mlat=${coords.lat}&mlon=${coords.lng}#map=17/${coords.lat}/${coords.lng}`;
+  }
+
+  const w3wLink = w3wHref(row.what3words);
+  if (w3wLink) return w3wLink;
+
+  const q = [row.location_name, row.address, row.postcode]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean)
+    .join(" ");
+
   return q ? `https://www.openstreetmap.org/search?query=${encodeURIComponent(q)}` : "";
 }
 
 function ensureLeafletCss() {
   if (typeof document === "undefined") return;
   if (document.getElementById("leaflet-css")) return;
+
   const link = document.createElement("link");
   link.id = "leaflet-css";
   link.rel = "stylesheet";
@@ -249,11 +286,14 @@ function AssetMap({
 
     async function init() {
       if (!containerRef.current || mapRef.current) return;
+
       ensureLeafletCss();
+
       const L = await import("leaflet");
       if (cancelled || !containerRef.current) return;
 
       leafletRef.current = L;
+
       const map = L.map(containerRef.current, {
         scrollWheelZoom: false,
         zoomControl: true,
@@ -265,6 +305,7 @@ function AssetMap({
       }).addTo(map);
 
       const layer = L.layerGroup().addTo(map);
+
       map.on("click", (event: any) => {
         if (event?.latlng) {
           onPickRef.current(event.latlng.lat, event.latlng.lng);
@@ -279,6 +320,7 @@ function AssetMap({
 
     return () => {
       cancelled = true;
+
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -291,6 +333,7 @@ function AssetMap({
     const L = leafletRef.current;
     const map = mapRef.current;
     const layer = layerRef.current;
+
     if (!L || !map || !layer) return;
 
     layer.clearLayers();
@@ -298,19 +341,21 @@ function AssetMap({
     const bounds: Array<[number, number]> = [];
 
     rows.forEach((row) => {
-      const lat = asNumber(row.latitude);
-      const lng = asNumber(row.longitude);
-      if (lat === null || lng === null) return;
+      const coords = usableCoordinates(row);
+      if (!coords) return;
 
-      const color = row.status === "in_yard"
-        ? "#0b7a4b"
-        : row.status === "in_transit"
-          ? "#4f2bbd"
-          : row.status === "at_supplier_repair" || row.status === "with_subcontractor"
-            ? "#8a5200"
-            : row.status === "unknown"
-              ? "#555"
-              : "#0b57d0";
+      const { lat, lng } = coords;
+
+      const color =
+        row.status === "in_yard"
+          ? "#0b7a4b"
+          : row.status === "in_transit"
+            ? "#4f2bbd"
+            : row.status === "at_supplier_repair" || row.status === "with_subcontractor"
+              ? "#8a5200"
+              : row.status === "unknown"
+                ? "#555"
+                : "#0b57d0";
 
       const popupHtml = [
         `<strong>${row.asset_label}</strong>`,
@@ -318,6 +363,7 @@ function AssetMap({
         `<br />${statusLabel(row.status)}`,
         row.location_name ? `<br />${row.location_name}` : "",
         row.postcode ? `<br />${row.postcode}` : "",
+        row.what3words ? `<br />///${row.what3words}` : "",
         row.collection_due_at ? `<br /><strong>Collection:</strong> ${fmtDateTime(row.collection_due_at)}` : "",
       ].join("");
 
@@ -342,7 +388,9 @@ function AssetMap({
   return (
     <div style={mapWrapStyle}>
       <div ref={containerRef} style={mapStyle} />
-      <div style={mapHintStyle}>Click the map to fill latitude/longitude for the next update.</div>
+      <div style={mapHintStyle}>
+        Click the map to fill latitude/longitude for the next update. What3Words-only records open in What3Words rather than showing a CRM map pin.
+      </div>
     </div>
   );
 }
@@ -357,6 +405,7 @@ export default function AssetLocationManager({
   operatorOptions,
 }: Props) {
   const router = useRouter();
+
   const [events, setEvents] = useState<LocationEvent[]>(initialEvents ?? []);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [saving, setSaving] = useState(false);
@@ -372,6 +421,7 @@ export default function AssetLocationManager({
 
   const filteredCurrentLocations = useMemo(() => {
     const search = q.trim().toLowerCase();
+
     return currentLocations.filter((row) => {
       if (statusFilter !== "all" && row.status !== statusFilter) return false;
       if (categoryFilter !== "all" && row.asset_category !== categoryFilter) return false;
@@ -388,7 +438,10 @@ export default function AssetLocationManager({
           row.postcode,
           row.what3words,
           row.notes,
-        ].join(" ").toLowerCase();
+        ]
+          .join(" ")
+          .toLowerCase();
+
         if (!haystack.includes(search)) return false;
       }
 
@@ -398,9 +451,11 @@ export default function AssetLocationManager({
 
   const assetOptions = useMemo(() => {
     const type = assetTypeForCategory(draft.asset_category);
+
     if (type === "vehicle") return vehicleOptions;
     if (type === "crane") return craneOptions;
     if (type === "equipment") return equipmentOptions;
+
     return [];
   }, [draft.asset_category, equipmentOptions, vehicleOptions, craneOptions]);
 
@@ -409,7 +464,10 @@ export default function AssetLocationManager({
     const dropped = currentLocations.filter((row) => row.status === "dropped_on_site").length;
     const inTransit = currentLocations.filter((row) => row.status === "in_transit").length;
     const inYard = currentLocations.filter((row) => row.status === "in_yard").length;
-    const overdue = currentLocations.filter((row) => row.status !== "in_yard" && isOverdue(row.collection_due_at)).length;
+    const overdue = currentLocations.filter(
+      (row) => row.status !== "in_yard" && isOverdue(row.collection_due_at)
+    ).length;
+
     return { tracked: currentLocations.length, notInYard, dropped, inTransit, inYard, overdue };
   }, [currentLocations]);
 
@@ -418,7 +476,12 @@ export default function AssetLocationManager({
   }
 
   function changeCategory(category: string) {
-    setDraft((current) => ({ ...current, asset_category: category, asset_id: "", asset_label: "" }));
+    setDraft((current) => ({
+      ...current,
+      asset_category: category,
+      asset_id: "",
+      asset_label: "",
+    }));
   }
 
   function setQuickInYard() {
@@ -433,6 +496,8 @@ export default function AssetLocationManager({
   }
 
   function duplicateFromCurrent(row: LocationEvent, status?: string) {
+    const coords = usableCoordinates(row);
+
     setDraft({
       asset_category: row.asset_category || "other",
       asset_id: row.asset_id || "",
@@ -443,19 +508,31 @@ export default function AssetLocationManager({
       address: row.address || "",
       postcode: row.postcode || "",
       what3words: row.what3words || "",
-      latitude: row.latitude !== null && row.latitude !== undefined ? String(row.latitude) : "",
-      longitude: row.longitude !== null && row.longitude !== undefined ? String(row.longitude) : "",
+      latitude: coords ? String(coords.lat) : "",
+      longitude: coords ? String(coords.lng) : "",
       linked_job_id: row.linked_job_id || "",
       linked_transport_job_id: row.linked_transport_job_id || "",
       moved_by_vehicle_id: row.moved_by_vehicle_id || "",
       moved_by_operator_id: row.moved_by_operator_id || "",
       event_time: nowLocalDateTime(),
-      collection_due_at: status === "in_yard" ? "" : row.collection_due_at ? String(row.collection_due_at).slice(0, 16) : "",
+      collection_due_at:
+        status === "in_yard"
+          ? ""
+          : row.collection_due_at
+            ? String(row.collection_due_at).slice(0, 16)
+            : "",
       notes: status === "in_yard" ? "Returned to yard." : row.notes || "",
     });
+
     setMessageType("success");
     setMessage("Asset copied into the update form. Change what is needed and save a new location event.");
-    window.setTimeout(() => document.getElementById("asset-location-form")?.scrollIntoView({ behavior: "smooth", block: "start" }), 60);
+
+    window.setTimeout(() => {
+      document.getElementById("asset-location-form")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 60);
   }
 
   async function submit(e: React.FormEvent) {
@@ -534,9 +611,13 @@ export default function AssetLocationManager({
         <div style={sectionHeaderStyle}>
           <div>
             <h2 style={sectionTitleStyle}>Map</h2>
-            <p style={mutedTextStyle}>Pins show the latest location for filtered assets where latitude and longitude have been saved.</p>
+            <p style={mutedTextStyle}>
+              Pins show the latest location for filtered assets where latitude and longitude have been saved.
+              What3Words-only records open in What3Words instead of showing a CRM map pin.
+            </p>
           </div>
         </div>
+
         <AssetMap
           rows={filteredCurrentLocations}
           onPickLocation={(lat, lng) => {
@@ -551,49 +632,150 @@ export default function AssetLocationManager({
         <div style={sectionHeaderStyle}>
           <div>
             <h2 style={sectionTitleStyle}>Update asset location</h2>
-            <p style={mutedTextStyle}>Keep it simple: pick what it is, who owns it, where it is, and when it needs collecting.</p>
+            <p style={mutedTextStyle}>
+              Keep it simple: pick what it is, who owns it, where it is, and when it needs collecting.
+            </p>
           </div>
-          <button type="button" onClick={setQuickInYard} style={secondaryBtnStyle}>Quick: in yard</button>
+
+          <button type="button" onClick={setQuickInYard} style={secondaryBtnStyle}>
+            Quick: in yard
+          </button>
         </div>
 
-        {message ? <div style={messageType === "success" ? successBoxStyle : errorBoxStyle}>{message}</div> : null}
+        {message ? (
+          <div style={messageType === "success" ? successBoxStyle : errorBoxStyle}>{message}</div>
+        ) : null}
 
         <form onSubmit={submit} style={{ marginTop: 14 }}>
           <div style={formGridStyle}>
-            <SelectField label="Asset category" value={draft.asset_category} options={CATEGORY_OPTIONS} onChange={changeCategory} />
+            <SelectField
+              label="Asset category"
+              value={draft.asset_category}
+              options={CATEGORY_OPTIONS}
+              onChange={changeCategory}
+            />
 
             <SelectField
               label="Existing CRM asset"
               value={draft.asset_id}
               options={assetOptions}
-              onChange={(value) => updateDraft({ asset_id: value, asset_label: value ? "" : draft.asset_label })}
+              onChange={(value) =>
+                updateDraft({
+                  asset_id: value,
+                  asset_label: value ? "" : draft.asset_label,
+                })
+              }
               placeholder={assetOptions.length ? "Manual / not selected" : "No matching CRM list"}
             />
 
             <TextField
               label="Manual asset name"
               value={draft.asset_label}
-              onChange={(value) => updateDraft({ asset_label: value, asset_id: value.trim() ? "" : draft.asset_id })}
+              onChange={(value) =>
+                updateDraft({
+                  asset_label: value,
+                  asset_id: value.trim() ? "" : draft.asset_id,
+                })
+              }
               placeholder="Use if not in CRM list"
             />
 
-            <SelectField label="Ownership" value={draft.ownership_type} options={OWNERSHIP_OPTIONS} onChange={(value) => updateDraft({ ownership_type: value })} />
-            <SelectField label="Status" value={draft.status} options={STATUS_OPTIONS} onChange={(value) => updateDraft({ status: value })} />
+            <SelectField
+              label="Ownership"
+              value={draft.ownership_type}
+              options={OWNERSHIP_OPTIONS}
+              onChange={(value) => updateDraft({ ownership_type: value })}
+            />
 
-            <TextField label="Location / site" value={draft.location_name} onChange={(value) => updateDraft({ location_name: value })} placeholder="e.g. ABC Steel / Yard / Repair depot" />
-            <TextField label="Postcode" value={draft.postcode} onChange={(value) => updateDraft({ postcode: value })} placeholder="e.g. SA1 8LB" />
-            <TextField label="What3Words" value={draft.what3words} onChange={(value) => updateDraft({ what3words: value.replace(/^\/+/, "") })} placeholder="e.g. filled.count.soap" />
+            <SelectField
+              label="Status"
+              value={draft.status}
+              options={STATUS_OPTIONS}
+              onChange={(value) => updateDraft({ status: value })}
+            />
 
-            <TextField label="Latitude" value={draft.latitude} onChange={(value) => updateDraft({ latitude: value })} placeholder="Optional, click map to fill" inputMode="decimal" />
-            <TextField label="Longitude" value={draft.longitude} onChange={(value) => updateDraft({ longitude: value })} placeholder="Optional, click map to fill" inputMode="decimal" />
+            <TextField
+              label="Location / site"
+              value={draft.location_name}
+              onChange={(value) => updateDraft({ location_name: value })}
+              placeholder="e.g. ABC Steel / Yard / Repair depot"
+            />
 
-            <SelectField label="Linked crane job" value={draft.linked_job_id} options={jobOptions} onChange={(value) => updateDraft({ linked_job_id: value })} placeholder="None" />
-            <SelectField label="Linked transport job" value={draft.linked_transport_job_id} options={transportJobOptions} onChange={(value) => updateDraft({ linked_transport_job_id: value })} placeholder="None" />
-            <SelectField label="Moved by vehicle" value={draft.moved_by_vehicle_id} options={vehicleOptions} onChange={(value) => updateDraft({ moved_by_vehicle_id: value })} placeholder="Not set" />
-            <SelectField label="Moved by operator" value={draft.moved_by_operator_id} options={operatorOptions} onChange={(value) => updateDraft({ moved_by_operator_id: value })} placeholder="Not set" />
+            <TextField
+              label="Postcode"
+              value={draft.postcode}
+              onChange={(value) => updateDraft({ postcode: value })}
+              placeholder="e.g. SA1 8LB"
+            />
 
-            <TextField label="Event date/time" value={draft.event_time} onChange={(value) => updateDraft({ event_time: value })} type="datetime-local" />
-            <TextField label="Collection due" value={draft.collection_due_at} onChange={(value) => updateDraft({ collection_due_at: value })} type="datetime-local" />
+            <TextField
+              label="What3Words"
+              value={draft.what3words}
+              onChange={(value) => updateDraft({ what3words: value.replace(/^\/+/, "") })}
+              placeholder="e.g. filled.count.soap"
+            />
+
+            <TextField
+              label="Latitude"
+              value={draft.latitude}
+              onChange={(value) => updateDraft({ latitude: value })}
+              placeholder="Optional, click map to fill"
+              inputMode="decimal"
+            />
+
+            <TextField
+              label="Longitude"
+              value={draft.longitude}
+              onChange={(value) => updateDraft({ longitude: value })}
+              placeholder="Optional, click map to fill"
+              inputMode="decimal"
+            />
+
+            <SelectField
+              label="Linked crane job"
+              value={draft.linked_job_id}
+              options={jobOptions}
+              onChange={(value) => updateDraft({ linked_job_id: value })}
+              placeholder="None"
+            />
+
+            <SelectField
+              label="Linked transport job"
+              value={draft.linked_transport_job_id}
+              options={transportJobOptions}
+              onChange={(value) => updateDraft({ linked_transport_job_id: value })}
+              placeholder="None"
+            />
+
+            <SelectField
+              label="Moved by vehicle"
+              value={draft.moved_by_vehicle_id}
+              options={vehicleOptions}
+              onChange={(value) => updateDraft({ moved_by_vehicle_id: value })}
+              placeholder="Not set"
+            />
+
+            <SelectField
+              label="Moved by operator"
+              value={draft.moved_by_operator_id}
+              options={operatorOptions}
+              onChange={(value) => updateDraft({ moved_by_operator_id: value })}
+              placeholder="Not set"
+            />
+
+            <TextField
+              label="Event date/time"
+              value={draft.event_time}
+              onChange={(value) => updateDraft({ event_time: value })}
+              type="datetime-local"
+            />
+
+            <TextField
+              label="Collection due"
+              value={draft.collection_due_at}
+              onChange={(value) => updateDraft({ collection_due_at: value })}
+              type="datetime-local"
+            />
 
             <div style={{ gridColumn: "1 / -1" }}>
               <label style={fieldWrapStyle}>
@@ -622,8 +804,13 @@ export default function AssetLocationManager({
           </div>
 
           <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="submit" disabled={saving} style={primaryBtnStyle}>{saving ? "Saving..." : "Save location update"}</button>
-            <button type="button" onClick={() => setDraft(emptyDraft())} style={secondaryBtnStyle}>Clear form</button>
+            <button type="submit" disabled={saving} style={primaryBtnStyle}>
+              {saving ? "Saving..." : "Save location update"}
+            </button>
+
+            <button type="button" onClick={() => setDraft(emptyDraft())} style={secondaryBtnStyle}>
+              Clear form
+            </button>
           </div>
         </form>
       </section>
@@ -637,10 +824,30 @@ export default function AssetLocationManager({
         </div>
 
         <div style={filtersGridStyle}>
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search asset, location, postcode, notes..." style={inputStyle} />
-          <FilterSelect value={statusFilter} options={[{ value: "all", label: "All statuses" }, ...STATUS_OPTIONS]} onChange={setStatusFilter} />
-          <FilterSelect value={categoryFilter} options={[{ value: "all", label: "All categories" }, ...CATEGORY_OPTIONS]} onChange={setCategoryFilter} />
-          <FilterSelect value={ownershipFilter} options={[{ value: "all", label: "All ownership" }, ...OWNERSHIP_OPTIONS]} onChange={setOwnershipFilter} />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search asset, location, postcode, notes..."
+            style={inputStyle}
+          />
+
+          <FilterSelect
+            value={statusFilter}
+            options={[{ value: "all", label: "All statuses" }, ...STATUS_OPTIONS]}
+            onChange={setStatusFilter}
+          />
+
+          <FilterSelect
+            value={categoryFilter}
+            options={[{ value: "all", label: "All categories" }, ...CATEGORY_OPTIONS]}
+            onChange={setCategoryFilter}
+          />
+
+          <FilterSelect
+            value={ownershipFilter}
+            options={[{ value: "all", label: "All ownership" }, ...OWNERSHIP_OPTIONS]}
+            onChange={setOwnershipFilter}
+          />
         </div>
 
         {filteredCurrentLocations.length === 0 ? (
@@ -660,42 +867,88 @@ export default function AssetLocationManager({
                   <th align="left" style={thStyle}>Actions</th>
                 </tr>
               </thead>
+
               <tbody>
                 {filteredCurrentLocations.map((row) => {
                   const w3wLink = w3wHref(row.what3words);
                   const mapLink = mapsHref(row);
+
                   return (
                     <tr key={row.id}>
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 1000 }}>{safeText(row.asset_label)}</div>
                         <div style={smallMutedStyle}>{categoryLabel(row.asset_category)}</div>
                       </td>
-                      <td style={tdStyle}><span style={{ ...pillStyle, ...ownershipBadgeStyle(row.ownership_type) }}>{ownershipLabel(row.ownership_type)}</span></td>
-                      <td style={tdStyle}><span style={{ ...pillStyle, ...statusBadgeStyle(row.status) }}>{statusLabel(row.status)}</span></td>
+
+                      <td style={tdStyle}>
+                        <span style={{ ...pillStyle, ...ownershipBadgeStyle(row.ownership_type) }}>
+                          {ownershipLabel(row.ownership_type)}
+                        </span>
+                      </td>
+
+                      <td style={tdStyle}>
+                        <span style={{ ...pillStyle, ...statusBadgeStyle(row.status) }}>
+                          {statusLabel(row.status)}
+                        </span>
+                      </td>
+
                       <td style={tdStyle}>
                         <div style={{ fontWeight: 850 }}>{safeText(row.location_name)}</div>
                         <div style={smallMutedStyle}>{safeText(row.address)}</div>
                         <div style={smallMutedStyle}>{safeText(row.postcode)}</div>
-                        {w3wLink ? <a href={w3wLink} target="_blank" rel="noreferrer" style={inlineLinkStyle}>///{row.what3words}</a> : null}
+
+                        {w3wLink ? (
+                          <a href={w3wLink} target="_blank" rel="noreferrer" style={inlineLinkStyle}>
+                            ///{row.what3words}
+                          </a>
+                        ) : null}
                       </td>
+
                       <td style={tdStyle}>
-                        <span style={isOverdue(row.collection_due_at) && row.status !== "in_yard" ? overdueTextStyle : undefined}>
+                        <span
+                          style={
+                            isOverdue(row.collection_due_at) && row.status !== "in_yard"
+                              ? overdueTextStyle
+                              : undefined
+                          }
+                        >
                           {fmtDateTime(row.collection_due_at)}
                         </span>
                       </td>
+
                       <td style={tdStyle}>
                         <div style={smallMutedStyle}>{row.linked_job_id ? "Crane job linked" : "—"}</div>
-                        <div style={smallMutedStyle}>{row.linked_transport_job_id ? "Transport job linked" : "—"}</div>
-                        {mapLink ? <a href={mapLink} target="_blank" rel="noreferrer" style={inlineLinkStyle}>Open map</a> : null}
+                        <div style={smallMutedStyle}>
+                          {row.linked_transport_job_id ? "Transport job linked" : "—"}
+                        </div>
+
+                        {mapLink ? (
+                          <a href={mapLink} target="_blank" rel="noreferrer" style={inlineLinkStyle}>
+                            Open location
+                          </a>
+                        ) : null}
                       </td>
+
                       <td style={tdStyle}>
                         <div>{fmtDateTime(row.event_time || row.created_at)}</div>
-                        <div style={smallMutedStyle}>{row.created_by_username ? `By ${row.created_by_username}` : "—"}</div>
+                        <div style={smallMutedStyle}>
+                          {row.created_by_username ? `By ${row.created_by_username}` : "—"}
+                        </div>
                       </td>
+
                       <td style={tdStyle}>
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                          <button type="button" onClick={() => duplicateFromCurrent(row)} style={tinyBtnStyle}>Update</button>
-                          <button type="button" onClick={() => duplicateFromCurrent(row, "in_yard")} style={tinyBtnStyle}>In yard</button>
+                          <button type="button" onClick={() => duplicateFromCurrent(row)} style={tinyBtnStyle}>
+                            Update
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => duplicateFromCurrent(row, "in_yard")}
+                            style={tinyBtnStyle}
+                          >
+                            In yard
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -723,10 +976,15 @@ export default function AssetLocationManager({
               <div key={row.id} style={historyCardStyle}>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontWeight: 1000 }}>{safeText(row.asset_label)}</div>
+
                   <div style={smallMutedStyle}>
-                    {categoryLabel(row.asset_category)} • {ownershipLabel(row.ownership_type)} • {statusLabel(row.status)} • {fmtDateTime(row.event_time || row.created_at)}
+                    {categoryLabel(row.asset_category)} • {ownershipLabel(row.ownership_type)} •{" "}
+                    {statusLabel(row.status)} • {fmtDateTime(row.event_time || row.created_at)}
                   </div>
-                  <div style={smallMutedStyle}>{[row.location_name, row.postcode, row.notes].filter(Boolean).join(" • ") || "—"}</div>
+
+                  <div style={smallMutedStyle}>
+                    {[row.location_name, row.postcode, row.notes].filter(Boolean).join(" • ") || "—"}
+                  </div>
                 </div>
               </div>
             ))}
@@ -737,18 +995,27 @@ export default function AssetLocationManager({
   );
 }
 
-function SummaryCard({ label, value, tone }: { label: string; value: string; tone?: "green" | "blue" | "amber" | "purple" | "red" }) {
-  const border = tone === "green"
-    ? "rgba(0,180,120,0.22)"
-    : tone === "blue"
-      ? "rgba(0,120,255,0.22)"
-      : tone === "purple"
-        ? "rgba(130,80,255,0.22)"
-        : tone === "red"
-          ? "rgba(255,0,0,0.22)"
-          : tone === "amber"
-            ? "rgba(255,170,0,0.26)"
-            : "rgba(0,0,0,0.08)";
+function SummaryCard({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "green" | "blue" | "amber" | "purple" | "red";
+}) {
+  const border =
+    tone === "green"
+      ? "rgba(0,180,120,0.22)"
+      : tone === "blue"
+        ? "rgba(0,120,255,0.22)"
+        : tone === "purple"
+          ? "rgba(130,80,255,0.22)"
+          : tone === "red"
+            ? "rgba(255,0,0,0.22)"
+            : tone === "amber"
+              ? "rgba(255,170,0,0.26)"
+              : "rgba(0,0,0,0.08)";
 
   return (
     <div style={{ ...summaryCardStyle, border: `1px solid ${border}` }}>
@@ -774,21 +1041,35 @@ function SelectField({
   return (
     <label style={fieldWrapStyle}>
       <span style={labelStyle}>{label}</span>
+
       <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
         <option value="">— {placeholder} —</option>
+
         {options.map((option) => (
-          <option key={`${label}-${option.value}`} value={option.value}>{option.label}</option>
+          <option key={`${label}-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
         ))}
       </select>
     </label>
   );
 }
 
-function FilterSelect({ value, options, onChange }: { value: string; options: SelectOption[]; onChange: (value: string) => void }) {
+function FilterSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: SelectOption[];
+  onChange: (value: string) => void;
+}) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} style={inputStyle}>
       {options.map((option) => (
-        <option key={option.value} value={option.value}>{option.label}</option>
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
       ))}
     </select>
   );
@@ -812,7 +1093,15 @@ function TextField({
   return (
     <label style={fieldWrapStyle}>
       <span style={labelStyle}>{label}</span>
-      <input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} type={type} inputMode={inputMode} style={inputStyle} />
+
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        type={type}
+        inputMode={inputMode}
+        style={inputStyle}
+      />
     </label>
   );
 }
