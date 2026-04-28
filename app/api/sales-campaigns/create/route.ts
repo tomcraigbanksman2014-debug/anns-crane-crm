@@ -9,7 +9,6 @@ const CHANNELS = new Set(["email", "text", "linkedin"]);
 const GOALS = new Set([
   "introduction",
   "recent_customer_thank_you",
-  "supplier_cross_hire",
   "dormant_recovery",
   "quote_follow_up",
   "cross_sell",
@@ -121,21 +120,26 @@ export async function POST(req: Request) {
     const description = clean(getValue("description"));
     const status = STATUSES.has(String(getValue("status") ?? "")) ? String(getValue("status")) : "Draft";
     const channel = CHANNELS.has(String(getValue("channel") ?? "")) ? String(getValue("channel")) : "email";
-    const goal = GOALS.has(String(getValue("goal") ?? "")) ? String(getValue("goal")) : "introduction";
+    const incomingGoal = String(getValue("goal") ?? "").trim();
+    const goal = GOALS.has(incomingGoal) ? incomingGoal : "introduction";
     const tone = TONES.has(String(getValue("tone") ?? "")) ? String(getValue("tone")) : "professional";
     const templateId = clean(getValue("template_id"));
     const serviceFocus = clean(getValue("service_focus"));
     const availabilityNote = clean(getValue("availability_note"));
     const scheduledFor = clean(getValue("scheduled_for"));
+
     const selectAllLeads = String(getValue("select_all_leads") ?? "") === "1";
     const selectAllCustomers = String(getValue("select_all_customers") ?? "") === "1";
     const selectAllSuppliers = String(getValue("select_all_suppliers") ?? "") === "1";
+
     const leadIds = selectAllLeads
       ? uniqueStrings(String(getValue("all_lead_ids") ?? "").split(","))
       : uniqueStrings(getAllValues("lead_ids"));
+
     const customerIds = selectAllCustomers
       ? uniqueStrings(String(getValue("all_customer_ids") ?? "").split(","))
       : uniqueStrings(getAllValues("customer_ids"));
+
     const supplierIds = selectAllSuppliers
       ? uniqueStrings(String(getValue("all_supplier_ids") ?? "").split(","))
       : uniqueStrings(getAllValues("supplier_ids"));
