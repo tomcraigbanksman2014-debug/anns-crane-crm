@@ -16,7 +16,7 @@ import {
 } from "../../../../lib/email/gmail";
 
 type DraftInput = {
-  target_type?: "lead" | "customer";
+  target_type?: "lead" | "customer" | "supplier";
   target_id?: string;
   company_name?: string;
   contact_name?: string;
