@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 
 type SelectOption = {
@@ -35,6 +35,11 @@ type LocationEvent = {
   asset_id: string | null;
   asset_label: string;
   ownership_type: string;
+  owner_company_name: string | null;
+  owner_contact_name: string | null;
+  owner_phone: string | null;
+  owner_email: string | null;
+  owner_reference: string | null;
   status: string;
   location_name: string | null;
   address: string | null;
@@ -70,6 +75,11 @@ type Draft = {
   asset_id: string;
   asset_label: string;
   ownership_type: string;
+  owner_company_name: string;
+  owner_contact_name: string;
+  owner_phone: string;
+  owner_email: string;
+  owner_reference: string;
   status: string;
   location_name: string;
   address: string;
@@ -143,6 +153,11 @@ function emptyDraft(): Draft {
     asset_id: "",
     asset_label: "",
     ownership_type: "owned",
+    owner_company_name: "",
+    owner_contact_name: "",
+    owner_phone: "",
+    owner_email: "",
+    owner_reference: "",
     status: "dropped_on_site",
     location_name: "",
     address: "",
@@ -581,6 +596,11 @@ function AssetMap({
                 ? "#555"
                 : "#0b57d0";
 
+      const ownerLine =
+        row.ownership_type && row.ownership_type !== "owned"
+          ? `<br />Owner: ${row.owner_company_name || ownershipLabel(row.ownership_type)}`
+          : "";
+
       const sourceLine = savedCoords
         ? ""
         : "<br /><em>Pin estimated from address/postcode. Save the location again to store exact coordinates.</em>";
@@ -588,6 +608,7 @@ function AssetMap({
       const popupHtml = [
         `<strong>${row.asset_label}</strong>`,
         `<br />${categoryLabel(row.asset_category)} • ${ownershipLabel(row.ownership_type)}`,
+        ownerLine,
         `<br />${statusLabel(row.status)}`,
         row.location_name ? `<br />${row.location_name}` : "",
         row.postcode ? `<br />${row.postcode}` : "",
@@ -747,7 +768,10 @@ function MiniPlannerPicker({
                     <div style={{ fontWeight: 1000 }}>
                       {kind === "crane" ? "Job" : "Transport"} #{item.number}
                     </div>
-                    <div style={smallMutedStyle}>{fmtShortDate(item.startDate)}{item.endDate && item.endDate !== item.startDate ? ` → ${fmtShortDate(item.endDate)}` : ""}</div>
+                    <div style={smallMutedStyle}>
+                      {fmtShortDate(item.startDate)}
+                      {item.endDate && item.endDate !== item.startDate ? ` → ${fmtShortDate(item.endDate)}` : ""}
+                    </div>
                   </div>
 
                   <span style={{ ...pillStyle, ...statusBadgeStyle(item.status || "unknown") }}>
@@ -906,6 +930,11 @@ export default function AssetLocationManager({
           row.asset_label,
           row.asset_category,
           row.ownership_type,
+          row.owner_company_name,
+          row.owner_contact_name,
+          row.owner_phone,
+          row.owner_email,
+          row.owner_reference,
           row.status,
           row.location_name,
           row.address,
@@ -965,6 +994,18 @@ export default function AssetLocationManager({
     }));
   }
 
+  function changeOwnership(value: string) {
+    setDraft((current) => ({
+      ...current,
+      ownership_type: value,
+      owner_company_name: value === "owned" ? "" : current.owner_company_name,
+      owner_contact_name: value === "owned" ? "" : current.owner_contact_name,
+      owner_phone: value === "owned" ? "" : current.owner_phone,
+      owner_email: value === "owned" ? "" : current.owner_email,
+      owner_reference: value === "owned" ? "" : current.owner_reference,
+    }));
+  }
+
   function setQuickInYard() {
     setDraft((current) => ({
       ...current,
@@ -1015,6 +1056,11 @@ export default function AssetLocationManager({
       asset_id: row.asset_id || "",
       asset_label: row.asset_id ? "" : row.asset_label || "",
       ownership_type: row.ownership_type || "owned",
+      owner_company_name: row.owner_company_name || "",
+      owner_contact_name: row.owner_contact_name || "",
+      owner_phone: row.owner_phone || "",
+      owner_email: row.owner_email || "",
+      owner_reference: row.owner_reference || "",
       status: status || row.status || "dropped_on_site",
       location_name: row.location_name || "",
       address: row.address || "",
@@ -1094,6 +1140,11 @@ export default function AssetLocationManager({
           asset_type: assetTypeForCategory(draft.asset_category),
           asset_id: draft.asset_id || null,
           asset_label: draft.asset_label.trim() || null,
+          owner_company_name: draft.ownership_type === "owned" ? null : draft.owner_company_name.trim() || null,
+          owner_contact_name: draft.ownership_type === "owned" ? null : draft.owner_contact_name.trim() || null,
+          owner_phone: draft.ownership_type === "owned" ? null : draft.owner_phone.trim() || null,
+          owner_email: draft.ownership_type === "owned" ? null : draft.owner_email.trim() || null,
+          owner_reference: draft.ownership_type === "owned" ? null : draft.owner_reference.trim() || null,
           location_name: draft.location_name.trim() || null,
           address: draft.address.trim() || null,
           postcode: draft.postcode.trim() || null,
@@ -1137,6 +1188,8 @@ export default function AssetLocationManager({
       setSaving(false);
     }
   }
+
+  const showOwnerFields = draft.ownership_type !== "owned";
 
   return (
     <div style={{ display: "grid", gap: 16 }}>
@@ -1231,7 +1284,7 @@ export default function AssetLocationManager({
           <div>
             <h2 style={sectionTitleStyle}>Update asset location</h2>
             <p style={mutedTextStyle}>
-              Keep it simple: pick what it is, who owns it, where it is, and when it needs collecting.
+              Pick what it is, who owns it, where it is, and when it needs collecting.
             </p>
           </div>
 
@@ -1282,8 +1335,55 @@ export default function AssetLocationManager({
               label="Ownership"
               value={draft.ownership_type}
               options={OWNERSHIP_OPTIONS}
-              onChange={(value) => updateDraft({ ownership_type: value })}
+              onChange={changeOwnership}
             />
+
+            {showOwnerFields ? (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <div style={ownerBoxStyle}>
+                  <div style={{ fontWeight: 1000, marginBottom: 8 }}>Owner / supplier details</div>
+                  <div style={ownerGridStyle}>
+                    <TextField
+                      label="Owner / supplier company"
+                      value={draft.owner_company_name}
+                      onChange={(value) => updateDraft({ owner_company_name: value })}
+                      placeholder="e.g. ABC Trailer Hire / customer / subcontractor"
+                    />
+
+                    <TextField
+                      label="Contact name"
+                      value={draft.owner_contact_name}
+                      onChange={(value) => updateDraft({ owner_contact_name: value })}
+                      placeholder="Optional"
+                    />
+
+                    <TextField
+                      label="Contact number"
+                      value={draft.owner_phone}
+                      onChange={(value) => updateDraft({ owner_phone: value })}
+                      placeholder="Optional"
+                    />
+
+                    <TextField
+                      label="Contact email"
+                      value={draft.owner_email}
+                      onChange={(value) => updateDraft({ owner_email: value })}
+                      placeholder="Optional"
+                      type="email"
+                    />
+
+                    <div style={{ gridColumn: "1 / -1" }}>
+                      <TextField
+                        label="Reference / hire note"
+                        value={draft.owner_reference}
+                        onChange={(value) => updateDraft({ owner_reference: value })}
+                        placeholder="e.g. hire ref, supplied by customer, return instructions"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
 
             <SelectField
               label="Status"
@@ -1449,7 +1549,7 @@ export default function AssetLocationManager({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search asset, location, postcode, notes..."
+            placeholder="Search asset, owner, location, postcode, notes..."
             style={inputStyle}
           />
 
@@ -1480,7 +1580,7 @@ export default function AssetLocationManager({
               <thead>
                 <tr>
                   <th align="left" style={thStyle}>Asset</th>
-                  <th align="left" style={thStyle}>Ownership</th>
+                  <th align="left" style={thStyle}>Ownership / Owner</th>
                   <th align="left" style={thStyle}>Status</th>
                   <th align="left" style={thStyle}>Location</th>
                   <th align="left" style={thStyle}>Collection</th>
@@ -1494,6 +1594,15 @@ export default function AssetLocationManager({
                 {filteredCurrentLocations.map((row) => {
                   const w3wLink = w3wHref(row.what3words);
                   const mapLink = mapsHref(row);
+                  const hasOwnerDetails =
+                    row.ownership_type !== "owned" &&
+                    Boolean(
+                      row.owner_company_name ||
+                        row.owner_contact_name ||
+                        row.owner_phone ||
+                        row.owner_email ||
+                        row.owner_reference
+                    );
 
                   return (
                     <tr key={row.id}>
@@ -1506,6 +1615,20 @@ export default function AssetLocationManager({
                         <span style={{ ...pillStyle, ...ownershipBadgeStyle(row.ownership_type) }}>
                           {ownershipLabel(row.ownership_type)}
                         </span>
+
+                        {hasOwnerDetails ? (
+                          <div style={{ marginTop: 7 }}>
+                            <div style={{ fontWeight: 900 }}>{safeText(row.owner_company_name)}</div>
+                            <div style={smallMutedStyle}>
+                              {[row.owner_contact_name, row.owner_phone, row.owner_email]
+                                .filter(Boolean)
+                                .join(" • ") || "—"}
+                            </div>
+                            {row.owner_reference ? (
+                              <div style={smallMutedStyle}>Ref: {row.owner_reference}</div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </td>
 
                       <td style={tdStyle}>
@@ -1600,7 +1723,8 @@ export default function AssetLocationManager({
                   <div style={{ fontWeight: 1000 }}>{safeText(row.asset_label)}</div>
 
                   <div style={smallMutedStyle}>
-                    {categoryLabel(row.asset_category)} • {ownershipLabel(row.ownership_type)} •{" "}
+                    {categoryLabel(row.asset_category)} • {ownershipLabel(row.ownership_type)}
+                    {row.owner_company_name ? ` (${row.owner_company_name})` : ""} •{" "}
                     {statusLabel(row.status)} • {fmtDateTime(row.event_time || row.created_at)}
                   </div>
 
@@ -1811,6 +1935,12 @@ const formGridStyle: CSSProperties = {
   gap: 12,
 };
 
+const ownerGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
 const filtersGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(240px, 1.4fr) repeat(3, minmax(170px, 1fr))",
@@ -1847,6 +1977,13 @@ const textareaStyle: CSSProperties = {
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
   resize: "vertical",
+};
+
+const ownerBoxStyle: CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,170,0,0.10)",
+  border: "1px solid rgba(255,170,0,0.20)",
 };
 
 const primaryBtnStyle: CSSProperties = {
