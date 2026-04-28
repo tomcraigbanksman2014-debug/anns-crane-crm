@@ -4,7 +4,17 @@ import { writeAuditLog } from "../../../../lib/audit";
 
 const STATUSES = new Set(["Draft", "Active", "Completed", "Cancelled"]);
 const CHANNELS = new Set(["email", "text", "linkedin"]);
-const GOALS = new Set(["introduction", "follow_up", "reactivation", "availability"]);
+const GOALS = new Set([
+  "introduction",
+  "recent_customer_thank_you",
+  "supplier_cross_hire",
+  "dormant_recovery",
+  "quote_follow_up",
+  "cross_sell",
+  "follow_up",
+  "reactivation",
+  "availability",
+]);
 const TONES = new Set(["professional", "friendly", "direct"]);
 
 function fromAuthEmail(email: string | null) {
