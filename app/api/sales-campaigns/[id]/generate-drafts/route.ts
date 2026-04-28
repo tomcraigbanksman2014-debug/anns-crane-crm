@@ -14,7 +14,6 @@ type Channel = "email" | "text" | "linkedin";
 type Goal =
   | "introduction"
   | "recent_customer_thank_you"
-  | "supplier_cross_hire"
   | "dormant_recovery"
   | "quote_follow_up"
   | "cross_sell"
@@ -66,9 +65,9 @@ function normaliseChannel(value: unknown): Channel {
 
 function normaliseGoal(value: unknown): Goal {
   const v = String(value ?? "").trim().toLowerCase();
+
   if (
     v === "recent_customer_thank_you" ||
-    v === "supplier_cross_hire" ||
     v === "dormant_recovery" ||
     v === "quote_follow_up" ||
     v === "cross_sell" ||
@@ -78,6 +77,7 @@ function normaliseGoal(value: unknown): Goal {
   ) {
     return v;
   }
+
   return "introduction";
 }
 
@@ -254,11 +254,6 @@ function introLine(goal: Goal, tone: Tone) {
     return "Thank you for using AnnS Crane Hire recently. I wanted to say we appreciate the work and keep our wider support on your radar.";
   }
 
-  if (goal === "supplier_cross_hire") {
-    if (tone === "direct") return "I am getting in touch because we may have a cross-hire requirement and wanted to check your availability.";
-    return "I hope you are well. I am getting in touch from AnnS Crane Hire to check whether you may be able to help with a cross-hire requirement.";
-  }
-
   if (goal === "dormant_recovery") {
     if (tone === "friendly") return "I just wanted to check back in and put AnnS Crane Hire back on your radar.";
     if (tone === "direct") return "I am checking back in to see whether you have any upcoming lifting or transport requirements we could support.";
@@ -302,12 +297,6 @@ function introLine(goal: Goal, tone: Tone) {
 
 function ctaLine(goal: Goal, channel: Channel, customCta: string | null) {
   if (customCta) return customCta;
-
-  if (goal === "supplier_cross_hire") {
-    return channel === "text"
-      ? "Please reply with availability, rate and any details you need from us."
-      : "If you can help, please send over availability, rates and any information you need from us.";
-  }
 
   if (goal === "recent_customer_thank_you") {
     return "If you have any further lifting, transport, HIAB, low loader, spider crane or contract lift requirements coming up, we would be happy to help again.";
@@ -382,7 +371,6 @@ function subjectLine(goal: Goal, serviceFocus: string | null, availabilityNote: 
   const service = clean(serviceFocus);
 
   if (goal === "recent_customer_thank_you") return "Thank you from AnnS Crane Hire";
-  if (goal === "supplier_cross_hire") return service ? `Cross-hire request – ${service}` : "Cross-hire request from AnnS Crane Hire";
   if (goal === "dormant_recovery") return "Checking in from AnnS Crane Hire";
   if (goal === "quote_follow_up") return "Following up on our quote";
   if (goal === "cross_sell") return "More ways AnnS Crane Hire can support you";
@@ -431,11 +419,15 @@ function buildQuickCampaignDraft(args: {
   if (channel === "text") {
     let body = `Hi, Tom from AnnS Crane Hire here. We support ${serviceFocus || "mobile crane hire and lifting support"} and I wanted to introduce us to ${companyName(lead)}.`;
 
-    if (goal === "follow_up") {
+    if (goal === "recent_customer_thank_you") {
+      body = `Hi, Tom from AnnS Crane Hire here. Thank you for using us recently. Just wanted to keep our wider crane hire, contract lift, HIAB, transport and spider crane services on your radar.`;
+    }
+
+    if (goal === "follow_up" || goal === "quote_follow_up") {
       body = `Hi, Tom from AnnS Crane Hire here. Just following up to see if ${companyName(lead)} may need any ${serviceFocus || "mobile crane hire and lifting"} support.`;
     }
 
-    if (goal === "reactivation") {
+    if (goal === "reactivation" || goal === "dormant_recovery") {
       body = `Hi, Tom from AnnS Crane Hire here. Just getting back in touch in case ${companyName(lead)} has any upcoming ${serviceFocus || "mobile crane hire and lifting"} requirements we could help with.`;
     }
 
@@ -611,14 +603,18 @@ export async function POST(
     const goal = normaliseGoal((campaign as any).goal || template?.goal);
     const tone = normaliseTone((campaign as any).tone || template?.tone);
 
-    const totalTargets = (leadLinks?.length ?? 0) + (customerLinks?.length ?? 0) + (supplierLinks?.length ?? 0);
+    const totalTargets =
+      (leadLinks?.length ?? 0) +
+      (customerLinks?.length ?? 0) +
+      (supplierLinks?.length ?? 0);
+
     const purposeSpecificFallbackGoals: Goal[] = [
       "recent_customer_thank_you",
-      "supplier_cross_hire",
       "dormant_recovery",
       "quote_follow_up",
       "cross_sell",
     ];
+
     const forceFallback = totalTargets > 25 || purposeSpecificFallbackGoals.includes(goal);
 
     const drafts: Array<{
@@ -852,19 +848,20 @@ export async function POST(
         continue;
       }
 
+      const supplierGoal: Goal = goal === "recent_customer_thank_you" ? "introduction" : goal;
+
       const serviceFocus =
         clean((campaign as any).service_focus) ||
         clean(template?.service_focus) ||
         clean(supplier.category) ||
-        "crane, transport or HIAB cross-hire";
+        "mobile crane hire, transport or lifting support";
 
       const availabilityNote =
         clean((campaign as any).availability_note) ||
-        clean(template?.availability_note) ||
-        "Please confirm availability, rate, location and any requirements you need from us.";
+        clean(template?.availability_note);
 
       const customCta = clean(template?.custom_cta);
-      const subjectHint = clean(template?.subject_hint) || "Cross-hire request from AnnS Crane Hire";
+      const subjectHint = clean(template?.subject_hint);
       const bodyHint = clean(template?.body_hint);
 
       const supplierArgs = {
@@ -876,7 +873,7 @@ export async function POST(
           services: serviceFocus ? [serviceFocus] : null,
         },
         channel,
-        goal: (goal === "supplier_cross_hire" ? goal : "supplier_cross_hire") as Goal,
+        goal: supplierGoal,
         tone,
         serviceFocus,
         availabilityNote,
@@ -887,7 +884,7 @@ export async function POST(
 
       const { draft, provider } = forceFallback
         ? { draft: buildQuickCampaignDraft(supplierArgs), provider: "fallback" as const }
-        : await generateSalesDraftWithFallback({ ...supplierArgs, goal: aiSafeGoal("supplier_cross_hire") });
+        : await generateSalesDraftWithFallback({ ...supplierArgs, goal: aiSafeGoal(supplierGoal) });
 
       const finalDraft = finaliseCampaignDraftOutput({
         channel,
