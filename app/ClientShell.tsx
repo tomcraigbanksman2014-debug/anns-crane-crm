@@ -9,6 +9,13 @@ type NavItem = {
   href: string;
 };
 
+type MenuUsageItem = {
+  href: string;
+  label: string;
+  click_count?: number;
+  last_used_at?: string;
+};
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -48,6 +55,7 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/search")) return true;
   if (pathname.startsWith("/quotes")) return true;
   if (pathname.startsWith("/customers")) return true;
+  if (pathname.startsWith("/sales-hub")) return true;
   if (pathname.startsWith("/jobs")) return true;
   if (pathname.startsWith("/transport-jobs")) return true;
   if (pathname.startsWith("/planner")) return true;
@@ -79,6 +87,10 @@ function getMobilePageKind(pathname: string): "planner" | "default" {
   return "default";
 }
 
+function isActivePath(pathname: string, href: string) {
+  return pathname === href || (href !== "/" && pathname.startsWith(href));
+}
+
 export default function ClientShell({
   children,
 }: {
@@ -93,6 +105,7 @@ export default function ClientShell({
   const [isMasterAdmin, setIsMasterAdmin] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [smartMenuItems, setSmartMenuItems] = useState<NavItem[]>([]);
 
   useEffect(() => {
     function applyViewport() {
@@ -271,8 +284,81 @@ export default function ClientShell({
   );
 
   const nav = role === "operator" ? operatorNav : officeNav;
+
+  const officeNavByHref = useMemo(() => {
+    const map = new Map<string, NavItem>();
+    for (const item of officeNav) {
+      if (!item.href.startsWith("/operator")) {
+        map.set(item.href, item);
+      }
+    }
+    return map;
+  }, [officeNav]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadSmartMenu() {
+      if (loading) return;
+      if (role !== "admin" && role !== "staff") {
+        setSmartMenuItems([]);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/user-menu-usage", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!mounted) return;
+
+        const items = Array.isArray(data?.items) ? data.items : [];
+
+        const cleaned = items
+          .map((item: MenuUsageItem) => {
+            const existing = officeNavByHref.get(String(item.href ?? ""));
+            return existing ?? null;
+          })
+          .filter(Boolean)
+          .slice(0, 5) as NavItem[];
+
+        setSmartMenuItems(cleaned);
+      } catch {
+        if (mounted) setSmartMenuItems([]);
+      }
+    }
+
+    loadSmartMenu();
+
+    return () => {
+      mounted = false;
+    };
+  }, [loading, role, pathname, officeNavByHref]);
+
   const mobilePageKind = getMobilePageKind(pathname);
   const showOperatorMenuButton = role !== "operator";
+
+  function recordMenuClick(item: NavItem) {
+    if (role !== "admin" && role !== "staff") return;
+    if (!item.href || item.href.startsWith("/operator")) return;
+
+    try {
+      void fetch("/api/user-menu-usage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({
+          href: item.href,
+          label: item.label,
+        }),
+      });
+    } catch {
+      // Menu tracking should never block navigation.
+    }
+  }
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -345,10 +431,41 @@ export default function ClientShell({
 
           <div style={navScrollerStyle}>
             <nav style={{ display: "grid", gap: 8 }}>
+              {smartMenuItems.length > 0 ? (
+                <div style={smartMenuWrapStyle}>
+                  <div style={smartMenuTitleStyle}>Your most used</div>
+
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {smartMenuItems.map((item) => {
+                      const active = isActivePath(pathname, item.href);
+
+                      return (
+                        <a
+                          key={`smart-${item.href}`}
+                          href={item.href}
+                          style={{
+                            ...smartNavItemStyle,
+                            ...(active ? smartNavItemActiveStyle : {}),
+                          }}
+                          onClick={() => {
+                            recordMenuClick(item);
+                            setMenuOpen(false);
+                          }}
+                        >
+                          {item.label}
+                        </a>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {smartMenuItems.length > 0 ? (
+                <div style={fullMenuTitleStyle}>Full menu</div>
+              ) : null}
+
               {nav.map((item) => {
-                const active =
-                  pathname === item.href ||
-                  (item.href !== "/" && pathname.startsWith(item.href));
+                const active = isActivePath(pathname, item.href);
 
                 return (
                   <a
@@ -358,7 +475,10 @@ export default function ClientShell({
                       ...navItemStyle,
                       ...(active ? navItemActive : {}),
                     }}
-                    onClick={() => setMenuOpen(false)}
+                    onClick={() => {
+                      recordMenuClick(item);
+                      setMenuOpen(false);
+                    }}
                   >
                     {item.label}
                   </a>
@@ -514,6 +634,50 @@ const userBox: React.CSSProperties = {
   borderRadius: 14,
   background: "rgba(255,255,255,0.65)",
   border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const smartMenuWrapStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+  padding: 10,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  marginBottom: 6,
+};
+
+const smartMenuTitleStyle: React.CSSProperties = {
+  padding: "0 4px",
+  fontSize: 12,
+  fontWeight: 1000,
+  opacity: 0.72,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+};
+
+const smartNavItemStyle: React.CSSProperties = {
+  display: "block",
+  padding: "10px 12px",
+  borderRadius: 11,
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 900,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const smartNavItemActiveStyle: React.CSSProperties = {
+  background: "#ffffff",
+  border: "1px solid rgba(0,0,0,0.16)",
+};
+
+const fullMenuTitleStyle: React.CSSProperties = {
+  padding: "6px 12px 0",
+  fontSize: 12,
+  fontWeight: 1000,
+  opacity: 0.6,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
 };
 
 const navItemStyle: React.CSSProperties = {
