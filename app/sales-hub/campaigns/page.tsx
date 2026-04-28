@@ -47,6 +47,14 @@ type CustomerRollup = {
   imported_history_count: number | null;
 };
 
+type CustomerActualJobActivity = {
+  client_id: string;
+  last_actual_job_date: string | null;
+  crane_job_count: number;
+  transport_job_count: number;
+  recent_30_job_count: number;
+};
+
 type SupplierRow = {
   id: string;
   company_name: string;
@@ -100,7 +108,6 @@ const SALES_LEAD_BATCH_SIZE = 1000;
 const GOAL_OPTIONS = [
   { value: "introduction", label: "General introduction" },
   { value: "recent_customer_thank_you", label: "Recent customer thank-you" },
-  { value: "supplier_cross_hire", label: "Supplier / cross-hire request" },
   { value: "dormant_recovery", label: "Dormant customer recovery" },
   { value: "quote_follow_up", label: "Quote follow-up" },
   { value: "cross_sell", label: "Cross-sell services" },
@@ -108,6 +115,21 @@ const GOAL_OPTIONS = [
   { value: "follow_up", label: "General follow up" },
   { value: "reactivation", label: "General reactivation" },
 ];
+
+const CUSTOMER_ONLY_GOALS = new Set([
+  "recent_customer_thank_you",
+  "dormant_recovery",
+  "quote_follow_up",
+  "cross_sell",
+]);
+
+const CANCELLED_STATUSES = new Set([
+  "cancelled",
+  "canceled",
+  "late_cancelled",
+  "late cancelled",
+  "lost",
+]);
 
 async function fetchAllActiveSalesLeads(supabase: any) {
   const rows: LeadRow[] = [];
@@ -134,6 +156,29 @@ async function fetchAllActiveSalesLeads(supabase: any) {
   return { data: rows, error: null };
 }
 
+async function fetchAllRows(supabase: any, table: string, select: string) {
+  const rows: any[] = [];
+  const batchSize = 1000;
+  let from = 0;
+
+  while (true) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(select)
+      .range(from, from + batchSize - 1);
+
+    if (error) return { data: null, error };
+
+    const batch = (data ?? []).filter(Boolean);
+    rows.push(...batch);
+
+    if (batch.length < batchSize) break;
+    from += batchSize;
+  }
+
+  return { data: rows, error: null };
+}
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -142,6 +187,168 @@ function fromAuthEmail(email: string | null) {
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
   return text;
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function daysAgoIsoDate(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function normaliseDateOnly(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match?.[1]) return match[1];
+
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return "";
+
+  return d.toISOString().slice(0, 10);
+}
+
+function latestDate(a: string | null | undefined, b: string | null | undefined) {
+  const aa = normaliseDateOnly(a);
+  const bb = normaliseDateOnly(b);
+
+  if (!aa) return bb || null;
+  if (!bb) return aa || null;
+
+  return aa >= bb ? aa : bb;
+}
+
+function isCancelledStatus(value: unknown) {
+  const status = String(value ?? "").trim().toLowerCase();
+  return CANCELLED_STATUSES.has(status);
+}
+
+function rowActualJobDate(row: any, kind: "crane" | "transport") {
+  const today = todayIsoDate();
+
+  const dateCandidates =
+    kind === "transport"
+      ? [
+          normaliseDateOnly(row?.delivery_date),
+          normaliseDateOnly(row?.transport_date),
+        ]
+      : [
+          normaliseDateOnly(row?.end_date),
+          normaliseDateOnly(row?.start_date),
+          normaliseDateOnly(row?.job_date),
+        ];
+
+  const pastOrToday = dateCandidates
+    .filter(Boolean)
+    .filter((date) => date <= today)
+    .sort();
+
+  return pastOrToday[pastOrToday.length - 1] || "";
+}
+
+function rowOverlapsLast30Days(row: any, kind: "crane" | "transport") {
+  const today = todayIsoDate();
+  const cutoff = daysAgoIsoDate(30);
+
+  const start =
+    kind === "transport"
+      ? normaliseDateOnly(row?.transport_date) || normaliseDateOnly(row?.delivery_date)
+      : normaliseDateOnly(row?.start_date) || normaliseDateOnly(row?.job_date) || normaliseDateOnly(row?.end_date);
+
+  const end =
+    kind === "transport"
+      ? normaliseDateOnly(row?.delivery_date) || normaliseDateOnly(row?.transport_date)
+      : normaliseDateOnly(row?.end_date) || normaliseDateOnly(row?.start_date) || normaliseDateOnly(row?.job_date);
+
+  if (!start && !end) return false;
+
+  const safeStart = start || end;
+  const safeEnd = end || start;
+
+  if (!safeStart || !safeEnd) return false;
+
+  return safeStart <= today && safeEnd >= cutoff;
+}
+
+async function getActualCustomerJobActivity(supabase: any) {
+  const [
+    craneJobsResult,
+    transportJobsResult,
+  ] = await Promise.all([
+    fetchAllRows(
+      supabase,
+      "jobs",
+      "id, client_id, status, archived, start_date, end_date, job_date"
+    ),
+    fetchAllRows(
+      supabase,
+      "transport_jobs",
+      "id, client_id, status, archived, transport_date, delivery_date"
+    ),
+  ]);
+
+  const map = new Map<string, CustomerActualJobActivity>();
+
+  function ensure(clientId: string) {
+    const existing = map.get(clientId);
+    if (existing) return existing;
+
+    const row: CustomerActualJobActivity = {
+      client_id: clientId,
+      last_actual_job_date: null,
+      crane_job_count: 0,
+      transport_job_count: 0,
+      recent_30_job_count: 0,
+    };
+
+    map.set(clientId, row);
+    return row;
+  }
+
+  for (const job of craneJobsResult.data ?? []) {
+    const clientId = String(job?.client_id ?? "").trim();
+    if (!clientId) continue;
+    if (Boolean(job?.archived)) continue;
+    if (isCancelledStatus(job?.status)) continue;
+
+    const actualDate = rowActualJobDate(job, "crane");
+    if (!actualDate) continue;
+
+    const activity = ensure(clientId);
+    activity.crane_job_count += 1;
+    activity.last_actual_job_date = latestDate(activity.last_actual_job_date, actualDate);
+
+    if (rowOverlapsLast30Days(job, "crane")) {
+      activity.recent_30_job_count += 1;
+    }
+  }
+
+  for (const job of transportJobsResult.data ?? []) {
+    const clientId = String(job?.client_id ?? "").trim();
+    if (!clientId) continue;
+    if (Boolean(job?.archived)) continue;
+    if (isCancelledStatus(job?.status)) continue;
+
+    const actualDate = rowActualJobDate(job, "transport");
+    if (!actualDate) continue;
+
+    const activity = ensure(clientId);
+    activity.transport_job_count += 1;
+    activity.last_actual_job_date = latestDate(activity.last_actual_job_date, actualDate);
+
+    if (rowOverlapsLast30Days(job, "transport")) {
+      activity.recent_30_job_count += 1;
+    }
+  }
+
+  return {
+    data: map,
+    error: craneJobsResult.error || transportJobsResult.error || null,
+  };
 }
 
 function fmtDate(value: string | null | undefined) {
@@ -188,13 +395,13 @@ function weightedValueForLead(lead: LeadRow) {
   return Number(lead.opportunity_value ?? 0) * (probabilityForLead(lead) / 100);
 }
 
-function getActivityInfo(lastActivityDate: string | null | undefined) {
-  const days = daysBetween(lastActivityDate);
+function getActualJobActivityInfo(activity: CustomerActualJobActivity | null) {
+  const days = daysBetween(activity?.last_actual_job_date ?? null);
 
   if (days == null) {
     return {
       key: "no_activity",
-      label: "No activity",
+      label: "No actual job",
       bg: "rgba(0,0,0,0.08)",
       color: "#111",
     };
@@ -203,7 +410,7 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   if (days <= 30) {
     return {
       key: "active",
-      label: "Last 30 days",
+      label: "Actual job last 30 days",
       bg: "rgba(0,160,80,0.14)",
       color: "#0b6b34",
     };
@@ -212,7 +419,7 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   if (days <= 90) {
     return {
       key: "recent",
-      label: "31–90 days",
+      label: "Actual job 31–90 days",
       bg: "rgba(255,180,0,0.16)",
       color: "#8a6200",
     };
@@ -220,27 +427,32 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
 
   return {
     key: "dormant",
-    label: "Dormant",
+    label: "No job 90+ days",
     bg: "rgba(180,0,0,0.12)",
     color: "#8a1f1f",
   };
 }
 
-function customerMatchesSuggestedGroup(customer: CustomerRow, rollup: CustomerRollup | null, group: string) {
+function customerMatchesSuggestedGroup(
+  rollup: CustomerRollup | null,
+  actualActivity: CustomerActualJobActivity | null,
+  group: string
+) {
   if (group === "all") return true;
 
-  const days = daysBetween(rollup?.last_activity_date ?? null);
-  const jobCount = Number(rollup?.crm_job_count ?? 0);
-  const transportCount = Number(rollup?.crm_transport_job_count ?? 0);
+  const actualJobDays = daysBetween(actualActivity?.last_actual_job_date ?? null);
+  const craneJobs = Number(actualActivity?.crane_job_count ?? 0);
+  const transportJobs = Number(actualActivity?.transport_job_count ?? 0);
+  const recent30ActualJobs = Number(actualActivity?.recent_30_job_count ?? 0);
   const quoteCount = Number(rollup?.crm_quote_count ?? 0);
 
-  if (group === "recent_30") return days !== null && days <= 30;
-  if (group === "dormant_90") return days === null || days >= 90;
-  if (group === "dormant_180") return days === null || days >= 180;
-  if (group === "dormant_365") return days === null || days >= 365;
+  if (group === "recent_30") return recent30ActualJobs > 0;
+  if (group === "dormant_90") return actualJobDays === null || actualJobDays >= 90;
+  if (group === "dormant_180") return actualJobDays === null || actualJobDays >= 180;
+  if (group === "dormant_365") return actualJobDays === null || actualJobDays >= 365;
   if (group === "quote_follow_up") return quoteCount > 0;
-  if (group === "transport_cross_sell") return transportCount > 0 && jobCount <= 0;
-  if (group === "crane_cross_sell") return jobCount > 0 && transportCount <= 0;
+  if (group === "transport_cross_sell") return transportJobs > 0 && craneJobs <= 0;
+  if (group === "crane_cross_sell") return craneJobs > 0 && transportJobs <= 0;
 
   return true;
 }
@@ -251,7 +463,6 @@ function fillTokens(text: string, values: Record<string, string>) {
 
 function defaultSubject(goal: string, serviceFocus: string) {
   if (goal === "recent_customer_thank_you") return "Thank you from AnnS Crane Hire";
-  if (goal === "supplier_cross_hire") return serviceFocus ? `Cross-hire request – ${serviceFocus}` : "Cross-hire request from AnnS Crane Hire";
   if (goal === "dormant_recovery") return "Checking in from AnnS Crane Hire";
   if (goal === "quote_follow_up") return "Following up on our quote";
   if (goal === "cross_sell") return "More ways AnnS Crane Hire can support you";
@@ -270,22 +481,6 @@ Thank you for using AnnS Crane Hire recently. We really appreciate the work.
 I also wanted to keep our wider services on your radar for any future requirements. We support mobile crane hire, contract lifts, CPA hire, spider cranes, HIAB transport, low loaders, machinery moves, container moves, mats and lifting personnel.
 
 If you have anything else coming up, we would be happy to help again.
-
-Kind regards
-Tom Craig
-AnnS Crane Hire Ltd`;
-  }
-
-  if (goal === "supplier_cross_hire") {
-    return `Hi {{contact_name}},
-
-I hope you are well.
-
-I am getting in touch from AnnS Crane Hire as we may have a cross-hire requirement for {{service_focus}}.
-
-{{availability_note}}
-
-If you can help, please send over availability, rates and any details you need from us.
 
 Kind regards
 Tom Craig
@@ -349,11 +544,9 @@ AnnS Crane Hire Ltd`;
   if (audience === "supplier") {
     return `Hi {{contact_name}},
 
-I am getting in touch from AnnS Crane Hire to check whether you may be able to support us with {{service_focus}}.
+I am getting in touch from AnnS Crane Hire to introduce ourselves and keep our details on your radar.
 
-{{availability_note}}
-
-Please let me know if you have availability and what rate would apply.
+We regularly support crane hire, transport, HIAB, low loader, plant movement and specialist lifting requirements.
 
 Kind regards
 Tom Craig
@@ -462,6 +655,7 @@ export default async function SalesCampaignsPage({
     { data: campaignLeadLinks },
     { data: campaignCustomerLinks },
     { data: campaignSupplierLinks },
+    actualJobActivityResult,
   ] = await Promise.all([
     fetchAllActiveSalesLeads(supabase),
     supabase
@@ -478,6 +672,7 @@ export default async function SalesCampaignsPage({
       .from("sales_templates")
       .select("*")
       .eq("is_active", true)
+      .neq("goal", "supplier_cross_hire")
       .order("name", { ascending: true }),
     supabase
       .from("sales_campaigns")
@@ -487,12 +682,14 @@ export default async function SalesCampaignsPage({
     supabase.from("sales_campaign_leads").select("campaign_id, lead_id"),
     supabase.from("sales_campaign_customers").select("campaign_id, client_id"),
     supabase.from("sales_campaign_suppliers").select("campaign_id, supplier_id"),
+    getActualCustomerJobActivity(supabase),
   ]);
 
   const allLeads = (leads ?? []) as LeadRow[];
   const allCustomers = (customers ?? []) as CustomerRow[];
   const allSuppliers = (suppliers ?? []) as SupplierRow[];
   const activeTemplates = (templates ?? []) as TemplateRow[];
+  const actualJobActivityById = actualJobActivityResult.data ?? new Map<string, CustomerActualJobActivity>();
 
   const customerRollupById = await getCustomerActivityRollups(
     supabase,
@@ -505,7 +702,6 @@ export default async function SalesCampaignsPage({
   const selectedIndustry = clean(searchParams?.industry) || "all";
   const selectedStatus = clean(searchParams?.status) || "all";
   const selectedCustomerActivity = clean(searchParams?.customer_activity) || "all";
-  const selectedCustomerGroup = clean(searchParams?.customer_group) || "all";
   const selectedCustomerImported = clean(searchParams?.customer_imported) || "all";
   const selectedSupplierCategory = clean(searchParams?.supplier_category) || "all";
   const selectedSupplierSearch = clean(searchParams?.supplier_search);
@@ -514,10 +710,20 @@ export default async function SalesCampaignsPage({
   const selectedChannel = clean(searchParams?.channel) || String(selectedTemplate?.channel ?? "email");
   const selectedGoal = clean(searchParams?.goal) || String(selectedTemplate?.goal ?? "introduction");
   const selectedTone = clean(searchParams?.tone) || String(selectedTemplate?.tone ?? "professional");
+  const rawSelectedCustomerGroup = clean(searchParams?.customer_group) || "all";
+  const selectedCustomerGroup =
+    selectedGoal === "recent_customer_thank_you" && rawSelectedCustomerGroup === "all"
+      ? "recent_30"
+      : rawSelectedCustomerGroup;
+
+  const isCustomerOnlyCampaign = CUSTOMER_ONLY_GOALS.has(selectedGoal);
+  const showLeadTargets = !isCustomerOnlyCampaign;
+  const showSupplierTargets = !isCustomerOnlyCampaign;
+
   const selectedServiceFocus =
     clean(searchParams?.service_focus) ||
     String(selectedTemplate?.service_focus ?? "") ||
-    (selectedGoal === "supplier_cross_hire" ? "crane, low loader or HIAB cross-hire" : "crane hire and transport support");
+    (selectedGoal === "availability" ? "available crane / transport support" : "crane hire and transport support");
   const selectedAvailabilityNote =
     clean(searchParams?.availability_note) || String(selectedTemplate?.availability_note ?? "");
 
@@ -552,54 +758,59 @@ export default async function SalesCampaignsPage({
     new Set(allSuppliers.map((supplier) => String(supplier.category ?? "").trim()).filter(Boolean))
   ).sort((a, b) => a.localeCompare(b));
 
-  const filteredLeads = allLeads.filter((lead) => {
-    if (lead.do_not_contact) return false;
-    if (selectedOwner !== "all" && String(lead.assigned_to_username ?? "").trim() !== selectedOwner) return false;
-    if (
-      selectedService !== "all" &&
-      !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))
-    ) {
-      return false;
-    }
-    if (selectedArea !== "all" && String(lead.area ?? "").trim() !== selectedArea) return false;
-    if (selectedIndustry !== "all" && String(lead.industry ?? "").trim() !== selectedIndustry) return false;
-    if (selectedStatus !== "all" && String(lead.status ?? "").trim() !== selectedStatus) return false;
-    return true;
-  });
+  const filteredLeads = showLeadTargets
+    ? allLeads.filter((lead) => {
+        if (lead.do_not_contact) return false;
+        if (selectedOwner !== "all" && String(lead.assigned_to_username ?? "").trim() !== selectedOwner) return false;
+        if (
+          selectedService !== "all" &&
+          !(Array.isArray(lead.services) && lead.services.some((item) => String(item).trim() === selectedService))
+        ) {
+          return false;
+        }
+        if (selectedArea !== "all" && String(lead.area ?? "").trim() !== selectedArea) return false;
+        if (selectedIndustry !== "all" && String(lead.industry ?? "").trim() !== selectedIndustry) return false;
+        if (selectedStatus !== "all" && String(lead.status ?? "").trim() !== selectedStatus) return false;
+        return true;
+      })
+    : [];
 
   const filteredCustomers = allCustomers.filter((customer) => {
     const rollup = customerRollupById.get(String(customer.id)) ?? null;
-    const activity = getActivityInfo(rollup?.last_activity_date ?? null);
+    const actualActivity = actualJobActivityById.get(String(customer.id)) ?? null;
+    const activity = getActualJobActivityInfo(actualActivity);
     const importedCount = Number(rollup?.imported_history_count ?? 0);
 
     if (selectedCustomerActivity !== "all" && activity.key !== selectedCustomerActivity) return false;
-    if (!customerMatchesSuggestedGroup(customer, rollup, selectedCustomerGroup)) return false;
+    if (!customerMatchesSuggestedGroup(rollup, actualActivity, selectedCustomerGroup)) return false;
     if (selectedCustomerImported === "with_imported" && importedCount <= 0) return false;
     if (selectedCustomerImported === "without_imported" && importedCount > 0) return false;
     return true;
   });
 
-  const filteredSuppliers = allSuppliers.filter((supplier) => {
-    if (selectedSupplierCategory !== "all" && String(supplier.category ?? "").trim() !== selectedSupplierCategory) return false;
+  const filteredSuppliers = showSupplierTargets
+    ? allSuppliers.filter((supplier) => {
+        if (selectedSupplierCategory !== "all" && String(supplier.category ?? "").trim() !== selectedSupplierCategory) return false;
 
-    if (selectedSupplierSearch) {
-      const haystack = [
-        supplier.company_name,
-        supplier.contact_name,
-        supplier.email,
-        supplier.phone,
-        supplier.category,
-        supplier.address,
-        supplier.notes,
-      ]
-        .join(" ")
-        .toLowerCase();
+        if (selectedSupplierSearch) {
+          const haystack = [
+            supplier.company_name,
+            supplier.contact_name,
+            supplier.email,
+            supplier.phone,
+            supplier.category,
+            supplier.address,
+            supplier.notes,
+          ]
+            .join(" ")
+            .toLowerCase();
 
-      if (!haystack.includes(selectedSupplierSearch.toLowerCase())) return false;
-    }
+          if (!haystack.includes(selectedSupplierSearch.toLowerCase())) return false;
+        }
 
-    return true;
-  });
+        return true;
+      })
+    : [];
 
   const leadCountByCampaign = new Map<string, number>();
   for (const link of campaignLeadLinks ?? []) {
@@ -638,23 +849,24 @@ export default async function SalesCampaignsPage({
     }),
   }));
 
-  const customerPreviews = filteredCustomers.slice(0, 2).map((customer) => ({
-    type: "customer" as const,
-    name: customer.company_name,
-    subtitle: `${customer.contact_name || "No contact"} • ${
-      getActivityInfo(customerRollupById.get(String(customer.id))?.last_activity_date ?? null).label
-    }`,
-    preview: buildPreview({
-      audience: "customer",
-      target: customer,
-      template: selectedTemplate,
-      channel: selectedChannel,
-      goal: selectedGoal,
-      tone: selectedTone,
-      serviceFocus: selectedServiceFocus,
-      availabilityNote: selectedAvailabilityNote,
-    }),
-  }));
+  const customerPreviews = filteredCustomers.slice(0, 2).map((customer) => {
+    const actualActivity = actualJobActivityById.get(String(customer.id)) ?? null;
+    return {
+      type: "customer" as const,
+      name: customer.company_name,
+      subtitle: `${customer.contact_name || "No contact"} • ${getActualJobActivityInfo(actualActivity).label}`,
+      preview: buildPreview({
+        audience: "customer",
+        target: customer,
+        template: selectedTemplate,
+        channel: selectedChannel,
+        goal: selectedGoal,
+        tone: selectedTone,
+        serviceFocus: selectedServiceFocus,
+        availabilityNote: selectedAvailabilityNote,
+      }),
+    };
+  });
 
   const supplierPreviews = filteredSuppliers.slice(0, 2).map((supplier) => ({
     type: "supplier" as const,
@@ -685,9 +897,7 @@ export default async function SalesCampaignsPage({
 
   const createDisabled =
     !canManage ||
-    (selectedGoal === "supplier_cross_hire"
-      ? filteredSuppliers.length === 0
-      : filteredLeads.length === 0 && filteredCustomers.length === 0 && filteredSuppliers.length === 0);
+    (filteredLeads.length === 0 && filteredCustomers.length === 0 && filteredSuppliers.length === 0);
 
   return (
     <ClientShell>
@@ -696,7 +906,7 @@ export default async function SalesCampaignsPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Campaign Execution</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              Build targeted campaigns for leads, returning customers and supplier cross-hire requests.
+              Build targeted campaigns for leads, returning customers and availability notices.
             </p>
           </div>
 
@@ -713,6 +923,7 @@ export default async function SalesCampaignsPage({
         {suppliersError ? <div style={errorCard}>{suppliersError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
+        {actualJobActivityResult.error ? <div style={errorCard}>{actualJobActivityResult.error.message}</div> : null}
 
         <div style={statsGrid}>
           <StatCard label="Filtered leads" value={String(stats.totalLeads)} />
@@ -777,18 +988,18 @@ export default async function SalesCampaignsPage({
             </div>
 
             <div>
-              <label style={labelStyle}>Availability / request note</label>
+              <label style={labelStyle}>Availability / note</label>
               <input
                 name="availability_note"
                 defaultValue={selectedAvailabilityNote}
                 style={inputStyle}
-                placeholder="e.g. needed next Tuesday in South Wales"
+                placeholder="e.g. available this week in South Wales"
               />
             </div>
 
             <div>
               <label style={labelStyle}>Lead owner</label>
-              <select name="owner" defaultValue={selectedOwner} style={inputStyle}>
+              <select name="owner" defaultValue={selectedOwner} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All owners</option>
                 {ownerOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -796,7 +1007,7 @@ export default async function SalesCampaignsPage({
 
             <div>
               <label style={labelStyle}>Lead service</label>
-              <select name="service" defaultValue={selectedService} style={inputStyle}>
+              <select name="service" defaultValue={selectedService} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All services</option>
                 {serviceOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -804,7 +1015,7 @@ export default async function SalesCampaignsPage({
 
             <div>
               <label style={labelStyle}>Lead area</label>
-              <select name="area" defaultValue={selectedArea} style={inputStyle}>
+              <select name="area" defaultValue={selectedArea} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All areas</option>
                 {areaOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -812,7 +1023,7 @@ export default async function SalesCampaignsPage({
 
             <div>
               <label style={labelStyle}>Lead industry</label>
-              <select name="industry" defaultValue={selectedIndustry} style={inputStyle}>
+              <select name="industry" defaultValue={selectedIndustry} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All industries</option>
                 {industryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -820,7 +1031,7 @@ export default async function SalesCampaignsPage({
 
             <div>
               <label style={labelStyle}>Lead status</label>
-              <select name="status" defaultValue={selectedStatus} style={inputStyle}>
+              <select name="status" defaultValue={selectedStatus} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All statuses</option>
                 <option value="New">New</option>
                 <option value="To Contact">To Contact</option>
@@ -834,13 +1045,13 @@ export default async function SalesCampaignsPage({
             </div>
 
             <div>
-              <label style={labelStyle}>Customer activity</label>
+              <label style={labelStyle}>Customer actual job activity</label>
               <select name="customer_activity" defaultValue={selectedCustomerActivity} style={inputStyle}>
                 <option value="all">All customers</option>
-                <option value="active">Last 30 days</option>
-                <option value="recent">31–90 days</option>
-                <option value="dormant">Dormant</option>
-                <option value="no_activity">No activity</option>
+                <option value="active">Actual job last 30 days</option>
+                <option value="recent">Actual job 31–90 days</option>
+                <option value="dormant">No actual job 90+ days</option>
+                <option value="no_activity">No actual job recorded</option>
               </select>
             </div>
 
@@ -848,10 +1059,10 @@ export default async function SalesCampaignsPage({
               <label style={labelStyle}>Suggested customer group</label>
               <select name="customer_group" defaultValue={selectedCustomerGroup} style={inputStyle}>
                 <option value="all">All matching customers</option>
-                <option value="recent_30">Completed/active in last 30 days</option>
-                <option value="dormant_90">Dormant 90+ days</option>
-                <option value="dormant_180">Dormant 180+ days</option>
-                <option value="dormant_365">Dormant 365+ days</option>
+                <option value="recent_30">Actual crane/transport job in last 30 days</option>
+                <option value="dormant_90">No actual job for 90+ days</option>
+                <option value="dormant_180">No actual job for 180+ days</option>
+                <option value="dormant_365">No actual job for 365+ days</option>
                 <option value="quote_follow_up">Customers with quote history</option>
                 <option value="transport_cross_sell">Transport customers to cross-sell cranes</option>
                 <option value="crane_cross_sell">Crane customers to cross-sell transport</option>
@@ -869,7 +1080,7 @@ export default async function SalesCampaignsPage({
 
             <div>
               <label style={labelStyle}>Supplier category</label>
-              <select name="supplier_category" defaultValue={selectedSupplierCategory} style={inputStyle}>
+              <select name="supplier_category" defaultValue={selectedSupplierCategory} style={inputStyle} disabled={!showSupplierTargets}>
                 <option value="all">All supplier categories</option>
                 {supplierCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
@@ -882,6 +1093,7 @@ export default async function SalesCampaignsPage({
                 defaultValue={selectedSupplierSearch}
                 style={inputStyle}
                 placeholder="e.g. low loader, HIAB, crane"
+                disabled={!showSupplierTargets}
               />
             </div>
 
@@ -889,6 +1101,12 @@ export default async function SalesCampaignsPage({
               <button type="submit" style={primaryBtn}>Apply filters</button>
             </div>
           </form>
+
+          {selectedGoal === "recent_customer_thank_you" ? (
+            <div style={{ ...infoBox, marginTop: 12 }}>
+              Recent customer thank-you campaigns now only target customers with an actual crane job or transport job in the last 30 days. Quotes, notes, imported history and general correspondence do not count.
+            </div>
+          ) : null}
         </section>
 
         <div style={twoColumnGrid}>
@@ -991,35 +1209,37 @@ export default async function SalesCampaignsPage({
               </div>
 
               <div style={selectionGrid}>
-                <div>
-                  <div style={miniLabel}>Select leads to include</div>
+                {showLeadTargets ? (
+                  <div>
+                    <div style={miniLabel}>Select leads to include</div>
 
-                  {filteredLeads.length ? (
-                    <label style={checkboxHeader}>
-                      <input type="checkbox" name="select_all_leads" value="1" />
-                      Include all filtered leads
-                    </label>
-                  ) : null}
+                    {filteredLeads.length ? (
+                      <label style={checkboxHeader}>
+                        <input type="checkbox" name="select_all_leads" value="1" />
+                        Include all filtered leads
+                      </label>
+                    ) : null}
 
-                  {!filteredLeads.length ? (
-                    <div style={mutedBox}>No leads match the current filters.</div>
-                  ) : (
-                    <div style={leadList}>
-                      {filteredLeads.map((lead) => (
-                        <label key={lead.id} style={leadRow}>
-                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <input type="checkbox" name="lead_ids" value={lead.id} style={checkboxInput} />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
-                              <div style={smallText}>{lead.contact_name || "No contact"} • {lead.status || "New"} • {lead.email || lead.phone || "No contact detail"}</div>
-                              <div style={smallText}>{lead.area || "No area"} • {lead.industry || "No industry"} • Weighted {moneyGBP(weightedValueForLead(lead))}</div>
+                    {!filteredLeads.length ? (
+                      <div style={mutedBox}>No leads match the current filters.</div>
+                    ) : (
+                      <div style={leadList}>
+                        {filteredLeads.map((lead) => (
+                          <label key={lead.id} style={leadRow}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <input type="checkbox" name="lead_ids" value={lead.id} style={checkboxInput} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{lead.company_name}</div>
+                                <div style={smallText}>{lead.contact_name || "No contact"} • {lead.status || "New"} • {lead.email || lead.phone || "No contact detail"}</div>
+                                <div style={smallText}>{lead.area || "No area"} • {lead.industry || "No industry"} • Weighted {moneyGBP(weightedValueForLead(lead))}</div>
+                              </div>
                             </div>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
 
                 <div>
                   <div style={miniLabel}>Select customers to include</div>
@@ -1037,9 +1257,12 @@ export default async function SalesCampaignsPage({
                     <div style={leadList}>
                       {filteredCustomers.map((customer) => {
                         const rollup = customerRollupById.get(String(customer.id)) ?? null;
-                        const activity = getActivityInfo(rollup?.last_activity_date ?? null);
+                        const actualActivity = actualJobActivityById.get(String(customer.id)) ?? null;
+                        const activity = getActualJobActivityInfo(actualActivity);
                         const importedCount = Number(rollup?.imported_history_count ?? 0);
-                        const liveJobs = Number(rollup?.crm_job_count ?? 0) + Number(rollup?.crm_transport_job_count ?? 0);
+                        const actualJobs = Number(actualActivity?.crane_job_count ?? 0) + Number(actualActivity?.transport_job_count ?? 0);
+                        const recentJobs = Number(actualActivity?.recent_30_job_count ?? 0);
+
                         return (
                           <label key={customer.id} style={leadRow}>
                             <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -1049,7 +1272,7 @@ export default async function SalesCampaignsPage({
                                 <div style={smallText}>{customer.contact_name || "No contact"} • {customer.email || customer.phone || "No contact detail"}</div>
                                 <div style={smallText}>
                                   <span style={{ ...activityBadge, background: activity.bg, color: activity.color }}>{activity.label}</span>
-                                  {fmtDate(rollup?.last_activity_date ?? null)} • {liveJobs} jobs • {importedCount} imported
+                                  Last actual job: {fmtDate(actualActivity?.last_actual_job_date ?? null)} • {actualJobs} actual jobs • {recentJobs} in last 30 days • {importedCount} imported
                                 </div>
                               </div>
                             </div>
@@ -1060,35 +1283,37 @@ export default async function SalesCampaignsPage({
                   )}
                 </div>
 
-                <div>
-                  <div style={miniLabel}>Select suppliers to include</div>
+                {showSupplierTargets ? (
+                  <div>
+                    <div style={miniLabel}>Select suppliers to include</div>
 
-                  {filteredSuppliers.length ? (
-                    <label style={checkboxHeader}>
-                      <input type="checkbox" name="select_all_suppliers" value="1" />
-                      Include all filtered suppliers
-                    </label>
-                  ) : null}
+                    {filteredSuppliers.length ? (
+                      <label style={checkboxHeader}>
+                        <input type="checkbox" name="select_all_suppliers" value="1" />
+                        Include all filtered suppliers
+                      </label>
+                    ) : null}
 
-                  {!filteredSuppliers.length ? (
-                    <div style={mutedBox}>No suppliers match the current filters.</div>
-                  ) : (
-                    <div style={leadList}>
-                      {filteredSuppliers.map((supplier) => (
-                        <label key={supplier.id} style={leadRow}>
-                          <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                            <input type="checkbox" name="supplier_ids" value={supplier.id} style={checkboxInput} />
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontWeight: 900 }}>{supplier.company_name}</div>
-                              <div style={smallText}>{supplier.contact_name || "No contact"} • {supplier.email || supplier.phone || "No contact detail"}</div>
-                              <div style={smallText}>{supplier.category || "No category"} • {supplier.address || "No address"}</div>
+                    {!filteredSuppliers.length ? (
+                      <div style={mutedBox}>No suppliers match the current filters.</div>
+                    ) : (
+                      <div style={leadList}>
+                        {filteredSuppliers.map((supplier) => (
+                          <label key={supplier.id} style={leadRow}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                              <input type="checkbox" name="supplier_ids" value={supplier.id} style={checkboxInput} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{supplier.company_name}</div>
+                                <div style={smallText}>{supplier.contact_name || "No contact"} • {supplier.email || supplier.phone || "No contact detail"}</div>
+                                <div style={smallText}>{supplier.category || "No category"} • {supplier.address || "No address"}</div>
+                              </div>
                             </div>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               <div style={{ marginTop: 16 }}>
@@ -1231,6 +1456,14 @@ const errorCard: CSSProperties = {
   borderRadius: 12,
   border: "1px solid rgba(180,0,0,0.18)",
   marginBottom: 12,
+};
+
+const infoBox: CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(0,120,255,0.10)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontWeight: 800,
 };
 
 const mutedBox: CSSProperties = {
