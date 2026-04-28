@@ -1,11 +1,31 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 type SelectOption = {
   value: string;
   label: string;
+};
+
+type PlannerItem = {
+  id: string;
+  kind: "crane" | "transport";
+  number: string;
+  title: string;
+  clientName: string;
+  siteName: string;
+  address: string;
+  collectionAddress?: string;
+  deliveryAddress?: string;
+  startDate: string;
+  endDate: string;
+  startTime: string;
+  endTime: string;
+  status: string;
+  primaryAsset: string;
+  operatorName: string;
 };
 
 type LocationEvent = {
@@ -41,6 +61,8 @@ type Props = {
   jobOptions: SelectOption[];
   transportJobOptions: SelectOption[];
   operatorOptions: SelectOption[];
+  plannerJobs: PlannerItem[];
+  plannerTransportJobs: PlannerItem[];
 };
 
 type Draft = {
@@ -71,6 +93,8 @@ type QuickFilter =
   | "in_transit"
   | "in_yard"
   | "overdue";
+
+type PickerMode = "crane" | "transport" | null;
 
 type GeocodeResult = {
   lat: number;
@@ -169,8 +193,10 @@ function safeText(value: string | null | undefined) {
 
 function asNumber(value: unknown) {
   if (value === null || value === undefined) return null;
+
   const raw = String(value).trim();
   if (!raw) return null;
+
   const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
@@ -195,6 +221,17 @@ function fmtDateTime(value: string | null | undefined) {
     year: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+function fmtShortDate(value: string | null | undefined) {
+  if (!value) return "No date";
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
   });
 }
 
@@ -226,7 +263,7 @@ function w3wHref(value: string | null | undefined) {
   return `https://what3words.com/${encodeURIComponent(cleaned)}`;
 }
 
-function statusBadgeStyle(value: string | null | undefined): React.CSSProperties {
+function statusBadgeStyle(value: string | null | undefined): CSSProperties {
   const v = String(value ?? "").toLowerCase();
   if (v === "in_yard") return greenBadge;
   if (v === "dropped_on_site" || v === "on_job") return blueBadge;
@@ -235,7 +272,7 @@ function statusBadgeStyle(value: string | null | undefined): React.CSSProperties
   return greyBadge;
 }
 
-function ownershipBadgeStyle(value: string | null | undefined): React.CSSProperties {
+function ownershipBadgeStyle(value: string | null | undefined): CSSProperties {
   const v = String(value ?? "").toLowerCase();
   if (v === "owned") return greenBadge;
   if (v === "hired_in") return amberBadge;
@@ -284,6 +321,65 @@ function rowMatchesQuickFilter(row: LocationEvent, filter: QuickFilter) {
   if (filter === "in_transit") return row.status === "in_transit";
   if (filter === "in_yard") return row.status === "in_yard";
   if (filter === "overdue") return row.status !== "in_yard" && isOverdue(row.collection_due_at);
+  return true;
+}
+
+function todayDateString(offsetDays = 0) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+function mondayOfCurrentWeek() {
+  const d = new Date();
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+function addDays(dateString: string, days: number) {
+  const d = new Date(`${dateString}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 10);
+}
+
+function overlapsRange(item: PlannerItem, start: string, end: string) {
+  const itemStart = item.startDate || item.endDate;
+  const itemEnd = item.endDate || item.startDate || itemStart;
+
+  if (!itemStart) return false;
+  return itemStart <= end && itemEnd >= start;
+}
+
+function plannerItemMatchesRange(item: PlannerItem, range: string) {
+  if (range === "all") return true;
+
+  if (range === "today") {
+    const today = todayDateString();
+    return overlapsRange(item, today, today);
+  }
+
+  if (range === "tomorrow") {
+    const tomorrow = todayDateString(1);
+    return overlapsRange(item, tomorrow, tomorrow);
+  }
+
+  if (range === "current_week") {
+    const monday = mondayOfCurrentWeek();
+    const sunday = addDays(monday, 6);
+    return overlapsRange(item, monday, sunday);
+  }
+
+  if (range === "next_7") {
+    const today = todayDateString();
+    const end = addDays(today, 6);
+    return overlapsRange(item, today, end);
+  }
+
   return true;
 }
 
@@ -443,7 +539,7 @@ function AssetMap({
           setGeocodeCache({ ...geocodeCacheRef.current });
         }
 
-        await new Promise((resolve) => window.setTimeout(resolve, 350));
+        await new Promise((resolve) => window.setTimeout(resolve, 650));
       }
     }
 
@@ -528,14 +624,230 @@ function AssetMap({
   );
 }
 
+function MiniPlannerPicker({
+  title,
+  kind,
+  items,
+  selectedId,
+  onSelect,
+  onClose,
+}: {
+  title: string;
+  kind: "crane" | "transport";
+  items: PlannerItem[];
+  selectedId: string;
+  onSelect: (item: PlannerItem) => void;
+  onClose: () => void;
+}) {
+  const [range, setRange] = useState("next_7");
+  const [search, setSearch] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+
+    return items
+      .filter((item) => plannerItemMatchesRange(item, range))
+      .filter((item) => {
+        if (!q) return true;
+        const haystack = [
+          item.number,
+          item.title,
+          item.clientName,
+          item.siteName,
+          item.address,
+          item.collectionAddress,
+          item.deliveryAddress,
+          item.status,
+          item.primaryAsset,
+          item.operatorName,
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(q);
+      })
+      .slice(0, 80);
+  }, [items, range, search]);
+
+  return (
+    <div style={pickerPanelStyle}>
+      <div style={pickerHeaderStyle}>
+        <div>
+          <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
+          <div style={smallMutedStyle}>
+            Read-only picker. Selecting a card only links this asset location; it does not update the live planner.
+          </div>
+        </div>
+
+        <button type="button" onClick={onClose} style={tinyBtnStyle}>
+          Close
+        </button>
+      </div>
+
+      <div style={pickerControlsStyle}>
+        <button
+          type="button"
+          onClick={() => setRange("today")}
+          style={range === "today" ? activePickerBtnStyle : pickerBtnStyle}
+        >
+          Today
+        </button>
+        <button
+          type="button"
+          onClick={() => setRange("tomorrow")}
+          style={range === "tomorrow" ? activePickerBtnStyle : pickerBtnStyle}
+        >
+          Tomorrow
+        </button>
+        <button
+          type="button"
+          onClick={() => setRange("current_week")}
+          style={range === "current_week" ? activePickerBtnStyle : pickerBtnStyle}
+        >
+          Current week
+        </button>
+        <button
+          type="button"
+          onClick={() => setRange("next_7")}
+          style={range === "next_7" ? activePickerBtnStyle : pickerBtnStyle}
+        >
+          Next 7 days
+        </button>
+        <button
+          type="button"
+          onClick={() => setRange("all")}
+          style={range === "all" ? activePickerBtnStyle : pickerBtnStyle}
+        >
+          All visible jobs
+        </button>
+
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder={kind === "crane" ? "Search crane jobs..." : "Search transport jobs..."}
+          style={{ ...inputStyle, minWidth: 240, flex: "1 1 260px" }}
+        />
+      </div>
+
+      {filtered.length === 0 ? (
+        <div style={emptyBoxStyle}>No jobs found for this view.</div>
+      ) : (
+        <div style={pickerGridStyle}>
+          {filtered.map((item) => {
+            const isSelected = selectedId === item.id;
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onSelect(item)}
+                style={isSelected ? selectedJobCardStyle : jobCardStyle}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <div>
+                    <div style={{ fontWeight: 1000 }}>
+                      {kind === "crane" ? "Job" : "Transport"} #{item.number}
+                    </div>
+                    <div style={smallMutedStyle}>{fmtShortDate(item.startDate)}{item.endDate && item.endDate !== item.startDate ? ` → ${fmtShortDate(item.endDate)}` : ""}</div>
+                  </div>
+
+                  <span style={{ ...pillStyle, ...statusBadgeStyle(item.status || "unknown") }}>
+                    {item.status || "No status"}
+                  </span>
+                </div>
+
+                <div style={{ marginTop: 8, fontWeight: 900 }}>
+                  {item.clientName || item.title}
+                </div>
+
+                {item.siteName ? (
+                  <div style={smallMutedStyle}>{item.siteName}</div>
+                ) : null}
+
+                {kind === "transport" ? (
+                  <>
+                    <div style={smallMutedStyle}>From: {item.collectionAddress || "—"}</div>
+                    <div style={smallMutedStyle}>To: {item.deliveryAddress || "—"}</div>
+                  </>
+                ) : (
+                  <div style={smallMutedStyle}>{item.address || "No site address saved"}</div>
+                )}
+
+                <div style={{ marginTop: 8, fontSize: 12, opacity: 0.75 }}>
+                  {[item.primaryAsset, item.operatorName, [item.startTime, item.endTime].filter(Boolean).join(" → ")]
+                    .filter(Boolean)
+                    .join(" • ") || "No allocation details"}
+                </div>
+
+                <div style={{ marginTop: 10, fontWeight: 1000, color: "#0b57d0" }}>
+                  {isSelected ? "Selected" : "Select this job"}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinkedJobSelector({
+  title,
+  selected,
+  onOpen,
+  onRemove,
+  helperText,
+}: {
+  title: string;
+  selected: PlannerItem | null;
+  onOpen: () => void;
+  onRemove: () => void;
+  helperText: string;
+}) {
+  return (
+    <div style={linkedJobBoxStyle}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+        <div>
+          <div style={labelStyle}>{title}</div>
+          {selected ? (
+            <>
+              <div style={{ marginTop: 5, fontWeight: 1000 }}>
+                #{selected.number} — {selected.clientName || selected.title}
+              </div>
+              <div style={smallMutedStyle}>
+                {[selected.siteName, selected.collectionAddress, selected.deliveryAddress, selected.primaryAsset]
+                  .filter(Boolean)
+                  .join(" • ") || selected.address || "Linked job selected"}
+              </div>
+            </>
+          ) : (
+            <div style={smallMutedStyle}>{helperText}</div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+          <button type="button" onClick={onOpen} style={tinyBtnStyle}>
+            {selected ? "Change" : "Select from mini planner"}
+          </button>
+
+          {selected ? (
+            <button type="button" onClick={onRemove} style={tinyBtnStyle}>
+              Remove
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AssetLocationManager({
   initialEvents,
   equipmentOptions,
   vehicleOptions,
   craneOptions,
-  jobOptions,
-  transportJobOptions,
   operatorOptions,
+  plannerJobs,
+  plannerTransportJobs,
 }: Props) {
   const router = useRouter();
 
@@ -551,8 +863,17 @@ export default function AssetLocationManager({
   const [ownershipFilter, setOwnershipFilter] = useState("all");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [selectedAssetKey, setSelectedAssetKey] = useState("");
+  const [pickerMode, setPickerMode] = useState<PickerMode>(null);
 
   const currentLocations = useMemo(() => latestByAsset(events), [events]);
+
+  const selectedCraneJob = useMemo(() => {
+    return plannerJobs.find((item) => item.id === draft.linked_job_id) ?? null;
+  }, [plannerJobs, draft.linked_job_id]);
+
+  const selectedTransportJob = useMemo(() => {
+    return plannerTransportJobs.find((item) => item.id === draft.linked_transport_job_id) ?? null;
+  }, [plannerTransportJobs, draft.linked_transport_job_id]);
 
   const quickFilteredLocations = useMemo(() => {
     return currentLocations.filter((row) => rowMatchesQuickFilter(row, quickFilter));
@@ -658,6 +979,32 @@ export default function AssetLocationManager({
   function activateQuickFilter(filter: QuickFilter) {
     setQuickFilter(filter);
     setSelectedAssetKey("");
+  }
+
+  function applyCraneJob(item: PlannerItem) {
+    setDraft((current) => ({
+      ...current,
+      linked_job_id: item.id,
+      location_name: current.location_name || item.siteName || item.clientName || `Job #${item.number}`,
+      address: current.address || item.address || "",
+    }));
+    setPickerMode(null);
+    setMessageType("success");
+    setMessage(`Linked crane job #${item.number}.`);
+  }
+
+  function applyTransportJob(item: PlannerItem) {
+    const bestAddress = item.collectionAddress || item.deliveryAddress || item.address || "";
+
+    setDraft((current) => ({
+      ...current,
+      linked_transport_job_id: item.id,
+      location_name: current.location_name || item.clientName || `Transport #${item.number}`,
+      address: current.address || bestAddress,
+    }));
+    setPickerMode(null);
+    setMessageType("success");
+    setMessage(`Linked transport job #${item.number}.`);
   }
 
   function duplicateFromCurrent(row: LocationEvent, status?: string) {
@@ -982,21 +1329,45 @@ export default function AssetLocationManager({
               inputMode="decimal"
             />
 
-            <SelectField
-              label="Linked crane job"
-              value={draft.linked_job_id}
-              options={jobOptions}
-              onChange={(value) => updateDraft({ linked_job_id: value })}
-              placeholder="None"
-            />
+            <div style={{ gridColumn: "1 / -1", display: "grid", gap: 10 }}>
+              <LinkedJobSelector
+                title="Linked crane job"
+                selected={selectedCraneJob}
+                helperText="Select from a small read-only crane planner instead of scrolling a long dropdown."
+                onOpen={() => setPickerMode(pickerMode === "crane" ? null : "crane")}
+                onRemove={() => updateDraft({ linked_job_id: "" })}
+              />
 
-            <SelectField
-              label="Linked transport job"
-              value={draft.linked_transport_job_id}
-              options={transportJobOptions}
-              onChange={(value) => updateDraft({ linked_transport_job_id: value })}
-              placeholder="None"
-            />
+              {pickerMode === "crane" ? (
+                <MiniPlannerPicker
+                  title="Mini crane planner picker"
+                  kind="crane"
+                  items={plannerJobs}
+                  selectedId={draft.linked_job_id}
+                  onSelect={applyCraneJob}
+                  onClose={() => setPickerMode(null)}
+                />
+              ) : null}
+
+              <LinkedJobSelector
+                title="Linked transport job"
+                selected={selectedTransportJob}
+                helperText="Select from a small read-only transport planner instead of scrolling a long dropdown."
+                onOpen={() => setPickerMode(pickerMode === "transport" ? null : "transport")}
+                onRemove={() => updateDraft({ linked_transport_job_id: "" })}
+              />
+
+              {pickerMode === "transport" ? (
+                <MiniPlannerPicker
+                  title="Mini transport planner picker"
+                  kind="transport"
+                  items={plannerTransportJobs}
+                  selectedId={draft.linked_transport_job_id}
+                  onSelect={applyTransportJob}
+                  onClose={() => setPickerMode(null)}
+                />
+              ) : null}
+            </div>
 
             <SelectField
               label="Moved by vehicle"
@@ -1370,7 +1741,7 @@ function TextField({
   );
 }
 
-const cardStyle: React.CSSProperties = {
+const cardStyle: CSSProperties = {
   background: "rgba(255,255,255,0.18)",
   padding: 18,
   borderRadius: 14,
@@ -1378,7 +1749,7 @@ const cardStyle: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const quickSelectorStyle: React.CSSProperties = {
+const quickSelectorStyle: CSSProperties = {
   background: "rgba(255,255,255,0.38)",
   padding: 14,
   borderRadius: 14,
@@ -1390,7 +1761,7 @@ const quickSelectorStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const sectionHeaderStyle: React.CSSProperties = {
+const sectionHeaderStyle: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "center",
@@ -1398,67 +1769,67 @@ const sectionHeaderStyle: React.CSSProperties = {
   flexWrap: "wrap",
 };
 
-const sectionTitleStyle: React.CSSProperties = {
+const sectionTitleStyle: CSSProperties = {
   margin: 0,
   fontSize: 22,
 };
 
-const mutedTextStyle: React.CSSProperties = {
+const mutedTextStyle: CSSProperties = {
   marginTop: 6,
   marginBottom: 0,
   opacity: 0.76,
 };
 
-const summaryGridStyle: React.CSSProperties = {
+const summaryGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: 12,
 };
 
-const summaryCardStyle: React.CSSProperties = {
+const summaryCardStyle: CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: "rgba(255,255,255,0.62)",
   appearance: "none",
 };
 
-const summaryLabelStyle: React.CSSProperties = {
+const summaryLabelStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 900,
   opacity: 0.68,
 };
 
-const summaryValueStyle: React.CSSProperties = {
+const summaryValueStyle: CSSProperties = {
   marginTop: 8,
   fontSize: 24,
   fontWeight: 1000,
 };
 
-const formGridStyle: React.CSSProperties = {
+const formGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
   gap: 12,
 };
 
-const filtersGridStyle: React.CSSProperties = {
+const filtersGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "minmax(240px, 1.4fr) repeat(3, minmax(170px, 1fr))",
   gap: 10,
   marginTop: 14,
 };
 
-const fieldWrapStyle: React.CSSProperties = {
+const fieldWrapStyle: CSSProperties = {
   display: "grid",
   gap: 6,
 };
 
-const labelStyle: React.CSSProperties = {
+const labelStyle: CSSProperties = {
   fontSize: 12,
   fontWeight: 900,
   opacity: 0.74,
 };
 
-const inputStyle: React.CSSProperties = {
+const inputStyle: CSSProperties = {
   width: "100%",
   minHeight: 42,
   padding: "0 12px",
@@ -1468,7 +1839,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box",
 };
 
-const textareaStyle: React.CSSProperties = {
+const textareaStyle: CSSProperties = {
   width: "100%",
   padding: "10px 12px",
   borderRadius: 10,
@@ -1478,7 +1849,7 @@ const textareaStyle: React.CSSProperties = {
   resize: "vertical",
 };
 
-const primaryBtnStyle: React.CSSProperties = {
+const primaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -1490,7 +1861,7 @@ const primaryBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const secondaryBtnStyle: React.CSSProperties = {
+const secondaryBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "10px 14px",
   borderRadius: 10,
@@ -1502,7 +1873,7 @@ const secondaryBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const tinyBtnStyle: React.CSSProperties = {
+const tinyBtnStyle: CSSProperties = {
   display: "inline-block",
   padding: "7px 10px",
   borderRadius: 9,
@@ -1514,7 +1885,7 @@ const tinyBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const successBoxStyle: React.CSSProperties = {
+const successBoxStyle: CSSProperties = {
   marginTop: 12,
   padding: "10px 12px",
   borderRadius: 10,
@@ -1523,7 +1894,7 @@ const successBoxStyle: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const errorBoxStyle: React.CSSProperties = {
+const errorBoxStyle: CSSProperties = {
   marginTop: 12,
   padding: "10px 12px",
   borderRadius: 10,
@@ -1532,7 +1903,7 @@ const errorBoxStyle: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const mapWrapStyle: React.CSSProperties = {
+const mapWrapStyle: CSSProperties = {
   marginTop: 14,
   overflow: "hidden",
   borderRadius: 14,
@@ -1540,24 +1911,24 @@ const mapWrapStyle: React.CSSProperties = {
   background: "rgba(255,255,255,0.52)",
 };
 
-const mapStyle: React.CSSProperties = {
+const mapStyle: CSSProperties = {
   width: "100%",
   height: 390,
 };
 
-const mapHintStyle: React.CSSProperties = {
+const mapHintStyle: CSSProperties = {
   padding: "8px 10px",
   fontSize: 12,
   fontWeight: 800,
   opacity: 0.72,
 };
 
-const tableStyle: React.CSSProperties = {
+const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
 };
 
-const thStyle: React.CSSProperties = {
+const thStyle: CSSProperties = {
   padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
@@ -1565,14 +1936,14 @@ const thStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const tdStyle: React.CSSProperties = {
+const tdStyle: CSSProperties = {
   padding: "12px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.08)",
   fontSize: 14,
   verticalAlign: "top",
 };
 
-const pillStyle: React.CSSProperties = {
+const pillStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   padding: "6px 10px",
@@ -1582,37 +1953,37 @@ const pillStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const greenBadge: React.CSSProperties = {
+const greenBadge: CSSProperties = {
   background: "rgba(0,180,120,0.12)",
   color: "#0b7a4b",
   border: "1px solid rgba(0,180,120,0.22)",
 };
 
-const blueBadge: React.CSSProperties = {
+const blueBadge: CSSProperties = {
   background: "rgba(0,120,255,0.10)",
   color: "#0b57d0",
   border: "1px solid rgba(0,120,255,0.22)",
 };
 
-const amberBadge: React.CSSProperties = {
+const amberBadge: CSSProperties = {
   background: "rgba(255,170,0,0.14)",
   color: "#8a5200",
   border: "1px solid rgba(255,170,0,0.24)",
 };
 
-const purpleBadge: React.CSSProperties = {
+const purpleBadge: CSSProperties = {
   background: "rgba(130,80,255,0.11)",
   color: "#4f2bbd",
   border: "1px solid rgba(130,80,255,0.20)",
 };
 
-const greyBadge: React.CSSProperties = {
+const greyBadge: CSSProperties = {
   background: "rgba(120,120,120,0.12)",
   color: "#555",
   border: "1px solid rgba(120,120,120,0.18)",
 };
 
-const emptyBoxStyle: React.CSSProperties = {
+const emptyBoxStyle: CSSProperties = {
   marginTop: 14,
   padding: "12px 14px",
   borderRadius: 12,
@@ -1621,27 +1992,96 @@ const emptyBoxStyle: React.CSSProperties = {
   fontWeight: 800,
 };
 
-const smallMutedStyle: React.CSSProperties = {
+const smallMutedStyle: CSSProperties = {
   marginTop: 4,
   fontSize: 12,
   opacity: 0.68,
 };
 
-const inlineLinkStyle: React.CSSProperties = {
+const inlineLinkStyle: CSSProperties = {
   display: "inline-block",
   marginTop: 4,
   color: "#0b57d0",
   fontWeight: 850,
 };
 
-const overdueTextStyle: React.CSSProperties = {
+const overdueTextStyle: CSSProperties = {
   color: "#b00020",
   fontWeight: 1000,
 };
 
-const historyCardStyle: React.CSSProperties = {
+const historyCardStyle: CSSProperties = {
   padding: 12,
   borderRadius: 12,
   background: "rgba(255,255,255,0.54)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const linkedJobBoxStyle: CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.52)",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const pickerPanelStyle: CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.64)",
+  border: "1px solid rgba(0,0,0,0.12)",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.06)",
+};
+
+const pickerHeaderStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+};
+
+const pickerControlsStyle: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginTop: 12,
+};
+
+const pickerBtnStyle: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 999,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.78)",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const activePickerBtnStyle: CSSProperties = {
+  ...pickerBtnStyle,
+  background: "#111",
+  color: "#fff",
+};
+
+const pickerGridStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 10,
+  marginTop: 12,
+};
+
+const jobCardStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  textAlign: "left",
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.82)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  cursor: "pointer",
+};
+
+const selectedJobCardStyle: CSSProperties = {
+  ...jobCardStyle,
+  border: "2px solid #111",
 };
