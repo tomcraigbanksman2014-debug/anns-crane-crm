@@ -30,6 +30,60 @@ function errorMessage(error: any) {
   return error?.message ? String(error.message) : "";
 }
 
+function jobPlannerItem(job: any) {
+  const startDate = String(job?.start_date ?? job?.job_date ?? "").trim();
+  const endDate = String(job?.end_date ?? job?.start_date ?? job?.job_date ?? "").trim();
+  const clientName = String(job?.clients?.company_name ?? "").trim();
+  const siteName = String(job?.site_name ?? "").trim();
+  const siteAddress = String(job?.site_address ?? "").trim();
+  const craneName = optionLabel([job?.cranes?.name, job?.cranes?.reg_number]);
+  const operatorName = String(job?.operators?.full_name ?? "").trim();
+
+  return {
+    id: String(job?.id ?? ""),
+    kind: "crane" as const,
+    number: String(job?.job_number ?? "Job"),
+    title: buildJobLabel(job),
+    clientName,
+    siteName,
+    address: siteAddress,
+    startDate,
+    endDate,
+    startTime: String(job?.start_time ?? "").trim(),
+    endTime: String(job?.end_time ?? "").trim(),
+    status: String(job?.status ?? "").trim(),
+    primaryAsset: craneName,
+    operatorName,
+  };
+}
+
+function transportPlannerItem(job: any) {
+  const collectionDate = String(job?.transport_date ?? "").trim();
+  const deliveryDate = String(job?.delivery_date ?? job?.transport_date ?? "").trim();
+  const clientName = String(job?.clients?.company_name ?? "").trim();
+  const vehicleName = optionLabel([job?.vehicles?.name, job?.vehicles?.reg_number]);
+  const operatorName = String(job?.operators?.full_name ?? "").trim();
+
+  return {
+    id: String(job?.id ?? ""),
+    kind: "transport" as const,
+    number: String(job?.transport_number ?? "Transport"),
+    title: buildTransportJobLabel(job),
+    clientName,
+    siteName: "",
+    address: optionLabel([job?.collection_address, job?.delivery_address]),
+    collectionAddress: String(job?.collection_address ?? "").trim(),
+    deliveryAddress: String(job?.delivery_address ?? "").trim(),
+    startDate: collectionDate,
+    endDate: deliveryDate,
+    startTime: String(job?.collection_time ?? "").trim(),
+    endTime: String(job?.delivery_time ?? "").trim(),
+    status: String(job?.status ?? "").trim(),
+    primaryAsset: vehicleName,
+    operatorName,
+  };
+}
+
 export default async function AssetLocationsPage() {
   const access = await getAccessContext();
   const email = String(access.user?.email ?? "").trim().toLowerCase();
@@ -71,16 +125,47 @@ export default async function AssetLocationsPage() {
       .order("name", { ascending: true }),
     admin
       .from("jobs")
-      .select("id, job_number, site_name, clients:client_id(company_name)")
+      .select(`
+        id,
+        job_number,
+        site_name,
+        site_address,
+        start_date,
+        end_date,
+        job_date,
+        start_time,
+        end_time,
+        status,
+        archived,
+        clients:client_id(company_name),
+        cranes:crane_id(id, name, reg_number),
+        operators:operator_id(id, full_name)
+      `)
       .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(180),
+      .order("start_date", { ascending: true })
+      .order("job_date", { ascending: true })
+      .limit(260),
     admin
       .from("transport_jobs")
-      .select("id, transport_number, collection_address, delivery_address, clients:client_id(company_name)")
+      .select(`
+        id,
+        transport_number,
+        transport_date,
+        collection_time,
+        delivery_date,
+        delivery_time,
+        collection_address,
+        delivery_address,
+        status,
+        archived,
+        clients:client_id(company_name),
+        vehicles:vehicle_id(id, name, reg_number),
+        operators:operator_id(id, full_name)
+      `)
       .eq("archived", false)
-      .order("created_at", { ascending: false })
-      .limit(180),
+      .order("transport_date", { ascending: true })
+      .order("collection_time", { ascending: true })
+      .limit(260),
     admin
       .from("operators")
       .select("id, full_name, status")
@@ -120,6 +205,14 @@ export default async function AssetLocationsPage() {
     label: String(operator.full_name ?? "Operator"),
   }));
 
+  const plannerJobs = (jobsResult.data ?? [])
+    .map(jobPlannerItem)
+    .filter((row) => row.id);
+
+  const plannerTransportJobs = (transportJobsResult.data ?? [])
+    .map(transportPlannerItem)
+    .filter((row) => row.id);
+
   return (
     <ClientShell>
       <div style={{ width: "min(1500px, 96vw)", margin: "0 auto" }}>
@@ -156,6 +249,8 @@ export default async function AssetLocationsPage() {
           jobOptions={jobOptions}
           transportJobOptions={transportJobOptions}
           operatorOptions={operatorOptions}
+          plannerJobs={plannerJobs}
+          plannerTransportJobs={plannerTransportJobs}
         />
       </div>
     </ClientShell>
