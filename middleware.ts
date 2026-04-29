@@ -11,11 +11,24 @@ const PUBLIC_PATHS = [
   "/offline.html",
 ];
 
+const PUBLIC_PATH_PREFIXES = [
+  "/unsubscribe",
+  "/api/marketing/unsubscribe",
+];
+
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
+
+  for (const publicPrefix of PUBLIC_PATH_PREFIXES) {
+    if (pathname === publicPrefix || pathname.startsWith(`${publicPrefix}/`)) {
+      return true;
+    }
+  }
+
   if (pathname.startsWith("/_next/")) return true;
   if (pathname.startsWith("/storage")) return true;
   if (pathname.match(/\.(png|jpg|jpeg|webp|svg|ico|css|js|map)$/)) return true;
+
   return false;
 }
 
