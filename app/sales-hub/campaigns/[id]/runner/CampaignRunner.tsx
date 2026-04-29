@@ -45,11 +45,21 @@ type GmailSendResponse = {
   requestedCount?: number;
   processedCount?: number;
   remainingCount?: number;
+  imageCount?: number;
+  imageFilenames?: string[];
   sent?: Array<{ key: string; to: string; messageId: string; threadId: string }>;
   failed?: Array<{ key: string; to: string | null; error: string }>;
   skipped?: Array<{ key: string; reason: string }>;
   error?: string;
 };
+
+type CampaignImagePreview = {
+  file: File;
+  url: string;
+};
+
+const MAX_CAMPAIGN_IMAGES = 5;
+const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
 
 export default function CampaignRunner({
   campaignId,
@@ -72,6 +82,9 @@ export default function CampaignRunner({
   const [gmailSending, setGmailSending] = useState(false);
   const [gmailResult, setGmailResult] = useState<GmailSendResponse | null>(null);
   const [gmailSentKeys, setGmailSentKeys] = useState<string[]>([]);
+
+  const [campaignImages, setCampaignImages] = useState<CampaignImagePreview[]>([]);
+  const [imageError, setImageError] = useState<string | null>(null);
 
   const pageOrigin = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -99,6 +112,12 @@ export default function CampaignRunner({
     }
   }, []);
 
+  useEffect(() => {
+    return () => {
+      campaignImages.forEach((image) => URL.revokeObjectURL(image.url));
+    };
+  }, [campaignImages]);
+
   function draftKey(draft: DraftRow, index: number) {
     return `${draft.target_type}:${draft.target_id || index}`;
   }
@@ -108,11 +127,24 @@ export default function CampaignRunner({
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   }
 
+  function totalImageBytes(images: CampaignImagePreview[]) {
+    return images.reduce((sum, image) => sum + image.file.size, 0);
+  }
+
+  function formatBytes(bytes: number) {
+    if (!bytes) return "0 MB";
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
   const emailDrafts = drafts.filter(
-    (draft) => String(draft.channel ?? "email").toLowerCase() === "email" && isValidEmail(draft.target_email)
+    (draft) =>
+      String(draft.channel ?? "email").toLowerCase() === "email" &&
+      isValidEmail(draft.target_email)
   );
 
-  const unsentEmailDrafts = emailDrafts.filter((draft, index) => !gmailSentKeys.includes(draftKey(draft, index)));
+  const unsentEmailDrafts = emailDrafts.filter(
+    (draft, index) => !gmailSentKeys.includes(draftKey(draft, index))
+  );
 
   function buildOutlookHref(draft: DraftRow) {
     const to = String(draft.target_email ?? "").trim();
@@ -148,6 +180,63 @@ export default function CampaignRunner({
     window.setTimeout(() => {
       setError((current) => (current === message ? null : current));
     }, 2200);
+  }
+
+  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setImageError(null);
+
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+
+    if (!files.length) return;
+
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+    if (imageFiles.length !== files.length) {
+      setImageError("Only image files can be attached.");
+      return;
+    }
+
+    setCampaignImages((current) => {
+      const nextFiles = [...current.map((item) => item.file), ...imageFiles];
+
+      if (nextFiles.length > MAX_CAMPAIGN_IMAGES) {
+        setImageError(`Maximum ${MAX_CAMPAIGN_IMAGES} images allowed.`);
+        return current;
+      }
+
+      const nextTotal = nextFiles.reduce((sum, file) => sum + file.size, 0);
+      if (nextTotal > MAX_TOTAL_IMAGE_BYTES) {
+        setImageError("Images are too large. Keep the total image size under 20MB.");
+        return current;
+      }
+
+      const next = [
+        ...current,
+        ...imageFiles.map((file) => ({
+          file,
+          url: URL.createObjectURL(file),
+        })),
+      ];
+
+      return next;
+    });
+  }
+
+  function removeCampaignImage(index: number) {
+    setCampaignImages((current) => {
+      const image = current[index];
+      if (image) URL.revokeObjectURL(image.url);
+      return current.filter((_item, i) => i !== index);
+    });
+  }
+
+  function clearCampaignImages() {
+    setCampaignImages((current) => {
+      current.forEach((image) => URL.revokeObjectURL(image.url));
+      return [];
+    });
+    setImageError(null);
   }
 
   async function copyText(value: string, label: string) {
@@ -296,17 +385,20 @@ export default function CampaignRunner({
 
     setGmailSending(true);
     setError(null);
+    setGmailResult(null);
 
     try {
+      const formData = new FormData();
+      formData.append("drafts", JSON.stringify(batch));
+      formData.append("batch_limit", String(batchSize));
+
+      for (const image of campaignImages) {
+        formData.append("images", image.file, image.file.name);
+      }
+
       const res = await fetch(`/api/sales-campaigns/${campaignId}/send-gmail`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          drafts: batch,
-          batch_limit: batchSize,
-        }),
+        body: formData,
       });
 
       const data = (await res.json().catch(() => ({}))) as GmailSendResponse;
@@ -325,9 +417,14 @@ export default function CampaignRunner({
       const sentCount = data.sent?.length ?? 0;
       const failedCount = data.failed?.length ?? 0;
       const skippedCount = data.skipped?.length ?? 0;
+      const imageCount = data.imageCount ?? campaignImages.length;
 
       if (sentCount > 0 && failedCount === 0) {
-        setFeedback(`${sentCount} email${sentCount === 1 ? "" : "s"} sent through Gmail API.`);
+        setFeedback(
+          `${sentCount} email${sentCount === 1 ? "" : "s"} sent through Gmail API${
+            imageCount ? ` with ${imageCount} image${imageCount === 1 ? "" : "s"}` : ""
+          }.`
+        );
       } else if (sentCount > 0) {
         setError(`${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped.`);
       } else {
@@ -390,6 +487,7 @@ export default function CampaignRunner({
   const customerDrafts = drafts.filter((row) => row.target_type === "customer").length;
   const supplierDrafts = drafts.filter((row) => row.target_type === "supplier").length;
   const gmailConnected = Boolean(gmailStatus?.connected);
+  const selectedImageBytes = totalImageBytes(campaignImages);
 
   return (
     <div style={cardStyle}>
@@ -398,7 +496,7 @@ export default function CampaignRunner({
         Generate one set of drafts across all leads, customers and suppliers linked to <strong>{campaignName}</strong>.
       </p>
       <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
-        Outlook deeplinks can prefill the recipient and subject, but they cannot inject the AnnS HTML signature and logo by themselves. Use the formatted-email buttons below so the message opens in Outlook with the branded signature copied and ready to paste.
+        For Gmail API sending, you can attach campaign images below. Use the 1-email test first before sending a batch.
       </p>
 
       {error ? (
@@ -446,6 +544,74 @@ export default function CampaignRunner({
           </button>
         ) : null}
       </div>
+
+      <section style={{ ...panelStyle, marginTop: 18 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontWeight: 900, fontSize: 18 }}>Campaign images</div>
+            <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
+              Optional. These images will be embedded into each Gmail API email and also attached inline.
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+            <label style={secondaryBtn}>
+              Choose images
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageChange}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            {campaignImages.length > 0 ? (
+              <button type="button" onClick={clearCampaignImages} style={secondaryBtn}>
+                Clear images
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        {imageError ? <div style={errorBox}>{imageError}</div> : null}
+
+        <div style={{ marginTop: 12, fontSize: 13, opacity: 0.72 }}>
+          Selected: {campaignImages.length}/{MAX_CAMPAIGN_IMAGES} images • Total size:{" "}
+          {formatBytes(selectedImageBytes)} / {formatBytes(MAX_TOTAL_IMAGE_BYTES)}
+        </div>
+
+        {campaignImages.length ? (
+          <div style={imageGridStyle}>
+            {campaignImages.map((image, index) => (
+              <div key={`${image.file.name}-${index}`} style={imageCardStyle}>
+                <img src={image.url} alt={image.file.name} style={imagePreviewStyle} />
+
+                <div style={{ padding: 10 }}>
+                  <div style={{ fontWeight: 900, fontSize: 13, wordBreak: "break-word" }}>
+                    {image.file.name}
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                    {formatBytes(image.file.size)}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => removeCampaignImage(index)}
+                    style={{ ...secondaryBtn, marginTop: 8, padding: "7px 10px" }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ ...panelStyle, marginTop: 12 }}>
+            No campaign images selected. Gmail API sends will go without extra crane photos.
+          </div>
+        )}
+      </section>
 
       <section style={{ ...panelStyle, marginTop: 18 }}>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -506,6 +672,7 @@ export default function CampaignRunner({
               <SummaryCard label="Email-ready drafts" value={String(emailDrafts.length)} />
               <SummaryCard label="Sent this session" value={String(gmailSentKeys.length)} />
               <SummaryCard label="Remaining" value={String(unsentEmailDrafts.length)} />
+              <SummaryCard label="Images selected" value={String(campaignImages.length)} />
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -520,16 +687,25 @@ export default function CampaignRunner({
 
               <button
                 type="button"
-                onClick={() => sendGmailBatch(50)}
+                onClick={() => sendGmailBatch(25)}
                 disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
                 style={primaryBtn}
               >
-                {gmailSending ? "Sending..." : "Send next 50 through Gmail API"}
+                {gmailSending ? "Sending..." : "Send next 25 through Gmail API"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => sendGmailBatch(50)}
+                disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
+                style={secondaryBtn}
+              >
+                {gmailSending ? "Sending..." : "Send next 50"}
               </button>
             </div>
 
             <div style={{ fontSize: 13, opacity: 0.72 }}>
-              Use the 1-email test first. After that, send in batches of 50. This avoids one massive request and makes failures easier to spot.
+              Use the 1-email test first. For image campaigns, batches of 25 are safer than 50 because each email is heavier.
             </div>
           </div>
         ) : null}
@@ -541,8 +717,20 @@ export default function CampaignRunner({
               <SummaryCard label="Sent" value={String(gmailResult.sent?.length ?? 0)} />
               <SummaryCard label="Failed" value={String(gmailResult.failed?.length ?? 0)} />
               <SummaryCard label="Skipped" value={String(gmailResult.skipped?.length ?? 0)} />
+              <SummaryCard label="Images sent" value={String(gmailResult.imageCount ?? 0)} />
               <SummaryCard label="Processed" value={String(gmailResult.processedCount ?? 0)} />
             </div>
+
+            {gmailResult.imageFilenames?.length ? (
+              <div style={{ ...successBox, marginTop: 10 }}>
+                <div style={{ fontWeight: 900, marginBottom: 6 }}>Images included</div>
+                {gmailResult.imageFilenames.map((filename) => (
+                  <div key={filename} style={{ marginTop: 4 }}>
+                    {filename}
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {gmailResult.failed?.length ? (
               <div style={{ ...errorBox, marginTop: 10 }}>
@@ -824,4 +1012,25 @@ const sentBadge: React.CSSProperties = {
   border: "1px solid rgba(0,160,80,0.22)",
   fontSize: 12,
   fontWeight: 900,
+};
+
+const imageGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: 12,
+  marginTop: 14,
+};
+
+const imageCardStyle: React.CSSProperties = {
+  overflow: "hidden",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.10)",
+};
+
+const imagePreviewStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  height: 130,
+  objectFit: "cover",
 };
