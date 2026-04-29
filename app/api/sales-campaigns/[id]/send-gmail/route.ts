@@ -267,7 +267,11 @@ function buildMimeMessage(args: {
   lines.push(`To: ${stripHeaderUnsafe(args.toEmail)}`);
   lines.push(`Subject: ${encodeHeader(args.subject)}`);
   lines.push(`Date: ${new Date().toUTCString()}`);
-  lines.push(`List-Unsubscribe: <${stripHeaderUnsafe(args.unsubscribe.url)}>, <mailto:${stripHeaderUnsafe(args.fromEmail)}?subject=unsubscribe>`);
+  lines.push(
+    `List-Unsubscribe: <${stripHeaderUnsafe(args.unsubscribe.postUrl)}>, <mailto:${stripHeaderUnsafe(
+      args.fromEmail
+    )}?subject=unsubscribe>`
+  );
   lines.push("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
   lines.push("MIME-Version: 1.0");
   lines.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
@@ -566,6 +570,7 @@ export async function POST(
         image_total_bytes: campaignImages.reduce((sum, image) => sum + image.size, 0),
         unsubscribe_footer_enabled: true,
         list_unsubscribe_headers_enabled: true,
+        outlook_removed: true,
       },
     });
 
