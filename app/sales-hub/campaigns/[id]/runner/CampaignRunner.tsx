@@ -1,12 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import {
-  buildFormattedEmailHtml,
-  normaliseDraftBody,
-  normaliseDraftSubject,
-  SHARED_EMAIL_SIGNATURE_TEXT,
-} from "../../../../lib/emailSignature";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { normaliseDraftBody, normaliseDraftSubject } from "../../../../lib/emailSignature";
 
 type DraftRow = {
   target_type: "lead" | "customer" | "supplier";
@@ -47,6 +42,7 @@ type GmailSendResponse = {
   remainingCount?: number;
   imageCount?: number;
   imageFilenames?: string[];
+  unsubscribeEnabled?: boolean;
   sent?: Array<{ key: string; to: string; messageId: string; threadId: string }>;
   failed?: Array<{ key: string; to: string | null; error: string }>;
   skipped?: Array<{ key: string; reason: string }>;
@@ -86,10 +82,11 @@ export default function CampaignRunner({
   const [campaignImages, setCampaignImages] = useState<CampaignImagePreview[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
 
-  const pageOrigin = useMemo(() => {
-    if (typeof window === "undefined") return "";
-    return window.location.origin;
-  }, []);
+  const imageRef = useRef<CampaignImagePreview[]>([]);
+
+  useEffect(() => {
+    imageRef.current = campaignImages;
+  }, [campaignImages]);
 
   useEffect(() => {
     refreshGmailStatus();
@@ -110,13 +107,11 @@ export default function CampaignRunner({
         window.history.replaceState({}, "", nextUrl);
       }
     }
-  }, []);
 
-  useEffect(() => {
     return () => {
-      campaignImages.forEach((image) => URL.revokeObjectURL(image.url));
+      imageRef.current.forEach((image) => URL.revokeObjectURL(image.url));
     };
-  }, [campaignImages]);
+  }, []);
 
   function draftKey(draft: DraftRow, index: number) {
     return `${draft.target_type}:${draft.target_id || index}`;
@@ -136,6 +131,16 @@ export default function CampaignRunner({
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
+  function isSuccessMessage(value: string) {
+    const text = value.toLowerCase();
+    return (
+      text.includes("sent through gmail") ||
+      text.includes("connected") ||
+      text.includes("disconnected") ||
+      text.includes("generated")
+    );
+  }
+
   const emailDrafts = drafts.filter(
     (draft) =>
       String(draft.channel ?? "email").toLowerCase() === "email" &&
@@ -146,40 +151,11 @@ export default function CampaignRunner({
     (draft, index) => !gmailSentKeys.includes(draftKey(draft, index))
   );
 
-  function buildOutlookHref(draft: DraftRow) {
-    const to = String(draft.target_email ?? "").trim();
-    if (!to) return "";
-
-    const parts = [
-      `to=${encodeURIComponent(to)}`,
-      draft.subject ? `subject=${encodeURIComponent(normaliseDraftSubject(draft.subject))}` : "",
-    ].filter(Boolean);
-
-    return `https://outlook.office.com/mail/deeplink/compose?${parts.join("&")}`;
-  }
-
-  function getPlainBody(draft: DraftRow) {
-    return normaliseDraftBody(draft.body);
-  }
-
-  function getPlainBodyWithSignature(draft: DraftRow) {
-    const cleaned = getPlainBody(draft);
-    if (!cleaned) return SHARED_EMAIL_SIGNATURE_TEXT;
-    return `${cleaned}\n\n${SHARED_EMAIL_SIGNATURE_TEXT}`;
-  }
-
-  function getHtmlBody(draft: DraftRow) {
-    return buildFormattedEmailHtml({
-      body: getPlainBody(draft),
-      origin: pageOrigin,
-    });
-  }
-
   function setFeedback(message: string) {
     setError(message);
     window.setTimeout(() => {
       setError((current) => (current === message ? null : current));
-    }, 2200);
+    }, 2600);
   }
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -211,15 +187,13 @@ export default function CampaignRunner({
         return current;
       }
 
-      const next = [
+      return [
         ...current,
         ...imageFiles.map((file) => ({
           file,
           url: URL.createObjectURL(file),
         })),
       ];
-
-      return next;
     });
   }
 
@@ -245,66 +219,6 @@ export default function CampaignRunner({
       setFeedback(`${label} copied.`);
     } catch {
       setError(`Could not copy ${label.toLowerCase()}.`);
-    }
-  }
-
-  async function copyFormattedEmail(draft: DraftRow) {
-    const html = getHtmlBody(draft);
-    const plain = getPlainBodyWithSignature(draft);
-
-    try {
-      if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-        await navigator.clipboard.write([
-          new ClipboardItem({
-            "text/html": new Blob([html], { type: "text/html" }),
-            "text/plain": new Blob([plain], { type: "text/plain" }),
-          }),
-        ]);
-      } else {
-        await navigator.clipboard.writeText(plain);
-      }
-
-      setFeedback("Formatted email copied.");
-    } catch {
-      setError("Could not copy formatted email.");
-    }
-  }
-
-  async function openInOutlookAndCopy(draft: DraftRow) {
-    const href = buildOutlookHref(draft);
-    if (!href) {
-      setError("No email address saved for this draft.");
-      return;
-    }
-
-    await copyFormattedEmail(draft);
-    window.open(href, "_blank", "noopener,noreferrer");
-  }
-
-  function openAllInOutlook() {
-    const readyDrafts = drafts.filter((draft) => String(draft.target_email ?? "").trim());
-    if (!readyDrafts.length) {
-      setError("No email-ready drafts available.");
-      return;
-    }
-
-    const firstDraft = readyDrafts[0];
-    if (!firstDraft) {
-      setError("No email-ready drafts available.");
-      return;
-    }
-
-    copyFormattedEmail(firstDraft).finally(() => {
-      const href = buildOutlookHref(firstDraft);
-      if (href) {
-        window.open(href, "_blank", "noopener,noreferrer");
-      }
-    });
-
-    if (readyDrafts.length > 1) {
-      setFeedback(
-        "Browsers only allow one Outlook compose window per click. The first email has been opened and copied with the full AnnS signature and logo. Use ‘Open in Outlook + copy formatted email’ on each draft for the rest."
-      );
     }
   }
 
@@ -460,6 +374,7 @@ export default function CampaignRunner({
       setChannel(String(data?.campaign?.channel ?? "email"));
       setGoal(String(data?.campaign?.goal ?? "introduction"));
       setTone(String(data?.campaign?.tone ?? "professional"));
+      setFeedback("Drafts generated.");
     } catch {
       setError("Could not generate drafts.");
     } finally {
@@ -467,7 +382,7 @@ export default function CampaignRunner({
     }
   }
 
-  async function copyCombined() {
+  async function copyCombinedNonEmail() {
     const blocks = drafts.map((draft) => {
       const parts = [
         `Type: ${draft.target_type}`,
@@ -475,7 +390,7 @@ export default function CampaignRunner({
         draft.contact_name ? `Contact: ${draft.contact_name}` : "",
         draft.subject ? `Subject: ${normaliseDraftSubject(draft.subject)}` : "",
         "Body:",
-        draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft),
+        normaliseDraftBody(draft.body),
       ].filter(Boolean);
       return parts.join("\n");
     });
@@ -488,32 +403,21 @@ export default function CampaignRunner({
   const supplierDrafts = drafts.filter((row) => row.target_type === "supplier").length;
   const gmailConnected = Boolean(gmailStatus?.connected);
   const selectedImageBytes = totalImageBytes(campaignImages);
+  const isEmailCampaign = channel === "email";
 
   return (
     <div style={cardStyle}>
       <h2 style={{ marginTop: 0, fontSize: 24 }}>Campaign Runner</h2>
       <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Generate one set of drafts across all leads, customers and suppliers linked to <strong>{campaignName}</strong>.
+        Generate drafts and send marketing emails through the Gmail API from <strong>{campaignName}</strong>.
       </p>
       <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
-        For Gmail API sending, you can attach campaign images below. Use the 1-email test first before sending a batch.
+        Outlook sending has been removed for campaign emails. Email campaigns must be sent through Gmail API so
+        unsubscribe links and headers are included.
       </p>
 
       {error ? (
-        <div
-          style={
-            error.toLowerCase().includes("copied") ||
-            error.toLowerCase().includes("opened") ||
-            error.toLowerCase().includes("sent through gmail") ||
-            error.toLowerCase().includes("connected") ||
-            error.toLowerCase().includes("disconnected") ||
-            error.toLowerCase().includes("first email")
-              ? successBox
-              : errorBox
-          }
-        >
-          {error}
-        </div>
+        <div style={isSuccessMessage(error) ? successBox : errorBox}>{error}</div>
       ) : null}
 
       <div style={summaryGrid}>
@@ -532,230 +436,248 @@ export default function CampaignRunner({
           {loading ? "Generating..." : "Generate all drafts"}
         </button>
 
-        {drafts.length > 0 ? (
-          <button type="button" onClick={copyCombined} style={secondaryBtn}>
+        {drafts.length > 0 && !isEmailCampaign ? (
+          <button type="button" onClick={copyCombinedNonEmail} style={secondaryBtn}>
             Copy all drafts
-          </button>
-        ) : null}
-
-        {channel === "email" && drafts.some((draft) => String(draft.target_email ?? "").trim()) ? (
-          <button type="button" onClick={openAllInOutlook} style={secondaryBtn}>
-            Open first in Outlook + copy formatted email
           </button>
         ) : null}
       </div>
 
-      <section style={{ ...panelStyle, marginTop: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>Campaign images</div>
-            <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
-              Optional. These images will be embedded into each Gmail API email and also attached inline.
+      {isEmailCampaign ? (
+        <section style={{ ...panelStyle, marginTop: 18 }}>
+          <div style={{ fontWeight: 1000, fontSize: 18 }}>Email sending method</div>
+          <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55 }}>
+            Campaign email sending is Gmail API only. Manual Outlook send/copy buttons have been removed so marketing
+            emails always include the unsubscribe footer, one-click unsubscribe link, and List-Unsubscribe headers.
+          </div>
+        </section>
+      ) : null}
+
+      {isEmailCampaign ? (
+        <section style={{ ...panelStyle, marginTop: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Campaign images</div>
+              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
+                Optional. These images will be embedded into each Gmail API email and attached inline.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <label style={secondaryBtn}>
+                Choose images
+                <input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleImageChange}
+                  style={{ display: "none" }}
+                />
+              </label>
+
+              {campaignImages.length > 0 ? (
+                <button type="button" onClick={clearCampaignImages} style={secondaryBtn}>
+                  Clear images
+                </button>
+              ) : null}
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-            <label style={secondaryBtn}>
-              Choose images
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageChange}
-                style={{ display: "none" }}
-              />
-            </label>
+          {imageError ? <div style={errorBox}>{imageError}</div> : null}
 
-            {campaignImages.length > 0 ? (
-              <button type="button" onClick={clearCampaignImages} style={secondaryBtn}>
-                Clear images
+          <div style={{ marginTop: 12, fontSize: 13, opacity: 0.72 }}>
+            Selected: {campaignImages.length}/{MAX_CAMPAIGN_IMAGES} images • Total size:{" "}
+            {formatBytes(selectedImageBytes)} / {formatBytes(MAX_TOTAL_IMAGE_BYTES)}
+          </div>
+
+          {campaignImages.length ? (
+            <div style={imageGridStyle}>
+              {campaignImages.map((image, index) => (
+                <div key={`${image.file.name}-${index}`} style={imageCardStyle}>
+                  <img src={image.url} alt={image.file.name} style={imagePreviewStyle} />
+
+                  <div style={{ padding: 10 }}>
+                    <div style={{ fontWeight: 900, fontSize: 13, wordBreak: "break-word" }}>
+                      {image.file.name}
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
+                      {formatBytes(image.file.size)}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeCampaignImage(index)}
+                      style={{ ...secondaryBtn, marginTop: 8, padding: "7px 10px" }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ ...panelStyle, marginTop: 12 }}>
+              No campaign images selected. Gmail API sends will go without extra crane photos.
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {isEmailCampaign ? (
+        <section style={{ ...panelStyle, marginTop: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Gmail API sender</div>
+              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
+                Sends campaign emails from the connected sales mailbox using Google OAuth.
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <button type="button" onClick={refreshGmailStatus} disabled={gmailStatusLoading} style={secondaryBtn}>
+                {gmailStatusLoading ? "Checking..." : "Refresh Gmail status"}
               </button>
+
+              {gmailConnected ? (
+                <button type="button" onClick={disconnectGmail} disabled={gmailStatusLoading || gmailSending} style={secondaryBtn}>
+                  Disconnect Gmail
+                </button>
+              ) : (
+                <button type="button" onClick={connectGmail} disabled={gmailStatusLoading} style={primaryBtn}>
+                  Connect Gmail
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+            <div style={gmailStatusLine}>
+              <strong>Status:</strong>{" "}
+              {gmailStatusLoading
+                ? "Checking..."
+                : gmailConnected
+                  ? `Connected as ${gmailStatus?.emailAddress || gmailStatus?.expectedEmail || "sales mailbox"}`
+                  : `Not connected${gmailStatus?.expectedEmail ? ` — expected ${gmailStatus.expectedEmail}` : ""}`}
+            </div>
+
+            {gmailStatus?.connectedByUsername ? (
+              <div style={gmailStatusLine}>
+                <strong>Connected by:</strong> {gmailStatus.connectedByUsername}
+              </div>
+            ) : null}
+
+            {gmailStatus?.updatedAt ? (
+              <div style={gmailStatusLine}>
+                <strong>Last updated:</strong> {new Date(gmailStatus.updatedAt).toLocaleString()}
+              </div>
+            ) : null}
+
+            {gmailStatus?.error ? (
+              <div style={errorBox}>{gmailStatus.error}</div>
             ) : null}
           </div>
-        </div>
 
-        {imageError ? <div style={errorBox}>{imageError}</div> : null}
-
-        <div style={{ marginTop: 12, fontSize: 13, opacity: 0.72 }}>
-          Selected: {campaignImages.length}/{MAX_CAMPAIGN_IMAGES} images • Total size:{" "}
-          {formatBytes(selectedImageBytes)} / {formatBytes(MAX_TOTAL_IMAGE_BYTES)}
-        </div>
-
-        {campaignImages.length ? (
-          <div style={imageGridStyle}>
-            {campaignImages.map((image, index) => (
-              <div key={`${image.file.name}-${index}`} style={imageCardStyle}>
-                <img src={image.url} alt={image.file.name} style={imagePreviewStyle} />
-
-                <div style={{ padding: 10 }}>
-                  <div style={{ fontWeight: 900, fontSize: 13, wordBreak: "break-word" }}>
-                    {image.file.name}
-                  </div>
-                  <div style={{ marginTop: 4, fontSize: 12, opacity: 0.7 }}>
-                    {formatBytes(image.file.size)}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removeCampaignImage(index)}
-                    style={{ ...secondaryBtn, marginTop: 8, padding: "7px 10px" }}
-                  >
-                    Remove
-                  </button>
+          {drafts.length > 0 ? (
+            <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+              <div style={unsubscribeNoticeStyle}>
+                <div style={{ fontWeight: 1000 }}>Unsubscribe protection enabled</div>
+                <div style={{ marginTop: 5 }}>
+                  Gmail API campaign sends include a unique one-click unsubscribe link, unsubscribe footer text,
+                  List-Unsubscribe header and List-Unsubscribe-Post header. Anyone who unsubscribes will be skipped
+                  from future marketing campaign sends.
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ ...panelStyle, marginTop: 12 }}>
-            No campaign images selected. Gmail API sends will go without extra crane photos.
-          </div>
-        )}
-      </section>
 
-      <section style={{ ...panelStyle, marginTop: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 18 }}>Gmail API sender</div>
-            <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
-              Sends campaign emails from the connected sales mailbox using Google OAuth.
-            </div>
-          </div>
+              <div style={gmailStatsGrid}>
+                <SummaryCard label="Email-ready drafts" value={String(emailDrafts.length)} />
+                <SummaryCard label="Sent this session" value={String(gmailSentKeys.length)} />
+                <SummaryCard label="Remaining" value={String(unsentEmailDrafts.length)} />
+                <SummaryCard label="Images selected" value={String(campaignImages.length)} />
+              </div>
 
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
-            <button type="button" onClick={refreshGmailStatus} disabled={gmailStatusLoading} style={secondaryBtn}>
-              {gmailStatusLoading ? "Checking..." : "Refresh Gmail status"}
-            </button>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={() => sendGmailBatch(1)}
+                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
+                  style={secondaryBtn}
+                >
+                  {gmailSending ? "Sending..." : "Send 1 test email through Gmail API"}
+                </button>
 
-            {gmailConnected ? (
-              <button type="button" onClick={disconnectGmail} disabled={gmailStatusLoading || gmailSending} style={secondaryBtn}>
-                Disconnect Gmail
-              </button>
-            ) : (
-              <button type="button" onClick={connectGmail} disabled={gmailStatusLoading} style={primaryBtn}>
-                Connect Gmail
-              </button>
-            )}
-          </div>
-        </div>
+                <button
+                  type="button"
+                  onClick={() => sendGmailBatch(25)}
+                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
+                  style={primaryBtn}
+                >
+                  {gmailSending ? "Sending..." : "Send next 25 through Gmail API"}
+                </button>
 
-        <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-          <div style={gmailStatusLine}>
-            <strong>Status:</strong>{" "}
-            {gmailStatusLoading
-              ? "Checking..."
-              : gmailConnected
-                ? `Connected as ${gmailStatus?.emailAddress || gmailStatus?.expectedEmail || "sales mailbox"}`
-                : `Not connected${gmailStatus?.expectedEmail ? ` — expected ${gmailStatus.expectedEmail}` : ""}`}
-          </div>
+                <button
+                  type="button"
+                  onClick={() => sendGmailBatch(50)}
+                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
+                  style={secondaryBtn}
+                >
+                  {gmailSending ? "Sending..." : "Send next 50"}
+                </button>
+              </div>
 
-          {gmailStatus?.connectedByUsername ? (
-            <div style={gmailStatusLine}>
-              <strong>Connected by:</strong> {gmailStatus.connectedByUsername}
+              <div style={{ fontSize: 13, opacity: 0.72 }}>
+                Use the 1-email test first. For image campaigns, batches of 25 are safer than 50 because each email is heavier.
+              </div>
             </div>
           ) : null}
 
-          {gmailStatus?.updatedAt ? (
-            <div style={gmailStatusLine}>
-              <strong>Last updated:</strong> {new Date(gmailStatus.updatedAt).toLocaleString()}
+          {gmailResult ? (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Last Gmail send result</div>
+              <div style={gmailStatsGrid}>
+                <SummaryCard label="Sent" value={String(gmailResult.sent?.length ?? 0)} />
+                <SummaryCard label="Failed" value={String(gmailResult.failed?.length ?? 0)} />
+                <SummaryCard label="Skipped" value={String(gmailResult.skipped?.length ?? 0)} />
+                <SummaryCard label="Images sent" value={String(gmailResult.imageCount ?? 0)} />
+                <SummaryCard label="Unsubscribe" value={gmailResult.unsubscribeEnabled ? "Enabled" : "—"} />
+                <SummaryCard label="Processed" value={String(gmailResult.processedCount ?? 0)} />
+              </div>
+
+              {gmailResult.imageFilenames?.length ? (
+                <div style={{ ...successBox, marginTop: 10 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Images included</div>
+                  {gmailResult.imageFilenames.map((filename) => (
+                    <div key={filename} style={{ marginTop: 4 }}>
+                      {filename}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {gmailResult.failed?.length ? (
+                <div style={{ ...errorBox, marginTop: 10 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Failed emails</div>
+                  {gmailResult.failed.map((row) => (
+                    <div key={`${row.key}-${row.to || "missing"}`} style={{ marginTop: 4 }}>
+                      {row.to || row.key}: {row.error}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {gmailResult.skipped?.length ? (
+                <div style={{ ...errorBox, marginTop: 10 }}>
+                  <div style={{ fontWeight: 900, marginBottom: 6 }}>Skipped emails</div>
+                  {gmailResult.skipped.map((row) => (
+                    <div key={row.key} style={{ marginTop: 4 }}>
+                      {row.key}: {row.reason}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
-
-          {gmailStatus?.error ? (
-            <div style={errorBox}>{gmailStatus.error}</div>
-          ) : null}
-        </div>
-
-        {drafts.length > 0 && channel === "email" ? (
-          <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-            <div style={gmailStatsGrid}>
-              <SummaryCard label="Email-ready drafts" value={String(emailDrafts.length)} />
-              <SummaryCard label="Sent this session" value={String(gmailSentKeys.length)} />
-              <SummaryCard label="Remaining" value={String(unsentEmailDrafts.length)} />
-              <SummaryCard label="Images selected" value={String(campaignImages.length)} />
-            </div>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button
-                type="button"
-                onClick={() => sendGmailBatch(1)}
-                disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
-                style={secondaryBtn}
-              >
-                {gmailSending ? "Sending..." : "Send 1 test email through Gmail API"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => sendGmailBatch(25)}
-                disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
-                style={primaryBtn}
-              >
-                {gmailSending ? "Sending..." : "Send next 25 through Gmail API"}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => sendGmailBatch(50)}
-                disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
-                style={secondaryBtn}
-              >
-                {gmailSending ? "Sending..." : "Send next 50"}
-              </button>
-            </div>
-
-            <div style={{ fontSize: 13, opacity: 0.72 }}>
-              Use the 1-email test first. For image campaigns, batches of 25 are safer than 50 because each email is heavier.
-            </div>
-          </div>
-        ) : null}
-
-        {gmailResult ? (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontWeight: 900, marginBottom: 8 }}>Last Gmail send result</div>
-            <div style={gmailStatsGrid}>
-              <SummaryCard label="Sent" value={String(gmailResult.sent?.length ?? 0)} />
-              <SummaryCard label="Failed" value={String(gmailResult.failed?.length ?? 0)} />
-              <SummaryCard label="Skipped" value={String(gmailResult.skipped?.length ?? 0)} />
-              <SummaryCard label="Images sent" value={String(gmailResult.imageCount ?? 0)} />
-              <SummaryCard label="Processed" value={String(gmailResult.processedCount ?? 0)} />
-            </div>
-
-            {gmailResult.imageFilenames?.length ? (
-              <div style={{ ...successBox, marginTop: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>Images included</div>
-                {gmailResult.imageFilenames.map((filename) => (
-                  <div key={filename} style={{ marginTop: 4 }}>
-                    {filename}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {gmailResult.failed?.length ? (
-              <div style={{ ...errorBox, marginTop: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>Failed emails</div>
-                {gmailResult.failed.map((row) => (
-                  <div key={`${row.key}-${row.to || "missing"}`} style={{ marginTop: 4 }}>
-                    {row.to || row.key}: {row.error}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-
-            {gmailResult.skipped?.length ? (
-              <div style={{ ...errorBox, marginTop: 10 }}>
-                <div style={{ fontWeight: 900, marginBottom: 6 }}>Skipped emails</div>
-                {gmailResult.skipped.map((row) => (
-                  <div key={row.key} style={{ marginTop: 4 }}>
-                    {row.key}: {row.reason}
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       {skipped.length > 0 ? (
         <section style={{ ...panelStyle, marginTop: 18 }}>
@@ -808,16 +730,6 @@ export default function CampaignRunner({
                     <a href={openHref} style={linkBtn}>
                       Open {draft.target_type}
                     </a>
-                    {channel === "email" && draft.target_email ? (
-                      <>
-                        <button type="button" onClick={() => copyFormattedEmail(draft)} style={secondaryBtn}>
-                          Copy formatted email
-                        </button>
-                        <button type="button" onClick={() => openInOutlookAndCopy(draft)} style={secondaryBtn}>
-                          Open in Outlook + copy email
-                        </button>
-                      </>
-                    ) : null}
                   </div>
                 </div>
 
@@ -827,15 +739,18 @@ export default function CampaignRunner({
                     <div style={{ marginTop: 4, fontWeight: 700, whiteSpace: "pre-wrap" }}>
                       {normaliseDraftSubject(draft.subject)}
                     </div>
-                    <div style={{ marginTop: 8 }}>
-                      <button
-                        type="button"
-                        onClick={() => copyText(normaliseDraftSubject(draft.subject), "Subject")}
-                        style={secondaryBtn}
-                      >
-                        Copy subject
-                      </button>
-                    </div>
+
+                    {!isEmailCampaign ? (
+                      <div style={{ marginTop: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => copyText(normaliseDraftSubject(draft.subject), "Subject")}
+                          style={secondaryBtn}
+                        >
+                          Copy subject
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -843,28 +758,25 @@ export default function CampaignRunner({
                   <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>Body</div>
                   <textarea
                     readOnly
-                    value={draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft)}
+                    value={normaliseDraftBody(draft.body)}
                     style={textareaStyle}
                   />
-                  <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        copyText(
-                          draft.channel === "email" ? getPlainBodyWithSignature(draft) : getPlainBody(draft),
-                          "Body"
-                        )
-                      }
-                      style={secondaryBtn}
-                    >
-                      Copy body
-                    </button>
-                    {draft.channel === "email" ? (
-                      <button type="button" onClick={() => copyFormattedEmail(draft)} style={secondaryBtn}>
-                        Copy body with logo signature
+
+                  {!isEmailCampaign ? (
+                    <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => copyText(normaliseDraftBody(draft.body), "Body")}
+                        style={secondaryBtn}
+                      >
+                        Copy body
                       </button>
-                    ) : null}
-                  </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
+                      Email copy buttons are disabled for marketing compliance. Use Gmail API sender above.
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1012,6 +924,15 @@ const sentBadge: React.CSSProperties = {
   border: "1px solid rgba(0,160,80,0.22)",
   fontSize: 12,
   fontWeight: 900,
+};
+
+const unsubscribeNoticeStyle: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(0,160,80,0.12)",
+  border: "1px solid rgba(0,160,80,0.22)",
+  fontSize: 13,
+  color: "#0b5f3a",
 };
 
 const imageGridStyle: React.CSSProperties = {
