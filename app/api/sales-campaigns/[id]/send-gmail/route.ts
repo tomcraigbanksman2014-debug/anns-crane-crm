@@ -1,3 +1,4 @@
+import { randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 import { canCreateCustomers, getAccessContext } from "../../../../lib/access";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
@@ -13,6 +14,9 @@ import {
   getFreshGmailAccessToken,
   getGmailSenderEmail,
 } from "../../../../lib/email/gmail";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type DraftInput = {
   target_type?: "lead" | "customer" | "supplier";
@@ -33,6 +37,12 @@ type CampaignImageAttachment = {
   size: number;
 };
 
+type UnsubscribeInfo = {
+  token: string;
+  url: string;
+  postUrl: string;
+};
+
 const MAX_CAMPAIGN_IMAGES = 5;
 const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -48,11 +58,39 @@ function getOrigin(req: Request) {
   return `${proto}://${host}`;
 }
 
+function normaliseEmail(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 function cleanEmail(value: unknown) {
   const email = String(value ?? "").trim();
   if (!email) return "";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return "";
   return email;
+}
+
+function cleanUuid(value: unknown) {
+  const text = String(value ?? "").trim();
+
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      text
+    )
+  ) {
+    return text;
+  }
+
+  return null;
+}
+
+function safeTargetType(value: unknown): "lead" | "customer" | "supplier" | "unknown" {
+  const type = String(value ?? "").trim().toLowerCase();
+
+  if (type === "lead" || type === "customer" || type === "supplier") {
+    return type;
+  }
+
+  return "unknown";
 }
 
 function keyForDraft(draft: DraftInput, index: number) {
@@ -61,10 +99,15 @@ function keyForDraft(draft: DraftInput, index: number) {
   return `${type}:${id}`;
 }
 
-function plainTextWithSignature(body: string) {
+function plainTextWithSignature(body: string, unsubscribeUrl: string) {
   const cleaned = normaliseDraftBody(body);
-  if (!cleaned) return SHARED_EMAIL_SIGNATURE_TEXT;
-  return `${cleaned}\n\n${SHARED_EMAIL_SIGNATURE_TEXT}`;
+  const footer = `To stop receiving marketing emails from AnnS Crane Hire, unsubscribe here: ${unsubscribeUrl} or reply “unsubscribe” and we’ll remove you from our mailing list.`;
+
+  if (!cleaned) {
+    return `${SHARED_EMAIL_SIGNATURE_TEXT}\n\n${footer}`;
+  }
+
+  return `${cleaned}\n\n${SHARED_EMAIL_SIGNATURE_TEXT}\n\n${footer}`;
 }
 
 function stripHeaderUnsafe(value: string) {
@@ -88,6 +131,14 @@ function sanitizeFilename(value: string, fallback: string) {
   return cleaned || fallback;
 }
 
+function escapeHtml(value: string) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function foldBase64(value: string) {
   return value.match(/.{1,76}/g)?.join("\r\n") ?? "";
 }
@@ -102,6 +153,10 @@ function toBase64Url(value: string) {
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/g, "");
+}
+
+function createToken() {
+  return randomBytes(32).toString("base64url");
 }
 
 function isFile(value: FormDataEntryValue): value is File {
@@ -154,7 +209,7 @@ function campaignImageHtml(images: CampaignImageAttachment[]) {
         <div style="margin:16px 0;">
           <img
             src="cid:${image.cid}"
-            alt="${image.filename.replace(/"/g, "&quot;")}"
+            alt="${escapeHtml(image.filename)}"
             style="display:block;max-width:100%;height:auto;border-radius:12px;border:1px solid #e5e7eb;"
           />
         </div>`
@@ -167,16 +222,29 @@ function campaignImageHtml(images: CampaignImageAttachment[]) {
     </div>`;
 }
 
-function injectCampaignImagesIntoHtml(html: string, images: CampaignImageAttachment[]) {
-  if (!images.length) return html;
+function unsubscribeHtml(unsubscribeUrl: string) {
+  const escapedUrl = escapeHtml(unsubscribeUrl);
 
-  const gallery = campaignImageHtml(images);
+  return `
+    <div style="margin-top:22px;padding-top:14px;border-top:1px solid #e5e7eb;color:#6b7280;font-size:12px;line-height:1.5;">
+      To stop receiving marketing emails from AnnS Crane Hire,
+      <a href="${escapedUrl}" style="color:#374151;text-decoration:underline;">click here to unsubscribe</a>
+      or reply “unsubscribe” and we’ll remove you from our mailing list.
+    </div>`;
+}
+
+function injectCampaignExtrasIntoHtml(
+  html: string,
+  images: CampaignImageAttachment[],
+  unsubscribeUrl: string
+) {
+  const extras = `${campaignImageHtml(images)}${unsubscribeHtml(unsubscribeUrl)}`;
 
   if (html.includes("</body>")) {
-    return html.replace("</body>", `${gallery}</body>`);
+    return html.replace("</body>", `${extras}</body>`);
   }
 
-  return `${html}${gallery}`;
+  return `${html}${extras}`;
 }
 
 function buildMimeMessage(args: {
@@ -187,6 +255,7 @@ function buildMimeMessage(args: {
   plainText: string;
   html: string;
   images: CampaignImageAttachment[];
+  unsubscribe: UnsubscribeInfo;
 }) {
   const mixedBoundary = `mixed_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const relatedBoundary = `related_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -198,6 +267,8 @@ function buildMimeMessage(args: {
   lines.push(`To: ${stripHeaderUnsafe(args.toEmail)}`);
   lines.push(`Subject: ${encodeHeader(args.subject)}`);
   lines.push(`Date: ${new Date().toUTCString()}`);
+  lines.push(`List-Unsubscribe: <${stripHeaderUnsafe(args.unsubscribe.url)}>, <mailto:${stripHeaderUnsafe(args.fromEmail)}?subject=unsubscribe>`);
+  lines.push("List-Unsubscribe-Post: List-Unsubscribe=One-Click");
   lines.push("MIME-Version: 1.0");
   lines.push(`Content-Type: multipart/mixed; boundary="${mixedBoundary}"`);
   lines.push("");
@@ -255,6 +326,7 @@ async function sendGmailMimeMessage(args: {
   plainText: string;
   html: string;
   images: CampaignImageAttachment[];
+  unsubscribe: UnsubscribeInfo;
 }) {
   const mime = buildMimeMessage(args);
   const raw = toBase64Url(mime);
@@ -303,6 +375,57 @@ async function readRequestPayload(req: Request) {
     drafts: Array.isArray(body?.drafts) ? (body.drafts as DraftInput[]) : [],
     batchLimit: Number(body?.batch_limit ?? DEFAULT_GMAIL_BATCH_LIMIT),
     images: [] as CampaignImageAttachment[],
+  };
+}
+
+async function isSuppressedEmail(admin: ReturnType<typeof createSupabaseAdminClient>, email: string) {
+  const emailNormalized = normaliseEmail(email);
+
+  if (!emailNormalized) return true;
+
+  const { data, error } = await admin
+    .from("marketing_unsubscribes")
+    .select("id")
+    .eq("email_normalized", emailNormalized)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return Boolean(data?.id);
+}
+
+async function createUnsubscribeInfo(args: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  origin: string;
+  email: string;
+  targetType: string;
+  targetId: string | null;
+  campaignId: string;
+}) {
+  const emailNormalized = normaliseEmail(args.email);
+  const token = createToken();
+
+  const { error } = await args.admin.from("marketing_unsubscribe_tokens").insert([
+    {
+      token,
+      email: args.email,
+      email_normalized: emailNormalized,
+      target_type: args.targetType,
+      target_id: args.targetId,
+      campaign_id: args.campaignId,
+    },
+  ]);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return {
+    token,
+    url: `${args.origin}/unsubscribe/${token}`,
+    postUrl: `${args.origin}/api/marketing/unsubscribe/${token}`,
   };
 }
 
@@ -370,15 +493,33 @@ export async function POST(
         continue;
       }
 
-      const subject = normaliseDraftSubject(String(draft.subject ?? "")) || "AnnS Crane Hire";
-      const plainText = plainTextWithSignature(String(draft.body ?? ""));
-      const baseHtml = buildFormattedEmailHtml({
-        body: String(draft.body ?? ""),
-        origin,
-      });
-      const html = injectCampaignImagesIntoHtml(baseHtml, campaignImages);
-
       try {
+        const suppressed = await isSuppressedEmail(admin, toEmail);
+
+        if (suppressed) {
+          skipped.push({ key, reason: "Recipient has unsubscribed from marketing emails." });
+          continue;
+        }
+
+        const targetType = safeTargetType(draft.target_type);
+        const targetId = cleanUuid(draft.target_id);
+        const unsubscribe = await createUnsubscribeInfo({
+          admin,
+          origin,
+          email: toEmail,
+          targetType,
+          targetId,
+          campaignId: params.id,
+        });
+
+        const subject = normaliseDraftSubject(String(draft.subject ?? "")) || "AnnS Crane Hire";
+        const plainText = plainTextWithSignature(String(draft.body ?? ""), unsubscribe.url);
+        const baseHtml = buildFormattedEmailHtml({
+          body: String(draft.body ?? ""),
+          origin,
+        });
+        const html = injectCampaignExtrasIntoHtml(baseHtml, campaignImages, unsubscribe.url);
+
         const result = await sendGmailMimeMessage({
           accessToken,
           fromEmail: senderEmail,
@@ -388,6 +529,7 @@ export async function POST(
           plainText,
           html,
           images: campaignImages,
+          unsubscribe,
         });
 
         sent.push({
@@ -422,6 +564,8 @@ export async function POST(
         skipped_count: skipped.length,
         image_count: campaignImages.length,
         image_total_bytes: campaignImages.reduce((sum, image) => sum + image.size, 0),
+        unsubscribe_footer_enabled: true,
+        list_unsubscribe_headers_enabled: true,
       },
     });
 
@@ -434,6 +578,7 @@ export async function POST(
       remainingCount: Math.max(0, drafts.length - selectedDrafts.length),
       imageCount: campaignImages.length,
       imageFilenames: campaignImages.map((image) => image.filename),
+      unsubscribeEnabled: true,
       sent,
       failed,
       skipped,
