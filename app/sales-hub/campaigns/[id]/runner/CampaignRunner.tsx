@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { normaliseDraftBody, normaliseDraftSubject } from "../../../../lib/emailSignature";
 
 type DraftRow = {
@@ -73,6 +73,9 @@ export default function CampaignRunner({
   const [goal, setGoal] = useState<string>("introduction");
   const [tone, setTone] = useState<string>("professional");
 
+  const [bulkSubject, setBulkSubject] = useState("");
+  const [bulkBody, setBulkBody] = useState("");
+
   const [gmailStatus, setGmailStatus] = useState<GmailStatus | null>(null);
   const [gmailStatusLoading, setGmailStatusLoading] = useState(false);
   const [gmailSending, setGmailSending] = useState(false);
@@ -137,9 +140,12 @@ export default function CampaignRunner({
       text.includes("sent through gmail") ||
       text.includes("connected") ||
       text.includes("disconnected") ||
-      text.includes("generated")
+      text.includes("generated") ||
+      text.includes("applied")
     );
   }
+
+  const isEmailCampaign = channel === "email";
 
   const emailDrafts = drafts.filter(
     (draft) =>
@@ -156,6 +162,45 @@ export default function CampaignRunner({
     window.setTimeout(() => {
       setError((current) => (current === message ? null : current));
     }, 2600);
+  }
+
+  function updateDraft(index: number, updates: Partial<DraftRow>) {
+    setDrafts((current) =>
+      current.map((draft, i) => (i === index ? { ...draft, ...updates } : draft))
+    );
+  }
+
+  function applyBulkMessageToAllDrafts() {
+    const subject = normaliseDraftSubject(bulkSubject);
+    const body = normaliseDraftBody(bulkBody);
+
+    if (!subject && !body) {
+      setError("Paste a subject or body before applying to all drafts.");
+      return;
+    }
+
+    setDrafts((current) =>
+      current.map((draft) => ({
+        ...draft,
+        subject: subject || draft.subject,
+        body: body || draft.body,
+      }))
+    );
+
+    setFeedback("Message applied to all drafts.");
+  }
+
+  function loadFirstDraftIntoBulkEditor() {
+    const first = drafts.find((draft) => String(draft.channel ?? "email").toLowerCase() === "email");
+
+    if (!first) {
+      setError("No email draft available to load.");
+      return;
+    }
+
+    setBulkSubject(normaliseDraftSubject(first.subject));
+    setBulkBody(normaliseDraftBody(first.body));
+    setFeedback("First draft loaded into shared editor.");
   }
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -369,11 +414,24 @@ export default function CampaignRunner({
         return;
       }
 
-      setDrafts(Array.isArray(data?.drafts) ? data.drafts : []);
+      const nextDrafts = Array.isArray(data?.drafts) ? data.drafts : [];
+      const nextChannel = String(data?.campaign?.channel ?? "email");
+
+      setDrafts(nextDrafts);
       setSkipped(Array.isArray(data?.skipped) ? data.skipped : []);
-      setChannel(String(data?.campaign?.channel ?? "email"));
+      setChannel(nextChannel);
       setGoal(String(data?.campaign?.goal ?? "introduction"));
       setTone(String(data?.campaign?.tone ?? "professional"));
+
+      const firstEmailDraft = nextDrafts.find(
+        (draft: DraftRow) => String(draft.channel ?? "email").toLowerCase() === "email"
+      );
+
+      if (firstEmailDraft) {
+        setBulkSubject(normaliseDraftSubject(firstEmailDraft.subject));
+        setBulkBody(normaliseDraftBody(firstEmailDraft.body));
+      }
+
       setFeedback("Drafts generated.");
     } catch {
       setError("Could not generate drafts.");
@@ -403,7 +461,6 @@ export default function CampaignRunner({
   const supplierDrafts = drafts.filter((row) => row.target_type === "supplier").length;
   const gmailConnected = Boolean(gmailStatus?.connected);
   const selectedImageBytes = totalImageBytes(campaignImages);
-  const isEmailCampaign = channel === "email";
 
   return (
     <div style={cardStyle}>
@@ -412,8 +469,7 @@ export default function CampaignRunner({
         Generate drafts and send marketing emails through the Gmail API from <strong>{campaignName}</strong>.
       </p>
       <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
-        Outlook sending has been removed for campaign emails. Email campaigns must be sent through Gmail API so
-        unsubscribe links and headers are included.
+        Email campaigns must be sent through Gmail API so unsubscribe links and headers are included.
       </p>
 
       {error ? (
@@ -442,6 +498,44 @@ export default function CampaignRunner({
           </button>
         ) : null}
       </div>
+
+      {isEmailCampaign && drafts.length > 0 ? (
+        <section style={{ ...panelStyle, marginTop: 18 }}>
+          <div style={{ fontWeight: 1000, fontSize: 18 }}>Shared campaign message</div>
+          <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
+            Paste the exact subject and email body once, then apply it to every email draft. The unsubscribe line is added automatically when sending.
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label style={labelStyle}>Subject to apply to all</label>
+            <input
+              value={bulkSubject}
+              onChange={(e) => setBulkSubject(e.target.value)}
+              style={inputStyle}
+              placeholder="New 40t Tadano Faun HK40 now available"
+            />
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <label style={labelStyle}>Email body to apply to all</label>
+            <textarea
+              value={bulkBody}
+              onChange={(e) => setBulkBody(e.target.value)}
+              style={{ ...textareaStyle, minHeight: 230 }}
+              placeholder="Paste the campaign email body here..."
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+            <button type="button" onClick={applyBulkMessageToAllDrafts} style={primaryBtn}>
+              Apply this message to all drafts
+            </button>
+            <button type="button" onClick={loadFirstDraftIntoBulkEditor} style={secondaryBtn}>
+              Load first draft into editor
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {isEmailCampaign ? (
         <section style={{ ...panelStyle, marginTop: 18 }}>
@@ -733,36 +827,28 @@ export default function CampaignRunner({
                   </div>
                 </div>
 
-                {draft.subject ? (
-                  <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>Subject</div>
-                    <div style={{ marginTop: 4, fontWeight: 700, whiteSpace: "pre-wrap" }}>
-                      {normaliseDraftSubject(draft.subject)}
-                    </div>
-
-                    {!isEmailCampaign ? (
-                      <div style={{ marginTop: 8 }}>
-                        <button
-                          type="button"
-                          onClick={() => copyText(normaliseDraftSubject(draft.subject), "Subject")}
-                          style={secondaryBtn}
-                        >
-                          Copy subject
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+                <div style={{ marginTop: 12 }}>
+                  <label style={labelStyle}>Subject</label>
+                  <input
+                    value={normaliseDraftSubject(draft.subject)}
+                    onChange={(e) => updateDraft(index, { subject: e.target.value })}
+                    style={inputStyle}
+                  />
+                </div>
 
                 <div style={{ marginTop: 12 }}>
-                  <div style={{ fontSize: 12, opacity: 0.7, fontWeight: 800 }}>Body</div>
+                  <label style={labelStyle}>Body</label>
                   <textarea
-                    readOnly
                     value={normaliseDraftBody(draft.body)}
+                    onChange={(e) => updateDraft(index, { body: e.target.value })}
                     style={textareaStyle}
                   />
 
-                  {!isEmailCampaign ? (
+                  {isEmailCampaign ? (
+                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
+                      The unsubscribe line is added automatically when the Gmail API sends the email.
+                    </div>
+                  ) : (
                     <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                       <button
                         type="button"
@@ -771,10 +857,6 @@ export default function CampaignRunner({
                       >
                         Copy body
                       </button>
-                    </div>
-                  ) : (
-                    <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
-                      Email copy buttons are disabled for marketing compliance. Use Gmail API sender above.
                     </div>
                   )}
                 </div>
@@ -843,6 +925,26 @@ const skipCard: React.CSSProperties = {
   borderRadius: 10,
   background: "rgba(255,255,255,0.64)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.85,
+  fontWeight: 900,
+};
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  minHeight: 44,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.9)",
+  boxSizing: "border-box",
 };
 
 const textareaStyle: React.CSSProperties = {
