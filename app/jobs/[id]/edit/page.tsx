@@ -3,6 +3,13 @@ import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../../lib/timeOptions";
+import MultiSupplierFields from "../../../components/MultiSupplierFields";
+import {
+  buildFallbackSupplierLink,
+  normaliseSupplierLinks,
+  parseSupplierLinksFromFormData,
+  replaceJobSupplierLinks,
+} from "../../../lib/jobSupplierLinks";
 
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -90,11 +97,13 @@ async function updateJob(formData: FormData) {
   const invoiceSubtotal = invoiceSubtotalInput > 0 ? invoiceSubtotalInput : calculatedSubtotal;
   const invoiceVat = Number((invoiceSubtotal * 0.2).toFixed(2));
   const invoiceTotal = Number((invoiceSubtotal + invoiceVat).toFixed(2));
+  const supplierLinks = parseSupplierLinksFromFormData(formData);
+  const primarySupplierLink = supplierLinks.find((row) => row.is_primary) ?? supplierLinks[0] ?? null;
 
   const payload = {
     client_id: clean(formData.get("client_id")) || null,
     equipment_id: clean(formData.get("equipment_id")) || null,
-    supplier_id: clean(formData.get("supplier_id")) || null,
+    supplier_id: (primarySupplierLink?.supplier_id ?? clean(formData.get("supplier_id"))) || null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
     contact_name: clean(formData.get("contact_name")) || null,
@@ -133,6 +142,12 @@ async function updateJob(formData: FormData) {
     redirect(`/jobs/${id}/edit?error=${encodeURIComponent(error.message)}`);
   }
 
+  try {
+    await replaceJobSupplierLinks(supabase, id, supplierLinks);
+  } catch (supplierError: any) {
+    redirect(`/jobs/${id}/edit?error=${encodeURIComponent(supplierError?.message || "Could not save job suppliers.")}`);
+  }
+
   redirect(`/jobs/${id}?success=${encodeURIComponent("Job updated.")}`);
 }
 
@@ -151,6 +166,7 @@ export default async function EditJobPage({
     { data: customers, error: customersError },
     { data: equipment, error: equipmentError },
     { data: suppliers, error: suppliersError },
+    { data: jobSupplierLinks },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -193,7 +209,7 @@ export default async function EditJobPage({
 
     supabase
       .from("clients")
-      .select("id, company_name, archived")
+      .select("id, company_name, category, archived")
       .eq("archived", false)
       .order("company_name", { ascending: true }),
 
@@ -205,9 +221,31 @@ export default async function EditJobPage({
 
     supabase
       .from("suppliers")
-      .select("id, company_name, archived")
+      .select("id, company_name, category, archived")
       .eq("archived", false)
       .order("company_name", { ascending: true }),
+
+    supabase
+      .from("job_supplier_links")
+      .select(`
+        id,
+        supplier_id,
+        supplier_display_name,
+        supplier_category,
+        supplier_reference,
+        service_description,
+        supplier_cost,
+        notes,
+        is_primary,
+        sort_order,
+        suppliers:supplier_id (
+          id,
+          company_name,
+          category
+        )
+      `)
+      .eq("job_id", params.id)
+      .order("sort_order", { ascending: true }),
   ]);
 
   const errorMessage =
@@ -226,6 +264,13 @@ export default async function EditJobPage({
   const currentInvoiceSubtotal = job?.invoice_subtotal ?? currentFullJobPrice ?? 0;
   const currentInvoiceVat = job?.invoice_vat ?? Number((Number(currentInvoiceSubtotal || 0) * 0.2).toFixed(2));
   const currentInvoiceTotal = job?.invoice_total ?? job?.total_invoice ?? Number((Number(currentInvoiceSubtotal || 0) + Number(currentInvoiceVat || 0)).toFixed(2));
+  const supplierLinksForForm = normaliseSupplierLinks(
+    jobSupplierLinks as any[] | null | undefined,
+    buildFallbackSupplierLink({
+      supplier_id: job?.supplier_id ?? null,
+      service_description: "Legacy / primary supplier",
+    })
+  );
 
   return (
     <ClientShell>
@@ -426,21 +471,19 @@ export default async function EditJobPage({
               </div>
             </section>
 
-            <details style={detailsBox}>
+            <details style={detailsBox} open>
               <summary style={detailsSummary}>Cross-hire / supplier details</summary>
 
               <div style={{ marginTop: 14 }}>
-                <div style={fieldWrap}>
-                  <label style={labelStyle}>Primary supplier</label>
-                  <select name="supplier_id" defaultValue={job.supplier_id ?? ""} style={inputStyle}>
-                    <option value="">No primary supplier</option>
-                    {(suppliers ?? []).map((supplier: any) => (
-                      <option key={supplier.id} value={supplier.id}>
-                        {supplier.company_name ?? "Unnamed supplier"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <input type="hidden" name="supplier_id" value={job.supplier_id ?? ""} />
+                <MultiSupplierFields
+                  initialLinks={supplierLinksForForm}
+                  supplierOptions={((suppliers as any[]) ?? []).map((supplier: any) => ({
+                    value: supplier.id,
+                    label: supplier.company_name ?? "Supplier",
+                    category: supplier.category ?? "",
+                  }))}
+                />
               </div>
             </details>
 
