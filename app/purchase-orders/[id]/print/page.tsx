@@ -14,6 +14,39 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
+type PrintablePOLine = {
+  description?: string | null;
+  qty?: string | number | null;
+  unit_cost?: string | number | null;
+  total_cost?: string | number | null;
+};
+
+function parsePdfLines(value: unknown): PrintablePOLine[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((line) => {
+      const row = line as PrintablePOLine;
+      const description = String(row.description ?? "").trim();
+      if (!description) return null;
+
+      const qty = row.qty === null || row.qty === undefined || row.qty === "" ? "1" : row.qty;
+      const unitCost = row.unit_cost === null || row.unit_cost === undefined ? "" : row.unit_cost;
+      const totalCost =
+        row.total_cost === null || row.total_cost === undefined || row.total_cost === ""
+          ? Number(qty || 0) * Number(unitCost || 0)
+          : row.total_cost;
+
+      return {
+        description,
+        qty,
+        unit_cost: unitCost,
+        total_cost: totalCost,
+      };
+    })
+    .filter(Boolean) as PrintablePOLine[];
+}
+
 export default async function PurchaseOrderPrintPage({
   params,
 }: {
@@ -82,12 +115,46 @@ export default async function PurchaseOrderPrintPage({
       : null;
   const linkedDate = transportJob?.transport_date ?? transportJob?.delivery_date ?? job?.job_date ?? null;
 
-  const total = Number((po as any)?.total_cost ?? 0);
+  const rawPdfSections = (po as any)?.pdf_sections;
+  const pdfSections =
+    rawPdfSections && typeof rawPdfSections === "object" && !Array.isArray(rawPdfSections)
+      ? (rawPdfSections as Record<string, unknown>)
+      : {};
+
+  const pdfText = (key: string, fallback: string | number | null | undefined = "") => {
+    const value = pdfSections[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+    return String(fallback ?? "");
+  };
+
+  const poNumber = pdfText("poNumber", (po as any)?.po_number ?? "—");
+  const supplierCompany = pdfText("supplierCompany", supplier?.company_name ?? "—");
+  const supplierReference = pdfText("supplierReference", (po as any)?.supplier_reference ?? "—");
+  const poStatus = pdfText("status", (po as any)?.status ?? "—");
+  const orderDate = pdfText("orderDate", fmtDate((po as any)?.order_date));
+  const requiredDate = pdfText("requiredDate", fmtDate((po as any)?.required_date));
+  const displayLinkedTitle = pdfText("linkedTitle", linkedTitle);
+  const displayLinkedReference = pdfText("linkedReference", linkedReference);
+  const displayLinkedSite = pdfText("linkedSite", linkedSite);
+  const displayPrimaryAddress = pdfText("primaryAddress", primaryAddress);
+  const displaySecondaryAddress = pdfText("secondaryAddress", secondaryAddress ?? "");
+  const displayLinkedDate = pdfText("linkedDate", fmtDate(linkedDate));
+  const invoiceInstruction = pdfText(
+    "invoiceInstruction",
+    "All supplier invoices for this purchase order must be sent to invoicespayable@annscranehire.co.uk and must quote the purchase order number."
+  );
+  const displayNotes = pdfText("notes", (po as any)?.notes ?? "—");
+  const pdfLines = parsePdfLines(pdfSections.lines);
+  const printableLines = pdfLines.length > 0 ? pdfLines : ((lines ?? []) as PrintablePOLine[]);
+  const total = pdfLines.length > 0
+    ? printableLines.reduce((sum, line) => sum + Number(line.total_cost ?? 0), 0)
+    : Number((po as any)?.total_cost ?? 0);
+  const displayTotal = pdfText("total", fmtMoney(total));
 
   return (
     <html>
       <head>
-        <title>Purchase Order {(po as any)?.po_number ?? ""}</title>
+        <title>Purchase Order {poNumber}</title>
         <style>{`
           @page {
             size: A4;
@@ -119,12 +186,12 @@ export default async function PurchaseOrderPrintPage({
             <div>
               <div style={{ fontSize: 28, fontWeight: 1000 }}>PURCHASE ORDER</div>
               <div style={{ marginTop: 6, opacity: 0.75 }}>
-                {(po as any)?.po_number ?? "—"}
+                {poNumber}
               </div>
             </div>
 
             <div className="po-print-actions">
-              <PrintPOActions backHref={`/purchase-orders/${params.id}`} />
+              <PrintPOActions backHref={`/purchase-orders/${params.id}`} editHref={`/purchase-orders/${params.id}/print/edit`} />
             </div>
           </div>
 
@@ -133,45 +200,49 @@ export default async function PurchaseOrderPrintPage({
           </div>
 
           <div style={companyBox}>
-            <div style={{ fontWeight: 1000, fontSize: 22 }}>Ann’s Crane Hire</div>
+            <div style={{ fontWeight: 1000, fontSize: 22 }}>AnnS Crane Hire Ltd</div>
             <div style={{ marginTop: 6, opacity: 0.8 }}>
-              Supplier order document for cross-hire cranes and equipment.
+              Supplier order document for cross-hire cranes, transport, equipment and labour.
             </div>
           </div>
+
+          <section style={invoiceInstructionStyle}>
+            <strong>Invoice instruction:</strong> {invoiceInstruction}
+          </section>
 
           <div style={gridStyle}>
             <section style={cardStyle}>
               <h2 style={sectionTitle}>Supplier</h2>
-              <div><strong>Company:</strong> {supplier?.company_name ?? "—"}</div>
-              <div><strong>Supplier ref:</strong> {(po as any)?.supplier_reference ?? "—"}</div>
-              <div><strong>Status:</strong> {(po as any)?.status ?? "—"}</div>
+              <div><strong>Company:</strong> {supplierCompany || "—"}</div>
+              <div><strong>Supplier ref:</strong> {supplierReference || "—"}</div>
+              <div><strong>Status:</strong> {poStatus || "—"}</div>
             </section>
 
             <section style={cardStyle}>
               <h2 style={sectionTitle}>Order details</h2>
-              <div><strong>Order date:</strong> {fmtDate((po as any)?.order_date)}</div>
-              <div><strong>Required date:</strong> {fmtDate((po as any)?.required_date)}</div>
-              <div><strong>Total:</strong> {fmtMoney((po as any)?.total_cost)}</div>
+              <div><strong>Order date:</strong> {orderDate || "—"}</div>
+              <div><strong>Required date:</strong> {requiredDate || "—"}</div>
+              <div><strong>Total:</strong> {displayTotal || fmtMoney(total)}</div>
             </section>
           </div>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
-            <h2 style={sectionTitle}>{linkedTitle}</h2>
+            <h2 style={sectionTitle}>{displayLinkedTitle || linkedTitle}</h2>
             <div>
-              <strong>{transportJob ? "Transport number" : "Job number"}:</strong> {linkedReference}
+              <strong>{transportJob ? "Transport number" : "Job number"}:</strong> {displayLinkedReference || "—"}
             </div>
-            <div><strong>Site:</strong> {linkedSite}</div>
-            <div><strong>Address:</strong> {primaryAddress}</div>
-            {secondaryAddress ? (
-              <div><strong>Delivery address:</strong> {secondaryAddress}</div>
+            <div><strong>Site:</strong> {displayLinkedSite || "—"}</div>
+            <div><strong>Address:</strong> {displayPrimaryAddress || "—"}</div>
+            {displaySecondaryAddress ? (
+              <div><strong>Delivery address:</strong> {displaySecondaryAddress}</div>
             ) : null}
-            <div><strong>Job date:</strong> {fmtDate(linkedDate)}</div>
+            <div><strong>Job date:</strong> {displayLinkedDate || "—"}</div>
           </section>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Line items</h2>
 
-            {!lines || lines.length === 0 ? (
+            {!printableLines || printableLines.length === 0 ? (
               <div>No line items added.</div>
             ) : (
               <table style={tableStyle}>
@@ -184,12 +255,12 @@ export default async function PurchaseOrderPrintPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((line: any) => (
-                    <tr key={line.id}>
+                  {printableLines.map((line: any, index: number) => (
+                    <tr key={line.id ?? `${line.description}-${index}`}>
                       <td style={tdStyle}>{line.description ?? "—"}</td>
                       <td style={tdStyle}>{line.qty ?? 0}</td>
                       <td style={tdStyle}>{fmtMoney(line.unit_cost)}</td>
-                      <td style={tdStyle}>{fmtMoney(line.total_cost)}</td>
+                      <td style={tdStyle}>{fmtMoney(line.total_cost ?? Number(line.qty ?? 0) * Number(line.unit_cost ?? 0))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -197,14 +268,14 @@ export default async function PurchaseOrderPrintPage({
             )}
 
             <div style={totalStyle}>
-              Total: {fmtMoney(total)}
+              Total: {displayTotal || fmtMoney(total)}
             </div>
           </section>
 
           <section style={{ ...cardStyle, marginTop: 16 }}>
             <h2 style={sectionTitle}>Notes</h2>
             <div style={{ whiteSpace: "pre-wrap" }}>
-              {(po as any)?.notes ?? "—"}
+              {displayNotes || "—"}
             </div>
           </section>
         </div>
@@ -255,6 +326,15 @@ const gridStyle: React.CSSProperties = {
   gridTemplateColumns: "1fr 1fr",
   gap: 16,
   marginTop: 16,
+};
+
+const invoiceInstructionStyle: React.CSSProperties = {
+  marginTop: 16,
+  padding: 14,
+  border: "2px solid #111",
+  background: "#fff",
+  fontSize: 15,
+  lineHeight: 1.45,
 };
 
 const cardStyle: React.CSSProperties = {
