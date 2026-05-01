@@ -24,6 +24,10 @@ async function getExactCount(query: any) {
 export default async function SalesHubPage() {
   const supabase = createSupabaseServerClient();
   const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const oneEightyDaysAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const yearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const [
     liveLeadsResult,
@@ -38,6 +42,17 @@ export default async function SalesHubPage() {
     activeCampaignsResult,
     openTasksResult,
     overdueTasksResult,
+    recentCraneJobsResult,
+    recentTransportJobsResult,
+    dormant90CraneResult,
+    dormant90TransportResult,
+    dormant180CraneResult,
+    dormant180TransportResult,
+    dormant365CraneResult,
+    dormant365TransportResult,
+    quoteFollowUpResult,
+    craneHistoryResponse,
+    transportHistoryResponse,
     nextFiveResponse,
     nextCampaignsResponse,
   ] = await Promise.all([
@@ -123,6 +138,88 @@ export default async function SalesHubPage() {
         .not("due_on", "is", null)
         .lt("due_on", today)
     ),
+    getExactCount(
+      supabase
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .gte("start_date", thirtyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("transport_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .gte("transport_date", thirtyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("start_date", ninetyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("transport_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("transport_date", ninetyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("start_date", oneEightyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("transport_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("transport_date", oneEightyDaysAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("start_date", yearAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("transport_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("archived", false)
+        .lt("transport_date", yearAgo)
+        .not("client_id", "is", null)
+    ),
+    getExactCount(
+      supabase
+        .from("quotes")
+        .select("id", { count: "exact", head: true })
+        .not("status", "in", "(Accepted,accepted,Won,won)")
+    ),
+    supabase
+      .from("jobs")
+      .select("client_id")
+      .eq("archived", false)
+      .not("client_id", "is", null)
+      .limit(5000),
+    supabase
+      .from("transport_jobs")
+      .select("client_id")
+      .eq("archived", false)
+      .not("client_id", "is", null)
+      .limit(5000),
     supabase
       .from("sales_leads")
       .select("id, company_name, status, next_follow_up_on")
@@ -151,6 +248,17 @@ export default async function SalesHubPage() {
     activeCampaignsResult.error,
     openTasksResult.error,
     overdueTasksResult.error,
+    recentCraneJobsResult.error,
+    recentTransportJobsResult.error,
+    dormant90CraneResult.error,
+    dormant90TransportResult.error,
+    dormant180CraneResult.error,
+    dormant180TransportResult.error,
+    dormant365CraneResult.error,
+    dormant365TransportResult.error,
+    quoteFollowUpResult.error,
+    craneHistoryResponse.error ? String(craneHistoryResponse.error.message ?? craneHistoryResponse.error) : null,
+    transportHistoryResponse.error ? String(transportHistoryResponse.error.message ?? transportHistoryResponse.error) : null,
     nextFiveResponse.error ? String(nextFiveResponse.error.message ?? nextFiveResponse.error) : null,
     nextCampaignsResponse.error
       ? String(nextCampaignsResponse.error.message ?? nextCampaignsResponse.error)
@@ -169,6 +277,54 @@ export default async function SalesHubPage() {
   const activeCampaigns = activeCampaignsResult.count;
   const openTasks = openTasksResult.count;
   const overdueTasks = overdueTasksResult.count;
+  const recentCustomerJobs = recentCraneJobsResult.count + recentTransportJobsResult.count;
+  const dormant90Jobs = dormant90CraneResult.count + dormant90TransportResult.count;
+  const dormant180Jobs = dormant180CraneResult.count + dormant180TransportResult.count;
+  const dormant365Jobs = dormant365CraneResult.count + dormant365TransportResult.count;
+  const quoteFollowUps = quoteFollowUpResult.count;
+  const craneCustomerIds = new Set((craneHistoryResponse.data ?? []).map((row: any) => String(row.client_id ?? "")).filter(Boolean));
+  const transportCustomerIds = new Set((transportHistoryResponse.data ?? []).map((row: any) => String(row.client_id ?? "")).filter(Boolean));
+  const transportOnlyPromptCount = Array.from(transportCustomerIds).filter((clientId) => !craneCustomerIds.has(clientId)).length;
+  const craneOnlyPromptCount = Array.from(craneCustomerIds).filter((clientId) => !transportCustomerIds.has(clientId)).length;
+
+  const smartPrompts = [
+    {
+      label: "Recent customer thank-you",
+      count: recentCustomerJobs,
+      href: "/sales-hub/campaigns?goal=recent_customer_thank_you&customer_group=recent_30",
+      note: "Actual crane/transport jobs in the last 30 days.",
+    },
+    {
+      label: "Dormant 90 / 180 / 365",
+      count: dormant90Jobs,
+      href: "/sales-hub/campaigns?goal=dormant_recovery&customer_group=dormant_90",
+      note: `Dormant job history: 90d ${dormant90Jobs}, 180d ${dormant180Jobs}, 365d ${dormant365Jobs}.`,
+    },
+    {
+      label: "Quote follow-up",
+      count: quoteFollowUps,
+      href: "/sales-hub/campaigns?goal=quote_follow_up&customer_group=quotes_not_accepted",
+      note: "Quotes not yet accepted or won.",
+    },
+    {
+      label: "Transport-only cross-sell",
+      count: transportOnlyPromptCount,
+      href: "/sales-hub/campaigns?goal=cross_sell&customer_group=transport_cross_sell&service_focus=mobile%20crane%20hire",
+      note: "Prompt crane hire to transport customers.",
+    },
+    {
+      label: "Crane-only cross-sell",
+      count: craneOnlyPromptCount,
+      href: "/sales-hub/campaigns?goal=cross_sell&customer_group=crane_cross_sell&service_focus=HIAB%20low%20loader%20transport",
+      note: "Prompt HIAB, low loader and transport support.",
+    },
+    {
+      label: "Availability notice",
+      count: 0,
+      href: "/sales-hub/campaigns?goal=availability",
+      note: "Start an availability-led campaign when kit or labour opens up.",
+    },
+  ];
 
   const nextFive = (nextFiveResponse.data ?? []).sort((a: any, b: any) =>
     String(a.next_follow_up_on ?? "").localeCompare(String(b.next_follow_up_on ?? ""))
@@ -228,6 +384,22 @@ export default async function SalesHubPage() {
           <StatCard label="Active templates" value={String(activeTemplates)} />
           <StatCard label="Active campaigns" value={String(activeCampaigns)} />
         </div>
+
+        <section style={{ ...cardStyle, marginTop: 16 }}>
+          <h2 style={sectionTitle}>Smart campaign prompts</h2>
+          <p style={{ marginTop: -8, opacity: 0.75 }}>
+            Suggestions are based on actual crane/transport job history and quote status, not broad activity.
+          </p>
+          <div style={promptGrid}>
+            {smartPrompts.map((prompt) => (
+              <a key={prompt.label} href={prompt.href} style={promptCard}>
+                <div style={{ fontWeight: 900 }}>{prompt.label}</div>
+                <div style={{ marginTop: 6, fontSize: 24, fontWeight: 1000 }}>{prompt.count}</div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>{prompt.note}</div>
+              </a>
+            ))}
+          </div>
+        </section>
 
         <div style={twoColGrid}>
           <section style={cardStyle}>
@@ -347,6 +519,23 @@ const statsGrid: CSSProperties = {
   gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
   gap: 12,
   marginTop: 16,
+};
+
+const promptGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const promptCard: CSSProperties = {
+  display: "block",
+  textDecoration: "none",
+  color: "#111",
+  padding: "14px 16px",
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.76)",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
 
 const twoColGrid: CSSProperties = {
