@@ -1,6 +1,6 @@
 "use client";
 
-export default function PrintPOActions({
+export default function PrintQuoteActions({
   backHref,
   editHref,
 }: {
@@ -8,23 +8,17 @@ export default function PrintPOActions({
   editHref?: string;
 }) {
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <button
-        type="button"
-        onClick={() => window.print()}
-        style={printBtn}
-      >
+    <div className="quote-print-hide" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <button type="button" onClick={() => window.print()} style={printBtn}>
         Print / Save PDF
       </button>
-
       {editHref ? (
         <a href={editHref} style={editBtn}>
           Edit PDF wording
         </a>
       ) : null}
-
       <a href={backHref} style={backBtn}>
-        Back to PO
+        Back to quote
       </a>
     </div>
   );
