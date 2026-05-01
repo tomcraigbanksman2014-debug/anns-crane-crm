@@ -29,7 +29,6 @@ const CHANNELS = ["email", "text", "linkedin"];
 const GOALS = [
   { value: "introduction", label: "General introduction" },
   { value: "recent_customer_thank_you", label: "Recent customer thank-you" },
-  { value: "supplier_cross_hire", label: "Supplier / cross-hire request" },
   { value: "dormant_recovery", label: "Dormant customer recovery" },
   { value: "quote_follow_up", label: "Quote follow-up" },
   { value: "cross_sell", label: "Cross-sell services" },
