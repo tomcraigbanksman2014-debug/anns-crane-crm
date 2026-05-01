@@ -2,8 +2,10 @@
 
 export default function PrintPOActions({
   backHref,
+  editHref,
 }: {
   backHref: string;
+  editHref?: string;
 }) {
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -14,6 +16,12 @@ export default function PrintPOActions({
       >
         Print / Save PDF
       </button>
+
+      {editHref ? (
+        <a href={editHref} style={editBtn}>
+          Edit PDF wording
+        </a>
+      ) : null}
 
       <a href={backHref} style={backBtn}>
         Back to PO
@@ -40,5 +48,16 @@ const backBtn: React.CSSProperties = {
   background: "#fff",
   color: "#111",
   fontWeight: 800,
+  textDecoration: "none",
+};
+
+const editBtn: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid #0f766e",
+  background: "#ecfdf5",
+  color: "#0f766e",
+  fontWeight: 900,
   textDecoration: "none",
 };
