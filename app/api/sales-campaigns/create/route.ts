@@ -130,8 +130,6 @@ export async function POST(req: Request) {
 
     const selectAllLeads = String(getValue("select_all_leads") ?? "") === "1";
     const selectAllCustomers = String(getValue("select_all_customers") ?? "") === "1";
-    const selectAllSuppliers = String(getValue("select_all_suppliers") ?? "") === "1";
-
     const leadIds = selectAllLeads
       ? uniqueStrings(String(getValue("all_lead_ids") ?? "").split(","))
       : uniqueStrings(getAllValues("lead_ids"));
@@ -140,16 +138,12 @@ export async function POST(req: Request) {
       ? uniqueStrings(String(getValue("all_customer_ids") ?? "").split(","))
       : uniqueStrings(getAllValues("customer_ids"));
 
-    const supplierIds = selectAllSuppliers
-      ? uniqueStrings(String(getValue("all_supplier_ids") ?? "").split(","))
-      : uniqueStrings(getAllValues("supplier_ids"));
-
     if (!name) {
       return fail("Campaign name is required.");
     }
 
-    if (!leadIds.length && !customerIds.length && !supplierIds.length) {
-      return fail("Select at least one lead, customer or supplier.");
+    if (!leadIds.length && !customerIds.length) {
+      return fail("Select at least one lead or customer.");
     }
 
     const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -222,18 +216,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (supplierIds.length) {
-      const { error: supplierLinkError } = await admin
-        .from("sales_campaign_suppliers")
-        .insert(supplierIds.map((supplierId) => ({ campaign_id: campaignId, supplier_id: supplierId })));
-
-      if (supplierLinkError) {
-        await admin.from("sales_campaign_leads").delete().eq("campaign_id", campaignId);
-        await admin.from("sales_campaign_customers").delete().eq("campaign_id", campaignId);
-        await admin.from("sales_campaigns").delete().eq("id", campaignId);
-        return fail(`Supplier link failed: ${supplierLinkError.message}`);
-      }
-    }
+    // Supplier/cross-hire campaign targeting has been removed from the campaign engine.
 
     await writeAuditLog({
       actor_user_id: user.id,
@@ -250,7 +233,7 @@ export async function POST(req: Request) {
         template_id: templateId,
         selected_lead_count: leadIds.length,
         selected_customer_count: customerIds.length,
-        selected_supplier_count: supplierIds.length,
+        selected_supplier_count: 0,
         service_focus: serviceFocus,
       },
     });
