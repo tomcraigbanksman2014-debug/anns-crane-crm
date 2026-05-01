@@ -1,3 +1,5 @@
+type SupplierLookupRow = { id: string; company_name?: string | null; category?: string | null };
+
 export type SupplierLinkInput = {
   supplier_id: string | null;
   supplier_display_name: string | null;
@@ -142,7 +144,10 @@ async function enrichSupplierLinks(supabase: any, rows: SupplierLinkInput[]) {
     .select("id, company_name, category")
     .in("id", ids);
 
-  const supplierMap = new Map((data ?? []).map((row: any) => [row.id, row]));
+  const supplierMap = new Map<string, SupplierLookupRow>();
+  (data ?? []).forEach((row: SupplierLookupRow) => {
+    if (row?.id) supplierMap.set(String(row.id), row);
+  });
 
   return rows.map((row) => {
     const supplier = row.supplier_id ? supplierMap.get(row.supplier_id) : null;
