@@ -241,7 +241,7 @@ export default async function QuotePdfEditorPage({
                 name="breakdown"
                 defaultValue={fromPdf("breakdown", parsed.fields.breakdown)}
                 rows={8}
-                hint="Best format: Qty | Description | Rate. Two-column format Description | Rate also works and prints the rate in the rate column."
+                hint="Best format: Description | £Cost. You can also paste lines like £2600 as a contract lift and the PDF will print the wording on the left with the cost on the right."
               />
               <div style={twoColStyle}>
                 <Field label="Additional equipment & personnel" name="additionalEquipment" defaultValue={fromPdf("additionalEquipment", parsed.fields.additionalEquipment)} rows={6} />
