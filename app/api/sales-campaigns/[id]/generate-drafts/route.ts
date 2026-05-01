@@ -9,6 +9,7 @@ import {
   normaliseDraftBody,
   normaliseDraftSubject,
 } from "../../../../lib/emailSignature";
+import { checkMarketingSuppression } from "../../../../lib/marketingSuppression";
 
 type Channel = "email" | "text" | "linkedin";
 type Goal =
@@ -503,7 +504,6 @@ export async function POST(
       { data: campaign, error: campaignError },
       { data: leadLinks, error: leadLinksError },
       { data: customerLinks, error: customerLinksError },
-      { data: supplierLinks, error: supplierLinksError },
     ] = await Promise.all([
       supabase
         .from("sales_campaigns")
@@ -561,25 +561,6 @@ export async function POST(
         `)
         .eq("campaign_id", params.id)
         .order("created_at", { ascending: true }),
-      supabase
-        .from("sales_campaign_suppliers")
-        .select(`
-          id,
-          supplier_id,
-          suppliers:supplier_id (
-            id,
-            company_name,
-            contact_name,
-            email,
-            phone,
-            category,
-            address,
-            notes,
-            archived
-          )
-        `)
-        .eq("campaign_id", params.id)
-        .order("created_at", { ascending: true }),
     ]);
 
     if (campaignError || !campaign) {
@@ -594,10 +575,6 @@ export async function POST(
       return NextResponse.json({ error: customerLinksError.message }, { status: 400 });
     }
 
-    if (supplierLinksError) {
-      return NextResponse.json({ error: supplierLinksError.message }, { status: 400 });
-    }
-
     const template = safeArray((campaign as any).sales_templates)[0] ?? null;
     const channel = normaliseChannel((campaign as any).channel || template?.channel);
     const goal = normaliseGoal((campaign as any).goal || template?.goal);
@@ -605,8 +582,7 @@ export async function POST(
 
     const totalTargets =
       (leadLinks?.length ?? 0) +
-      (customerLinks?.length ?? 0) +
-      (supplierLinks?.length ?? 0);
+      (customerLinks?.length ?? 0);
 
     const purposeSpecificFallbackGoals: Goal[] = [
       "recent_customer_thank_you",
@@ -618,7 +594,7 @@ export async function POST(
     const forceFallback = totalTargets > 25 || purposeSpecificFallbackGoals.includes(goal);
 
     const drafts: Array<{
-      target_type: "lead" | "customer" | "supplier";
+      target_type: "lead" | "customer";
       target_id: string;
       company_name: string;
       contact_name: string;
@@ -631,7 +607,7 @@ export async function POST(
     }> = [];
 
     const skipped: Array<{
-      target_type: "lead" | "customer" | "supplier";
+      target_type: "lead" | "customer";
       target_id: string;
       company_name: string;
       reason: string;
@@ -659,6 +635,19 @@ export async function POST(
           reason: "Lead has no email saved.",
         });
         continue;
+      }
+
+      if (channel === "email") {
+        const suppression = await checkMarketingSuppression(supabase, lead.email);
+        if (suppression.suppressed) {
+          skipped.push({
+            target_type: "lead",
+            target_id: String(lead.id),
+            company_name: String(lead.company_name ?? "Unknown lead"),
+            reason: suppression.reason || "Email is suppressed for marketing.",
+          });
+          continue;
+        }
       }
 
       if (channel === "text" && !lead.phone) {
@@ -748,6 +737,19 @@ export async function POST(
         continue;
       }
 
+      if (channel === "email") {
+        const suppression = await checkMarketingSuppression(supabase, customer.email);
+        if (suppression.suppressed) {
+          skipped.push({
+            target_type: "customer",
+            target_id: String(customer.id),
+            company_name: String(customer.company_name ?? "Unknown customer"),
+            reason: suppression.reason || "Email is suppressed for marketing.",
+          });
+          continue;
+        }
+      }
+
       if (channel === "text" && !customer.phone) {
         skipped.push({
           target_type: "customer",
@@ -814,97 +816,7 @@ export async function POST(
       });
     }
 
-    for (const row of supplierLinks ?? []) {
-      const supplier = safeArray((row as any).suppliers)[0] ?? null;
-      if (!supplier?.id) continue;
-
-      if (supplier.archived) {
-        skipped.push({
-          target_type: "supplier",
-          target_id: String(supplier.id),
-          company_name: String(supplier.company_name ?? "Unknown supplier"),
-          reason: "Supplier is archived.",
-        });
-        continue;
-      }
-
-      if (channel === "email" && !supplier.email) {
-        skipped.push({
-          target_type: "supplier",
-          target_id: String(supplier.id),
-          company_name: String(supplier.company_name ?? "Unknown supplier"),
-          reason: "Supplier has no email saved.",
-        });
-        continue;
-      }
-
-      if (channel === "text" && !supplier.phone) {
-        skipped.push({
-          target_type: "supplier",
-          target_id: String(supplier.id),
-          company_name: String(supplier.company_name ?? "Unknown supplier"),
-          reason: "Supplier has no phone saved.",
-        });
-        continue;
-      }
-
-      const supplierGoal: Goal = goal === "recent_customer_thank_you" ? "introduction" : goal;
-
-      const serviceFocus =
-        clean((campaign as any).service_focus) ||
-        clean(template?.service_focus) ||
-        clean(supplier.category) ||
-        "mobile crane hire, transport or lifting support";
-
-      const availabilityNote =
-        clean((campaign as any).availability_note) ||
-        clean(template?.availability_note);
-
-      const customCta = clean(template?.custom_cta);
-      const subjectHint = clean(template?.subject_hint);
-      const bodyHint = clean(template?.body_hint);
-
-      const supplierArgs = {
-        lead: {
-          company_name: supplier.company_name,
-          contact_name: supplier.contact_name,
-          area: clean(supplier.address),
-          industry: clean(supplier.category) || "supplier",
-          services: serviceFocus ? [serviceFocus] : null,
-        },
-        channel,
-        goal: supplierGoal,
-        tone,
-        serviceFocus,
-        availabilityNote,
-        customCta,
-        subjectHint,
-        bodyHint,
-      };
-
-      const { draft, provider } = forceFallback
-        ? { draft: buildQuickCampaignDraft(supplierArgs), provider: "fallback" as const }
-        : await generateSalesDraftWithFallback({ ...supplierArgs, goal: aiSafeGoal(supplierGoal) });
-
-      const finalDraft = finaliseCampaignDraftOutput({
-        channel,
-        subject: draft.subject,
-        body: draft.body,
-      });
-
-      drafts.push({
-        target_type: "supplier",
-        target_id: String(supplier.id),
-        company_name: String(supplier.company_name ?? "Unknown supplier"),
-        contact_name: String(supplier.contact_name ?? ""),
-        channel,
-        subject: finalDraft.subject,
-        body: finalDraft.body,
-        provider,
-        target_email: String(supplier.email ?? "").trim() || null,
-        target_phone: String(supplier.phone ?? "").trim() || null,
-      });
-    }
+    // Supplier/cross-hire campaign targets have been deliberately removed from marketing campaigns.
 
     await writeAuditLog({
       actor_user_id: user.id,
@@ -915,7 +827,7 @@ export async function POST(
       meta: {
         lead_draft_count: drafts.filter((row) => row.target_type === "lead").length,
         customer_draft_count: drafts.filter((row) => row.target_type === "customer").length,
-        supplier_draft_count: drafts.filter((row) => row.target_type === "supplier").length,
+        supplier_draft_count: 0,
         skipped_count: skipped.length,
         provider_mode: forceFallback ? "fallback_batch" : "ai_or_fallback",
         total_targets: totalTargets,
