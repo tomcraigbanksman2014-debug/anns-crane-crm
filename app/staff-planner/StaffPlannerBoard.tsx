@@ -19,6 +19,7 @@ type AvailabilityEntry = {
   status?: string | null;
   notes?: string | null;
   blocks_assignment?: boolean | null;
+  working_day_count?: number | null;
 };
 
 type AssignedJob = {
@@ -50,6 +51,7 @@ type OperatorRow = {
   entries: AvailabilityEntry[];
   assigned_jobs: AssignedJob[];
   assigned_transport_jobs: AssignedTransportJob[];
+  holiday_working_days?: number | null;
 };
 
 type BoardResponse = {
@@ -112,6 +114,31 @@ function entryMatchesDay(entry: AvailabilityEntry, dayIso: string) {
   const end = clean(entry.end_date) ?? start;
   if (!start || !end) return false;
   return start <= dayIso && end >= dayIso;
+}
+
+function countWorkingDaysInclusive(startDate: string | null | undefined, endDate: string | null | undefined) {
+  const startText = clean(startDate);
+  const endText = clean(endDate) ?? startText;
+  if (!startText || !endText) return 0;
+
+  const start = new Date(`${startText}T00:00:00`);
+  const end = new Date(`${endText}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+
+  let total = 0;
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    const day = cursor.getDay();
+    if (day !== 0 && day !== 6) total += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return total;
+}
+
+function holidayWorkingDays(entry: AvailabilityEntry) {
+  const saved = Number(entry.working_day_count ?? 0);
+  if (saved > 0) return saved;
+  return countWorkingDaysInclusive(entry.start_date, entry.end_date);
 }
 
 function statusLabel(value: string | null | undefined) {
@@ -229,6 +256,20 @@ export default function StaffPlannerBoard() {
       crane: operator.assigned_jobs?.length ?? 0,
       transport: operator.assigned_transport_jobs?.length ?? 0,
     }));
+  }, [operators]);
+
+  const weeklyHolidayWorkingDays = useMemo(() => {
+    return operators.reduce((sum, operator) => {
+      const fromApi = Number(operator.holiday_working_days ?? 0);
+      if (fromApi > 0) return sum + fromApi;
+
+      return (
+        sum +
+        (operator.entries ?? [])
+          .filter((entry) => String(entry.status ?? "").toLowerCase() === "holiday")
+          .reduce((entrySum, entry) => entrySum + holidayWorkingDays(entry), 0)
+      );
+    }, 0);
   }, [operators]);
 
   function setField<K extends keyof FormState>(key: K, value: FormState[K]) {
@@ -403,6 +444,13 @@ export default function StaffPlannerBoard() {
           </div>
 
           <div style={sectionCard}>
+            <div style={summaryInline}>
+              <strong>Holiday working days this week:</strong> {weeklyHolidayWorkingDays}
+              <span style={{ opacity: 0.72 }}>Weekends are excluded from holiday totals.</span>
+            </div>
+          </div>
+
+          <div style={sectionCard}>
             <div style={sectionTitle}>Weekly board</div>
             <div style={desktopGrid(days.length)}>
               <div style={headCell}>Staff / Week</div>
@@ -435,6 +483,11 @@ export default function StaffPlannerBoard() {
                               <div>
                                 <div style={{ fontWeight: 900 }}>{statusLabel(entry.status)}</div>
                                 <div style={{ marginTop: 4, fontSize: 12 }}>{formatDateRange(entry.start_date, entry.end_date)}</div>
+                                {String(entry.status ?? "").toLowerCase() === "holiday" ? (
+                                  <div style={{ marginTop: 2, fontSize: 12, fontWeight: 800 }}>
+                                    {holidayWorkingDays(entry)} working day{holidayWorkingDays(entry) === 1 ? "" : "s"}
+                                  </div>
+                                ) : null}
                                 {clean(entry.start_time) || clean(entry.end_time) ? (
                                   <div style={{ marginTop: 2, fontSize: 12 }}>{clean(entry.start_time) ?? "—"} → {clean(entry.end_time) ?? "—"}</div>
                                 ) : null}
@@ -487,6 +540,14 @@ const toolbarStyle: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const summaryInline: React.CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: 10,
+  alignItems: "center",
+  fontSize: 13,
 };
 
 const sectionCard: React.CSSProperties = {
