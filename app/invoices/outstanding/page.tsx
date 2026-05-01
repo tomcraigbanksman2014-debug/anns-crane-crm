@@ -22,13 +22,17 @@ function invoiceStatus(value: unknown) {
 }
 
 function outstandingAmount(row: any) {
-  return (
+  const total =
     Number(row?.invoice_total ?? 0) ||
     Number(row?.total_invoice ?? 0) ||
     Number(row?.invoice_amount ?? 0) ||
     Number(row?.invoice_subtotal ?? 0) ||
-    0
-  );
+    Number(row?.agreed_sell_rate ?? 0) ||
+    Number(row?.price ?? 0) ||
+    0;
+
+  const paid = Number(row?.amount_paid ?? 0) || 0;
+  return Math.max(total - paid, 0);
 }
 
 function activeOutstanding(row: any) {
@@ -46,14 +50,14 @@ export default async function OutstandingInvoicesPage() {
     supabase
       .from("jobs")
       .select("id, job_number, site_name, start_date, end_date, status, invoice_status, invoice_total, total_invoice, invoice_amount, invoice_subtotal, clients:client_id(company_name)")
-      .eq("archived", false)
+      .or("archived.is.null,archived.eq.false")
       .neq("status", "cancelled")
       .order("start_date", { ascending: false })
       .limit(250),
     supabase
       .from("transport_jobs")
-      .select("id, transport_number, collection_address, delivery_address, transport_date, delivery_date, status, invoice_status, invoice_total, total_invoice, invoice_amount, invoice_subtotal, clients:client_id(company_name)")
-      .eq("archived", false)
+      .select("id, transport_number, collection_address, delivery_address, transport_date, delivery_date, status, invoice_status, invoice_total, total_invoice, invoice_subtotal, agreed_sell_rate, price, amount_paid, clients:client_id(company_name)")
+      .or("archived.is.null,archived.eq.false")
       .neq("status", "cancelled")
       .order("transport_date", { ascending: false })
       .limit(250),
