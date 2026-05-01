@@ -4,6 +4,13 @@ import JobEquipmentManager from "./JobEquipmentManager";
 import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
 import DuplicateJobButton from "./DuplicateJobButton";
+import MultiSupplierFields from "../../components/MultiSupplierFields";
+import {
+  buildFallbackSupplierLink,
+  normaliseSupplierLinks,
+  parseSupplierLinksFromFormData,
+  replaceJobSupplierLinks,
+} from "../../lib/jobSupplierLinks";
 import { redirect } from "next/navigation";
 
 import ServerSubmitButton from "../../components/ServerSubmitButton";
@@ -142,6 +149,27 @@ function documentHref(filePath: string | null | undefined) {
   return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
 }
 
+async function updateJobSuppliers(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const jobId = String(formData.get("job_id") ?? "").trim();
+
+  if (!jobId) {
+    redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
+  }
+
+  const supplierLinks = parseSupplierLinksFromFormData(formData);
+
+  try {
+    await replaceJobSupplierLinks(supabase, jobId, supplierLinks);
+  } catch (error: any) {
+    redirect(`/jobs/${jobId}?error=${encodeURIComponent(error?.message || "Could not save job suppliers.")}`);
+  }
+
+  redirect(`/jobs/${jobId}?success=${encodeURIComponent("Job suppliers updated.")}`);
+}
+
 async function createPurchaseOrderFromJob(formData: FormData) {
   "use server";
 
@@ -234,6 +262,7 @@ export default async function JobDetailPage({
     { data: supplierList },
     { data: poList },
     { data: jobDocuments },
+    { data: jobSupplierLinks },
   ] = await Promise.all([
     supabase
       .from("jobs")
@@ -370,6 +399,28 @@ export default async function JobDetailPage({
       .select("id, file_name, file_path, file_type, document_type, created_at, share_with_operator")
       .eq("job_id", params.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("job_supplier_links")
+      .select(`
+        id,
+        supplier_id,
+        supplier_display_name,
+        supplier_category,
+        supplier_reference,
+        service_description,
+        supplier_cost,
+        notes,
+        is_primary,
+        sort_order,
+        suppliers:supplier_id (
+          id,
+          company_name,
+          category
+        )
+      `)
+      .eq("job_id", params.id)
+      .order("sort_order", { ascending: true }),
   ]);
 
   const client = first((job as any)?.clients);
@@ -385,6 +436,17 @@ export default async function JobDetailPage({
   const primarySupplierCost = Number((job as any)?.cross_hire_cost_total ?? 0);
   const primarySupplierReference =
     allocationList.find((item) => item?.supplier_reference)?.supplier_reference ?? null;
+  const supplierLinks = normaliseSupplierLinks(
+    jobSupplierLinks as any[] | null | undefined,
+    buildFallbackSupplierLink({
+      supplier_id: (job as any)?.supplier_id ?? null,
+      supplier_display_name: linkedSupplier?.company_name ?? null,
+      supplier_category: linkedSupplier?.category ?? null,
+      supplier_reference: primarySupplierReference,
+      service_description: "Legacy / primary supplier",
+      supplier_cost: primarySupplierCost || null,
+    })
+  );
 
   const allocatedSellSubtotal = allocationList.reduce(
     (sum, item) => sum + Number(item?.agreed_sell_rate ?? 0),
@@ -545,6 +607,27 @@ export default async function JobDetailPage({
                   <Row label="Phone" value={client?.phone ?? "—"} />
                   <Row label="Email" value={client?.email ?? "—"} />
                 </div>
+              </section>
+
+              <section style={cardStyle}>
+                <form action={updateJobSuppliers} style={{ display: "grid", gap: 12 }}>
+                  <input type="hidden" name="job_id" value={(job as any).id} />
+                  <MultiSupplierFields
+                    title="Suppliers / subcontractors"
+                    help="Add all crane suppliers, cross-hires, subcontractors, labour, mats or transport support linked to this job. The main supplier keeps legacy PO/planner logic working."
+                    initialLinks={supplierLinks}
+                    supplierOptions={((supplierList as any[]) ?? []).map((supplier: any) => ({
+                      value: supplier.id,
+                      label: supplier.company_name ?? "Supplier",
+                      category: supplier.category ?? "",
+                    }))}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Saving suppliers…">
+                      Save suppliers
+                    </ServerSubmitButton>
+                  </div>
+                </form>
               </section>
 
               <JobEquipmentManager
