@@ -271,27 +271,48 @@ export function parseBreakdownRows(value: string | null | undefined): Array<{
     }
 
     if (parts.length === 2) {
+      const firstPartLooksLikeMoney = /^£\s*\d/i.test(parts[0]);
+      const secondPartLooksLikeMoney = /^£\s*\d/i.test(parts[1]);
       const firstPartLooksLikeQty = /^(\d+(?:\.\d+)?\s*(?:x|no|nr|day|days|hr|hrs|hour|hours)?|one|two|three|four|five)$/i.test(parts[0]);
 
-      return firstPartLooksLikeQty
-        ? {
-            qty: parts[0],
-            description: parts[1],
-            rate: "",
-          }
-        : {
-            qty: "",
-            description: parts[0],
-            rate: parts[1],
-          };
-    }
+      if (firstPartLooksLikeMoney && !secondPartLooksLikeMoney) {
+        return {
+          qty: "",
+          description: parts[1],
+          rate: parts[0],
+        };
+      }
 
-    const moneyMatch = line.match(/^(.*?)(£\s*\d[\d,]*(?:\.\d{2})?.*)$/);
-    if (moneyMatch) {
+      if (firstPartLooksLikeQty && !secondPartLooksLikeMoney) {
+        return {
+          qty: parts[0],
+          description: parts[1],
+          rate: "",
+        };
+      }
+
       return {
         qty: "",
-        description: moneyMatch[1]?.trim() || line,
-        rate: moneyMatch[2]?.trim() || "",
+        description: parts[0],
+        rate: parts[1],
+      };
+    }
+
+    const moneyAtStartMatch = line.match(/^(£\s*\d[\d,]*(?:\.\d{2})?)(?:\s+(.+))?$/i);
+    if (moneyAtStartMatch) {
+      return {
+        qty: "",
+        description: moneyAtStartMatch[2]?.trim() || line,
+        rate: moneyAtStartMatch[1]?.trim() || "",
+      };
+    }
+
+    const moneyAtEndMatch = line.match(/^(.+?)\s+(£\s*\d[\d,]*(?:\.\d{2})?)$/i);
+    if (moneyAtEndMatch) {
+      return {
+        qty: "",
+        description: moneyAtEndMatch[1]?.trim() || line,
+        rate: moneyAtEndMatch[2]?.trim() || "",
       };
     }
 
