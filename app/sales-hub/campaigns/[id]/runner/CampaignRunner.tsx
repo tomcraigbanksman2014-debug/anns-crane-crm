@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { normaliseDraftBody, normaliseDraftSubject } from "../../../../lib/emailSignature";
 
 type DraftRow = {
-  target_type: "lead" | "customer" | "supplier";
+  target_type: "lead" | "customer";
   target_id: string;
   company_name: string;
   contact_name: string;
@@ -17,7 +17,7 @@ type DraftRow = {
 };
 
 type SkippedRow = {
-  target_type: "lead" | "customer" | "supplier";
+  target_type: "lead" | "customer";
   target_id: string;
   company_name: string;
   reason: string;
@@ -137,8 +137,10 @@ export default function CampaignRunner({
   function isSuccessMessage(value: string) {
     const text = value.toLowerCase();
     return (
-      text.includes("sent through gmail") ||
+      text.includes("sent through microsoft") ||
+      text.includes("sent through microsoft graph") ||
       text.includes("connected") ||
+      text.includes("configured") ||
       text.includes("disconnected") ||
       text.includes("generated") ||
       text.includes("applied")
@@ -271,7 +273,7 @@ export default function CampaignRunner({
     setGmailStatusLoading(true);
 
     try {
-      const res = await fetch("/api/email/google/status", {
+      const res = await fetch("/api/email/microsoft/status", {
         method: "GET",
         cache: "no-store",
       });
@@ -281,7 +283,7 @@ export default function CampaignRunner({
     } catch {
       setGmailStatus({
         connected: false,
-        error: "Could not check Gmail connection.",
+        error: "Could not check Microsoft Graph configuration.",
       });
     } finally {
       setGmailStatusLoading(false);
@@ -289,49 +291,20 @@ export default function CampaignRunner({
   }
 
   function connectGmail() {
-    const returnTo =
-      typeof window !== "undefined"
-        ? window.location.pathname
-        : `/sales-hub/campaigns/${campaignId}/runner`;
-
-    window.location.href = `/api/email/google/connect?returnTo=${encodeURIComponent(returnTo)}`;
+    setError(
+      "Microsoft Graph sending is configured through Vercel environment variables, not an in-app OAuth button. Add MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET and MICROSOFT_SENDER_EMAIL, then refresh Microsoft status."
+    );
   }
 
   async function disconnectGmail() {
-    if (!window.confirm("Disconnect the Gmail sender from this CRM?")) return;
-
-    setGmailStatusLoading(true);
-    setError(null);
-
-    try {
-      const res = await fetch("/api/email/google/disconnect", {
-        method: "DELETE",
-      });
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        setError(data?.error || "Could not disconnect Gmail.");
-        return;
-      }
-
-      setGmailStatus({
-        connected: false,
-        expectedEmail: gmailStatus?.expectedEmail ?? "sales@annscranehire.co.uk",
-      });
-      setGmailSentKeys([]);
-      setGmailResult(null);
-      setFeedback("Gmail sender disconnected.");
-    } catch {
-      setError("Could not disconnect Gmail.");
-    } finally {
-      setGmailStatusLoading(false);
-    }
+    setError(
+      "Microsoft Graph sender is controlled by Vercel environment variables. Remove or rotate the Microsoft app secret in Azure/Vercel to disable campaign sending."
+    );
   }
 
   async function sendGmailBatch(batchSize: number) {
     if (!gmailStatus?.connected) {
-      setError("Connect Gmail before sending campaign emails.");
+      setError("Configure Microsoft Graph before sending campaign emails.");
       return;
     }
 
@@ -355,7 +328,7 @@ export default function CampaignRunner({
         formData.append("images", image.file, image.file.name);
       }
 
-      const res = await fetch(`/api/sales-campaigns/${campaignId}/send-gmail`, {
+      const res = await fetch(`/api/sales-campaigns/${campaignId}/send-microsoft`, {
         method: "POST",
         body: formData,
       });
@@ -363,7 +336,7 @@ export default function CampaignRunner({
       const data = (await res.json().catch(() => ({}))) as GmailSendResponse;
 
       if (!res.ok) {
-        setError(data?.error || "Could not send emails through Gmail.");
+        setError(data?.error || "Could not send emails through Microsoft Graph.");
         setGmailResult(data);
         return;
       }
@@ -380,7 +353,7 @@ export default function CampaignRunner({
 
       if (sentCount > 0 && failedCount === 0) {
         setFeedback(
-          `${sentCount} email${sentCount === 1 ? "" : "s"} sent through Gmail API${
+          `${sentCount} email${sentCount === 1 ? "" : "s"} sent through Microsoft Graph${
             imageCount ? ` with ${imageCount} image${imageCount === 1 ? "" : "s"}` : ""
           }.`
         );
@@ -390,7 +363,7 @@ export default function CampaignRunner({
         setError(data?.error || `${failedCount} failed, ${skippedCount} skipped. No emails were sent.`);
       }
     } catch {
-      setError("Could not send emails through Gmail.");
+      setError("Could not send emails through Microsoft Graph.");
     } finally {
       setGmailSending(false);
     }
@@ -458,7 +431,6 @@ export default function CampaignRunner({
 
   const leadDrafts = drafts.filter((row) => row.target_type === "lead").length;
   const customerDrafts = drafts.filter((row) => row.target_type === "customer").length;
-  const supplierDrafts = drafts.filter((row) => row.target_type === "supplier").length;
   const gmailConnected = Boolean(gmailStatus?.connected);
   const selectedImageBytes = totalImageBytes(campaignImages);
 
@@ -466,10 +438,10 @@ export default function CampaignRunner({
     <div style={cardStyle}>
       <h2 style={{ marginTop: 0, fontSize: 24 }}>Campaign Runner</h2>
       <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Generate drafts and send marketing emails through the Gmail API from <strong>{campaignName}</strong>.
+        Generate drafts and send marketing emails through Microsoft Graph from <strong>{campaignName}</strong>.
       </p>
       <p style={{ marginTop: 6, opacity: 0.72, fontSize: 14 }}>
-        Email campaigns must be sent through Gmail API so unsubscribe links and headers are included.
+        Email campaigns must be sent through Microsoft Graph so unsubscribe links and headers are included.
       </p>
 
       {error ? (
@@ -483,7 +455,6 @@ export default function CampaignRunner({
         <SummaryCard label="Drafts" value={String(drafts.length)} />
         <SummaryCard label="Lead drafts" value={String(leadDrafts)} />
         <SummaryCard label="Customer drafts" value={String(customerDrafts)} />
-        <SummaryCard label="Supplier drafts" value={String(supplierDrafts)} />
         <SummaryCard label="Skipped" value={String(skipped.length)} />
       </div>
 
@@ -541,7 +512,7 @@ export default function CampaignRunner({
         <section style={{ ...panelStyle, marginTop: 18 }}>
           <div style={{ fontWeight: 1000, fontSize: 18 }}>Email sending method</div>
           <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55 }}>
-            Campaign email sending is Gmail API only. Manual Outlook send/copy buttons have been removed so marketing
+            Campaign email sending is Microsoft Graph/Outlook only. Manual Outlook send/copy buttons have been removed so marketing
             emails always include the unsubscribe footer, one-click unsubscribe link, and List-Unsubscribe headers.
           </div>
         </section>
@@ -553,7 +524,7 @@ export default function CampaignRunner({
             <div>
               <div style={{ fontWeight: 900, fontSize: 18 }}>Campaign images</div>
               <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
-                Optional. These images will be embedded into each Gmail API email and attached inline.
+                Optional. These images will be embedded into each Microsoft Graph email and attached inline.
               </div>
             </div>
 
@@ -611,7 +582,7 @@ export default function CampaignRunner({
             </div>
           ) : (
             <div style={{ ...panelStyle, marginTop: 12 }}>
-              No campaign images selected. Gmail API sends will go without extra crane photos.
+              No campaign images selected. Microsoft Graph sends will go without extra crane photos.
             </div>
           )}
         </section>
@@ -621,24 +592,24 @@ export default function CampaignRunner({
         <section style={{ ...panelStyle, marginTop: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
             <div>
-              <div style={{ fontWeight: 900, fontSize: 18 }}>Gmail API sender</div>
+              <div style={{ fontWeight: 900, fontSize: 18 }}>Microsoft Graph / Outlook sender</div>
               <div style={{ marginTop: 6, fontSize: 14, opacity: 0.76 }}>
-                Sends campaign emails from the connected sales mailbox using Google OAuth.
+                Sends campaign emails from the Microsoft/Outlook sales mailbox using Microsoft Graph.
               </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-start" }}>
               <button type="button" onClick={refreshGmailStatus} disabled={gmailStatusLoading} style={secondaryBtn}>
-                {gmailStatusLoading ? "Checking..." : "Refresh Gmail status"}
+                {gmailStatusLoading ? "Checking..." : "Refresh Microsoft status"}
               </button>
 
               {gmailConnected ? (
                 <button type="button" onClick={disconnectGmail} disabled={gmailStatusLoading || gmailSending} style={secondaryBtn}>
-                  Disconnect Gmail
+                  Disable info
                 </button>
               ) : (
                 <button type="button" onClick={connectGmail} disabled={gmailStatusLoading} style={primaryBtn}>
-                  Connect Gmail
+                  Microsoft setup info
                 </button>
               )}
             </div>
@@ -651,7 +622,7 @@ export default function CampaignRunner({
                 ? "Checking..."
                 : gmailConnected
                   ? `Connected as ${gmailStatus?.emailAddress || gmailStatus?.expectedEmail || "sales mailbox"}`
-                  : `Not connected${gmailStatus?.expectedEmail ? ` — expected ${gmailStatus.expectedEmail}` : ""}`}
+                  : `Not configured${gmailStatus?.expectedEmail ? ` — expected ${gmailStatus.expectedEmail}` : ""}`}
             </div>
 
             {gmailStatus?.connectedByUsername ? (
@@ -676,7 +647,7 @@ export default function CampaignRunner({
               <div style={unsubscribeNoticeStyle}>
                 <div style={{ fontWeight: 1000 }}>Unsubscribe protection enabled</div>
                 <div style={{ marginTop: 5 }}>
-                  Gmail API campaign sends include a unique one-click unsubscribe link, unsubscribe footer text,
+                  Microsoft Graph campaign sends include a unique one-click unsubscribe link, unsubscribe footer text,
                   List-Unsubscribe header and List-Unsubscribe-Post header. Anyone who unsubscribes will be skipped
                   from future marketing campaign sends.
                 </div>
@@ -696,7 +667,7 @@ export default function CampaignRunner({
                   disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
                   style={secondaryBtn}
                 >
-                  {gmailSending ? "Sending..." : "Send 1 test email through Gmail API"}
+                  {gmailSending ? "Sending..." : "Send 1 test email through Microsoft Graph"}
                 </button>
 
                 <button
@@ -705,7 +676,7 @@ export default function CampaignRunner({
                   disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
                   style={primaryBtn}
                 >
-                  {gmailSending ? "Sending..." : "Send next 25 through Gmail API"}
+                  {gmailSending ? "Sending..." : "Send next 25 through Microsoft Graph"}
                 </button>
 
                 <button
@@ -726,7 +697,7 @@ export default function CampaignRunner({
 
           {gmailResult ? (
             <div style={{ marginTop: 14 }}>
-              <div style={{ fontWeight: 900, marginBottom: 8 }}>Last Gmail send result</div>
+              <div style={{ fontWeight: 900, marginBottom: 8 }}>Last Microsoft Graph send result</div>
               <div style={gmailStatsGrid}>
                 <SummaryCard label="Sent" value={String(gmailResult.sent?.length ?? 0)} />
                 <SummaryCard label="Failed" value={String(gmailResult.failed?.length ?? 0)} />
@@ -811,7 +782,7 @@ export default function CampaignRunner({
                     <div style={{ fontWeight: 900 }}>
                       {draft.company_name}
                       {alreadySent ? (
-                        <span style={sentBadge}>Sent through Gmail</span>
+                        <span style={sentBadge}>Sent through Microsoft Graph</span>
                       ) : null}
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13, opacity: 0.75 }}>
@@ -846,7 +817,7 @@ export default function CampaignRunner({
 
                   {isEmailCampaign ? (
                     <div style={{ marginTop: 8, fontSize: 13, opacity: 0.72 }}>
-                      The unsubscribe line is added automatically when the Gmail API sends the email.
+                      The unsubscribe line is added automatically when Microsoft Graph sends the email.
                     </div>
                   ) : (
                     <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
