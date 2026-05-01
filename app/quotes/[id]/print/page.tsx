@@ -178,7 +178,45 @@ export default async function QuotePrintPage({
     : (quote as any)?.clients;
 
   const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
-  const fields = parsed.fields;
+  const rawPdfSections = (quote as any)?.pdf_sections;
+  const pdfSections =
+    rawPdfSections && typeof rawPdfSections === "object" && !Array.isArray(rawPdfSections)
+      ? (rawPdfSections as Record<string, unknown>)
+      : {};
+
+  const pdfText = (key: string, fallback: string | null | undefined = "") => {
+    const value = pdfSections[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+    return String(fallback ?? "");
+  };
+
+  const baseFields = parsed.fields;
+  const fields = {
+    ...baseFields,
+    contactName: pdfText("contactName", baseFields.contactName),
+    contactPhone: pdfText("contactPhone", baseFields.contactPhone),
+    projectDateTime: pdfText("projectDateTime", baseFields.projectDateTime),
+    siteLocation: pdfText("siteLocation", baseFields.siteLocation),
+    hireType: pdfText("hireType", baseFields.hireType),
+    toSupply: pdfText("toSupply", baseFields.toSupply),
+    scopeOfWork: pdfText("scopeOfWork", baseFields.scopeOfWork),
+    workLocation: pdfText("workLocation", baseFields.workLocation),
+    workDates: pdfText("workDates", baseFields.workDates),
+    duration: pdfText("duration", baseFields.duration),
+    workingHours: pdfText("workingHours", baseFields.workingHours),
+    costSummary: pdfText("costSummary", baseFields.costSummary),
+    additionalEquipment: pdfText("additionalEquipment", baseFields.additionalEquipment),
+    includedItems: pdfText("includedItems", baseFields.includedItems),
+    breakdown: pdfText("breakdown", baseFields.breakdown),
+    additionalNotes: pdfText("additionalNotes", baseFields.additionalNotes),
+    paymentTerms: pdfText("paymentTerms", baseFields.paymentTerms || DEFAULT_PAYMENT_TERMS),
+  };
+
+  const displaySubject = pdfText("subject", (quote as any)?.subject || "Quote");
+  const displayQuoteDate = pdfText("quoteDate", fmtLongDate((quote as any)?.quote_date));
+  const displayValidUntil = pdfText("validUntil", fmtDate((quote as any)?.valid_until));
+  const displayClientCompany = pdfText("clientCompany", client?.company_name ?? "");
+
   const breakdownRows = parseBreakdownRows(fields.breakdown);
   const additionalEquipment = splitBulletLines(fields.additionalEquipment);
   const includedItems = splitBulletLines(fields.includedItems);
@@ -186,15 +224,18 @@ export default async function QuotePrintPage({
   const paymentTerms = fields.paymentTerms || DEFAULT_PAYMENT_TERMS;
   const longTermPages = chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 7600);
 
-  const { collection, delivery } = splitCollectionDelivery(fields.workLocation || "");
+  const splitLocation = splitCollectionDelivery(fields.workLocation || "");
+  const collection = pdfText("collection", splitLocation.collection);
+  const delivery = pdfText("delivery", splitLocation.delivery);
   const cleanedScope = removeLocationBlockFromScope(fields.scopeOfWork || parsed.rawNotes || "");
 
   const contactRoleNote =
     additionalNotes.find((line) => line.toLowerCase().startsWith("contact role:")) ?? "";
 
-  const contactRole = contactRoleNote
-    ? contactRoleNote.replace(/^contact role:\s*/i, "").trim()
-    : "";
+  const contactRole = pdfText(
+    "contactRole",
+    contactRoleNote ? contactRoleNote.replace(/^contact role:\s*/i, "").trim() : ""
+  );
 
   const displayAdditionalNotes = additionalNotes.filter(
     (line) => !line.toLowerCase().startsWith("contact role:")
@@ -211,7 +252,7 @@ export default async function QuotePrintPage({
   return (
     <html>
       <head>
-        <title>{(quote as any)?.subject || "Quote"}</title>
+        <title>{displaySubject}</title>
         <style
           dangerouslySetInnerHTML={{
             __html: `
@@ -260,9 +301,9 @@ export default async function QuotePrintPage({
           <div className="quote-hide-print" style={actionBarStyle}>
             <div>
               <div style={screenTitleStyle}>QUOTE</div>
-              <div style={screenSubStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
+              <div style={screenSubStyle}>{displaySubject || displayClientCompany || "Customer quote"}</div>
             </div>
-            <PrintQuoteActions backHref={`/quotes/${params.id}`} />
+            <PrintQuoteActions backHref={`/quotes/${params.id}`} editHref={`/quotes/${params.id}/print/edit`} />
           </div>
 
           <div style={mastheadStyle}>
@@ -276,19 +317,19 @@ export default async function QuotePrintPage({
               <div style={companyLineStyle}>Email: info@annscranehire.co.uk</div>
             </div>
             <div style={metaBlockStyle}>
-              <MetaLine label="Date" value={fmtLongDate((quote as any)?.quote_date)} />
-              <MetaLine label="Quote" value={(quote as any)?.subject || "—"} />
+              <MetaLine label="Date" value={displayQuoteDate || "—"} />
+              <MetaLine label="Quote" value={displaySubject || "—"} />
             </div>
           </div>
 
           <div style={heroRowStyle}>
             <div style={heroTitleStyle}>QUOTE</div>
-            <div style={heroRefStyle}>{(quote as any)?.subject || client?.company_name || "Customer quote"}</div>
+            <div style={heroRefStyle}>{displaySubject || displayClientCompany || "Customer quote"}</div>
           </div>
 
           <div style={topGridStyle}>
             <Panel title="Client">
-              <DataRow label="Company" value={client?.company_name ?? "—"} />
+              <DataRow label="Company" value={displayClientCompany || "—"} />
               <DataRow label="Contact name" value={fields.contactName || client?.contact_name || "—"} />
               <DataRow label="Tel" value={fields.contactPhone || client?.phone || "—"} />
               {hasText(contactRole) ? <DataRow label="Contact role" value={contactRole} /> : null}
@@ -310,7 +351,7 @@ export default async function QuotePrintPage({
               <DataRow label="Date(s)" value={fields.workDates || "—"} />
               <DataRow label="Duration" value={fields.duration || "—"} />
               <DataRow label="Working pattern" value={fields.workingHours || "—"} />
-              <DataRow label="Valid until" value={fmtDate((quote as any)?.valid_until)} />
+              <DataRow label="Valid until" value={displayValidUntil || "—"} />
               <DataRow label="Amount" value={fields.costSummary || fmtMoney((quote as any)?.amount)} />
             </Panel>
           </div>
@@ -331,17 +372,17 @@ export default async function QuotePrintPage({
                   <table style={tableStyle}>
                     <thead>
                       <tr>
-                        <th style={{ ...thStyle, width: 70 }}>Qty</th>
                         <th style={thStyle}>Description</th>
-                        <th style={{ ...thStyle, width: 180 }}>Rate</th>
+                        <th style={{ ...thStyle, width: 70 }}>Qty</th>
+                        <th style={{ ...thStyle, width: 180, textAlign: "right" }}>Rate</th>
                       </tr>
                     </thead>
                     <tbody>
                       {breakdownRows.map((row, index) => (
                         <tr key={`${row.description}-${index}`}>
-                          <td style={tdStyle}>{row.qty || "—"}</td>
                           <td style={tdStyle}>{row.description || "—"}</td>
-                          <td style={tdStyle}>{row.rate || "—"}</td>
+                          <td style={tdStyle}>{row.qty || "—"}</td>
+                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 800 }}>{row.rate || "—"}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -383,7 +424,7 @@ export default async function QuotePrintPage({
         <div className="quote-sheet" style={sheetStyle}>
           <div style={pageHeaderStyle}>
             <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
-            <div style={pageHeaderSubStyle}>{(quote as any)?.subject || client?.company_name || "Quote"}</div>
+            <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
           </div>
 
           <div style={termsCardStyle}>{markdownishNodes(DEFAULT_HIRE_TERMS_TEXT)}</div>
