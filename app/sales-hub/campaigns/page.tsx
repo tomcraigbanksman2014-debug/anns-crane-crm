@@ -718,7 +718,7 @@ export default async function SalesCampaignsPage({
 
   const isCustomerOnlyCampaign = CUSTOMER_ONLY_GOALS.has(selectedGoal);
   const showLeadTargets = !isCustomerOnlyCampaign;
-  const showSupplierTargets = !isCustomerOnlyCampaign;
+  const showSupplierTargets = false;
 
   const selectedServiceFocus =
     clean(searchParams?.service_focus) ||
@@ -868,28 +868,14 @@ export default async function SalesCampaignsPage({
     };
   });
 
-  const supplierPreviews = filteredSuppliers.slice(0, 2).map((supplier) => ({
-    type: "supplier" as const,
-    name: supplier.company_name,
-    subtitle: `${supplier.contact_name || "No contact"} • ${supplier.category || "Supplier"}`,
-    preview: buildPreview({
-      audience: "supplier",
-      target: supplier,
-      template: selectedTemplate,
-      channel: selectedChannel,
-      goal: selectedGoal,
-      tone: selectedTone,
-      serviceFocus: selectedServiceFocus,
-      availabilityNote: selectedAvailabilityNote,
-    }),
-  }));
+  const supplierPreviews: any[] = [];
 
-  const previews = [...leadPreviews, ...customerPreviews, ...supplierPreviews].slice(0, 5);
+  const previews = [...leadPreviews, ...customerPreviews].slice(0, 5);
 
   const stats = {
     totalLeads: filteredLeads.length,
     totalCustomers: filteredCustomers.length,
-    totalSuppliers: filteredSuppliers.length,
+    totalSuppliers: 0,
     templates: activeTemplates.length,
     activeCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Active").length,
     draftCampaigns: (campaigns ?? []).filter((item: any) => String(item.status ?? "") === "Draft").length,
@@ -897,7 +883,7 @@ export default async function SalesCampaignsPage({
 
   const createDisabled =
     !canManage ||
-    (filteredLeads.length === 0 && filteredCustomers.length === 0 && filteredSuppliers.length === 0);
+    (filteredLeads.length === 0 && filteredCustomers.length === 0);
 
   return (
     <ClientShell>
@@ -920,7 +906,6 @@ export default async function SalesCampaignsPage({
         {searchParams?.error ? <div style={errorCard}>{decodeURIComponent(String(searchParams.error))}</div> : null}
         {leadsError ? <div style={errorCard}>{leadsError.message}</div> : null}
         {customersError ? <div style={errorCard}>{customersError.message}</div> : null}
-        {suppliersError ? <div style={errorCard}>{suppliersError.message}</div> : null}
         {templatesError ? <div style={errorCard}>{templatesError.message}</div> : null}
         {campaignsError ? <div style={errorCard}>{campaignsError.message}</div> : null}
         {actualJobActivityResult.error ? <div style={errorCard}>{actualJobActivityResult.error.message}</div> : null}
@@ -928,7 +913,6 @@ export default async function SalesCampaignsPage({
         <div style={statsGrid}>
           <StatCard label="Filtered leads" value={String(stats.totalLeads)} />
           <StatCard label="Filtered customers" value={String(stats.totalCustomers)} />
-          <StatCard label="Filtered suppliers" value={String(stats.totalSuppliers)} />
           <StatCard label="Templates" value={String(stats.templates)} />
           <StatCard label="Draft campaigns" value={String(stats.draftCampaigns)} />
           <StatCard label="Active campaigns" value={String(stats.activeCampaigns)} />
@@ -1078,24 +1062,6 @@ export default async function SalesCampaignsPage({
               </select>
             </div>
 
-            <div>
-              <label style={labelStyle}>Supplier category</label>
-              <select name="supplier_category" defaultValue={selectedSupplierCategory} style={inputStyle} disabled={!showSupplierTargets}>
-                <option value="all">All supplier categories</option>
-                {supplierCategoryOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
-            </div>
-
-            <div>
-              <label style={labelStyle}>Supplier search</label>
-              <input
-                name="supplier_search"
-                defaultValue={selectedSupplierSearch}
-                style={inputStyle}
-                placeholder="e.g. low loader, HIAB, crane"
-                disabled={!showSupplierTargets}
-              />
-            </div>
 
             <div>
               <button type="submit" style={primaryBtn}>Apply filters</button>
@@ -1159,7 +1125,7 @@ export default async function SalesCampaignsPage({
                         {campaign.channel} • {goalLabel(String(campaign.goal ?? ""))} • {campaign.status}
                       </div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>
-                        {leadCount} linked leads • {customerCount} linked customers • {supplierCount} linked suppliers
+                        {leadCount} linked leads • {customerCount} linked customers
                       </div>
                     </a>
                   );
@@ -1186,7 +1152,6 @@ export default async function SalesCampaignsPage({
               <input type="hidden" name="availability_note" value={selectedAvailabilityNote} />
               <input type="hidden" name="all_lead_ids" value={filteredLeads.map((lead) => String(lead.id)).join(",")} />
               <input type="hidden" name="all_customer_ids" value={filteredCustomers.map((customer) => String(customer.id)).join(",")} />
-              <input type="hidden" name="all_supplier_ids" value={filteredSuppliers.map((supplier) => String(supplier.id)).join(",")} />
 
               <div style={createGrid}>
                 <div>
