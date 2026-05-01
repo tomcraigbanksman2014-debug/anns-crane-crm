@@ -82,19 +82,11 @@ function normaliseAvailabilityEntry(entry: any) {
   const startDate = clean(entry?.start_date);
   const endDate = clean(entry?.end_date) ?? startDate;
   const status = clean(entry?.status);
-  const storedWorkingDays =
-    typeof entry?.working_day_count === "number" ? entry.working_day_count : Number(entry?.working_day_count ?? 0);
-
   return {
     ...entry,
     start_date: startDate,
     end_date: endDate,
-    working_day_count:
-      status === "holiday"
-        ? storedWorkingDays > 0
-          ? storedWorkingDays
-          : countWorkingDaysInclusive(startDate, endDate)
-        : null,
+    working_day_count: status === "holiday" ? countWorkingDaysInclusive(startDate, endDate) : null,
   };
 }
 
