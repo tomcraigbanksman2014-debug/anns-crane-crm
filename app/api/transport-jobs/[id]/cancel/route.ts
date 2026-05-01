@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 
 export async function POST(
   req: Request,
@@ -9,39 +8,36 @@ export async function POST(
   try {
     const { supabase, response } = await requireApiUser();
     if (response) return response;
-    const id = params.id;
 
+    const id = params.id;
     if (!id) {
-      return NextResponse.json(
-        { error: "Missing transport job id" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing transport job id" }, { status: 400 });
     }
 
-    // ✅ Cancel transport job (same logic as crane jobs)
+    const formData = await req.formData().catch(() => null);
+    const cancelMode = String(formData?.get("cancel_mode") ?? "").trim().toLowerCase();
+    const nextStatus = cancelMode === "late_cancelled" ? "late_cancelled" : "cancelled";
+
+    const updatePayload: Record<string, any> = {
+      status: nextStatus,
+      updated_at: new Date().toISOString(),
+    };
+
+    if (nextStatus === "late_cancelled") {
+      updatePayload.invoice_status = "Not Invoiced";
+    }
+
     const { error } = await supabase
       .from("transport_jobs")
-      .update({
-        status: "cancelled",
-        updated_at: new Date().toISOString(),
-      })
+      .update(updatePayload)
       .eq("id", id);
 
     if (error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    // ✅ Redirect back to job page
-    return NextResponse.redirect(
-      new URL(`/transport-jobs/${id}`, req.url)
-    );
+    return NextResponse.redirect(new URL(`/transport-jobs/${id}`, req.url));
   } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Cancel failed" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "Cancel failed" }, { status: 500 });
   }
 }
