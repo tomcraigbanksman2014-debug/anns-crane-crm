@@ -14,7 +14,7 @@ export default function PrintQuoteActions({
       </button>
       {editHref ? (
         <a href={editHref} style={editBtn}>
-          Edit PDF wording
+          Edit quote PDF
         </a>
       ) : null}
       <a href={backHref} style={backBtn}>
