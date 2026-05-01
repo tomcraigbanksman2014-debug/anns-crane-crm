@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
 import { defaultBlocksAssignment } from "../../../../lib/staffAvailability";
+import { countWorkingDaysInclusive } from "../../../../lib/workingDays";
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -60,6 +61,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         body.blocks_assignment,
         typeof existing.blocks_assignment === "boolean" ? existing.blocks_assignment : defaultBlocksAssignment(status)
       ),
+      working_day_count: null as number | null,
       updated_at: new Date().toISOString(),
     };
 
@@ -69,6 +71,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (payload.end_date < payload.start_date) {
       return NextResponse.json({ error: "End date cannot be earlier than start date." }, { status: 400 });
     }
+
+    payload.working_day_count = status === "holiday" ? countWorkingDaysInclusive(payload.start_date, payload.end_date) : null;
 
     const { data, error } = await supabase
       .from("operator_availability")
