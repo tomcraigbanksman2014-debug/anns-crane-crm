@@ -2,11 +2,6 @@ import type { CSSProperties, ReactNode } from "react";
 import { redirect } from "next/navigation";
 import ClientShell from "../../../../ClientShell";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
-import {
-  DEFAULT_PAYMENT_TERMS,
-  parseQuoteNotes,
-  splitLines,
-} from "../../../quoteTemplate";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -19,113 +14,123 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
-function fmtLongDate(value: string | null | undefined) {
-  if (!value) return "";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return String(value);
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+function fmtMoney(value: number | string | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return "£0.00";
+  return `£${n.toFixed(2)}`;
 }
 
-function splitCollectionDelivery(locationValue: string) {
-  const cleaned = locationValue.replace(/\r\n/g, "\n").trim();
-  if (!cleaned) return { collection: "", delivery: "" };
+type POLineOverride = {
+  description: string;
+  qty: string;
+  unit_cost: string;
+  total_cost: string;
+};
 
-  const fromToMatch = cleaned.match(/^(.*?)\s+to\s+(.*)$/i);
-  if (fromToMatch) {
-    return {
-      collection: fromToMatch[1]?.trim() || "",
-      delivery: fromToMatch[2]?.trim() || "",
-    };
-  }
+function parseLinesText(value: string): POLineOverride[] {
+  return value
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const parts = line.split("|").map((part) => part.trim());
+      const description = parts[0] || line;
+      const qty = parts[1] || "1";
+      const unitCost = parts[2] || "";
+      const calculatedTotal = Number(qty || 0) * Number(unitCost || 0);
+      const totalCost = parts[3] || (Number.isFinite(calculatedTotal) && calculatedTotal > 0 ? String(calculatedTotal.toFixed(2)) : "");
 
-  return { collection: "", delivery: cleaned };
+      return {
+        description,
+        qty,
+        unit_cost: unitCost,
+        total_cost: totalCost,
+      };
+    });
 }
 
-async function saveQuotePdfSections(formData: FormData) {
+function linesToText(lines: any[] | null | undefined) {
+  return (lines ?? [])
+    .map((line) => {
+      const qty = line?.qty ?? "1";
+      const unitCost = line?.unit_cost ?? "";
+      const totalCost =
+        line?.total_cost ?? (Number(qty || 0) * Number(unitCost || 0) || "");
+      return [line?.description ?? "", qty, unitCost, totalCost].join(" | ");
+    })
+    .join("\n");
+}
+
+async function savePurchaseOrderPdfSections(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
   const id = clean(formData.get("id"));
 
   if (!id) {
-    redirect("/quotes?error=Quote id missing.");
+    redirect("/purchase-orders?error=Purchase order id missing.");
   }
 
-  const keys = [
-    "subject",
-    "quoteDate",
-    "validUntil",
-    "clientCompany",
-    "contactName",
-    "contactPhone",
-    "contactRole",
-    "siteLocation",
-    "projectDateTime",
-    "hireType",
-    "collection",
-    "delivery",
-    "workLocation",
-    "workDates",
-    "duration",
-    "workingHours",
-    "costSummary",
-    "toSupply",
-    "scopeOfWork",
-    "breakdown",
-    "additionalEquipment",
-    "includedItems",
-    "additionalNotes",
-    "paymentTerms",
-  ];
-
-  const pdfSections: Record<string, string> = {};
-  for (const key of keys) {
-    pdfSections[key] = clean(formData.get(key));
-  }
+  const lineText = clean(formData.get("linesText"));
+  const pdfSections = {
+    poNumber: clean(formData.get("poNumber")),
+    supplierCompany: clean(formData.get("supplierCompany")),
+    supplierReference: clean(formData.get("supplierReference")),
+    status: clean(formData.get("status")),
+    orderDate: clean(formData.get("orderDate")),
+    requiredDate: clean(formData.get("requiredDate")),
+    linkedTitle: clean(formData.get("linkedTitle")),
+    linkedReference: clean(formData.get("linkedReference")),
+    linkedSite: clean(formData.get("linkedSite")),
+    primaryAddress: clean(formData.get("primaryAddress")),
+    secondaryAddress: clean(formData.get("secondaryAddress")),
+    linkedDate: clean(formData.get("linkedDate")),
+    invoiceInstruction: clean(formData.get("invoiceInstruction")),
+    notes: clean(formData.get("notes")),
+    total: clean(formData.get("total")),
+    lines: parseLinesText(lineText),
+  };
 
   const { error } = await supabase
-    .from("quotes")
+    .from("purchase_orders")
     .update({
       pdf_sections: pdfSections,
     })
     .eq("id", id);
 
   if (error) {
-    redirect(`/quotes/${id}/print/edit?error=${encodeURIComponent(error.message)}`);
+    redirect(`/purchase-orders/${id}/print/edit?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect(`/quotes/${id}/print?pdf_edit=saved`);
+  redirect(`/purchase-orders/${id}/print?pdf_edit=saved`);
 }
 
-async function resetQuotePdfSections(formData: FormData) {
+async function resetPurchaseOrderPdfSections(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
   const id = clean(formData.get("id"));
 
   if (!id) {
-    redirect("/quotes?error=Quote id missing.");
+    redirect("/purchase-orders?error=Purchase order id missing.");
   }
 
   const { error } = await supabase
-    .from("quotes")
+    .from("purchase_orders")
     .update({
       pdf_sections: {},
     })
     .eq("id", id);
 
   if (error) {
-    redirect(`/quotes/${id}/print/edit?error=${encodeURIComponent(error.message)}`);
+    redirect(`/purchase-orders/${id}/print/edit?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect(`/quotes/${id}/print?pdf_edit=reset`);
+  redirect(`/purchase-orders/${id}/print?pdf_edit=reset`);
 }
 
-export default async function QuotePdfEditorPage({
+export default async function PurchaseOrderPdfEditorPage({
   params,
   searchParams,
 }: {
@@ -134,43 +139,89 @@ export default async function QuotePdfEditorPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const { data: quote, error } = await supabase
-    .from("quotes")
-    .select(`
-      *,
-      clients:client_id (
-        company_name,
-        contact_name,
-        phone,
-        address
-      )
-    `)
-    .eq("id", params.id)
-    .single();
+  const [{ data: po, error }, { data: lines }] = await Promise.all([
+    supabase
+      .from("purchase_orders")
+      .select(`
+        *,
+        suppliers:supplier_id (
+          company_name
+        ),
+        jobs:job_id (
+          job_number,
+          site_name,
+          site_address,
+          job_date
+        ),
+        transport_jobs:transport_job_id (
+          transport_number,
+          transport_date,
+          delivery_date,
+          collection_address,
+          delivery_address,
+          job_type
+        )
+      `)
+      .eq("id", params.id)
+      .single(),
+    supabase
+      .from("purchase_order_lines")
+      .select("*")
+      .eq("purchase_order_id", params.id)
+      .order("created_at", { ascending: true }),
+  ]);
 
-  const client = Array.isArray((quote as any)?.clients)
-    ? (quote as any).clients[0]
-    : (quote as any)?.clients;
+  const supplier = Array.isArray((po as any)?.suppliers)
+    ? (po as any).suppliers[0]
+    : (po as any)?.suppliers;
 
-  const parsed = parseQuoteNotes((quote as any)?.notes ?? null);
-  const rawPdfSections = (quote as any)?.pdf_sections;
+  const job = Array.isArray((po as any)?.jobs)
+    ? (po as any).jobs[0]
+    : (po as any)?.jobs;
+
+  const transportJob = Array.isArray((po as any)?.transport_jobs)
+    ? (po as any).transport_jobs[0]
+    : (po as any)?.transport_jobs;
+
+  const linkedTitle = transportJob
+    ? "Linked transport job"
+    : job
+      ? "Linked crane job"
+      : "Linked job";
+
+  const linkedReference = transportJob?.transport_number ?? job?.job_number ?? "";
+  const linkedSite =
+    job?.site_name ??
+    (transportJob?.job_type === "on_site_hiab" ? "On-site HIAB" : transportJob ? "Transport job" : "");
+  const primaryAddress = job?.site_address ?? transportJob?.collection_address ?? "";
+  const secondaryAddress =
+    transportJob?.delivery_address && transportJob.delivery_address !== transportJob.collection_address
+      ? transportJob.delivery_address
+      : "";
+  const linkedDate = transportJob?.transport_date ?? transportJob?.delivery_date ?? job?.job_date ?? null;
+
+  const rawPdfSections = (po as any)?.pdf_sections;
   const pdfSections =
     rawPdfSections && typeof rawPdfSections === "object" && !Array.isArray(rawPdfSections)
-      ? (rawPdfSections as Record<string, unknown>)
+      ? (rawPdfSections as Record<string, any>)
       : {};
 
-  const fromPdf = (key: string, fallback: string | null | undefined = "") => {
+  const fromPdf = (key: string, fallback: string | number | null | undefined = "") => {
     const value = pdfSections[key];
     return typeof value === "string" ? value : String(fallback ?? "");
   };
 
-  const locationSplit = splitCollectionDelivery(parsed.fields.workLocation || "");
-  const contactRoleLine =
-    splitLines(parsed.fields.additionalNotes).find((line) =>
-      line.toLowerCase().startsWith("contact role:")
-    ) ?? "";
+  const initialLines =
+    Array.isArray(pdfSections.lines) && pdfSections.lines.length > 0
+      ? linesToText(pdfSections.lines)
+      : linesToText((lines ?? []) as any[]);
 
-  const contactRole = contactRoleLine.replace(/^contact role:\s*/i, "").trim();
+  const defaultTotal =
+    Array.isArray(pdfSections.lines) && pdfSections.lines.length > 0
+      ? fmtMoney(
+          (pdfSections.lines as any[]).reduce((sum, line) => sum + Number(line?.total_cost ?? 0), 0)
+        )
+      : fmtMoney((po as any)?.total_cost);
 
   const errorMessage = searchParams?.error || error?.message || "";
 
@@ -179,17 +230,17 @@ export default async function QuotePdfEditorPage({
       <div style={pageWrapStyle}>
         <div style={topRowStyle}>
           <div>
-            <h1 style={titleStyle}>Quote PDF editor</h1>
+            <h1 style={titleStyle}>Purchase order PDF editor</h1>
             <div style={subTitleStyle}>
-              Edit the customer-facing wording used on the printable quote/PDF only.
+              Edit the supplier-facing PDF wording only. This keeps the order screen and printable PDF consistent with the lift-plan pack editor.
             </div>
           </div>
 
           <div style={buttonRowStyle}>
-            <a href={`/quotes/${params.id}`} style={secondaryBtnStyle}>
-              Back to quote
+            <a href={`/purchase-orders/${params.id}`} style={secondaryBtnStyle}>
+              Back to PO
             </a>
-            <a href={`/quotes/${params.id}/print`} target="_blank" style={secondaryBtnStyle}>
+            <a href={`/purchase-orders/${params.id}/print`} target="_blank" style={secondaryBtnStyle}>
               View PDF page
             </a>
           </div>
@@ -197,68 +248,66 @@ export default async function QuotePdfEditorPage({
 
         {errorMessage ? <div style={errorBoxStyle}>{errorMessage}</div> : null}
 
-        {!quote ? (
-          <div style={errorBoxStyle}>Quote not found.</div>
+        {!po ? (
+          <div style={errorBoxStyle}>Purchase order not found.</div>
         ) : (
-          <form action={saveQuotePdfSections} style={formStyle}>
+          <form action={savePurchaseOrderPdfSections} style={formStyle}>
             <input type="hidden" name="id" value={params.id} />
 
-            <Section title="1. Header and customer">
+            <Section title="1. Header and supplier">
               <div style={twoColStyle}>
-                <Field label="Quote heading / reference" name="subject" defaultValue={fromPdf("subject", (quote as any)?.subject || "")} />
-                <Field label="Quote date shown on PDF" name="quoteDate" defaultValue={fromPdf("quoteDate", fmtLongDate((quote as any)?.quote_date))} />
-                <Field label="Valid until shown on PDF" name="validUntil" defaultValue={fromPdf("validUntil", fmtDate((quote as any)?.valid_until))} />
-                <Field label="Client company" name="clientCompany" defaultValue={fromPdf("clientCompany", client?.company_name || "")} />
-                <Field label="Contact name" name="contactName" defaultValue={fromPdf("contactName", parsed.fields.contactName || client?.contact_name || "")} />
-                <Field label="Contact phone" name="contactPhone" defaultValue={fromPdf("contactPhone", parsed.fields.contactPhone || client?.phone || "")} />
-                <Field label="Contact role" name="contactRole" defaultValue={fromPdf("contactRole", contactRole)} />
-                <Field label="Site location" name="siteLocation" defaultValue={fromPdf("siteLocation", parsed.fields.siteLocation || client?.address || "")} rows={3} />
+                <Field label="PO number" name="poNumber" defaultValue={fromPdf("poNumber", (po as any)?.po_number || "")} />
+                <Field label="Supplier company" name="supplierCompany" defaultValue={fromPdf("supplierCompany", supplier?.company_name || "")} />
+                <Field label="Supplier reference" name="supplierReference" defaultValue={fromPdf("supplierReference", (po as any)?.supplier_reference || "")} />
+                <Field label="Status" name="status" defaultValue={fromPdf("status", (po as any)?.status || "")} />
+                <Field label="Order date" name="orderDate" defaultValue={fromPdf("orderDate", fmtDate((po as any)?.order_date))} />
+                <Field label="Required date" name="requiredDate" defaultValue={fromPdf("requiredDate", fmtDate((po as any)?.required_date))} />
               </div>
             </Section>
 
-            <Section title="2. Job details">
+            <Section title="2. Linked job details">
               <div style={twoColStyle}>
-                <Field label="Date & time of project" name="projectDateTime" defaultValue={fromPdf("projectDateTime", parsed.fields.projectDateTime)} rows={3} />
-                <Field label="Hire type" name="hireType" defaultValue={fromPdf("hireType", parsed.fields.hireType)} rows={3} />
-                <Field label="Collection" name="collection" defaultValue={fromPdf("collection", locationSplit.collection)} rows={3} />
-                <Field label="Delivery" name="delivery" defaultValue={fromPdf("delivery", locationSplit.delivery)} rows={3} />
-                <Field label="Location fallback" name="workLocation" defaultValue={fromPdf("workLocation", parsed.fields.workLocation)} rows={3} />
-                <Field label="Date(s)" name="workDates" defaultValue={fromPdf("workDates", parsed.fields.workDates)} rows={3} />
-                <Field label="Duration" name="duration" defaultValue={fromPdf("duration", parsed.fields.duration)} rows={3} />
-                <Field label="Working pattern" name="workingHours" defaultValue={fromPdf("workingHours", parsed.fields.workingHours)} rows={3} />
-                <Field label="Amount / cost summary" name="costSummary" defaultValue={fromPdf("costSummary", parsed.fields.costSummary)} rows={3} />
+                <Field label="Linked section title" name="linkedTitle" defaultValue={fromPdf("linkedTitle", linkedTitle)} />
+                <Field label="Linked job/reference number" name="linkedReference" defaultValue={fromPdf("linkedReference", linkedReference)} />
+                <Field label="Site" name="linkedSite" defaultValue={fromPdf("linkedSite", linkedSite)} />
+                <Field label="Job date" name="linkedDate" defaultValue={fromPdf("linkedDate", fmtDate(linkedDate))} />
+                <Field label="Address" name="primaryAddress" defaultValue={fromPdf("primaryAddress", primaryAddress)} rows={3} />
+                <Field label="Delivery address" name="secondaryAddress" defaultValue={fromPdf("secondaryAddress", secondaryAddress)} rows={3} />
               </div>
             </Section>
 
-            <Section title="3. Main wording">
-              <Field label="To Supply" name="toSupply" defaultValue={fromPdf("toSupply", parsed.fields.toSupply)} rows={5} />
-              <Field label="Scope of Work" name="scopeOfWork" defaultValue={fromPdf("scopeOfWork", parsed.fields.scopeOfWork)} rows={7} />
-            </Section>
-
-            <Section title="4. Cost breakdown and extras">
+            <Section title="3. Invoice instruction and notes">
               <Field
-                label="Breakdown of current charges / rates"
-                name="breakdown"
-                defaultValue={fromPdf("breakdown", parsed.fields.breakdown)}
-                rows={8}
-                hint="Best format: Qty | Description | Rate. Two-column format Description | Rate also works and prints the rate in the rate column."
+                label="Invoice instruction"
+                name="invoiceInstruction"
+                defaultValue={fromPdf(
+                  "invoiceInstruction",
+                  "All supplier invoices for this purchase order must be sent to invoicespayable@annscranehire.co.uk and must quote the purchase order number."
+                )}
+                rows={3}
               />
-              <div style={twoColStyle}>
-                <Field label="Additional equipment & personnel" name="additionalEquipment" defaultValue={fromPdf("additionalEquipment", parsed.fields.additionalEquipment)} rows={6} />
-                <Field label="Included under full CPA terms" name="includedItems" defaultValue={fromPdf("includedItems", parsed.fields.includedItems)} rows={6} />
-              </div>
-              <Field label="Additional quote notes" name="additionalNotes" defaultValue={fromPdf("additionalNotes", parsed.fields.additionalNotes)} rows={5} />
-              <Field label="Payment terms" name="paymentTerms" defaultValue={fromPdf("paymentTerms", parsed.fields.paymentTerms || DEFAULT_PAYMENT_TERMS)} rows={2} />
+              <Field label="Notes" name="notes" defaultValue={fromPdf("notes", (po as any)?.notes || "")} rows={5} />
+            </Section>
+
+            <Section title="4. Line items shown on the PDF">
+              <Field
+                label="Line items"
+                name="linesText"
+                defaultValue={initialLines}
+                rows={8}
+                hint="Use one line per item: Description | Qty | Unit cost | Total. These PDF edits do not change the operational PO line records unless you edit the main PO."
+              />
+              <Field label="Total shown on PDF" name="total" defaultValue={fromPdf("total", defaultTotal)} rows={2} />
             </Section>
 
             <div style={bottomBarStyle}>
               <button type="submit" style={primaryBtnStyle}>
                 Save PDF edits
               </button>
-              <button type="submit" formAction={resetQuotePdfSections} style={dangerBtnStyle}>
+              <button type="submit" formAction={resetPurchaseOrderPdfSections} style={dangerBtnStyle}>
                 Reset PDF edits
               </button>
-              <a href={`/quotes/${params.id}/print`} style={secondaryBtnStyle}>
+              <a href={`/purchase-orders/${params.id}/print`} style={secondaryBtnStyle}>
                 Cancel
               </a>
             </div>
