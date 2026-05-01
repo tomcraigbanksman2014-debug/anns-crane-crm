@@ -679,7 +679,7 @@ export default async function NewTransportJobPage({
     { data: operators },
     { data: suppliers },
   ] = await Promise.all([
-    supabase.from("clients").select("id, company_name, archived").eq("archived", false).order("company_name", { ascending: true }),
+    supabase.from("clients").select("id, company_name, archived").or("archived.is.null,archived.eq.false").order("company_name", { ascending: true }),
     supabase.from("jobs").select("id, job_number, site_name, archived").eq("archived", false).order("created_at", { ascending: false }).limit(300),
     supabase.from("transport_jobs").select("id, transport_number, transport_date, delivery_date, archived").eq("archived", false).order("created_at", { ascending: false }).limit(300),
     supabase.from("vehicles").select("id, name, reg_number, status, archived").eq("archived", false).order("name", { ascending: true }),
