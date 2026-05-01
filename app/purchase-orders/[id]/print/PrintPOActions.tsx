@@ -19,7 +19,7 @@ export default function PrintPOActions({
 
       {editHref ? (
         <a href={editHref} style={editBtn}>
-          Edit PDF wording
+          Edit purchase order PDF
         </a>
       ) : null}
 
