@@ -18,12 +18,12 @@ function mostCommon(values: unknown[]) {
   let best: string | null = null;
   let bestCount = 0;
 
-  for (const [value, count] of counts.entries()) {
+  counts.forEach((count, value) => {
     if (count > bestCount) {
       best = value;
       bestCount = count;
     }
-  }
+  });
 
   return best;
 }
