@@ -372,19 +372,20 @@ export default async function QuotePrintPage({
                   <table style={tableStyle}>
                     <thead>
                       <tr>
-                        <th style={thStyle}>Description</th>
-                        <th style={{ ...thStyle, width: 70 }}>Qty</th>
-                        <th style={{ ...thStyle, width: 180, textAlign: "right" }}>Rate</th>
+                        <th style={thStyle}>Wording / description</th>
+                        <th style={{ ...thStyle, width: 190, textAlign: "right" }}>Cost / rate</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {breakdownRows.map((row, index) => (
-                        <tr key={`${row.description}-${index}`}>
-                          <td style={tdStyle}>{row.description || "—"}</td>
-                          <td style={tdStyle}>{row.qty || "—"}</td>
-                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 800 }}>{row.rate || "—"}</td>
-                        </tr>
-                      ))}
+                      {breakdownRows.map((row, index) => {
+                        const description = [row.qty, row.description].filter(Boolean).join(" × ");
+                        return (
+                          <tr key={`${row.description}-${index}`}>
+                            <td style={tdStyle}>{description || "—"}</td>
+                            <td style={{ ...tdStyle, textAlign: "right", fontWeight: 800 }}>{row.rate || "—"}</td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </Panel>
