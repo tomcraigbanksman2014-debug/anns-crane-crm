@@ -260,7 +260,8 @@ export function parseBreakdownRows(value: string | null | undefined): Array<{
   rate: string;
 }> {
   return splitLines(value).map((line) => {
-    const parts = line.split("|").map((part) => part.trim());
+    const parts = line.split("|").map((part) => part.trim()).filter(Boolean);
+
     if (parts.length >= 3) {
       return {
         qty: parts[0],
@@ -268,8 +269,34 @@ export function parseBreakdownRows(value: string | null | undefined): Array<{
         rate: parts.slice(2).join(" | "),
       };
     }
+
+    if (parts.length === 2) {
+      const firstPartLooksLikeQty = /^(\d+(?:\.\d+)?\s*(?:x|no|nr|day|days|hr|hrs|hour|hours)?|one|two|three|four|five)$/i.test(parts[0]);
+
+      return firstPartLooksLikeQty
+        ? {
+            qty: parts[0],
+            description: parts[1],
+            rate: "",
+          }
+        : {
+            qty: "",
+            description: parts[0],
+            rate: parts[1],
+          };
+    }
+
+    const moneyMatch = line.match(/^(.*?)(£\s*\d[\d,]*(?:\.\d{2})?.*)$/);
+    if (moneyMatch) {
+      return {
+        qty: "",
+        description: moneyMatch[1]?.trim() || line,
+        rate: moneyMatch[2]?.trim() || "",
+      };
+    }
+
     return {
-      qty: "1x",
+      qty: "",
       description: line,
       rate: "",
     };
