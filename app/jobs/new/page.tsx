@@ -460,34 +460,34 @@ export default async function NewJobPage({ searchParams }: PageProps) {
       supabase
         .from("clients")
         .select("id, company_name, category, archived")
-        .eq("archived", false)
+        .or("archived.is.null,archived.eq.false")
         .order("company_name", { ascending: true }),
 
       supabase
         .from("equipment")
         .select("id, name, asset_number, archived, status")
-        .eq("archived", false)
+        .or("archived.is.null,archived.eq.false")
         .eq("status", "active")
         .order("name", { ascending: true }),
 
       supabase
         .from("cranes")
         .select("id, name, reg_number, fleet_number, archived, status")
-        .eq("archived", false)
+        .or("archived.is.null,archived.eq.false")
         .eq("status", "available")
         .order("name", { ascending: true }),
 
       supabase
         .from("operators")
         .select("id, full_name, archived, status")
-        .eq("archived", false)
+        .or("archived.is.null,archived.eq.false")
         .eq("status", "active")
         .order("full_name", { ascending: true }),
 
       supabase
         .from("suppliers")
         .select("id, company_name, category, archived")
-        .eq("archived", false)
+        .or("archived.is.null,archived.eq.false")
         .order("company_name", { ascending: true }),
     ]);
 
