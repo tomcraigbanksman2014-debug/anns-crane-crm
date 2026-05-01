@@ -1,6 +1,14 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
+import MultiSupplierFields from "../../components/MultiSupplierFields";
+import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
+import {
+  buildFallbackSupplierLink,
+  getPrimarySupplierLink,
+  parseSupplierLinksFromFormData,
+  replaceTransportSupplierLinks,
+} from "../../lib/jobSupplierLinks";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -363,6 +371,17 @@ async function createTransportJob(formData: FormData) {
           .join(" | ") || null
       : supplierReferenceInput || null;
 
+  const submittedSupplierLinks = parseSupplierLinksFromFormData(formData);
+  const fallbackSupplierLink = buildFallbackSupplierLink({
+    supplier_id: supplierId,
+    supplier_display_name: rawSupplierId === "other" ? otherSupplierName || null : null,
+    supplier_reference: supplierReference,
+    service_description: "Transport supplier / cross-hire",
+    supplier_cost: supplierCost,
+  });
+  const supplierLinks = submittedSupplierLinks.length > 0 ? submittedSupplierLinks : fallbackSupplierLink ? [fallbackSupplierLink] : [];
+  const primarySupplierLink = getPrimarySupplierLink(supplierLinks);
+
   const clientResolution = await resolveClientId(supabase, rawClientId, {
     companyName: otherCustomerCompanyName,
     contactName: otherCustomerContactName,
@@ -465,9 +484,9 @@ async function createTransportJob(formData: FormData) {
     client_id: clientId,
     vehicle_id: vehicleId,
     operator_id: operatorId,
-    supplier_id: supplierId,
-    supplier_reference: supplierReference,
-    supplier_cost: supplierCost,
+    supplier_id: primarySupplierLink?.supplier_id ?? supplierId,
+    supplier_reference: primarySupplierLink?.supplier_reference ?? supplierReference,
+    supplier_cost: primarySupplierLink?.supplier_cost ?? supplierCost,
     job_type: jobType,
     collection_address: collectionAddress,
     delivery_address: deliveryAddress,
@@ -608,6 +627,18 @@ async function createTransportJob(formData: FormData) {
     redirect(`/transport-jobs/new?error=${encodeURIComponent(error?.message ?? "Could not create transport job.")}`);
   }
 
+  if (supplierLinks.length > 0) {
+    try {
+      await replaceTransportSupplierLinks(supabase, data.id, supplierLinks);
+    } catch (supplierError: any) {
+      await supabase.from("transport_jobs").delete().eq("id", data.id);
+      if (createdClientId) {
+        await supabase.from("clients").delete().eq("id", createdClientId);
+      }
+      redirect(`/transport-jobs/new?error=${encodeURIComponent(supplierError?.message || "Could not save transport suppliers.")}`);
+    }
+  }
+
   await writeAuditLog({
     actor_user_id: user?.id ?? null,
     actor_username: fromAuthEmail(user?.email ?? null) || null,
@@ -713,6 +744,10 @@ export default async function NewTransportJobPage({
                   ]}
                 />
 
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <SmartCustomerSuggestions kind="transport" customerFieldId="client_id" />
+                </div>
+
                 <SelectField
                   label="Vehicle"
                   name="vehicle_id"
@@ -760,6 +795,7 @@ export default async function NewTransportJobPage({
                     { value: "in_progress", label: "in_progress" },
                     { value: "completed", label: "completed" },
                     { value: "cancelled", label: "cancelled" },
+                    { value: "late_cancelled", label: "late_cancelled" },
                   ]}
                 />
               </div>
@@ -909,6 +945,16 @@ export default async function NewTransportJobPage({
                 <Field id="supplier_cost" label="Supplier cost" name="supplier_cost" type="number" step="0.01" />
               </div>
             </section>
+
+            <MultiSupplierFields
+              title="Additional transport suppliers / subcontractors"
+              help="Use this for multiple hauliers, HIAB suppliers, escort providers, police/self-escort support or one-off transport suppliers. The main row keeps the old supplier fields compatible."
+              supplierOptions={((suppliers as any[]) ?? []).map((supplier: any) => ({
+                value: supplier.id,
+                label: supplier.company_name ?? "Supplier",
+                category: supplier.category ?? "",
+              }))}
+            />
 
             <section style={sectionCard}>
   <div style={sectionTitle}>Movement order</div>
