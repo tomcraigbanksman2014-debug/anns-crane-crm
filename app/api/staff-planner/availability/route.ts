@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { defaultBlocksAssignment } from "../../../lib/staffAvailability";
+import { countWorkingDaysInclusive } from "../../../lib/workingDays";
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -64,6 +65,7 @@ export async function POST(req: Request) {
       status,
       notes,
       blocks_assignment: blocksAssignment,
+      working_day_count: status === "holiday" ? countWorkingDaysInclusive(startDate, endDate) : null,
       created_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     };
