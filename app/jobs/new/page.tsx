@@ -3,6 +3,13 @@ import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
+import MultiSupplierFields from "../../components/MultiSupplierFields";
+import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
+import {
+  buildFallbackSupplierLink,
+  parseSupplierLinksFromFormData,
+  replaceJobSupplierLinks,
+} from "../../lib/jobSupplierLinks";
 
 function clean(v: FormDataEntryValue | null) {
   return String(v ?? "").trim();
@@ -317,6 +324,15 @@ async function createJob(formData: FormData) {
       ? Number((pricePerDay * billableDays).toFixed(2))
       : Number(fullJobPrice.toFixed(2));
 
+  const submittedSupplierLinks = parseSupplierLinksFromFormData(formData);
+  const fallbackSupplierLink = buildFallbackSupplierLink({
+    supplier_id: allocationSourceType === "cross_hire" ? allocationSupplierId : null,
+    supplier_reference: allocationSourceType === "cross_hire" ? allocationSupplierReference : null,
+    service_description: allocationSourceType === "cross_hire" ? allocationItemName || "Cross-hired crane" : null,
+    supplier_cost: allocationSourceType === "cross_hire" ? allocationSupplierCost : null,
+  });
+  const supplierLinks = submittedSupplierLinks.length > 0 ? submittedSupplierLinks : fallbackSupplierLink ? [fallbackSupplierLink] : [];
+
   const payload: Record<string, any> = {
     client_id: clientId,
     equipment_id: primaryEquipmentId,
@@ -404,6 +420,18 @@ async function createJob(formData: FormData) {
     }
   }
 
+  if (supplierLinks.length > 0) {
+    try {
+      await replaceJobSupplierLinks(supabase, data.id, supplierLinks);
+    } catch (supplierError: any) {
+      await supabase.from("jobs").delete().eq("id", data.id);
+      if (createdClientId) {
+        await supabase.from("clients").delete().eq("id", createdClientId);
+      }
+      redirect(`/jobs/new?error=${encodeURIComponent(supplierError?.message || "Could not save job suppliers.")}`);
+    }
+  }
+
   redirect(`/jobs/${data.id}`);
 }
 
@@ -431,7 +459,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
     await Promise.all([
       supabase
         .from("clients")
-        .select("id, company_name, archived")
+        .select("id, company_name, category, archived")
         .eq("archived", false)
         .order("company_name", { ascending: true }),
 
@@ -458,7 +486,7 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
       supabase
         .from("suppliers")
-        .select("id, company_name, archived")
+        .select("id, company_name, category, archived")
         .eq("archived", false)
         .order("company_name", { ascending: true }),
     ]);
@@ -586,6 +614,8 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                 />
               </div>
             </section>
+
+            <SmartCustomerSuggestions kind="job" customerFieldId="client_id" />
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Site name</label>
@@ -847,6 +877,16 @@ export default async function NewJobPage({ searchParams }: PageProps) {
                 </select>
               </div>
             </section>
+
+            <MultiSupplierFields
+              title="Additional suppliers / subcontractors"
+              help="Use this for any extra crane suppliers, subcontractors, labour, mats, transport support or one-off suppliers on this job. Primary cross-hire above is still supported for old planner logic."
+              supplierOptions={((suppliers as any[]) ?? []).map((supplier: any) => ({
+                value: supplier.id,
+                label: supplier.company_name ?? "Supplier",
+                category: supplier.category ?? "",
+              }))}
+            />
 
             <div style={fieldWrap}>
               <label style={labelStyle}>Notes</label>
