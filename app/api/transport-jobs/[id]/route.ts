@@ -51,6 +51,7 @@ function inferStatus(inputStatus: string | null, payload: Record<string, any>) {
     return "confirmed";
   }
 
+  if (requested === "late_cancelled") return "late_cancelled";
   if (requested === "cancelled") return "cancelled";
   if (requested === "completed") return "completed";
   if (requested === "in_progress") return "in_progress";
