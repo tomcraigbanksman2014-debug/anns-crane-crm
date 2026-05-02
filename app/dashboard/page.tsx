@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import ClientShell from "../ClientShell";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
@@ -13,7 +14,8 @@ function fromAuthEmail(email: string | null) {
   return email.split("@")[0] || "";
 }
 
-function moneyGBP(n: number) {
+function moneyGBP(value: number | null | undefined) {
+  const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
   return n.toLocaleString(undefined, { style: "currency", currency: "GBP" });
 }
 
@@ -120,9 +122,9 @@ type DashboardStats = {
   }>;
 };
 
-function first<T>(v: T | T[] | null | undefined): T | null {
-  if (!v) return null;
-  return Array.isArray(v) ? (v[0] ?? null) : v;
+function first<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 export default function DashboardPage() {
@@ -130,7 +132,7 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
-  const [role, setRole] = useState<"admin" | "staff" | "">("");
+  const [role, setRole] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [passwordDaysLeft, setPasswordDaysLeft] = useState<number | null>(null);
 
@@ -178,7 +180,7 @@ export default function DashboardPage() {
       }
 
       setUsername(fromAuthEmail(user.email ?? null));
-      setRole(isMaster ? "admin" : ((user.user_metadata?.role as any) ?? "staff"));
+      setRole(isMaster ? "admin" : String((user.user_metadata?.role as any) ?? "staff"));
 
       const daysLeft = isMaster
         ? null
@@ -206,32 +208,19 @@ export default function DashboardPage() {
     window.location.href = "/login";
   }
 
-  const tiles = useMemo(
-    () => [
-      { label: "Global Search", href: "/search", tone: "neutral" as const },
-      { label: "Quotes", href: "/quotes", tone: "neutral" as const },
-      { label: "Customers", href: "/customers", tone: "good" as const },
-      { label: "Jobs", href: "/jobs", tone: "neutral" as const },
-      { label: "Transport Jobs", href: "/transport-jobs", tone: "neutral" as const },
-      { label: "Equipment", href: "/equipment", tone: "good" as const },
-      { label: "Operators", href: "/operators", tone: "neutral" as const },
-      { label: "Settings", href: "/settings", tone: "neutral" as const },
-    ],
-    []
-  );
+  const financeRiskCount =
+    (stats?.completedCraneJobsNotInvoiced ?? 0) +
+    (stats?.completedTransportJobsNotInvoiced ?? 0);
 
-  const adminTiles =
-    role === "admin"
-      ? [
-          { label: "Admin → Staff Users", href: "/admin/users", tone: "bad" as const },
-          { label: "Admin → Audit Log", href: "/admin/audit", tone: "bad" as const },
-        ]
-      : [];
+  const urgentCount =
+    (stats?.unassignedTransportJobs ?? 0) +
+    (stats?.timesheetsNotSubmitted ?? 0) +
+    financeRiskCount;
 
   if (loading) {
     return (
       <ClientShell>
-        <div className="dash-shell" style={{ width: "min(1400px, 96vw)", margin: "0 auto" }}>
+        <div className="dash-shell" style={shellStyle}>
           <Panel title="Loading dashboard">
             <EmptyState text="Loading..." />
           </Panel>
@@ -251,54 +240,28 @@ export default function DashboardPage() {
             padding: 14px !important;
             border-radius: 18px !important;
           }
-
-          .dash-header {
-            align-items: flex-start !important;
-          }
-
-          .dash-signout {
-            width: 100%;
-          }
-
-          .dash-service-grid,
-          .dash-three-col,
-          .dash-two-col,
-          .dash-search-shortcuts,
-          .dash-operator-alert-grid,
-          .dash-office-actions {
-            grid-template-columns: 1fr !important;
-          }
-
+          .dash-header,
           .dash-row-link,
           .dash-activity-row {
             align-items: flex-start !important;
           }
+          .dash-grid,
+          .dash-two-col,
+          .dash-three-col,
+          .dash-search-shortcuts,
+          .dash-office-actions {
+            grid-template-columns: 1fr !important;
+          }
+          .dash-signout {
+            width: 100%;
+          }
         }
       `}</style>
 
-      <div
-        className="dash-shell"
-        style={{
-          width: "min(1400px, 96vw)",
-          margin: "0 auto",
-          background: "rgba(255,255,255,0.18)",
-          border: "1px solid rgba(255,255,255,0.4)",
-          borderRadius: 24,
-          padding: 18,
-          boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
-        }}
-      >
-        <div
-          className="dash-header"
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            flexWrap: "wrap",
-            alignItems: "center",
-          }}
-        >
+      <div className="dash-shell" style={shellStyle}>
+        <div className="dash-header" style={headerStyle}>
           <div>
+            <div style={eyebrowStyle}>AnnS Crane CRM</div>
             <h1 style={{ margin: 0, fontSize: 34 }}>Dashboard</h1>
             <div style={{ marginTop: 6, opacity: 0.75 }}>
               Welcome back, <strong>{username || "user"}</strong>
@@ -307,6 +270,8 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/planner" style={searchGhostBtn}>Open planner</a>
+            <a href="/sales-hub" style={searchGhostBtn}>Sales Hub</a>
             <button className="dash-signout" onClick={signOut} style={searchGhostBtn}>
               Sign out
             </button>
@@ -314,88 +279,115 @@ export default function DashboardPage() {
         </div>
 
         {typeof passwordDaysLeft === "number" && passwordDaysLeft <= 30 ? (
-          <div style={alertBox(passwordDaysLeft <= 7 ? "bad" : "warn", true)}>
-            <div>
-              Your password expires in <strong>{passwordDaysLeft}</strong> day{passwordDaysLeft === 1 ? "" : "s"}.
-            </div>
-            <a href="/change-password" style={warningLinkStyle}>
-              Change password
-            </a>
-          </div>
+          <Alert tone={passwordDaysLeft <= 7 ? "bad" : "warn"} href="/change-password" linkText="Change password">
+            Your password expires in <strong>{passwordDaysLeft}</strong> day{passwordDaysLeft === 1 ? "" : "s"}.
+          </Alert>
         ) : null}
 
         {(stats?.certExpired ?? 0) > 0 ? (
-          <div style={alertBox("bad", true)}>
-            <div>
-              ⚠ {stats?.certExpired} asset item{stats?.certExpired === 1 ? "" : "s"} have expired inspection / certification.
-            </div>
-            <a href="/equipment" style={warningLinkStyle}>
-              Open fleet compliance
-            </a>
-          </div>
-        ) : null}
-
-        {(stats?.certExpiringSoon ?? 0) > 0 ? (
-          <div style={alertBox("warn", true)}>
-            <div>
-              ⚠ {stats?.certExpiringSoon} asset item{stats?.certExpiringSoon === 1 ? "" : "s"} have inspection / certification expiring within 30 days.
-            </div>
-            <a href="/equipment" style={warningLinkStyle}>
-              Review expiries
-            </a>
-          </div>
+          <Alert tone="bad" href="/equipment" linkText="Open fleet compliance">
+            ⚠ {stats?.certExpired} asset item{stats?.certExpired === 1 ? "" : "s"} have expired inspection / certification.
+          </Alert>
         ) : null}
 
         {(stats?.lolerOverdue ?? 0) > 0 ? (
-          <div style={alertBox("bad", true)}>
-            <div>
-              ⚠ {stats?.lolerOverdue} asset item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
-            </div>
-            <a href="/equipment" style={warningLinkStyle}>
-              Review LOLER
-            </a>
-          </div>
+          <Alert tone="bad" href="/equipment" linkText="Review LOLER">
+            ⚠ {stats?.lolerOverdue} asset item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
+          </Alert>
         ) : null}
 
-        {(stats?.lolerDueSoon ?? 0) > 0 ? (
-          <div style={alertBox("warn", true)}>
-            <div>
-              ⚠ {stats?.lolerDueSoon} asset item{stats?.lolerDueSoon === 1 ? "" : "s"} have LOLER due within 30 days.
+        <section style={{ marginTop: 14 }}>
+          <Panel title="Today / urgent operations" subtitle="The main things the office should clear first">
+            <div className="dash-grid" style={topActionGrid}>
+              <ActionCard
+                title="Today’s work"
+                value={stats?.jobsToday ?? 0}
+                help={`${stats?.activeCraneJobs ?? 0} crane jobs • ${stats?.activeTransportToday ?? 0} transport jobs`}
+                href="/weekly-planner"
+                tone="neutral"
+              />
+              <ActionCard
+                title="Urgent actions"
+                value={urgentCount}
+                help="Unassigned transport, missing timesheets and completed work not invoiced"
+                href="/invoices/outstanding"
+                tone={urgentCount > 0 ? "warn" : "good"}
+              />
+              <ActionCard
+                title="Outstanding invoices"
+                value={moneyGBP(stats?.outstandingInvoices)}
+                help="Combined crane and transport outstanding list"
+                href="/invoices/outstanding"
+                tone={(stats?.outstandingInvoices ?? 0) > 0 ? "warn" : "good"}
+              />
+              <ActionCard
+                title="Planner / availability"
+                value={`${stats?.availableCranesNow ?? 0} cranes • ${stats?.availableVehiclesNow ?? 0} trucks`}
+                help={`${stats?.cranesOnHireNow ?? 0} cranes on hire now • ${stats?.reservedCranesLater ?? 0} reserved later`}
+                href="/planner"
+                tone="neutral"
+              />
             </div>
-            <a href="/equipment" style={warningLinkStyle}>
-              Review LOLER
-            </a>
-          </div>
-        ) : null}
+          </Panel>
+        </section>
 
-        {(stats?.maintenanceEquipment ?? 0) > 0 ? (
-          <div style={alertBox("warn", false)}>
-            <div>
-              ℹ {stats?.maintenanceEquipment} asset item{stats?.maintenanceEquipment === 1 ? "" : "s"} currently marked as maintenance.
+        <div className="dash-two-col" style={twoColWideLeft}>
+          <Panel title="Today’s work" subtitle="Crane and transport work due today">
+            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
+              <EmptyState text="No work scheduled for today." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.todayJobs.slice(0, 8).map((job) => (
+                  <a key={job.id} href={job.href ?? "#"} className="dash-row-link" style={rowLink}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900 }}>{job.title ?? "Work item"}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                        {(job.time ?? "—")} • {job.subtitle ?? "No details"}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0 }}>
+                      <StatusPill text={job.status ?? "—"} />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Office action queue" subtitle="Jobs and admin work that need attention">
+            <div className="dash-office-actions" style={stackGrid}>
+              <ActionRow
+                title="Unassigned transport jobs"
+                value={stats?.unassignedTransportJobs ?? 0}
+                href="/transport-jobs?view=active"
+                tone={(stats?.unassignedTransportJobs ?? 0) > 0 ? "warn" : "neutral"}
+              />
+              <ActionRow
+                title="Completed crane jobs not invoiced"
+                value={stats?.completedCraneJobsNotInvoiced ?? 0}
+                href="/jobs?view=active"
+                tone={(stats?.completedCraneJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral"}
+              />
+              <ActionRow
+                title="Completed transport jobs not invoiced"
+                value={stats?.completedTransportJobsNotInvoiced ?? 0}
+                href="/transport-jobs?view=active"
+                tone={(stats?.completedTransportJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral"}
+              />
+              <ActionRow
+                title="Timesheets not submitted"
+                value={stats?.timesheetsNotSubmitted ?? 0}
+                href="/timesheets"
+                tone={(stats?.timesheetsNotSubmitted ?? 0) > 0 ? "bad" : "neutral"}
+              />
             </div>
-          </div>
-        ) : null}
+          </Panel>
+        </div>
 
-        <div
-          className="dash-three-col"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1.3fr 1fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Quick search" subtitle="Search customers, jobs, quotes, equipment and more">
+        <div className="dash-three-col" style={threeColStyle}>
+          <Panel title="Quick search" subtitle="Find customers, jobs, quotes, equipment and more">
             <DashboardSearch />
-            <div
-              className="dash-search-shortcuts"
-              style={{
-                marginTop: 12,
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
-                gap: 10,
-              }}
-            >
+            <div className="dash-search-shortcuts" style={shortcutGrid}>
               <a href="/search?type=customers" style={searchGhostBtn}>Customers</a>
               <a href="/search?type=jobs" style={searchGhostBtn}>Jobs</a>
               <a href="/search?type=transport" style={searchGhostBtn}>Transport</a>
@@ -405,294 +397,80 @@ export default function DashboardPage() {
             </div>
           </Panel>
 
-          <Panel title="Shortcuts" subtitle="Common areas">
-            <div style={{ display: "grid", gap: 10 }}>
-              {[...tiles, ...adminTiles].map((tile) => (
-                <a key={tile.href} href={tile.href} style={cardStyle(tile.tone)}>
-                  {tile.label}
-                </a>
-              ))}
+          <Panel title="Sales / actions" subtitle="Follow-up and work-winning tools">
+            <div style={stackGrid}>
+              <a href="/sales-hub" style={cardStyle("good")}>Sales Hub</a>
+              <a href="/sales-hub/campaigns" style={cardStyle("neutral")}>Campaigns</a>
+              <a href="/sales-hub/leads" style={cardStyle("neutral")}>Leads</a>
+              <a href="/quotes" style={cardStyle("neutral")}>Quotes to follow up</a>
             </div>
           </Panel>
 
-          <Panel title="Operator overview" subtitle="Quick access to operator checks">
-            <div
-              className="dash-operator-alert-grid"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr",
-                gap: 12,
-              }}
-            >
-              <OperatorQualificationAlertSummary />
-              <OperatorComplianceAlerts />
+          <Panel title="Planner / availability" subtitle="Quick access to planning boards">
+            <div style={stackGrid}>
+              <a href="/planner" style={cardStyle("neutral")}>Crane planner</a>
+              <a href="/transport-planner" style={cardStyle("neutral")}>Transport planner</a>
+              <a href="/weekly-planner" style={cardStyle("neutral")}>Weekly planner</a>
+              <a href="/staff-planner" style={cardStyle("neutral")}>Staff planner</a>
             </div>
           </Panel>
         </div>
 
-        <div
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-            gap: 12,
-          }}
-        >
-          <StatCard
-            title="Jobs today"
-            value={stats?.jobsToday ?? "-"}
-            subtext="Crane and transport work scheduled today"
-            badge={<StatusPill text="Today" />}
-          />
-          <StatCard
-            title="Crane jobs live today"
-            value={stats?.activeCraneJobs ?? "-"}
-            subtext="Crane work active today"
-            badge={<StatusPill text="Live" />}
-          />
-          <StatCard
-            title="Fleet available"
-            value={`${stats?.availableCranesNow ?? 0} cranes • ${stats?.availableVehiclesNow ?? 0} trucks`}
-            subtext={`${stats?.totalCranes ?? 0} cranes total • ${stats?.totalVehicles ?? 0} trucks total`}
-            badge={<StatusPill text="Fleet" />}
-          />
-          <StatCard
-            title="Invoices outstanding"
-            value={typeof stats?.outstandingInvoices === "number" ? moneyGBP(stats.outstandingInvoices) : "-"}
-            subtext="Crane and transport jobs with unpaid or part-paid invoices"
-            badge={<StatusPill text="£" />}
-            href="/invoices/outstanding"
-          />
-          <StatCard
-            title="Utilisation"
-            value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "-"}
-            subtext="Crane fleet utilisation"
-            badge={<StatusPill text="Use" />}
-          />
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Weekly jobs and costs" subtitle="Incoming from crane jobs and purchase order costs by week">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <div style={certCard("neutral")}>
-                <div style={smallTitle}>Jobs incoming last week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.lastWeek ?? 0)}</div>
-                <div style={smallHelp}>Crane jobs overlapping last week</div>
-              </div>
-              <div style={certCard("neutral")}>
-                <div style={smallTitle}>Jobs incoming this week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.thisWeek ?? 0)}</div>
-                <div style={smallHelp}>Crane jobs overlapping this week</div>
-              </div>
-              <div style={certCard("neutral")}>
-                <div style={smallTitle}>Jobs incoming next week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyIncomingJobs?.nextWeek ?? 0)}</div>
-                <div style={smallHelp}>Crane jobs overlapping next week</div>
-              </div>
-              <div style={certCard("warn")}>
-                <div style={smallTitle}>PO costs last week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.lastWeek ?? 0)}</div>
-                <div style={smallHelp}>Purchase orders due / ordered in last week</div>
-              </div>
-              <div style={certCard("warn")}>
-                <div style={smallTitle}>PO costs this week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.thisWeek ?? 0)}</div>
-                <div style={smallHelp}>Purchase orders due / ordered this week</div>
-              </div>
-              <div style={certCard("warn")}>
-                <div style={smallTitle}>PO costs next week</div>
-                <div style={bigValue}>{moneyGBP(stats?.weeklyPurchaseOrderCosts?.nextWeek ?? 0)}</div>
-                <div style={smallHelp}>Purchase orders due / ordered next week</div>
-              </div>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Office action queue" subtitle="Outstanding actions for the office team to clear">
-            <div
-              className="dash-office-actions"
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/transport-jobs?view=active" style={certCard((stats?.unassignedTransportJobs ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Unassigned transport jobs</div>
-                <div style={bigValue}>{stats?.unassignedTransportJobs ?? 0}</div>
-                <div style={smallHelp}>Transport jobs missing a vehicle or driver</div>
-              </a>
-
-              <a href="/jobs?view=active" style={certCard((stats?.completedCraneJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Completed crane jobs not invoiced</div>
-                <div style={bigValue}>{stats?.completedCraneJobsNotInvoiced ?? 0}</div>
-                <div style={smallHelp}>Completed jobs still marked not invoiced</div>
-              </a>
-
-              <a href="/transport-jobs?view=active" style={certCard((stats?.completedTransportJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral")}>
-                <div style={smallTitle}>Completed transport jobs not invoiced</div>
-                <div style={bigValue}>{stats?.completedTransportJobsNotInvoiced ?? 0}</div>
-                <div style={smallHelp}>Completed transport work awaiting invoicing</div>
-              </a>
-
-              <a href="/timesheets" style={certCard((stats?.timesheetsNotSubmitted ?? 0) > 0 ? "bad" : "neutral")}>
-                <div style={smallTitle}>Timesheets not submitted</div>
-                <div style={bigValue}>{stats?.timesheetsNotSubmitted ?? 0}</div>
-                <div style={smallHelp}>Completed operator jobs missing office submission</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="Certification" subtitle="Monitor expired and expiring inspections / certification">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/equipment" style={certCard("bad")}>
-                <div style={smallTitle}>Expired</div>
-                <div style={bigValue}>{stats?.certExpired ?? 0}</div>
-                <div style={smallHelp}>Cranes and equipment needing immediate action</div>
-              </a>
-
-              <a href="/equipment" style={certCard("warn")}>
-                <div style={smallTitle}>Expiring in 30 days</div>
-                <div style={bigValue}>{stats?.certExpiringSoon ?? 0}</div>
-                <div style={smallHelp}>Review and schedule renewals</div>
-              </a>
-
-              <a href="/equipment" style={certCard("neutral")}>
-                <div style={smallTitle}>Open asset register</div>
-                <div style={{ marginTop: 8, fontSize: 18, fontWeight: 1000 }}>View all assets</div>
-                <div style={smallHelp}>See full compliance status list</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div style={{ marginTop: 14 }}>
-          <Panel title="LOLER" subtitle="Track overdue and upcoming LOLER dates">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <a href="/equipment" style={certCard("bad")}>
-                <div style={smallTitle}>Overdue LOLER</div>
-                <div style={bigValue}>{stats?.lolerOverdue ?? 0}</div>
-                <div style={smallHelp}>Cranes and equipment needing immediate attention</div>
-              </a>
-
-              <a href="/equipment" style={certCard("warn")}>
-                <div style={smallTitle}>Due in 30 days</div>
-                <div style={bigValue}>{stats?.lolerDueSoon ?? 0}</div>
-                <div style={smallHelp}>Schedule inspections ahead of time</div>
-              </a>
-            </div>
-          </Panel>
-        </div>
-
-        <div
-          className="dash-service-grid"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Service coverage" subtitle="How much of the equipment register has recent service history">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <div style={certCard("neutral")}>
-                <div style={smallTitle}>With service history</div>
-                <div style={bigValue}>{stats?.equipmentWithServiceHistory ?? 0}</div>
-                <div style={smallHelp}>Equipment with service log records</div>
-              </div>
-
-              <div style={certCard("neutral")}>
-                <div style={smallTitle}>Without service history</div>
-                <div style={bigValue}>{stats?.equipmentWithoutServiceHistory ?? 0}</div>
-                <div style={smallHelp}>Equipment with no recent service records</div>
-              </div>
+        <div className="dash-two-col" style={twoColStyle}>
+          <Panel title="Finance snapshot" subtitle="Incoming job value, PO costs and unpaid invoice items">
+            <div className="dash-grid" style={financeGrid}>
+              <MiniStat label="Jobs incoming last week" value={moneyGBP(stats?.weeklyIncomingJobs?.lastWeek)} />
+              <MiniStat label="Jobs incoming this week" value={moneyGBP(stats?.weeklyIncomingJobs?.thisWeek)} />
+              <MiniStat label="Jobs incoming next week" value={moneyGBP(stats?.weeklyIncomingJobs?.nextWeek)} />
+              <MiniStat label="PO costs last week" value={moneyGBP(stats?.weeklyPurchaseOrderCosts?.lastWeek)} />
+              <MiniStat label="PO costs this week" value={moneyGBP(stats?.weeklyPurchaseOrderCosts?.thisWeek)} />
+              <MiniStat label="PO costs next week" value={moneyGBP(stats?.weeklyPurchaseOrderCosts?.nextWeek)} />
             </div>
           </Panel>
 
-          <Panel title="Recent service log" subtitle="Latest service and inspection records">
-            {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
-              <EmptyState text="No recent service log entries." />
+          <Panel title="Outstanding invoice preview" subtitle="Top unpaid / part-paid records">
+            {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
+              <EmptyState text="No overdue or unpaid invoices." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.recentServiceLog.slice(0, 8).map((row) => {
-                  const equipment = first(row.equipment);
-                  return (
-                    <div key={row.id} style={rowLink}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {equipment?.name ?? "Equipment"} • {row.entry_type ?? "Entry"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {fmtDateTime(row.service_date)} • {row.engineer ?? "No engineer"}
-                        </div>
-                        {row.notes ? (
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>
-                            {row.notes}
-                          </div>
-                        ) : null}
-                      </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={row.entry_type ?? "—"} />
+                {stats.overdueInvoices.slice(0, 6).map((invoice) => (
+                  <a key={invoice.id} href={invoice.href ?? "/invoices/outstanding"} className="dash-row-link" style={rowLink}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900 }}>{invoice.title ?? "Invoice item"}</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                        {invoice.subtitle ?? "No details"}
                       </div>
                     </div>
-                  );
-                })}
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontWeight: 900 }}>{moneyGBP(invoice.amount)}</div>
+                      <div style={{ marginTop: 4 }}>
+                        <StatusPill text={invoice.invoice_status ?? "—"} />
+                      </div>
+                    </div>
+                  </a>
+                ))}
+                <a href="/invoices/outstanding" style={searchGhostBtn}>Open full outstanding list</a>
               </div>
             )}
           </Panel>
         </div>
 
-        <div
-          className="dash-two-col"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1.1fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Today’s work" subtitle="Crane and transport work due today">
-            {!stats?.todayJobs || stats.todayJobs.length === 0 ? (
-              <EmptyState text="No work scheduled for today." />
+        <div className="dash-two-col" style={twoColWideLeft}>
+          <Panel title="Upcoming work" subtitle="Next jobs coming up">
+            {!stats?.upcomingJobs || stats.upcomingJobs.length === 0 ? (
+              <EmptyState text="No upcoming work." />
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
-                {stats.todayJobs.slice(0, 8).map((b) => (
-                  <a key={b.id} href={b.href ?? "#"} style={rowLink}>
+                {stats.upcomingJobs.slice(0, 6).map((job) => (
+                  <a key={job.id} href={job.href ?? "#"} className="dash-row-link" style={rowLink}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900 }}>{b.title ?? "Work item"}</div>
+                      <div style={{ fontWeight: 900 }}>{job.title ?? "Work item"}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                        {(b.time ?? "—")} • {b.subtitle ?? "No details"}
+                        {job.when ?? "—"} • {job.subtitle ?? "No details"}
                       </div>
                     </div>
                     <div style={{ flexShrink: 0 }}>
-                      <StatusPill text={b.status ?? "—"} />
+                      <StatusPill text={job.status ?? "—"} />
                     </div>
                   </a>
                 ))}
@@ -701,177 +479,100 @@ export default function DashboardPage() {
           </Panel>
 
           <Panel title="Fleet snapshot" subtitle="Live totals across cranes and vehicles">
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: 12,
-              }}
-            >
+            <div style={stackGrid}>
               <MiniStat label="Cranes on hire now" value={stats?.cranesOnHireNow ?? 0} />
               <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
               <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
-              <MiniStat label="Total cranes" value={stats?.totalCranes ?? 0} />
               <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
-              <MiniStat label="Total vehicles" value={stats?.totalVehicles ?? 0} />
+              <MiniStat label="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "—"} />
             </div>
+          </Panel>
+        </div>
 
-            <div style={{ marginTop: 14 }}>
-              {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
-                <EmptyState text="No overdue or unpaid invoices." />
+        <details style={detailsStyle}>
+          <summary style={summaryStyle}>Lower priority checks: compliance, service log and audit</summary>
+          <div className="dash-two-col" style={twoColStyle}>
+            <Panel title="Certification / LOLER" subtitle="Inspection and compliance snapshot">
+              <div className="dash-grid" style={financeGrid}>
+                <ActionCard title="Expired certification" value={stats?.certExpired ?? 0} help="Needs immediate action" href="/equipment" tone={(stats?.certExpired ?? 0) > 0 ? "bad" : "neutral"} />
+                <ActionCard title="Expiring in 30 days" value={stats?.certExpiringSoon ?? 0} help="Review and schedule renewals" href="/equipment" tone={(stats?.certExpiringSoon ?? 0) > 0 ? "warn" : "neutral"} />
+                <ActionCard title="Overdue LOLER" value={stats?.lolerOverdue ?? 0} help="Needs immediate action" href="/equipment" tone={(stats?.lolerOverdue ?? 0) > 0 ? "bad" : "neutral"} />
+                <ActionCard title="LOLER due soon" value={stats?.lolerDueSoon ?? 0} help="Due within 30 days" href="/equipment" tone={(stats?.lolerDueSoon ?? 0) > 0 ? "warn" : "neutral"} />
+                <ActionCard title="Marked maintenance" value={stats?.maintenanceEquipment ?? 0} help="Assets currently in maintenance" href="/equipment" tone={(stats?.maintenanceEquipment ?? 0) > 0 ? "warn" : "neutral"} />
+                <ActionCard title="Service history coverage" value={`${stats?.equipmentWithServiceHistory ?? 0}/${stats?.totalEquipment ?? 0}`} help={`${stats?.equipmentWithoutServiceHistory ?? 0} assets without service history`} href="/equipment" tone="neutral" />
+              </div>
+            </Panel>
+
+            <Panel title="Operator checks" subtitle="Qualification and compliance alerts">
+              <div style={stackGrid}>
+                <OperatorQualificationAlertSummary />
+                <OperatorComplianceAlerts />
+              </div>
+            </Panel>
+          </div>
+
+          <div className="dash-two-col" style={twoColStyle}>
+            <Panel title="Recent service log" subtitle="Latest service and inspection records">
+              {!stats?.recentServiceLog || stats.recentServiceLog.length === 0 ? (
+                <EmptyState text="No recent service log entries." />
               ) : (
                 <div style={{ display: "grid", gap: 10 }}>
-                  {stats.overdueInvoices.slice(0, 6).map((b) => (
-                    <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
+                  {stats.recentServiceLog.slice(0, 8).map((row) => {
+                    const equipment = first(row.equipment);
+                    return (
+                      <div key={row.id} style={rowLink}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 900 }}>
+                            {equipment?.name ?? "Equipment"} • {row.entry_type ?? "Entry"}
+                          </div>
+                          <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
+                            {fmtDateTime(row.service_date)} • {row.engineer ?? "No engineer"}
+                          </div>
+                          {row.notes ? <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>{row.notes}</div> : null}
+                        </div>
+                        <div style={{ flexShrink: 0 }}>
+                          <StatusPill text={row.entry_type ?? "—"} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+
+            <Panel title="Recent activity" subtitle="Latest recorded audit events">
+              {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
+                <EmptyState text="No recent activity yet." />
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {stats.recentAudit.slice(0, 8).map((activity) => (
+                    <div key={activity.id} className="dash-activity-row" style={activityRow}>
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>{b.title ?? "Invoice item"}</div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                          {b.subtitle ?? "No details"}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <div style={{ fontWeight: 900 }}>
-                          {typeof b.amount === "number" ? moneyGBP(b.amount) : "—"}
+                          {(activity.actor_username ?? "user")} • {activity.action ?? "action"} • {activity.entity_type ?? "entity"}
                         </div>
-                        <div style={{ marginTop: 4 }}>
-                          <StatusPill text={b.invoice_status ?? "—"} />
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                          {fmtDateTime(activity.created_at)}
                         </div>
                       </div>
-                    </a>
+                      <div style={{ flexShrink: 0 }}>
+                        <StatusPill text={activity.action ?? "—"} />
+                      </div>
+                    </div>
                   ))}
                 </div>
               )}
-            </div>
-          </Panel>
-        </div>
-
-        <div
-          className="dash-two-col"
-          style={{
-            marginTop: 14,
-            display: "grid",
-            gridTemplateColumns: "1.4fr 1fr",
-            gap: 14,
-          }}
-        >
-          <Panel title="Upcoming work" subtitle="Next jobs coming up">
-            {!stats?.upcomingJobs || stats.upcomingJobs.length === 0 ? (
-              <EmptyState text="No upcoming work." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.upcomingJobs.slice(0, 6).map((b) => (
-                  <a key={b.id} href={b.href ?? "#"} className="dash-row-link" style={rowLink}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900 }}>{b.title ?? "Work item"}</div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
-                        {b.when ?? "—"} • {b.subtitle ?? "No details"}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink: 0 }}>
-                      <StatusPill text={b.status ?? "—"} />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Recent activity" subtitle="Latest recorded audit events">
-            {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
-              <EmptyState text="No recent activity yet." />
-            ) : (
-              <div style={{ display: "grid", gap: 10 }}>
-                {stats.recentAudit.slice(0, 8).map((a) => (
-                  <div key={a.id} className="dash-activity-row" style={activityRow}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900 }}>
-                        {(a.actor_username ?? "user")} • {a.action ?? "action"} • {a.entity_type ?? "entity"}
-                      </div>
-                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                        {fmtDateTime(a.created_at)}
-                      </div>
-                    </div>
-                    <div style={{ flexShrink: 0 }}>
-                      <StatusPill text={a.action ?? "—"} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
+            </Panel>
+          </div>
+        </details>
       </div>
     </ClientShell>
   );
 }
 
-function StatCard({
-  title,
-  value,
-  subtext,
-  badge,
-  href,
-}: {
-  title: string;
-  value: any;
-  subtext?: string;
-  badge?: React.ReactNode;
-  href?: string;
-}) {
-  const sharedStyle: React.CSSProperties = {
-    padding: 14,
-    borderRadius: 14,
-    background: "rgba(255,255,255,0.35)",
-    border: "1px solid rgba(0,0,0,0.12)",
-    minWidth: 0,
-    textDecoration: "none",
-    color: "#111",
-    display: "block",
-  };
-
-  const content = (
-    <>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-        <div style={{ fontSize: 12, opacity: 0.8, fontWeight: 900 }}>{title}</div>
-        <div style={{ flexShrink: 0 }}>{badge}</div>
-      </div>
-      <div style={{ marginTop: 8, fontSize: 28, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>
-        {value}
-      </div>
-      {subtext ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{subtext}</div> : null}
-    </>
-  );
-
-  if (href) {
-    return (
-      <a href={href} style={sharedStyle}>
-        {content}
-      </a>
-    );
-  }
-
-  return <div style={sharedStyle}>{content}</div>;
-}
-
-function Panel({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: React.ReactNode;
-}) {
+function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
-    <div
-      style={{
-        background: "rgba(255,255,255,0.28)",
-        border: "1px solid rgba(0,0,0,0.10)",
-        borderRadius: 14,
-        padding: 16,
-        minWidth: 0,
-      }}
-    >
+    <div style={panelStyle}>
       <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
       {subtitle ? <div style={{ marginTop: 4, fontSize: 13, opacity: 0.72 }}>{subtitle}</div> : null}
       <div style={{ marginTop: 14 }}>{children}</div>
@@ -883,24 +584,126 @@ function EmptyState({ text }: { text: string }) {
   return <div style={{ fontSize: 14, opacity: 0.58 }}>{text}</div>;
 }
 
-function MiniStat({ label, value }: { label: string; value: number }) {
+function Alert({ tone, href, linkText, children }: { tone: "warn" | "bad"; href: string; linkText: string; children: ReactNode }) {
   return (
-    <div
-      style={{
-        padding: "12px 12px",
-        borderRadius: 12,
-        background: "rgba(255,255,255,0.42)",
-        border: "1px solid rgba(0,0,0,0.08)",
-        minWidth: 0,
-      }}
-    >
-      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
-      <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>{value}</div>
+    <div style={alertBox(tone)}>
+      <div>{children}</div>
+      <a href={href} style={warningLinkStyle}>{linkText}</a>
     </div>
   );
 }
 
-const rowLink: React.CSSProperties = {
+function ActionCard({ title, value, help, href, tone }: { title: string; value: ReactNode; help: string; href: string; tone: "good" | "warn" | "bad" | "neutral" }) {
+  return (
+    <a href={href} style={actionCardStyle(tone)}>
+      <div style={smallTitle}>{title}</div>
+      <div style={bigValue}>{value}</div>
+      <div style={smallHelp}>{help}</div>
+    </a>
+  );
+}
+
+function ActionRow({ title, value, href, tone }: { title: string; value: ReactNode; href: string; tone: "warn" | "bad" | "neutral" }) {
+  return (
+    <a href={href} style={actionCardStyle(tone)}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+        <div style={{ fontWeight: 900 }}>{title}</div>
+        <div style={{ fontWeight: 1000, fontSize: 24 }}>{value}</div>
+      </div>
+    </a>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={miniStatStyle}>
+      <div style={smallTitle}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 22, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>{value}</div>
+    </div>
+  );
+}
+
+const shellStyle: CSSProperties = {
+  width: "min(1400px, 96vw)",
+  margin: "0 auto",
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.4)",
+  borderRadius: 24,
+  padding: 18,
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const headerStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+
+const eyebrowStyle: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 1000,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  opacity: 0.62,
+  marginBottom: 4,
+};
+
+const panelStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.28)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  borderRadius: 14,
+  padding: 16,
+  minWidth: 0,
+};
+
+const topActionGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+
+const twoColStyle: CSSProperties = {
+  marginTop: 14,
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 14,
+};
+
+const twoColWideLeft: CSSProperties = {
+  marginTop: 14,
+  display: "grid",
+  gridTemplateColumns: "1.25fr 0.85fr",
+  gap: 14,
+};
+
+const threeColStyle: CSSProperties = {
+  marginTop: 14,
+  display: "grid",
+  gridTemplateColumns: "1.3fr 0.85fr 0.85fr",
+  gap: 14,
+};
+
+const financeGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: 12,
+};
+
+const stackGrid: CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const shortcutGrid: CSSProperties = {
+  marginTop: 12,
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
+  gap: 10,
+};
+
+const rowLink: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 10,
@@ -914,7 +717,7 @@ const rowLink: React.CSSProperties = {
   minWidth: 0,
 };
 
-const activityRow: React.CSSProperties = {
+const activityRow: CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   gap: 10,
@@ -926,7 +729,7 @@ const activityRow: React.CSSProperties = {
   minWidth: 0,
 };
 
-const warningLinkStyle: React.CSSProperties = {
+const warningLinkStyle: CSSProperties = {
   display: "inline-block",
   textDecoration: "none",
   color: "#111",
@@ -938,7 +741,7 @@ const warningLinkStyle: React.CSSProperties = {
   whiteSpace: "nowrap",
 };
 
-const searchGhostBtn: React.CSSProperties = {
+const searchGhostBtn: CSSProperties = {
   display: "inline-block",
   padding: "10px 12px",
   borderRadius: 10,
@@ -949,61 +752,63 @@ const searchGhostBtn: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
-const smallTitle: React.CSSProperties = {
+const smallTitle: CSSProperties = {
   fontSize: 12,
   opacity: 0.75,
   fontWeight: 900,
 };
 
-const bigValue: React.CSSProperties = {
+const bigValue: CSSProperties = {
   marginTop: 8,
-  fontSize: 30,
+  fontSize: 28,
   fontWeight: 1000,
+  lineHeight: 1.1,
+  wordBreak: "break-word",
 };
 
-const smallHelp: React.CSSProperties = {
+const smallHelp: CSSProperties = {
   marginTop: 6,
   fontSize: 13,
   opacity: 0.8,
 };
 
-function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): React.CSSProperties {
-  const tones: Record<string, React.CSSProperties> = {
-    good: { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" },
-    warn: { background: "rgba(255,140,0,0.18)", border: "1px solid rgba(255,140,0,0.28)" },
-    bad: { background: "rgba(255,0,0,0.14)", border: "1px solid rgba(255,0,0,0.22)" },
-    neutral: { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" },
-  };
+const miniStatStyle: CSSProperties = {
+  padding: "12px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.42)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  minWidth: 0,
+};
 
+const detailsStyle: CSSProperties = {
+  marginTop: 14,
+  background: "rgba(255,255,255,0.14)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  borderRadius: 14,
+  padding: 14,
+};
+
+const summaryStyle: CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 1000,
+  fontSize: 16,
+};
+
+function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
   return {
     display: "block",
-    padding: 16,
+    padding: 14,
     borderRadius: 12,
     textDecoration: "none",
     color: "#111",
     fontWeight: 900,
     textAlign: "center",
     minWidth: 0,
-    ...tones[tone],
+    ...toneStyle(tone),
   };
 }
 
-function certCard(tone: "warn" | "bad" | "neutral"): React.CSSProperties {
-  const tones: Record<string, React.CSSProperties> = {
-    warn: {
-      background: "rgba(255,170,0,0.14)",
-      border: "1px solid rgba(255,170,0,0.24)",
-    },
-    bad: {
-      background: "rgba(255,0,0,0.12)",
-      border: "1px solid rgba(255,0,0,0.22)",
-    },
-    neutral: {
-      background: "rgba(255,255,255,0.35)",
-      border: "1px solid rgba(0,0,0,0.12)",
-    },
-  };
-
+function actionCardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
   return {
     display: "block",
     padding: 16,
@@ -1011,29 +816,35 @@ function certCard(tone: "warn" | "bad" | "neutral"): React.CSSProperties {
     textDecoration: "none",
     color: "#111",
     minWidth: 0,
-    ...tones[tone],
+    ...toneStyle(tone),
   };
 }
 
-function alertBox(
-  tone: "warn" | "bad",
-  withLink: boolean
-): React.CSSProperties {
+function toneStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
+  if (tone === "good") {
+    return { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" };
+  }
+  if (tone === "warn") {
+    return { background: "rgba(255,170,0,0.14)", border: "1px solid rgba(255,170,0,0.24)" };
+  }
+  if (tone === "bad") {
+    return { background: "rgba(255,0,0,0.12)", border: "1px solid rgba(255,0,0,0.22)" };
+  }
+  return { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" };
+}
+
+function alertBox(tone: "warn" | "bad"): CSSProperties {
   return {
     marginTop: 14,
     padding: "12px 14px",
     borderRadius: 12,
-    background:
-      tone === "bad" ? "rgba(255,0,0,0.12)" : "rgba(255,170,0,0.14)",
-    border:
-      tone === "bad"
-        ? "1px solid rgba(255,0,0,0.22)"
-        : "1px solid rgba(255,170,0,0.24)",
+    background: tone === "bad" ? "rgba(255,0,0,0.12)" : "rgba(255,170,0,0.14)",
+    border: tone === "bad" ? "1px solid rgba(255,0,0,0.22)" : "1px solid rgba(255,170,0,0.24)",
     fontWeight: tone === "bad" ? 900 : 800,
-    display: withLink ? "flex" : "block",
-    justifyContent: withLink ? "space-between" : undefined,
-    gap: withLink ? 12 : undefined,
-    alignItems: withLink ? "center" : undefined,
-    flexWrap: withLink ? "wrap" : undefined,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "center",
+    flexWrap: "wrap",
   };
 }
