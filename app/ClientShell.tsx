@@ -267,6 +267,12 @@ export default function ClientShell({
       { label: "My Jobs", href: "/operator/jobs" },
 
       { label: "Settings", href: "/settings" },
+      ...(isMasterAdmin
+        ? [
+            { label: "System Health", href: "/settings/system-health" },
+            { label: "Status Audit", href: "/settings/status-audit" },
+          ]
+        : []),
       { label: "Qualification Rules", href: "/admin/qualification-rules" },
       { label: "Staff Accounts", href: "/admin/users" },
       { label: "Audit Log", href: "/admin/audit" },
