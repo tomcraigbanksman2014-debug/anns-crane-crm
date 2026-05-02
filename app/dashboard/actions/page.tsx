@@ -36,6 +36,21 @@ function fmtDate(value: unknown) {
   return d.toLocaleDateString("en-GB");
 }
 
+function isoDate(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function endsTodayOrLater(
+  startDate: unknown,
+  endDate: unknown,
+  today: string
+) {
+  const start = String(startDate ?? "").slice(0, 10).trim();
+  const end = String(endDate ?? startDate ?? "").slice(0, 10).trim();
+  if (!start && !end) return false;
+  return (end || start) >= today;
+}
+
 function first<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] ?? null : value;
@@ -287,6 +302,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
   const focus = String(searchParams?.focus ?? "").trim();
   const errorMessage = String(searchParams?.error ?? "").trim();
   const successMessage = String(searchParams?.success ?? "").trim();
+  const today = isoDate(new Date());
 
   const [jobsRes, transportRes, allocationsRes, operatorsRes, vehiclesRes, cranesRes] = await Promise.all([
     supabase
@@ -353,6 +369,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
 
   const unassignedCrane: ActionItem[] = jobs
     .filter((row: any) => lower(row.status) !== "cancelled")
+    .filter((row: any) => endsTodayOrLater(row.start_date ?? row.job_date, row.end_date ?? row.job_date, today))
     .filter((row: any) => {
       const allocationsForJob = allocationMap.get(String(row.id));
       const hasCrane = !!row.equipment_id || !!allocationsForJob?.hasCrane;
@@ -385,6 +402,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
 
   const unassignedTransport: ActionItem[] = transportJobs
     .filter((row: any) => lower(row.status) !== "cancelled")
+    .filter((row: any) => endsTodayOrLater(row.transport_date, row.delivery_date ?? row.transport_date, today))
     .filter((row: any) => !row.vehicle_id || !row.operator_id)
     .map((row: any) => {
       const client = first(row.clients);
@@ -455,7 +473,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
     {
       id: "unassigned-crane",
       title: "Unassigned crane jobs",
-      subtitle: "Crane jobs missing a crane or operator allocation.",
+      subtitle: "Crane jobs from today onwards missing a crane or operator allocation.",
       actionHint: "Assign the missing crane and/or operator, or open the job if the allocation needs more detail.",
       rows: unassignedCrane,
       mode: "assign-crane" as const,
@@ -463,7 +481,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
     {
       id: "unassigned-transport",
       title: "Unassigned transport jobs",
-      subtitle: "Transport jobs missing a vehicle or driver allocation.",
+      subtitle: "Transport jobs from today onwards missing a vehicle or driver allocation.",
       actionHint: "Assign the missing truck and/or driver, or open the transport job if the allocation needs more detail.",
       rows: unassignedTransport,
       mode: "assign-transport" as const,
