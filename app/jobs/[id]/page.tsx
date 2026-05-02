@@ -138,12 +138,24 @@ function commercialLineTotal(lines: CommercialBreakdownLine[], lineType: "sell" 
 }
 
 function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
-  const rows = [...lines];
+  const existingRows = lines.filter((line) => {
+    return Boolean(
+      cleanText(line.item) ||
+        cleanText(line.description) ||
+        cleanText(line.date_from) ||
+        cleanText(line.date_to) ||
+        cleanText(line.quantity) ||
+        cleanText(line.rate) ||
+        cleanText(line.notes) ||
+        numberFromText(line.amount) > 0
+    );
+  });
 
-  while (rows.length < 10) {
-    rows.push({
-      id: `blank-${rows.length + 1}`,
-      line_type: "sell",
+  return [
+    ...existingRows.slice(0, 15),
+    {
+      id: `new-line-${existingRows.length + 1}`,
+      line_type: "sell" as const,
       item: "",
       description: "",
       date_from: "",
@@ -152,10 +164,8 @@ function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
       rate: "",
       amount: 0,
       notes: "",
-    });
-  }
-
-  return rows.slice(0, 16);
+    },
+  ];
 }
 
 function buildDefaultCraneCommercialLines(job: any, allocations: any[]) {
@@ -1231,7 +1241,7 @@ export default async function JobDetailPage({
                   <form action={updateJobCommercialBreakdown} style={{ marginTop: 12, display: "grid", gap: 12 }}>
                     <input type="hidden" name="job_id" value={(job as any).id} />
                     <div style={helperTextBox}>
-                      Enter every amount with what it is for. Example: Jekko charged 07/04/2026 to 07/04/2026 £850, AK46 charged 08/04/2026 to 09/04/2026 £1,700, mats cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
+                      Existing lines are shown first. Use the single blank row at the bottom only when you need to add another charge/cost. Example: Jekko charged 07/04/2026 to 07/04/2026 £850, AK46 charged 08/04/2026 to 09/04/2026 £1,700, mats cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
                     </div>
                     {makeEditableCommercialRows(commercialLines).map((line, index) => (
                       <div key={`commercial-edit-${index}`} style={editableLineCard}>
