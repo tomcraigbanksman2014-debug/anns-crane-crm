@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import ClientShell from "../ClientShell";
 import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
 import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
 import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
+
+const INVOICE_STATUSES = ["Not Invoiced", "Invoiced", "Part Paid", "Paid"];
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
@@ -66,6 +68,7 @@ type DashboardStats = {
   equipmentWithoutServiceHistory?: number;
   lolerDueSoon?: number;
   lolerOverdue?: number;
+  unassignedCraneJobs?: number;
   unassignedTransportJobs?: number;
   completedCraneJobsNotInvoiced?: number;
   completedTransportJobsNotInvoiced?: number;
@@ -83,8 +86,12 @@ type DashboardStats = {
     id: string;
     title?: string;
     subtitle?: string;
+    recordType?: "crane" | "transport";
+    recordId?: string;
     invoice_status?: string;
+    status?: string;
     amount?: number;
+    amountPaid?: number;
     href?: string;
   }>;
   recentAudit?: Array<{
@@ -207,7 +214,7 @@ export default function DashboardPage() {
     (stats?.completedCraneJobsNotInvoiced ?? 0) +
     (stats?.completedTransportJobsNotInvoiced ?? 0);
 
-  const urgentCount = (stats?.unassignedTransportJobs ?? 0) + financeRiskCount;
+  const urgentCount = (stats?.unassignedCraneJobs ?? 0) + (stats?.unassignedTransportJobs ?? 0) + financeRiskCount;
 
   if (loading) {
     return (
@@ -240,7 +247,6 @@ export default function DashboardPage() {
           .dash-grid,
           .dash-two-col,
           .dash-three-col,
-          .dash-search-shortcuts,
           .dash-office-actions,
           .dash-planner-buttons {
             grid-template-columns: 1fr !important;
@@ -279,6 +285,12 @@ export default function DashboardPage() {
         ) : null}
 
         <section style={{ marginTop: 14 }}>
+          <Panel title="Global search" subtitle="Search customers, jobs, transport, bookings, quotes, equipment and more">
+            <DashboardSearch />
+          </Panel>
+        </section>
+
+        <section style={{ marginTop: 14 }}>
           <Panel title="Today / urgent operations" subtitle="The main things the office should clear first">
             <div className="dash-grid" style={topActionGrid}>
               <ActionCard
@@ -291,7 +303,7 @@ export default function DashboardPage() {
               <ActionCard
                 title="Urgent actions"
                 value={urgentCount}
-                help="Unassigned transport and completed work not invoiced"
+                help="Unassigned jobs and completed work not invoiced"
                 href="/dashboard/actions"
                 tone={urgentCount > 0 ? "warn" : "good"}
               />
@@ -339,6 +351,12 @@ export default function DashboardPage() {
           <Panel title="Office action queue" subtitle="Click a row to open the exact records behind the number">
             <div className="dash-office-actions" style={stackGrid}>
               <ActionRow
+                title="Unassigned crane jobs"
+                value={stats?.unassignedCraneJobs ?? 0}
+                href="/dashboard/actions?focus=unassigned-crane"
+                tone={(stats?.unassignedCraneJobs ?? 0) > 0 ? "warn" : "neutral"}
+              />
+              <ActionRow
                 title="Unassigned transport jobs"
                 value={stats?.unassignedTransportJobs ?? 0}
                 href="/dashboard/actions?focus=unassigned-transport"
@@ -360,19 +378,7 @@ export default function DashboardPage() {
           </Panel>
         </div>
 
-        <div className="dash-two-col" style={twoColStyle}>
-          <Panel title="Quick search" subtitle="Find customers, jobs, quotes, equipment and more">
-            <DashboardSearch />
-            <div className="dash-search-shortcuts" style={shortcutGrid}>
-              <a href="/search?type=customers" style={searchGhostBtn}>Customers</a>
-              <a href="/search?type=jobs" style={searchGhostBtn}>Jobs</a>
-              <a href="/search?type=transport" style={searchGhostBtn}>Transport</a>
-              <a href="/search?type=quotes" style={searchGhostBtn}>Quotes</a>
-              <a href="/search?type=equipment" style={searchGhostBtn}>Equipment</a>
-              <a href="/search?type=audit" style={searchGhostBtn}>Audit</a>
-            </div>
-          </Panel>
-
+        <section style={{ marginTop: 14 }}>
           <Panel title="Finance snapshot" subtitle="Incoming job value, PO costs and unpaid invoice items">
             <div className="dash-grid" style={financeGrid}>
               <MiniStat label="Jobs incoming last week" value={moneyGBP(stats?.weeklyIncomingJobs?.lastWeek)} />
@@ -383,7 +389,7 @@ export default function DashboardPage() {
               <MiniStat label="PO costs next week" value={moneyGBP(stats?.weeklyPurchaseOrderCosts?.nextWeek)} />
             </div>
           </Panel>
-        </div>
+        </section>
 
         <div className="dash-two-col" style={twoColWideLeft}>
           <Panel title="Outstanding invoice preview" subtitle="Top unpaid / part-paid records">
@@ -392,20 +398,21 @@ export default function DashboardPage() {
             ) : (
               <div style={{ display: "grid", gap: 10 }}>
                 {stats.overdueInvoices.slice(0, 6).map((invoice) => (
-                  <a key={invoice.id} href={invoice.href ?? "/invoices/outstanding"} className="dash-row-link" style={rowLink}>
+                  <div key={invoice.id} className="dash-row-link" style={invoicePreviewRow}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 900 }}>{invoice.title ?? "Invoice item"}</div>
                       <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
                         {invoice.subtitle ?? "No details"}
                       </div>
+                      {invoice.href ? (
+                        <a href={invoice.href} style={smallInlineLink}>Open job</a>
+                      ) : null}
                     </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 900 }}>{moneyGBP(invoice.amount)}</div>
-                      <div style={{ marginTop: 4 }}>
-                        <StatusPill text={invoice.invoice_status ?? "—"} />
-                      </div>
+                    <div style={{ minWidth: 220 }}>
+                      <div style={{ fontWeight: 900, textAlign: "right" }}>{moneyGBP(invoice.amount)}</div>
+                      <DashboardInvoiceQuickAction invoice={invoice} />
                     </div>
-                  </a>
+                  </div>
                 ))}
                 <a href="/invoices/outstanding" style={searchGhostBtn}>Open full outstanding list</a>
               </div>
@@ -537,6 +544,87 @@ export default function DashboardPage() {
         </details>
       </div>
     </ClientShell>
+  );
+}
+
+
+function DashboardInvoiceQuickAction({ invoice }: { invoice: any }) {
+  const [invoiceStatusValue, setInvoiceStatusValue] = useState(invoice.invoice_status ?? "Not Invoiced");
+  const [amountPaidValue, setAmountPaidValue] = useState(String(invoice.amountPaid ?? 0));
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!invoice.recordType || !invoice.recordId) {
+      setMessage("Open the job to update this one.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/dashboard/action-update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "update_invoice",
+          record_type: invoice.recordType,
+          record_id: invoice.recordId,
+          invoice_status: invoiceStatusValue,
+          amount_paid: amountPaidValue,
+        }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || json?.error) {
+        throw new Error(json?.error || "Could not update invoice status.");
+      }
+
+      setMessage("Saved");
+      window.setTimeout(() => window.location.reload(), 350);
+    } catch (error: any) {
+      setMessage(error?.message || "Could not update invoice status.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={submit} style={quickInvoiceForm}>
+      <label style={compactLabel}>
+        Invoice
+        <select
+          value={invoiceStatusValue}
+          onChange={(event) => setInvoiceStatusValue(event.target.value)}
+          style={compactSelect}
+        >
+          {INVOICE_STATUSES.map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+      </label>
+      {invoiceStatusValue === "Part Paid" ? (
+        <label style={compactLabel}>
+          Paid
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            value={amountPaidValue}
+            onChange={(event) => setAmountPaidValue(event.target.value)}
+            style={compactInput}
+          />
+        </label>
+      ) : null}
+      <button type="submit" disabled={saving} style={quickSaveBtn}>
+        {saving ? "Saving..." : "Save"}
+      </button>
+      {message ? <div style={quickMessage}>{message}</div> : null}
+    </form>
   );
 }
 
@@ -740,6 +828,72 @@ const rowLink: CSSProperties = {
   background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
   minWidth: 0,
+};
+
+
+const invoicePreviewRow: CSSProperties = {
+  ...rowLink,
+  alignItems: "flex-start",
+};
+
+const quickInvoiceForm: CSSProperties = {
+  marginTop: 6,
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  gap: 7,
+  alignItems: "end",
+};
+
+const compactLabel: CSSProperties = {
+  display: "grid",
+  gap: 3,
+  fontSize: 11,
+  fontWeight: 900,
+  color: "#374151",
+};
+
+const compactSelect: CSSProperties = {
+  minHeight: 32,
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.14)",
+  background: "#fff",
+  padding: "5px 7px",
+  fontWeight: 800,
+};
+
+const compactInput: CSSProperties = {
+  minHeight: 30,
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.14)",
+  background: "#fff",
+  padding: "5px 7px",
+  fontWeight: 800,
+};
+
+const quickSaveBtn: CSSProperties = {
+  border: 0,
+  borderRadius: 9,
+  padding: "8px 10px",
+  background: "#0f172a",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const quickMessage: CSSProperties = {
+  gridColumn: "1 / -1",
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#475569",
+};
+
+const smallInlineLink: CSSProperties = {
+  display: "inline-block",
+  marginTop: 8,
+  fontSize: 12,
+  fontWeight: 900,
+  color: "#0f172a",
+  textDecoration: "underline",
 };
 
 const activityRow: CSSProperties = {
