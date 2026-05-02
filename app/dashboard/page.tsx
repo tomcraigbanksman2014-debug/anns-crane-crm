@@ -69,7 +69,6 @@ type DashboardStats = {
   unassignedTransportJobs?: number;
   completedCraneJobsNotInvoiced?: number;
   completedTransportJobsNotInvoiced?: number;
-  timesheetsNotSubmitted?: number;
   weeklyIncomingJobs?: {
     lastWeek: number;
     thisWeek: number;
@@ -122,9 +121,9 @@ type DashboardStats = {
   }>;
 };
 
-function first<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
+function first<T>(v: T | T[] | null | undefined): T | null {
+  if (!v) return null;
+  return Array.isArray(v) ? (v[0] ?? null) : v;
 }
 
 export default function DashboardPage() {
@@ -132,7 +131,7 @@ export default function DashboardPage() {
 
   const [loading, setLoading] = useState(true);
   const [username, setUsername] = useState("");
-  const [role, setRole] = useState("");
+  const [role, setRole] = useState<"admin" | "staff" | "">("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [passwordDaysLeft, setPasswordDaysLeft] = useState<number | null>(null);
 
@@ -180,7 +179,8 @@ export default function DashboardPage() {
       }
 
       setUsername(fromAuthEmail(user.email ?? null));
-      setRole(isMaster ? "admin" : String((user.user_metadata?.role as any) ?? "staff"));
+      const rawRole = String((user.user_metadata?.role as any) ?? "staff").toLowerCase();
+      setRole(isMaster ? "admin" : rawRole === "admin" ? "admin" : "staff");
 
       const daysLeft = isMaster
         ? null
@@ -203,19 +203,11 @@ export default function DashboardPage() {
     load();
   }, [supabase]);
 
-  async function signOut() {
-    await supabase.auth.signOut();
-    window.location.href = "/login";
-  }
-
   const financeRiskCount =
     (stats?.completedCraneJobsNotInvoiced ?? 0) +
     (stats?.completedTransportJobsNotInvoiced ?? 0);
 
-  const urgentCount =
-    (stats?.unassignedTransportJobs ?? 0) +
-    (stats?.timesheetsNotSubmitted ?? 0) +
-    financeRiskCount;
+  const urgentCount = (stats?.unassignedTransportJobs ?? 0) + financeRiskCount;
 
   if (loading) {
     return (
@@ -249,11 +241,9 @@ export default function DashboardPage() {
           .dash-two-col,
           .dash-three-col,
           .dash-search-shortcuts,
-          .dash-office-actions {
+          .dash-office-actions,
+          .dash-planner-buttons {
             grid-template-columns: 1fr !important;
-          }
-          .dash-signout {
-            width: 100%;
           }
         }
       `}</style>
@@ -267,14 +257,6 @@ export default function DashboardPage() {
               Welcome back, <strong>{username || "user"}</strong>
               {role ? ` • ${role}` : ""}
             </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/planner" style={searchGhostBtn}>Open planner</a>
-            <a href="/sales-hub" style={searchGhostBtn}>Sales Hub</a>
-            <button className="dash-signout" onClick={signOut} style={searchGhostBtn}>
-              Sign out
-            </button>
           </div>
         </div>
 
@@ -303,14 +285,14 @@ export default function DashboardPage() {
                 title="Today’s work"
                 value={stats?.jobsToday ?? 0}
                 help={`${stats?.activeCraneJobs ?? 0} crane jobs • ${stats?.activeTransportToday ?? 0} transport jobs`}
-                href="/weekly-planner"
+                href="/dashboard/today"
                 tone="neutral"
               />
               <ActionCard
                 title="Urgent actions"
                 value={urgentCount}
-                help="Unassigned transport, missing timesheets and completed work not invoiced"
-                href="/invoices/outstanding"
+                help="Unassigned transport and completed work not invoiced"
+                href="/dashboard/actions"
                 tone={urgentCount > 0 ? "warn" : "good"}
               />
               <ActionCard
@@ -320,12 +302,11 @@ export default function DashboardPage() {
                 href="/invoices/outstanding"
                 tone={(stats?.outstandingInvoices ?? 0) > 0 ? "warn" : "good"}
               />
-              <ActionCard
-                title="Planner / availability"
-                value={`${stats?.availableCranesNow ?? 0} cranes • ${stats?.availableVehiclesNow ?? 0} trucks`}
-                help={`${stats?.cranesOnHireNow ?? 0} cranes on hire now • ${stats?.reservedCranesLater ?? 0} reserved later`}
-                href="/planner"
-                tone="neutral"
+              <PlannerAvailabilityCard
+                cranes={stats?.availableCranesNow ?? 0}
+                trucks={stats?.availableVehiclesNow ?? 0}
+                cranesOnHire={stats?.cranesOnHireNow ?? 0}
+                cranesReservedLater={stats?.reservedCranesLater ?? 0}
               />
             </div>
           </Panel>
@@ -350,41 +331,36 @@ export default function DashboardPage() {
                     </div>
                   </a>
                 ))}
+                <a href="/dashboard/today" style={searchGhostBtn}>Open full today list</a>
               </div>
             )}
           </Panel>
 
-          <Panel title="Office action queue" subtitle="Jobs and admin work that need attention">
+          <Panel title="Office action queue" subtitle="Click a row to open the exact records behind the number">
             <div className="dash-office-actions" style={stackGrid}>
               <ActionRow
                 title="Unassigned transport jobs"
                 value={stats?.unassignedTransportJobs ?? 0}
-                href="/transport-jobs?view=active"
+                href="/dashboard/actions?focus=unassigned-transport"
                 tone={(stats?.unassignedTransportJobs ?? 0) > 0 ? "warn" : "neutral"}
               />
               <ActionRow
                 title="Completed crane jobs not invoiced"
                 value={stats?.completedCraneJobsNotInvoiced ?? 0}
-                href="/jobs?view=active"
+                href="/dashboard/actions?focus=completed-crane-not-invoiced"
                 tone={(stats?.completedCraneJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral"}
               />
               <ActionRow
                 title="Completed transport jobs not invoiced"
                 value={stats?.completedTransportJobsNotInvoiced ?? 0}
-                href="/transport-jobs?view=active"
+                href="/dashboard/actions?focus=completed-transport-not-invoiced"
                 tone={(stats?.completedTransportJobsNotInvoiced ?? 0) > 0 ? "warn" : "neutral"}
-              />
-              <ActionRow
-                title="Timesheets not submitted"
-                value={stats?.timesheetsNotSubmitted ?? 0}
-                href="/timesheets"
-                tone={(stats?.timesheetsNotSubmitted ?? 0) > 0 ? "bad" : "neutral"}
               />
             </div>
           </Panel>
         </div>
 
-        <div className="dash-three-col" style={threeColStyle}>
+        <div className="dash-two-col" style={twoColStyle}>
           <Panel title="Quick search" subtitle="Find customers, jobs, quotes, equipment and more">
             <DashboardSearch />
             <div className="dash-search-shortcuts" style={shortcutGrid}>
@@ -397,26 +373,6 @@ export default function DashboardPage() {
             </div>
           </Panel>
 
-          <Panel title="Sales / actions" subtitle="Follow-up and work-winning tools">
-            <div style={stackGrid}>
-              <a href="/sales-hub" style={cardStyle("good")}>Sales Hub</a>
-              <a href="/sales-hub/campaigns" style={cardStyle("neutral")}>Campaigns</a>
-              <a href="/sales-hub/leads" style={cardStyle("neutral")}>Leads</a>
-              <a href="/quotes" style={cardStyle("neutral")}>Quotes to follow up</a>
-            </div>
-          </Panel>
-
-          <Panel title="Planner / availability" subtitle="Quick access to planning boards">
-            <div style={stackGrid}>
-              <a href="/planner" style={cardStyle("neutral")}>Crane planner</a>
-              <a href="/transport-planner" style={cardStyle("neutral")}>Transport planner</a>
-              <a href="/weekly-planner" style={cardStyle("neutral")}>Weekly planner</a>
-              <a href="/staff-planner" style={cardStyle("neutral")}>Staff planner</a>
-            </div>
-          </Panel>
-        </div>
-
-        <div className="dash-two-col" style={twoColStyle}>
           <Panel title="Finance snapshot" subtitle="Incoming job value, PO costs and unpaid invoice items">
             <div className="dash-grid" style={financeGrid}>
               <MiniStat label="Jobs incoming last week" value={moneyGBP(stats?.weeklyIncomingJobs?.lastWeek)} />
@@ -427,7 +383,9 @@ export default function DashboardPage() {
               <MiniStat label="PO costs next week" value={moneyGBP(stats?.weeklyPurchaseOrderCosts?.nextWeek)} />
             </div>
           </Panel>
+        </div>
 
+        <div className="dash-two-col" style={twoColWideLeft}>
           <Panel title="Outstanding invoice preview" subtitle="Top unpaid / part-paid records">
             {!stats?.overdueInvoices || stats.overdueInvoices.length === 0 ? (
               <EmptyState text="No overdue or unpaid invoices." />
@@ -452,6 +410,16 @@ export default function DashboardPage() {
                 <a href="/invoices/outstanding" style={searchGhostBtn}>Open full outstanding list</a>
               </div>
             )}
+          </Panel>
+
+          <Panel title="Fleet snapshot" subtitle="Live totals across cranes and vehicles">
+            <div style={stackGrid}>
+              <MiniStat label="Cranes on hire now" value={stats?.cranesOnHireNow ?? 0} />
+              <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
+              <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
+              <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
+              <MiniStat label="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "—"} />
+            </div>
           </Panel>
         </div>
 
@@ -478,14 +446,28 @@ export default function DashboardPage() {
             )}
           </Panel>
 
-          <Panel title="Fleet snapshot" subtitle="Live totals across cranes and vehicles">
-            <div style={stackGrid}>
-              <MiniStat label="Cranes on hire now" value={stats?.cranesOnHireNow ?? 0} />
-              <MiniStat label="Cranes reserved later" value={stats?.reservedCranesLater ?? 0} />
-              <MiniStat label="Cranes available now" value={stats?.availableCranesNow ?? 0} />
-              <MiniStat label="Vehicles available now" value={stats?.availableVehiclesNow ?? 0} />
-              <MiniStat label="Utilisation" value={typeof stats?.utilisationPct === "number" ? `${stats.utilisationPct}%` : "—"} />
-            </div>
+          <Panel title="Recent activity" subtitle="Latest recorded audit events">
+            {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
+              <EmptyState text="No recent activity yet." />
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {stats.recentAudit.slice(0, 8).map((activity) => (
+                  <div key={activity.id} className="dash-activity-row" style={activityRow}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 900 }}>
+                        {(activity.actor_username ?? "user")} • {activity.action ?? "action"} • {activity.entity_type ?? "entity"}
+                      </div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                        {fmtDateTime(activity.created_at)}
+                      </div>
+                    </div>
+                    <div style={{ flexShrink: 0 }}>
+                      <StatusPill text={activity.action ?? "—"} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </Panel>
         </div>
 
@@ -528,7 +510,11 @@ export default function DashboardPage() {
                           <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>
                             {fmtDateTime(row.service_date)} • {row.engineer ?? "No engineer"}
                           </div>
-                          {row.notes ? <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>{row.notes}</div> : null}
+                          {row.notes ? (
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.68 }}>
+                              {row.notes}
+                            </div>
+                          ) : null}
                         </div>
                         <div style={{ flexShrink: 0 }}>
                           <StatusPill text={row.entry_type ?? "—"} />
@@ -540,28 +526,12 @@ export default function DashboardPage() {
               )}
             </Panel>
 
-            <Panel title="Recent activity" subtitle="Latest recorded audit events">
-              {!stats?.recentAudit || stats.recentAudit.length === 0 ? (
-                <EmptyState text="No recent activity yet." />
-              ) : (
-                <div style={{ display: "grid", gap: 10 }}>
-                  {stats.recentAudit.slice(0, 8).map((activity) => (
-                    <div key={activity.id} className="dash-activity-row" style={activityRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 900 }}>
-                          {(activity.actor_username ?? "user")} • {activity.action ?? "action"} • {activity.entity_type ?? "entity"}
-                        </div>
-                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
-                          {fmtDateTime(activity.created_at)}
-                        </div>
-                      </div>
-                      <div style={{ flexShrink: 0 }}>
-                        <StatusPill text={activity.action ?? "—"} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <Panel title="Asset register summary" subtitle="Fleet and equipment coverage">
+              <div style={stackGrid}>
+                <MiniStat label="Total cranes" value={stats?.totalCranes ?? 0} />
+                <MiniStat label="Total vehicles" value={stats?.totalVehicles ?? 0} />
+                <MiniStat label="Total equipment" value={stats?.totalEquipment ?? 0} />
+              </div>
             </Panel>
           </div>
         </details>
@@ -570,7 +540,99 @@ export default function DashboardPage() {
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+function PlannerAvailabilityCard({
+  cranes,
+  trucks,
+  cranesOnHire,
+  cranesReservedLater,
+}: {
+  cranes: number;
+  trucks: number;
+  cranesOnHire: number;
+  cranesReservedLater: number;
+}) {
+  return (
+    <div style={actionCardStyle("neutral")}>
+      <div style={smallTitle}>Planner / availability</div>
+      <div style={{ ...bigValue, fontSize: 24 }}>{cranes} cranes • {trucks} trucks</div>
+      <div style={smallHelp}>{cranesOnHire} cranes on hire now • {cranesReservedLater} reserved later</div>
+      <div className="dash-planner-buttons" style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <a href="/planner" style={miniButtonStyle}>Crane availability</a>
+        <a href="/transport-planner" style={miniButtonStyle}>Truck availability</a>
+      </div>
+    </div>
+  );
+}
+
+function ActionCard({
+  title,
+  value,
+  help,
+  href,
+  tone,
+}: {
+  title: string;
+  value: ReactNode;
+  help?: string;
+  href: string;
+  tone: "good" | "warn" | "bad" | "neutral";
+}) {
+  return (
+    <a href={href} style={actionCardStyle(tone)}>
+      <div style={smallTitle}>{title}</div>
+      <div style={bigValue}>{value}</div>
+      {help ? <div style={smallHelp}>{help}</div> : null}
+    </a>
+  );
+}
+
+function ActionRow({
+  title,
+  value,
+  href,
+  tone,
+}: {
+  title: string;
+  value: number;
+  href: string;
+  tone: "warn" | "bad" | "neutral";
+}) {
+  return (
+    <a href={href} style={actionRowStyle(tone)}>
+      <span>{title}</span>
+      <strong style={{ fontSize: 28 }}>{value}</strong>
+    </a>
+  );
+}
+
+function Alert({
+  tone,
+  href,
+  linkText,
+  children,
+}: {
+  tone: "warn" | "bad";
+  href: string;
+  linkText: string;
+  children: ReactNode;
+}) {
+  return (
+    <div style={alertBox(tone)}>
+      <div>{children}</div>
+      <a href={href} style={warningLinkStyle}>{linkText}</a>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: ReactNode;
+}) {
   return (
     <div style={panelStyle}>
       <div style={{ fontWeight: 1000, fontSize: 18 }}>{title}</div>
@@ -584,41 +646,11 @@ function EmptyState({ text }: { text: string }) {
   return <div style={{ fontSize: 14, opacity: 0.58 }}>{text}</div>;
 }
 
-function Alert({ tone, href, linkText, children }: { tone: "warn" | "bad"; href: string; linkText: string; children: ReactNode }) {
-  return (
-    <div style={alertBox(tone)}>
-      <div>{children}</div>
-      <a href={href} style={warningLinkStyle}>{linkText}</a>
-    </div>
-  );
-}
-
-function ActionCard({ title, value, help, href, tone }: { title: string; value: ReactNode; help: string; href: string; tone: "good" | "warn" | "bad" | "neutral" }) {
-  return (
-    <a href={href} style={actionCardStyle(tone)}>
-      <div style={smallTitle}>{title}</div>
-      <div style={bigValue}>{value}</div>
-      <div style={smallHelp}>{help}</div>
-    </a>
-  );
-}
-
-function ActionRow({ title, value, href, tone }: { title: string; value: ReactNode; href: string; tone: "warn" | "bad" | "neutral" }) {
-  return (
-    <a href={href} style={actionCardStyle(tone)}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-        <div style={{ fontWeight: 900 }}>{title}</div>
-        <div style={{ fontWeight: 1000, fontSize: 24 }}>{value}</div>
-      </div>
-    </a>
-  );
-}
-
 function MiniStat({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div style={miniStatStyle}>
-      <div style={smallTitle}>{label}</div>
-      <div style={{ marginTop: 4, fontSize: 22, fontWeight: 1000, lineHeight: 1.1, wordBreak: "break-word" }}>{value}</div>
+      <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>{label}</div>
+      <div style={{ marginTop: 4, fontSize: 24, fontWeight: 1000 }}>{value}</div>
     </div>
   );
 }
@@ -642,12 +674,12 @@ const headerStyle: CSSProperties = {
 };
 
 const eyebrowStyle: CSSProperties = {
+  textTransform: "uppercase",
+  letterSpacing: "0.08em",
   fontSize: 12,
   fontWeight: 1000,
-  letterSpacing: "0.08em",
-  textTransform: "uppercase",
-  opacity: 0.62,
-  marginBottom: 4,
+  opacity: 0.65,
+  marginBottom: 6,
 };
 
 const panelStyle: CSSProperties = {
@@ -660,7 +692,7 @@ const panelStyle: CSSProperties = {
 
 const topActionGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
   gap: 12,
 };
 
@@ -674,21 +706,15 @@ const twoColStyle: CSSProperties = {
 const twoColWideLeft: CSSProperties = {
   marginTop: 14,
   display: "grid",
-  gridTemplateColumns: "1.25fr 0.85fr",
+  gridTemplateColumns: "1.2fr 1fr",
   gap: 14,
 };
 
-const threeColStyle: CSSProperties = {
-  marginTop: 14,
+const shortcutGrid: CSSProperties = {
+  marginTop: 12,
   display: "grid",
-  gridTemplateColumns: "1.3fr 0.85fr 0.85fr",
-  gap: 14,
-};
-
-const financeGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
-  gap: 12,
+  gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+  gap: 10,
 };
 
 const stackGrid: CSSProperties = {
@@ -696,11 +722,10 @@ const stackGrid: CSSProperties = {
   gap: 10,
 };
 
-const shortcutGrid: CSSProperties = {
-  marginTop: 12,
+const financeGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))",
-  gap: 10,
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 12,
 };
 
 const rowLink: CSSProperties = {
@@ -752,6 +777,20 @@ const searchGhostBtn: CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
+const miniButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: "9px 10px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.64)",
+  color: "#111",
+  fontWeight: 900,
+  border: "1px solid rgba(0,0,0,0.10)",
+  textAlign: "center",
+};
+
 const smallTitle: CSSProperties = {
   fontSize: 12,
   opacity: 0.75,
@@ -760,10 +799,9 @@ const smallTitle: CSSProperties = {
 
 const bigValue: CSSProperties = {
   marginTop: 8,
-  fontSize: 28,
+  fontSize: 30,
   fontWeight: 1000,
-  lineHeight: 1.1,
-  wordBreak: "break-word",
+  lineHeight: 1.05,
 };
 
 const smallHelp: CSSProperties = {
@@ -782,7 +820,7 @@ const miniStatStyle: CSSProperties = {
 
 const detailsStyle: CSSProperties = {
   marginTop: 14,
-  background: "rgba(255,255,255,0.14)",
+  background: "rgba(255,255,255,0.24)",
   border: "1px solid rgba(0,0,0,0.10)",
   borderRadius: 14,
   padding: 14,
@@ -794,21 +832,14 @@ const summaryStyle: CSSProperties = {
   fontSize: 16,
 };
 
-function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
-  return {
-    display: "block",
-    padding: 14,
-    borderRadius: 12,
-    textDecoration: "none",
-    color: "#111",
-    fontWeight: 900,
-    textAlign: "center",
-    minWidth: 0,
-    ...toneStyle(tone),
-  };
-}
-
 function actionCardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
+  const tones: Record<string, CSSProperties> = {
+    good: { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" },
+    warn: { background: "rgba(255,170,0,0.16)", border: "1px solid rgba(255,170,0,0.28)" },
+    bad: { background: "rgba(255,0,0,0.14)", border: "1px solid rgba(255,0,0,0.22)" },
+    neutral: { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" },
+  };
+
   return {
     display: "block",
     padding: 16,
@@ -816,21 +847,60 @@ function actionCardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperti
     textDecoration: "none",
     color: "#111",
     minWidth: 0,
-    ...toneStyle(tone),
+    ...tones[tone],
   };
 }
 
-function toneStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
-  if (tone === "good") {
-    return { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" };
-  }
-  if (tone === "warn") {
-    return { background: "rgba(255,170,0,0.14)", border: "1px solid rgba(255,170,0,0.24)" };
-  }
-  if (tone === "bad") {
-    return { background: "rgba(255,0,0,0.12)", border: "1px solid rgba(255,0,0,0.22)" };
-  }
-  return { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" };
+function actionRowStyle(tone: "warn" | "bad" | "neutral"): CSSProperties {
+  const tones: Record<string, CSSProperties> = {
+    warn: {
+      background: "rgba(255,170,0,0.14)",
+      border: "1px solid rgba(255,170,0,0.24)",
+    },
+    bad: {
+      background: "rgba(255,0,0,0.12)",
+      border: "1px solid rgba(255,0,0,0.22)",
+    },
+    neutral: {
+      background: "rgba(255,255,255,0.35)",
+      border: "1px solid rgba(0,0,0,0.12)",
+    },
+  };
+
+  return {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    padding: 16,
+    borderRadius: 14,
+    textDecoration: "none",
+    color: "#111",
+    fontWeight: 900,
+    minWidth: 0,
+    ...tones[tone],
+  };
+}
+
+function cardStyle(tone: "good" | "warn" | "bad" | "neutral"): CSSProperties {
+  const tones: Record<string, CSSProperties> = {
+    good: { background: "rgba(0,180,120,0.18)", border: "1px solid rgba(0,180,120,0.28)" },
+    warn: { background: "rgba(255,140,0,0.18)", border: "1px solid rgba(255,140,0,0.28)" },
+    bad: { background: "rgba(255,0,0,0.14)", border: "1px solid rgba(255,0,0,0.22)" },
+    neutral: { background: "rgba(255,255,255,0.35)", border: "1px solid rgba(0,0,0,0.12)" },
+  };
+
+  return {
+    display: "block",
+    padding: 16,
+    borderRadius: 12,
+    textDecoration: "none",
+    color: "#111",
+    fontWeight: 900,
+    textAlign: "center",
+    minWidth: 0,
+    ...tones[tone],
+  };
 }
 
 function alertBox(tone: "warn" | "bad"): CSSProperties {
