@@ -477,6 +477,32 @@ async function updateJobCommercialBreakdown(formData: FormData) {
   redirect(`/jobs/${jobId}?success=${encodeURIComponent("Commercial breakdown updated.")}`);
 }
 
+async function updateJobRequirementFlags(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const jobId = cleanText(formData.get("job_id"));
+  const noOperatorRequired = formData.get("no_operator_required") === "on";
+
+  if (!jobId) {
+    redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      no_operator_required: noOperatorRequired,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) {
+    redirect(`/jobs/${jobId}?error=${encodeURIComponent(error.message || "Could not save allocation requirements.")}`);
+  }
+
+  redirect(`/jobs/${jobId}?success=${encodeURIComponent("Allocation requirements updated.")}`);
+}
+
 export default async function JobDetailPage({
   params,
   searchParams,
@@ -711,12 +737,43 @@ export default async function JobDetailPage({
   const outstandingBalance = Math.max(0, commercialInvoiceTotal - amountPaid);
   const estimatedGrossProfit = commercialSellSubtotal - commercialCostSubtotal;
   const estimatedMargin = commercialSellSubtotal > 0 ? (estimatedGrossProfit / commercialSellSubtotal) * 100 : 0;
+  const noOperatorRequired = Boolean((job as any)?.no_operator_required);
+  const operatorAllocated = Boolean(
+    (job as any)?.operator_id ||
+      (job as any)?.operator_name ||
+      linkedOperator?.full_name ||
+      allocationList.some((allocation) => allocation?.operator_id || first(allocation?.operators)?.full_name)
+  );
+  const supplierCostExpected = supplierLinks.some((supplier) =>
+    Boolean(
+      supplier.supplier_id ||
+        supplier.supplier_display_name ||
+        supplier.supplier_reference ||
+        supplier.service_description ||
+        supplier.notes
+    )
+  );
+  const supplierCostRecorded = Boolean(
+    commercialCostSubtotal > 0 ||
+      allocatedCostSubtotal > 0 ||
+      primarySupplierCost > 0 ||
+      supplierLinks.some((supplier) => numberFromText(supplier.supplier_cost) > 0)
+  );
+  const chargeLines = commercialLines.filter((line) => line.line_type !== "cost");
+  const costLines = commercialLines.filter((line) => line.line_type === "cost");
+  const operatorActivityValues = [
+    (job as any).operator_sign_in_time,
+    (job as any).operator_signed_in_at,
+    (job as any).operator_signed_out_at,
+    (job as any).job_started_at,
+    (job as any).job_completed_at,
+  ].filter(Boolean);
   const needsAttention = [
     !(job as any)?.invoice_status || String((job as any)?.invoice_status).toLowerCase() === "not invoiced" ? "Not invoiced" : null,
     commercialLines.length === 0 ? "Commercial breakdown missing" : null,
-    commercialCostSubtotal === 0 ? "No supplier/cost lines entered" : null,
+    supplierCostExpected && !supplierCostRecorded ? "Supplier/cost amount missing for linked supplier" : null,
     cranesAllocated.length === 0 ? "No crane allocated" : null,
-    !((job as any)?.operator_id || (job as any)?.operator_name || linkedOperator?.full_name) ? "No operator allocated" : null,
+    !noOperatorRequired && !operatorAllocated ? "No operator allocated" : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -1109,32 +1166,64 @@ export default async function JobDetailPage({
                   <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
                 </div>
 
-                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-                  {commercialLines.length === 0 ? (
-                    <div style={listEmptyStyle}>No breakdown lines entered yet.</div>
-                  ) : (
-                    commercialLines.map((line, index) => (
-                      <div key={`${line.id}-${index}`} style={breakdownLineStyle}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 900 }}>{line.item || "Commercial line"}</div>
-                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
-                              {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
-                                .filter(Boolean)
-                                .join(" • ")}
+                <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                  <div>
+                    <div style={{ ...rowLabel, marginBottom: 8 }}>Customer charges</div>
+                    {chargeLines.length === 0 ? (
+                      <div style={listEmptyStyle}>No customer charge lines entered yet.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {chargeLines.map((line, index) => (
+                          <div key={`${line.id}-charge-${index}`} style={breakdownLineStyle}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{line.item || "Customer charge"}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                                  {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                                {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={sellBadgeStyle}>Charge</div>
+                                <div style={{ marginTop: 6, fontWeight: 900 }}>{money(line.amount)}</div>
+                              </div>
                             </div>
-                            {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
                           </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={line.line_type === "cost" ? costBadgeStyle : sellBadgeStyle}>
-                              {line.line_type === "cost" ? "Cost" : "Charge"}
-                            </div>
-                            <div style={{ marginTop: 6, fontWeight: 900 }}>{money(line.amount)}</div>
-                          </div>
-                        </div>
+                        ))}
                       </div>
-                    ))
-                  )}
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ ...rowLabel, marginBottom: 8 }}>Supplier / cost lines</div>
+                    {costLines.length === 0 ? (
+                      <div style={listEmptyStyle}>No supplier or subcontractor cost lines entered. This is fine if there is no external cost for this job.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {costLines.map((line, index) => (
+                          <div key={`${line.id}-cost-${index}`} style={breakdownLineStyle}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{line.item || "Supplier / cost"}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                                  {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                                {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={costBadgeStyle}>Cost</div>
+                                <div style={{ marginTop: 6, fontWeight: 900 }}>{money(line.amount)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <details style={{ marginTop: 14 }}>
@@ -1227,6 +1316,23 @@ export default async function JobDetailPage({
 
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Crane and staff allocation</h2>
+                <form action={updateJobRequirementFlags} style={{ marginBottom: 12, display: "grid", gap: 10 }}>
+                  <input type="hidden" name="job_id" value={(job as any).id} />
+                  <label style={{ ...listItemStyle, display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+                    <input type="checkbox" name="no_operator_required" defaultChecked={noOperatorRequired} style={{ marginTop: 3 }} />
+                    <span>
+                      <strong>No operator required</strong>
+                      <span style={{ display: "block", marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                        Tick this where AnnS is not supplying an operator or no operator needs allocating in the CRM.
+                      </span>
+                    </span>
+                  </label>
+                  <div>
+                    <ServerSubmitButton style={secondaryBtn} pendingText="Saving…">
+                      Save allocation requirement
+                    </ServerSubmitButton>
+                  </div>
+                </form>
                 <div style={{ display: "grid", gap: 10 }}>
                   {allocationList.length === 0 ? (
                     <div style={listEmptyStyle}>No crane, vehicle, equipment or labour allocated yet.</div>
@@ -1243,12 +1349,19 @@ export default async function JobDetailPage({
 
               <section style={cardStyle}>
                 <h2 style={sectionTitle}>Operational activity / paperwork</h2>
-                <div style={summaryGrid}>
-                  <Row label="Booked on" value={fmtDate((job as any).booked_date ?? (job as any).start_date)} />
-                  <Row label="Operator sign in" value={(job as any).operator_sign_in_time ?? "—"} />
-                  <Row label="Documents" value={documents.length} />
-                  <Row label="Lift plan" value={(job as any).lift_plan_status ?? "Check lift plan page"} />
-                </div>
+                {operatorActivityValues.length === 0 && documents.length === 0 ? (
+                  <div style={listEmptyStyle}>No operator activity or uploaded paperwork recorded yet.</div>
+                ) : (
+                  <div style={summaryGrid}>
+                    <Row label="Booked on" value={fmtDate((job as any).booked_date ?? (job as any).start_date)} />
+                    {(job as any).operator_sign_in_time || (job as any).operator_signed_in_at ? (
+                      <Row label="Operator sign in" value={fmtDateTime((job as any).operator_sign_in_time ?? (job as any).operator_signed_in_at)} />
+                    ) : null}
+                    {(job as any).operator_signed_out_at ? <Row label="Operator sign out" value={fmtDateTime((job as any).operator_signed_out_at)} /> : null}
+                    <Row label="Documents" value={documents.length} />
+                    <Row label="Lift plan" value={(job as any).lift_plan_status ?? "Check lift plan page"} />
+                  </div>
+                )}
                 <div style={{ marginTop: 10, fontSize: 12, opacity: 0.72 }}>
                   Timesheet-style hours and break deductions are hidden here until you start using CRM timesheets.
                 </div>
