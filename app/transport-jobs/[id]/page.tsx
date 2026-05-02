@@ -74,6 +74,170 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+
+type CommercialBreakdownLine = {
+  id: string;
+  line_type: "sell" | "cost";
+  item: string;
+  description: string;
+  date_from: string;
+  date_to: string;
+  quantity: string;
+  rate: string;
+  amount: number;
+  notes: string;
+};
+
+function numberFromText(value: unknown) {
+  const raw = String(value ?? "").replace(/£/g, "").replace(/,/g, "").trim();
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function normaliseCommercialLine(raw: any, index: number): CommercialBreakdownLine | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const item = String(raw.item ?? raw.title ?? raw.name ?? "").trim();
+  const description = String(raw.description ?? raw.notes ?? "").trim();
+  const amount = numberFromText(raw.amount ?? raw.total ?? raw.value);
+  const hasContent = item || description || amount !== 0;
+
+  if (!hasContent) return null;
+
+  const lineTypeRaw = String(raw.line_type ?? raw.type ?? "sell").trim().toLowerCase();
+
+  return {
+    id: String(raw.id ?? `line-${index + 1}`),
+    line_type: lineTypeRaw === "cost" ? "cost" : "sell",
+    item,
+    description,
+    date_from: String(raw.date_from ?? raw.from ?? "").slice(0, 10),
+    date_to: String(raw.date_to ?? raw.to ?? "").slice(0, 10),
+    quantity: String(raw.quantity ?? raw.qty ?? "").trim(),
+    rate: String(raw.rate ?? "").trim(),
+    amount,
+    notes: String(raw.notes ?? "").trim(),
+  };
+}
+
+function normaliseCommercialBreakdownLines(raw: any, fallback: CommercialBreakdownLine[]) {
+  const source = Array.isArray(raw) ? raw : Array.isArray(raw?.lines) ? raw.lines : [];
+  const lines = source
+    .map((line: any, index: number) => normaliseCommercialLine(line, index))
+    .filter(Boolean) as CommercialBreakdownLine[];
+
+  return lines.length > 0 ? lines : fallback;
+}
+
+function parseCommercialBreakdownFromFormData(formData: FormData) {
+  const lines: CommercialBreakdownLine[] = [];
+
+  for (let index = 0; index < 16; index += 1) {
+    const item = clean(formData.get(`commercial_item_${index}`));
+    const description = clean(formData.get(`commercial_description_${index}`));
+    const amount = numberFromText(formData.get(`commercial_amount_${index}`));
+    const notes = clean(formData.get(`commercial_notes_${index}`));
+
+    if (!item && !description && !notes && amount === 0) {
+      continue;
+    }
+
+    const rawLineType = clean(formData.get(`commercial_line_type_${index}`)).toLowerCase();
+
+    lines.push({
+      id: clean(formData.get(`commercial_id_${index}`)) || `line-${index + 1}`,
+      line_type: rawLineType === "cost" ? "cost" : "sell",
+      item,
+      description,
+      date_from: clean(formData.get(`commercial_date_from_${index}`)),
+      date_to: clean(formData.get(`commercial_date_to_${index}`)),
+      quantity: clean(formData.get(`commercial_quantity_${index}`)),
+      rate: clean(formData.get(`commercial_rate_${index}`)),
+      amount,
+      notes,
+    });
+  }
+
+  return lines;
+}
+
+function commercialLineTotal(lines: CommercialBreakdownLine[], lineType: "sell" | "cost") {
+  return lines
+    .filter((line) => line.line_type === lineType)
+    .reduce((sum, line) => sum + numberFromText(line.amount), 0);
+}
+
+function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
+  const rows = [...lines];
+
+  while (rows.length < 10) {
+    rows.push({
+      id: `blank-${rows.length + 1}`,
+      line_type: "sell",
+      item: "",
+      description: "",
+      date_from: "",
+      date_to: "",
+      quantity: "",
+      rate: "",
+      amount: 0,
+      notes: "",
+    });
+  }
+
+  return rows.slice(0, 16);
+}
+
+function buildDefaultTransportCommercialLines(item: any) {
+  const lines: CommercialBreakdownLine[] = [];
+  const from = String(item?.transport_date ?? "").slice(0, 10);
+  const to = String(item?.delivery_date ?? item?.transport_date ?? "").slice(0, 10);
+  const vehicleName = first(item?.vehicles)?.name ?? item?.job_type ?? "Transport";
+  const sell = numberFromText(item?.invoice_subtotal ?? item?.agreed_sell_rate ?? item?.price);
+  const cost = numberFromText(item?.supplier_cost);
+
+  if (sell > 0) {
+    lines.push({
+      id: "transport-sell-price",
+      line_type: "sell",
+      item: `${vehicleName} charge`,
+      description: item?.load_description ? String(item.load_description) : "Customer transport charge",
+      date_from: from,
+      date_to: to,
+      quantity: item?.price_mode === "per_day" ? "per day" : "full job",
+      rate: item?.price_per_day ? fmtMoney(item.price_per_day) : "",
+      amount: sell,
+      notes: "",
+    });
+  }
+
+  if (cost > 0) {
+    lines.push({
+      id: "transport-supplier-cost",
+      line_type: "cost",
+      item: "Supplier / subcontractor cost",
+      description: "Transport supplier/cross-hire cost",
+      date_from: from,
+      date_to: to,
+      quantity: "",
+      rate: "",
+      amount: cost,
+      notes: item?.supplier_reference ? `Supplier ref: ${item.supplier_reference}` : "",
+    });
+  }
+
+  return lines;
+}
+
+function dateRangeText(from: string | null | undefined, to: string | null | undefined) {
+  const fromText = fmtDate(from);
+  const toText = fmtDate(to);
+  if (fromText === "—" && toText === "—") return "—";
+  if (fromText !== "—" && toText !== "—" && fromText !== toText) return `${fromText} → ${toText}`;
+  return fromText !== "—" ? fromText : toText;
+}
+
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
   return email.split("@")[0] || "";
@@ -376,6 +540,49 @@ async function createPurchaseOrderFromTransportJob(formData: FormData) {
   redirect(
     `/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`
   );
+}
+
+
+async function updateTransportCommercialBreakdown(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const transportJobId = clean(formData.get("transport_job_id"));
+
+  if (!transportJobId) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const lines = parseCommercialBreakdownFromFormData(formData);
+
+  if (lines.length === 0) {
+    redirect(`/transport-jobs/${transportJobId}?error=${encodeURIComponent("Add at least one commercial breakdown line before saving.")}`);
+  }
+
+  const sellSubtotal = Math.round(commercialLineTotal(lines, "sell") * 100) / 100;
+  const costSubtotal = Math.round(commercialLineTotal(lines, "cost") * 100) / 100;
+  const vat = Math.round(sellSubtotal * 0.2 * 100) / 100;
+  const invoiceTotal = Math.round((sellSubtotal + vat) * 100) / 100;
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      commercial_breakdown: lines,
+      price: sellSubtotal,
+      agreed_sell_rate: sellSubtotal,
+      invoice_subtotal: sellSubtotal,
+      invoice_vat: vat,
+      total_invoice: invoiceTotal,
+      supplier_cost: costSubtotal,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", transportJobId);
+
+  if (error) {
+    redirect(`/transport-jobs/${transportJobId}?error=${encodeURIComponent(error.message || "Could not save commercial breakdown.")}`);
+  }
+
+  redirect(`/transport-jobs/${transportJobId}?success=${encodeURIComponent("Commercial breakdown updated.")}`);
 }
 
 async function updateTransportJob(formData: FormData) {
@@ -918,6 +1125,28 @@ export default async function TransportJobDetailPage({
       (item as any)?.self_escort_required ||
       (item as any)?.police_escort_required
   );
+  const commercialLines = normaliseCommercialBreakdownLines(
+    (item as any)?.commercial_breakdown,
+    buildDefaultTransportCommercialLines(item as any)
+  );
+  const commercialSellSubtotal = Math.round(commercialLineTotal(commercialLines, "sell") * 100) / 100;
+  const commercialCostSubtotal = Math.round(commercialLineTotal(commercialLines, "cost") * 100) / 100;
+  const commercialVat = Math.round((Number((item as any)?.invoice_vat ?? 0) || commercialSellSubtotal * 0.2) * 100) / 100;
+  const commercialInvoiceTotal = Math.round(
+    (Number((item as any)?.total_invoice ?? 0) || commercialSellSubtotal + commercialVat) * 100
+  ) / 100;
+  const amountPaid = numberFromText((item as any)?.amount_paid);
+  const outstandingBalance = Math.max(0, commercialInvoiceTotal - amountPaid);
+  const estimatedGrossProfit = commercialSellSubtotal - commercialCostSubtotal;
+  const estimatedMargin = commercialSellSubtotal > 0 ? (estimatedGrossProfit / commercialSellSubtotal) * 100 : 0;
+  const needsAttention = [
+    !(item as any)?.invoice_status || String((item as any)?.invoice_status).toLowerCase() === "not invoiced" ? "Not invoiced" : null,
+    commercialLines.length === 0 ? "Commercial breakdown missing" : null,
+    commercialCostSubtotal === 0 ? "No supplier/cost lines entered" : null,
+    !(item as any)?.vehicle_id ? "No vehicle allocated" : null,
+    !(item as any)?.operator_id ? "No driver allocated" : null,
+    movementOrderActive && !(item as any)?.movement_order_reference ? "Movement order reference missing" : null,
+  ].filter(Boolean) as string[];
 
   return (
     <ClientShell>
@@ -1045,6 +1274,160 @@ export default async function TransportJobDetailPage({
                   />
                 ) : null}
               </div>
+
+              <section style={{ ...sectionCard, marginTop: 18, border: needsAttention.length > 0 ? "1px solid rgba(245,158,11,0.45)" : sectionCard.border }}>
+                <div style={sectionTitle}>Needs attention</div>
+                {needsAttention.length === 0 ? (
+                  <div style={emptyState}>No obvious commercial, movement order or allocation issues found.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {needsAttention.map((attention) => (
+                      <div key={attention} style={warningLineStyle}>• {attention}</div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section style={{ ...sectionCard, marginTop: 18 }}>
+                <div style={sectionTitle}>Commercial breakdown</div>
+
+                <div style={commercialTotalsGrid}>
+                  <SummaryMini label="Customer charge subtotal" value={fmtMoney(commercialSellSubtotal)} />
+                  <SummaryMini label="Supplier / cost total" value={fmtMoney(commercialCostSubtotal)} />
+                  <SummaryMini label="Estimated gross profit" value={fmtMoney(estimatedGrossProfit)} />
+                  <SummaryMini label="Estimated margin" value={`${estimatedMargin.toFixed(1)}%`} />
+                  <SummaryMini label="VAT" value={fmtMoney(commercialVat)} />
+                  <SummaryMini label="Invoice total" value={fmtMoney(commercialInvoiceTotal)} />
+                  <SummaryMini label="Amount paid" value={fmtMoney(amountPaid)} />
+                  <SummaryMini label="Outstanding" value={fmtMoney(outstandingBalance)} />
+                  <SummaryMini label="Invoice status" value={(item as any)?.invoice_status ?? "Not Invoiced"} />
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                  {commercialLines.length === 0 ? (
+                    <div style={emptyState}>No breakdown lines entered yet.</div>
+                  ) : (
+                    commercialLines.map((line, index) => (
+                      <div key={`${line.id}-${index}`} style={breakdownLineStyle}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 900 }}>{line.item || "Commercial line"}</div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                              {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </div>
+                            {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={line.line_type === "cost" ? costBadgeStyle : sellBadgeStyle}>
+                              {line.line_type === "cost" ? "Cost" : "Charge"}
+                            </div>
+                            <div style={{ marginTop: 6, fontWeight: 900 }}>{fmtMoney(line.amount)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <details style={{ marginTop: 14 }}>
+                  <summary style={detailsSummary}>Edit commercial breakdown</summary>
+                  <form action={updateTransportCommercialBreakdown} style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                    <input type="hidden" name="transport_job_id" value={(item as any).id} />
+                    <div style={helperTextBox}>
+                      Enter every amount with what it is for. Example: Rigid HIAB charged collection to delivery £1,100, low loader charged 07/04/2026 to 08/04/2026 £1,600, escort cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
+                    </div>
+                    {makeEditableCommercialRows(commercialLines).map((line, index) => (
+                      <div key={`commercial-edit-${index}`} style={editableLineCard}>
+                        <input type="hidden" name={`commercial_id_${index}`} defaultValue={line.id} />
+                        <div style={editableLineGrid}>
+                          <div>
+                            <label style={labelStyle}>Type</label>
+                            <select name={`commercial_line_type_${index}`} defaultValue={line.line_type} style={inputStyle}>
+                              <option value="sell">Customer charge</option>
+                              <option value="cost">Supplier / cost</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Item / what it is for</label>
+                            <input name={`commercial_item_${index}`} defaultValue={line.item} placeholder="HIAB / low loader / escort / police" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>From</label>
+                            <input name={`commercial_date_from_${index}`} type="date" defaultValue={line.date_from} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>To</label>
+                            <input name={`commercial_date_to_${index}`} type="date" defaultValue={line.date_to} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Qty / days / hours</label>
+                            <input name={`commercial_quantity_${index}`} defaultValue={line.quantity} placeholder="1 day / 8 hours" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Rate</label>
+                            <input name={`commercial_rate_${index}`} defaultValue={line.rate} placeholder="£1100/day" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>Amount</label>
+                            <input name={`commercial_amount_${index}`} type="number" step="0.01" defaultValue={line.amount ? String(line.amount) : ""} style={inputStyle} />
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <label style={labelStyle}>Description / notes</label>
+                          <textarea name={`commercial_description_${index}`} rows={2} defaultValue={line.description} style={textareaStyle} placeholder="Full explanation of this charge or cost" />
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <label style={labelStyle}>Internal note</label>
+                          <input name={`commercial_notes_${index}`} defaultValue={line.notes} style={inputStyle} />
+                        </div>
+                      </div>
+                    ))}
+                    <ServerSubmitButton style={primaryBtn} pendingText="Saving breakdown…">
+                      Save commercial breakdown
+                    </ServerSubmitButton>
+                  </form>
+                </details>
+              </section>
+
+              <section style={{ ...sectionCard, marginTop: 18 }}>
+                <div style={sectionTitle}>Supplier, vehicle and driver breakdown</div>
+                <div style={gridStyle}>
+                  <SummaryMini label="Vehicle" value={`${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`} />
+                  <SummaryMini label="Driver" value={operator?.full_name ?? "—"} />
+                  <SummaryMini label="Collection" value={`${fmtDate((item as any)?.transport_date)} ${((item as any)?.collection_time ?? "")}`.trim()} />
+                  <SummaryMini label="Delivery" value={`${fmtDate((item as any)?.delivery_date)} ${((item as any)?.delivery_time ?? "")}`.trim()} />
+                  <SummaryMini label="Movement order" value={movementOrderActive ? movementOrderStatusLabel((item as any)?.movement_order_status) : "Not required"} />
+                  <SummaryMini label="Self escort" value={(item as any)?.self_escort_required ? "Yes" : "No"} />
+                  <SummaryMini label="Police escort" value={(item as any)?.police_escort_required ? "Yes" : "No"} />
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                  {supplierLinksForForm.length === 0 ? (
+                    <div style={emptyState}>No suppliers linked to this transport job.</div>
+                  ) : (
+                    supplierLinksForForm.map((supplier, index) => (
+                      <div key={`${supplier.supplier_id ?? supplier.supplier_display_name ?? "supplier"}-${index}`} style={listCard}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>
+                              {supplier.supplier_display_name || "Supplier"} {supplier.is_primary ? "• Primary" : ""}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                              {[supplier.supplier_category, supplier.service_description, supplier.supplier_reference ? `Ref ${supplier.supplier_reference}` : ""]
+                                .filter(Boolean)
+                                .join(" • ") || "No service details entered."}
+                            </div>
+                            {supplier.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{supplier.notes}</div> : null}
+                          </div>
+                          <div style={{ fontWeight: 900 }}>{fmtMoney(supplier.supplier_cost ?? 0)}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
 
               <form action={updateTransportJob} style={{ display: "grid", gap: 18, marginTop: 18 }}>
                 <TransportJobDetailFormEnhancer />
@@ -1831,6 +2214,21 @@ function SummaryCard({
   );
 }
 
+function SummaryMini({
+  label,
+  value,
+}: {
+  label: string;
+  value: React.ReactNode;
+}) {
+  return (
+    <div style={summaryMiniCard}>
+      <div style={summaryLabel}>{label}</div>
+      <div style={summaryValue}>{value}</div>
+    </div>
+  );
+}
+
 function Field({
   id,
   label,
@@ -2162,4 +2560,77 @@ const listCard: React.CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.76)",
   border: "1px solid rgba(0,0,0,0.06)",
+};
+
+
+const warningLineStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(245,158,11,0.14)",
+  border: "1px solid rgba(245,158,11,0.24)",
+  fontWeight: 800,
+};
+
+const commercialTotalsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 10,
+};
+
+const summaryMiniCard: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const breakdownLineStyle: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.74)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sellBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+  background: "rgba(16,185,129,0.12)",
+  border: "1px solid rgba(16,185,129,0.24)",
+  color: "#047857",
+};
+
+const costBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+  background: "rgba(245,158,11,0.14)",
+  border: "1px solid rgba(245,158,11,0.24)",
+  color: "#92400e",
+};
+
+const helperTextBox: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(59,130,246,0.10)",
+  border: "1px solid rgba(59,130,246,0.18)",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const editableLineCard: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.70)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const editableLineGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: 10,
 };
