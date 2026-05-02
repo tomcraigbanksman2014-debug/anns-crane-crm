@@ -45,6 +45,11 @@ type UnsubscribeInfo = {
   postUrl: string;
 };
 
+type CampaignEmailSettings = {
+  testModeEnabled: boolean;
+  testRecipientEmail: string;
+};
+
 const MAX_CAMPAIGN_IMAGES = 5;
 const MAX_TOTAL_IMAGE_BYTES = 20 * 1024 * 1024;
 
@@ -373,6 +378,49 @@ async function marketingSuppressionReason(admin: ReturnType<typeof createSupabas
   return suppression.suppressed ? suppression.reason || "Email is suppressed for marketing." : null;
 }
 
+async function readCampaignEmailSettings(
+  admin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<CampaignEmailSettings> {
+  const fallback = {
+    testModeEnabled: true,
+    testRecipientEmail: "sales@annscranehire.co.uk",
+  };
+
+  const { data, error } = await admin
+    .from("campaign_email_settings")
+    .select("test_mode_enabled, test_recipient_email")
+    .eq("id", true)
+    .maybeSingle();
+
+  if (error || !data) return fallback;
+
+  const testRecipientEmail = cleanEmail((data as any).test_recipient_email) || fallback.testRecipientEmail;
+
+  return {
+    testModeEnabled: (data as any).test_mode_enabled !== false,
+    testRecipientEmail,
+  };
+}
+
+function createTestUnsubscribeInfo(origin: string, campaignId: string): UnsubscribeInfo {
+  const url = `${origin}/sales-hub/campaigns/${campaignId}/runner`;
+  return {
+    token: "test-mode-no-live-token",
+    url,
+    postUrl: url,
+  };
+}
+
+function testModeBody(originalRecipient: string, originalBody: string) {
+  return [
+    "TEST MODE ONLY - no customer or lead has received this campaign email.",
+    `Original intended recipient: ${originalRecipient}`,
+    "Turn campaign test mode off only when you are ready for live customer sends.",
+    "",
+    originalBody,
+  ].join("\n");
+}
+
 async function createUnsubscribeInfo(args: {
   admin: ReturnType<typeof createSupabaseAdminClient>;
   origin: string;
@@ -448,11 +496,19 @@ export async function POST(
     const { accessToken, connection } = await getFreshMicrosoftGraphAccessToken(admin);
     const senderEmail = getMicrosoftSenderEmail();
 
-    const sent: Array<{ key: string; to: string; messageId: string; threadId: string }> = [];
+    const campaignEmailSettings = await readCampaignEmailSettings(admin);
+    const testModeEnabled = campaignEmailSettings.testModeEnabled;
+    const testRecipientEmail = cleanEmail(campaignEmailSettings.testRecipientEmail);
+
+    if (testModeEnabled && !testRecipientEmail) {
+      return NextResponse.json({ error: "Campaign test mode is ON but the test recipient email is invalid." }, { status: 400 });
+    }
+
+    const sent: Array<{ key: string; to: string; messageId: string; threadId: string; originalTo?: string | null }> = [];
     const failed: Array<{ key: string; to: string | null; error: string }> = [];
     const skipped: Array<{ key: string; reason: string }> = [];
 
-    const selectedDrafts = drafts.slice(0, batchLimit);
+    const selectedDrafts = testModeEnabled ? drafts.slice(0, 1) : drafts.slice(0, batchLimit);
     const origin = getOrigin(req);
 
     for (let i = 0; i < selectedDrafts.length; i += 1) {
@@ -464,35 +520,47 @@ export async function POST(
         continue;
       }
 
-      const toEmail = cleanEmail(draft.target_email);
-      if (!toEmail) {
+      const originalToEmail = cleanEmail(draft.target_email);
+      if (!originalToEmail) {
         skipped.push({ key, reason: "No valid recipient email address." });
         continue;
       }
 
-      try {
-        const suppressionReason = await marketingSuppressionReason(admin, toEmail);
+      const toEmail = testModeEnabled ? testRecipientEmail : originalToEmail;
 
-        if (suppressionReason) {
-          skipped.push({ key, reason: suppressionReason });
-          continue;
+      try {
+        if (!testModeEnabled) {
+          const suppressionReason = await marketingSuppressionReason(admin, toEmail);
+
+          if (suppressionReason) {
+            skipped.push({ key, reason: suppressionReason });
+            continue;
+          }
         }
 
         const targetType = safeTargetType(draft.target_type);
         const targetId = cleanUuid(draft.target_id);
-        const unsubscribe = await createUnsubscribeInfo({
-          admin,
-          origin,
-          email: toEmail,
-          targetType,
-          targetId,
-          campaignId: params.id,
-        });
+        const unsubscribe = testModeEnabled
+          ? createTestUnsubscribeInfo(origin, params.id)
+          : await createUnsubscribeInfo({
+              admin,
+              origin,
+              email: toEmail,
+              targetType,
+              targetId,
+              campaignId: params.id,
+            });
 
-        const subject = normaliseDraftSubject(String(draft.subject ?? "")) || "AnnS Crane Hire";
-        const plainText = plainTextWithSignature(String(draft.body ?? ""), unsubscribe.url);
+        const baseSubject = normaliseDraftSubject(String(draft.subject ?? "")) || "AnnS Crane Hire";
+        const subject = testModeEnabled
+          ? `[TEST CAMPAIGN - original: ${originalToEmail}] ${baseSubject}`
+          : baseSubject;
+        const bodyForSend = testModeEnabled
+          ? testModeBody(originalToEmail, String(draft.body ?? ""))
+          : String(draft.body ?? "");
+        const plainText = plainTextWithSignature(bodyForSend, unsubscribe.url);
         const baseHtml = buildFormattedEmailHtml({
-          body: String(draft.body ?? ""),
+          body: bodyForSend,
           origin,
         });
         const html = injectCampaignExtrasIntoHtml(baseHtml, campaignImages, unsubscribe.url);
@@ -510,8 +578,9 @@ export async function POST(
         });
 
         sent.push({
-          key,
+          key: testModeEnabled ? `test:${key}` : key,
           to: toEmail,
+          originalTo: testModeEnabled ? originalToEmail : null,
           messageId: result.id,
           threadId: result.threadId,
         });
@@ -544,6 +613,8 @@ export async function POST(
         unsubscribe_footer_enabled: true,
         list_unsubscribe_headers_enabled: true,
         microsoft_graph_enabled: true,
+        campaign_test_mode_enabled: testModeEnabled,
+        test_recipient_email: testModeEnabled ? testRecipientEmail : null,
       },
     });
 
@@ -557,6 +628,8 @@ export async function POST(
       imageCount: campaignImages.length,
       imageFilenames: campaignImages.map((image) => image.filename),
       unsubscribeEnabled: true,
+      testModeEnabled,
+      testRecipientEmail: testModeEnabled ? testRecipientEmail : null,
       sent,
       failed,
       skipped,
