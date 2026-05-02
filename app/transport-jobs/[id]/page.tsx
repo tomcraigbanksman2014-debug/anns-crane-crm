@@ -169,12 +169,24 @@ function commercialLineTotal(lines: CommercialBreakdownLine[], lineType: "sell" 
 }
 
 function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
-  const rows = [...lines];
+  const existingRows = lines.filter((line) => {
+    return Boolean(
+      String(line.item ?? "").trim() ||
+        String(line.description ?? "").trim() ||
+        String(line.date_from ?? "").trim() ||
+        String(line.date_to ?? "").trim() ||
+        String(line.quantity ?? "").trim() ||
+        String(line.rate ?? "").trim() ||
+        String(line.notes ?? "").trim() ||
+        numberFromText(line.amount) > 0
+    );
+  });
 
-  while (rows.length < 10) {
-    rows.push({
-      id: `blank-${rows.length + 1}`,
-      line_type: "sell",
+  return [
+    ...existingRows.slice(0, 15),
+    {
+      id: `new-line-${existingRows.length + 1}`,
+      line_type: "sell" as const,
       item: "",
       description: "",
       date_from: "",
@@ -183,10 +195,8 @@ function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
       rate: "",
       amount: 0,
       notes: "",
-    });
-  }
-
-  return rows.slice(0, 16);
+    },
+  ];
 }
 
 function buildDefaultTransportCommercialLines(item: any) {
@@ -1413,7 +1423,7 @@ export default async function TransportJobDetailPage({
                   <form action={updateTransportCommercialBreakdown} style={{ marginTop: 12, display: "grid", gap: 12 }}>
                     <input type="hidden" name="transport_job_id" value={(item as any).id} />
                     <div style={helperTextBox}>
-                      Enter every amount with what it is for. Example: Rigid HIAB charged collection to delivery £1,100, low loader charged 07/04/2026 to 08/04/2026 £1,600, escort cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
+                      Existing lines are shown first. Use the single blank row at the bottom only when you need to add another charge/cost. Example: Rigid HIAB charged collection to delivery £1,100, low loader charged 07/04/2026 to 08/04/2026 £1,600, escort cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
                     </div>
                     {makeEditableCommercialRows(commercialLines).map((line, index) => (
                       <div key={`commercial-edit-${index}`} style={editableLineCard}>
