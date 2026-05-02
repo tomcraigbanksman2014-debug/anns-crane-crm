@@ -39,6 +39,197 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+
+type CommercialBreakdownLine = {
+  id: string;
+  line_type: "sell" | "cost";
+  item: string;
+  description: string;
+  date_from: string;
+  date_to: string;
+  quantity: string;
+  rate: string;
+  amount: number;
+  notes: string;
+};
+
+function cleanText(value: FormDataEntryValue | null) {
+  return String(value ?? "").trim();
+}
+
+function numberFromText(value: unknown) {
+  const raw = String(value ?? "").replace(/£/g, "").replace(/,/g, "").trim();
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+}
+
+function normaliseCommercialLine(raw: any, index: number): CommercialBreakdownLine | null {
+  if (!raw || typeof raw !== "object") return null;
+
+  const item = String(raw.item ?? raw.title ?? raw.name ?? "").trim();
+  const description = String(raw.description ?? raw.notes ?? "").trim();
+  const amount = numberFromText(raw.amount ?? raw.total ?? raw.value);
+  const hasContent = item || description || amount !== 0;
+
+  if (!hasContent) return null;
+
+  const lineTypeRaw = String(raw.line_type ?? raw.type ?? "sell").trim().toLowerCase();
+
+  return {
+    id: String(raw.id ?? `line-${index + 1}`),
+    line_type: lineTypeRaw === "cost" ? "cost" : "sell",
+    item,
+    description,
+    date_from: String(raw.date_from ?? raw.from ?? "").slice(0, 10),
+    date_to: String(raw.date_to ?? raw.to ?? "").slice(0, 10),
+    quantity: String(raw.quantity ?? raw.qty ?? "").trim(),
+    rate: String(raw.rate ?? "").trim(),
+    amount,
+    notes: String(raw.notes ?? "").trim(),
+  };
+}
+
+function normaliseCommercialBreakdownLines(raw: any, fallback: CommercialBreakdownLine[]) {
+  const source = Array.isArray(raw) ? raw : Array.isArray(raw?.lines) ? raw.lines : [];
+  const lines = source
+    .map((line: any, index: number) => normaliseCommercialLine(line, index))
+    .filter(Boolean) as CommercialBreakdownLine[];
+
+  return lines.length > 0 ? lines : fallback;
+}
+
+function parseCommercialBreakdownFromFormData(formData: FormData) {
+  const lines: CommercialBreakdownLine[] = [];
+
+  for (let index = 0; index < 16; index += 1) {
+    const item = cleanText(formData.get(`commercial_item_${index}`));
+    const description = cleanText(formData.get(`commercial_description_${index}`));
+    const amount = numberFromText(formData.get(`commercial_amount_${index}`));
+    const notes = cleanText(formData.get(`commercial_notes_${index}`));
+
+    if (!item && !description && !notes && amount === 0) {
+      continue;
+    }
+
+    const rawLineType = cleanText(formData.get(`commercial_line_type_${index}`)).toLowerCase();
+
+    lines.push({
+      id: cleanText(formData.get(`commercial_id_${index}`)) || `line-${index + 1}`,
+      line_type: rawLineType === "cost" ? "cost" : "sell",
+      item,
+      description,
+      date_from: cleanText(formData.get(`commercial_date_from_${index}`)),
+      date_to: cleanText(formData.get(`commercial_date_to_${index}`)),
+      quantity: cleanText(formData.get(`commercial_quantity_${index}`)),
+      rate: cleanText(formData.get(`commercial_rate_${index}`)),
+      amount,
+      notes,
+    });
+  }
+
+  return lines;
+}
+
+function commercialLineTotal(lines: CommercialBreakdownLine[], lineType: "sell" | "cost") {
+  return lines
+    .filter((line) => line.line_type === lineType)
+    .reduce((sum, line) => sum + numberFromText(line.amount), 0);
+}
+
+function makeEditableCommercialRows(lines: CommercialBreakdownLine[]) {
+  const rows = [...lines];
+
+  while (rows.length < 10) {
+    rows.push({
+      id: `blank-${rows.length + 1}`,
+      line_type: "sell",
+      item: "",
+      description: "",
+      date_from: "",
+      date_to: "",
+      quantity: "",
+      rate: "",
+      amount: 0,
+      notes: "",
+    });
+  }
+
+  return rows.slice(0, 16);
+}
+
+function buildDefaultCraneCommercialLines(job: any, allocations: any[]) {
+  const lines: CommercialBreakdownLine[] = [];
+  const defaultFrom = String(job?.start_date ?? job?.job_date ?? "").slice(0, 10);
+  const defaultTo = String(job?.end_date ?? job?.job_date ?? "").slice(0, 10);
+
+  allocations.forEach((allocation, index) => {
+    const name = allocatedAssetName(allocation);
+    const from = String(allocation?.start_date ?? defaultFrom ?? "").slice(0, 10);
+    const to = String(allocation?.end_date ?? defaultTo ?? "").slice(0, 10);
+    const sell = numberFromText(allocation?.agreed_sell_rate);
+    const cost = numberFromText(allocation?.supplier_cost ?? allocation?.agreed_cost);
+
+    if (sell > 0) {
+      lines.push({
+        id: `allocation-sell-${allocation?.id ?? index}`,
+        line_type: "sell",
+        item: name,
+        description: `${name} customer charge`,
+        date_from: from,
+        date_to: to,
+        quantity: "",
+        rate: "",
+        amount: sell,
+        notes: allocation?.notes ? String(allocation.notes) : "",
+      });
+    }
+
+    if (cost > 0) {
+      lines.push({
+        id: `allocation-cost-${allocation?.id ?? index}`,
+        line_type: "cost",
+        item: name,
+        description: `${name} supplier/cross-hire cost`,
+        date_from: from,
+        date_to: to,
+        quantity: "",
+        rate: "",
+        amount: cost,
+        notes: allocation?.supplier_reference ? `Supplier ref: ${allocation.supplier_reference}` : "",
+      });
+    }
+  });
+
+  if (lines.length === 0) {
+    const sell = numberFromText(job?.invoice_subtotal ?? job?.price ?? job?.total_invoice);
+    if (sell > 0) {
+      lines.push({
+        id: "job-sell-price",
+        line_type: "sell",
+        item: job?.site_name ? String(job.site_name) : "Job charge",
+        description: "Customer agreed job charge",
+        date_from: defaultFrom,
+        date_to: defaultTo,
+        quantity: "",
+        rate: "",
+        amount: sell,
+        notes: "",
+      });
+    }
+  }
+
+  return lines;
+}
+
+function dateRangeText(from: string | null | undefined, to: string | null | undefined) {
+  const fromText = fmtDate(from);
+  const toText = fmtDate(to);
+  if (fromText === "—" && toText === "—") return "—";
+  if (fromText !== "—" && toText !== "—" && fromText !== toText) return `${fromText} → ${toText}`;
+  return fromText !== "—" ? fromText : toText;
+}
+
 function statusPillStyle(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
@@ -242,6 +433,48 @@ async function createPurchaseOrderFromJob(formData: FormData) {
   }
 
   redirect(`/purchase-orders/${created.id}?success=${encodeURIComponent(`Purchase order ${poNumber} saved.`)}`);
+}
+
+
+async function updateJobCommercialBreakdown(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const jobId = cleanText(formData.get("job_id"));
+
+  if (!jobId) {
+    redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
+  }
+
+  const lines = parseCommercialBreakdownFromFormData(formData);
+
+  if (lines.length === 0) {
+    redirect(`/jobs/${jobId}?error=${encodeURIComponent("Add at least one commercial breakdown line before saving.")}`);
+  }
+
+  const sellSubtotal = Math.round(commercialLineTotal(lines, "sell") * 100) / 100;
+  const costSubtotal = Math.round(commercialLineTotal(lines, "cost") * 100) / 100;
+  const vat = Math.round(sellSubtotal * 0.2 * 100) / 100;
+  const invoiceTotal = Math.round((sellSubtotal + vat) * 100) / 100;
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      commercial_breakdown: lines,
+      price: sellSubtotal,
+      invoice_subtotal: sellSubtotal,
+      invoice_vat: vat,
+      total_invoice: invoiceTotal,
+      cross_hire_cost_total: costSubtotal,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) {
+    redirect(`/jobs/${jobId}?error=${encodeURIComponent(error.message || "Could not save commercial breakdown.")}`);
+  }
+
+  redirect(`/jobs/${jobId}?success=${encodeURIComponent("Commercial breakdown updated.")}`);
 }
 
 export default async function JobDetailPage({
@@ -464,6 +697,27 @@ export default async function JobDetailPage({
   const searchErrorMessage = searchParams?.error ? decodeURIComponent(searchParams.error) : "";
   const linkedPurchaseOrders = ((poList as any[]) ?? []).filter((item: any) => item.job_id === params.id);
   const documents = (jobDocuments as any[]) ?? [];
+  const commercialLines = normaliseCommercialBreakdownLines(
+    (job as any)?.commercial_breakdown,
+    buildDefaultCraneCommercialLines(job as any, allocationList)
+  );
+  const commercialSellSubtotal = Math.round(commercialLineTotal(commercialLines, "sell") * 100) / 100;
+  const commercialCostSubtotal = Math.round(commercialLineTotal(commercialLines, "cost") * 100) / 100;
+  const commercialVat = Math.round((Number((job as any)?.invoice_vat ?? 0) || commercialSellSubtotal * 0.2) * 100) / 100;
+  const commercialInvoiceTotal = Math.round(
+    (Number((job as any)?.total_invoice ?? 0) || commercialSellSubtotal + commercialVat) * 100
+  ) / 100;
+  const amountPaid = numberFromText((job as any)?.amount_paid ?? (job as any)?.part_paid_amount);
+  const outstandingBalance = Math.max(0, commercialInvoiceTotal - amountPaid);
+  const estimatedGrossProfit = commercialSellSubtotal - commercialCostSubtotal;
+  const estimatedMargin = commercialSellSubtotal > 0 ? (estimatedGrossProfit / commercialSellSubtotal) * 100 : 0;
+  const needsAttention = [
+    !(job as any)?.invoice_status || String((job as any)?.invoice_status).toLowerCase() === "not invoiced" ? "Not invoiced" : null,
+    commercialLines.length === 0 ? "Commercial breakdown missing" : null,
+    commercialCostSubtotal === 0 ? "No supplier/cost lines entered" : null,
+    cranesAllocated.length === 0 ? "No crane allocated" : null,
+    !((job as any)?.operator_id || (job as any)?.operator_name || linkedOperator?.full_name) ? "No operator allocated" : null,
+  ].filter(Boolean) as string[];
 
   return (
     <ClientShell>
@@ -827,51 +1081,176 @@ export default async function JobDetailPage({
             </div>
 
             <div style={{ display: "grid", gap: 18 }}>
-              <section style={cardStyle}>
-                <h2 style={sectionTitle}>Primary Supplier</h2>
+              <section style={{ ...cardStyle, border: needsAttention.length > 0 ? "1px solid rgba(245,158,11,0.45)" : cardStyle.border }}>
+                <h2 style={sectionTitle}>Needs attention</h2>
+                {needsAttention.length === 0 ? (
+                  <div style={listEmptyStyle}>No obvious commercial, supplier or allocation issues found.</div>
+                ) : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {needsAttention.map((item) => (
+                      <div key={item} style={warningLineStyle}>• {item}</div>
+                    ))}
+                  </div>
+                )}
+              </section>
 
-                <div style={summaryGrid}>
-                  <Row label="Supplier" value={linkedSupplier?.company_name ?? "—"} />
-                  <Row label="Phone" value={linkedSupplier?.phone ?? "—"} />
-                  <Row label="Email" value={linkedSupplier?.email ?? "—"} />
-                  <Row label="Category" value={linkedSupplier?.category ?? "—"} />
-                  <Row label="Reference" value={primarySupplierReference ?? "—"} />
-                  <Row label="Supplier cost" value={money(primarySupplierCost)} />
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Commercial breakdown</h2>
+
+                <div style={commercialTotalsGrid}>
+                  <Row label="Customer charge subtotal" value={money(commercialSellSubtotal)} />
+                  <Row label="Supplier / cost total" value={money(commercialCostSubtotal)} />
+                  <Row label="Estimated gross profit" value={money(estimatedGrossProfit)} />
+                  <Row label="Estimated margin" value={`${estimatedMargin.toFixed(1)}%`} />
+                  <Row label="VAT" value={money(commercialVat)} />
+                  <Row label="Invoice total" value={money(commercialInvoiceTotal)} />
+                  <Row label="Amount paid" value={money(amountPaid)} />
+                  <Row label="Outstanding" value={money(outstandingBalance)} />
+                  <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
+                </div>
+
+                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+                  {commercialLines.length === 0 ? (
+                    <div style={listEmptyStyle}>No breakdown lines entered yet.</div>
+                  ) : (
+                    commercialLines.map((line, index) => (
+                      <div key={`${line.id}-${index}`} style={breakdownLineStyle}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 900 }}>{line.item || "Commercial line"}</div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                              {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                .filter(Boolean)
+                                .join(" • ")}
+                            </div>
+                            {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                          </div>
+                          <div style={{ textAlign: "right" }}>
+                            <div style={line.line_type === "cost" ? costBadgeStyle : sellBadgeStyle}>
+                              {line.line_type === "cost" ? "Cost" : "Charge"}
+                            </div>
+                            <div style={{ marginTop: 6, fontWeight: 900 }}>{money(line.amount)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <details style={{ marginTop: 14 }}>
+                  <summary style={detailsSummary}>Edit commercial breakdown</summary>
+                  <form action={updateJobCommercialBreakdown} style={{ marginTop: 12, display: "grid", gap: 12 }}>
+                    <input type="hidden" name="job_id" value={(job as any).id} />
+                    <div style={helperTextBox}>
+                      Enter every amount with what it is for. Example: Jekko charged 07/04/2026 to 07/04/2026 £850, AK46 charged 08/04/2026 to 09/04/2026 £1,700, mats cost £250. Charge lines build the invoice subtotal. Cost lines build the estimated margin/cost total.
+                    </div>
+                    {makeEditableCommercialRows(commercialLines).map((line, index) => (
+                      <div key={`commercial-edit-${index}`} style={editableLineCard}>
+                        <input type="hidden" name={`commercial_id_${index}`} defaultValue={line.id} />
+                        <div style={editableLineGrid}>
+                          <div>
+                            <label style={rowLabel}>Type</label>
+                            <select name={`commercial_line_type_${index}`} defaultValue={line.line_type} style={inputStyle}>
+                              <option value="sell">Customer charge</option>
+                              <option value="cost">Supplier / cost</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label style={rowLabel}>Item / what it is for</label>
+                            <input name={`commercial_item_${index}`} defaultValue={line.item} placeholder="Jekko / AK46 / mats / operator" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={rowLabel}>From</label>
+                            <input name={`commercial_date_from_${index}`} type="date" defaultValue={line.date_from} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={rowLabel}>To</label>
+                            <input name={`commercial_date_to_${index}`} type="date" defaultValue={line.date_to} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={rowLabel}>Qty / days / hours</label>
+                            <input name={`commercial_quantity_${index}`} defaultValue={line.quantity} placeholder="1 day / 8 hours" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={rowLabel}>Rate</label>
+                            <input name={`commercial_rate_${index}`} defaultValue={line.rate} placeholder="£850/day" style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={rowLabel}>Amount</label>
+                            <input name={`commercial_amount_${index}`} type="number" step="0.01" defaultValue={line.amount ? String(line.amount) : ""} style={inputStyle} />
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <label style={rowLabel}>Description / notes</label>
+                          <textarea name={`commercial_description_${index}`} rows={2} defaultValue={line.description} style={textareaStyle} placeholder="Full explanation of this charge or cost" />
+                        </div>
+                        <div style={{ marginTop: 10 }}>
+                          <label style={rowLabel}>Internal note</label>
+                          <input name={`commercial_notes_${index}`} defaultValue={line.notes} style={inputStyle} />
+                        </div>
+                      </div>
+                    ))}
+                    <ServerSubmitButton style={primaryBtn} pendingText="Saving breakdown…">
+                      Save commercial breakdown
+                    </ServerSubmitButton>
+                  </form>
+                </details>
+              </section>
+
+              <section style={cardStyle}>
+                <h2 style={sectionTitle}>Suppliers / subcontractors breakdown</h2>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {supplierLinks.length === 0 ? (
+                    <div style={listEmptyStyle}>No suppliers linked to this job.</div>
+                  ) : (
+                    supplierLinks.map((supplier, index) => (
+                      <div key={`${supplier.supplier_id ?? supplier.supplier_display_name ?? "supplier"}-${index}`} style={listItemStyle}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                          <div>
+                            <div style={{ fontWeight: 900 }}>
+                              {supplier.supplier_display_name || "Supplier"} {supplier.is_primary ? "• Primary" : ""}
+                            </div>
+                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                              {[supplier.supplier_category, supplier.service_description, supplier.supplier_reference ? `Ref ${supplier.supplier_reference}` : ""]
+                                .filter(Boolean)
+                                .join(" • ") || "No service details entered."}
+                            </div>
+                            {supplier.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{supplier.notes}</div> : null}
+                          </div>
+                          <div style={{ fontWeight: 900 }}>{money(supplier.supplier_cost ?? 0)}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </section>
 
               <section style={cardStyle}>
-                <h2 style={sectionTitle}>Legacy primary operator</h2>
-
-                <div style={summaryGrid}>
-                  <Row label="Operator" value={(job as any).operator_name ?? linkedOperator?.full_name ?? "—"} />
-                  <Row label="Phone" value={(job as any).operator_phone ?? linkedOperator?.phone ?? "—"} />
-                  <Row label="Email" value={(job as any).operator_email ?? linkedOperator?.email ?? "—"} />
-                  <Row label="Status" value={(job as any).operator_status ?? linkedOperator?.status ?? "—"} />
+                <h2 style={sectionTitle}>Crane and staff allocation</h2>
+                <div style={{ display: "grid", gap: 10 }}>
+                  {allocationList.length === 0 ? (
+                    <div style={listEmptyStyle}>No crane, vehicle, equipment or labour allocated yet.</div>
+                  ) : (
+                    allocationList.map((item, index) => (
+                      <div key={item.id ?? index} style={listItemStyle}>
+                        <div style={{ fontWeight: 900 }}>{allocatedAssetName(item)}</div>
+                        <div style={{ marginTop: 4, fontSize: 13, opacity: 0.8 }}>{allocationMeta(item, item.asset_type ?? "allocation")}</div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </section>
 
               <section style={cardStyle}>
-                <h2 style={sectionTitle}>Operator Activity</h2>
-
+                <h2 style={sectionTitle}>Operational activity / paperwork</h2>
                 <div style={summaryGrid}>
                   <Row label="Booked on" value={fmtDate((job as any).booked_date ?? (job as any).start_date)} />
-                  <Row label="Sign in" value={(job as any).operator_sign_in_time ?? "—"} />
-                  <Row label="Break deduction" value={(job as any).break_duration ? `${(job as any).break_duration} mins` : "—"} />
-                  <Row label="Hours worked" value={(job as any).hours_worked ?? "—"} />
+                  <Row label="Operator sign in" value={(job as any).operator_sign_in_time ?? "—"} />
+                  <Row label="Documents" value={documents.length} />
+                  <Row label="Lift plan" value={(job as any).lift_plan_status ?? "Check lift plan page"} />
                 </div>
-              </section>
-
-              <section style={cardStyle}>
-                <h2 style={sectionTitle}>Commercial</h2>
-
-                <div style={summaryGrid}>
-                  <Row label="Quoted / agreed sell" value={money((job as any).price ?? allocatedSellSubtotal)} />
-                  <Row label="Allocated sell subtotal" value={money(allocatedSellSubtotal)} />
-                  <Row label="VAT" value={money(liveVat)} />
-                  <Row label="Invoice total" value={money((job as any).total_invoice ?? allocatedTotal)} />
-                  <Row label="Invoice status" value={(job as any).invoice_status ?? "Not Invoiced"} />
-                  <Row label="Part paid amount" value={money((job as any).part_paid_amount ?? 0)} />
+                <div style={{ marginTop: 10, fontSize: 12, opacity: 0.72 }}>
+                  Timesheet-style hours and break deductions are hidden here until you start using CRM timesheets.
                 </div>
               </section>
 
@@ -1089,4 +1468,78 @@ const primaryBtn: React.CSSProperties = {
   fontWeight: 800,
   border: "none",
   cursor: "pointer",
+};
+
+const warningLineStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(245,158,11,0.14)",
+  border: "1px solid rgba(245,158,11,0.24)",
+  fontWeight: 800,
+};
+
+const commercialTotalsGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: 10,
+};
+
+const breakdownLineStyle: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.74)",
+  border: "1px solid rgba(0,0,0,0.06)",
+};
+
+const sellBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+  background: "rgba(16,185,129,0.12)",
+  border: "1px solid rgba(16,185,129,0.24)",
+  color: "#047857",
+};
+
+const costBadgeStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "4px 8px",
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 900,
+  background: "rgba(245,158,11,0.14)",
+  border: "1px solid rgba(245,158,11,0.24)",
+  color: "#92400e",
+};
+
+const helperTextBox: React.CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(59,130,246,0.10)",
+  border: "1px solid rgba(59,130,246,0.18)",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const editableLineCard: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.70)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const editableLineGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+  gap: 10,
+};
+
+const detailsSummary: React.CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.65)",
+  border: "1px solid rgba(0,0,0,0.08)",
 };
