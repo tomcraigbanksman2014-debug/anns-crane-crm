@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { writeAuditLog } from "../../../lib/audit";
+import { writeJobStatusAudit } from "../../../lib/jobStatusAudit";
 
 const CRANE_JOB_STATUSES = [
   "draft",
@@ -154,6 +155,21 @@ export async function POST(request: Request) {
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 400 });
     }
+
+    await writeJobStatusAudit({
+      recordType,
+      recordId,
+      recordReference: recordType === "crane" ? String((existing as any).job_number ?? "") : String((existing as any).transport_number ?? ""),
+      actorUserId: user?.id ?? null,
+      actorUsername: fromAuthEmail(user?.email) || null,
+      source: "dashboard_quick_action",
+      changes: [
+        { field: "status", oldValue: (existing as any).status ?? null, newValue: nextStatus ?? (existing as any).status ?? null },
+        { field: "invoice_status", oldValue: (existing as any).invoice_status ?? null, newValue: nextInvoiceStatus },
+        { field: "amount_paid", oldValue: currentAmountPaid, newValue: amountPaid },
+      ],
+      meta: { total_invoice: total },
+    });
 
     await writeAuditLog({
       actor_user_id: user?.id ?? null,
