@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
+import { writeJobStatusAudit } from "../../../../lib/jobStatusAudit";
 
 type Payload = {
   client_id?: string | null;
@@ -56,6 +57,12 @@ export async function PATCH(
 
     const body = (await req.json().catch(() => ({}))) as Payload;
 
+    const { data: existingJob } = await supabase
+      .from("jobs")
+      .select("id, job_number, status, invoice_status, amount_paid")
+      .eq("id", params.id)
+      .maybeSingle();
+
     const startDate = norm(body.start_date) ?? norm(body.job_date);
     const endDate = norm(body.end_date) ?? startDate;
 
@@ -101,6 +108,18 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeJobStatusAudit({
+      recordType: "crane",
+      recordId: params.id,
+      recordReference: String((existingJob as any)?.job_number ?? ""),
+      actorUserId: user.id,
+      actorUsername: user.email ? user.email.split("@")[0] : null,
+      source: "job_edit_page",
+      changes: [
+        { field: "status", oldValue: (existingJob as any)?.status ?? null, newValue: payload.status },
+      ],
+    });
 
     await writeAuditLog({
       actor_user_id: user.id,
