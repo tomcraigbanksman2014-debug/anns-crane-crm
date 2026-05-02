@@ -585,6 +585,32 @@ async function updateTransportCommercialBreakdown(formData: FormData) {
   redirect(`/transport-jobs/${transportJobId}?success=${encodeURIComponent("Commercial breakdown updated.")}`);
 }
 
+async function updateTransportRequirementFlags(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const transportJobId = clean(formData.get("transport_job_id"));
+  const noDriverRequired = formData.get("no_driver_required") === "on";
+
+  if (!transportJobId) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      no_driver_required: noDriverRequired,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", transportJobId);
+
+  if (error) {
+    redirect(`/transport-jobs/${transportJobId}?error=${encodeURIComponent(error.message || "Could not save allocation requirements.")}`);
+  }
+
+  redirect(`/transport-jobs/${transportJobId}?success=${encodeURIComponent("Allocation requirements updated.")}`);
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -1139,12 +1165,31 @@ export default async function TransportJobDetailPage({
   const outstandingBalance = Math.max(0, commercialInvoiceTotal - amountPaid);
   const estimatedGrossProfit = commercialSellSubtotal - commercialCostSubtotal;
   const estimatedMargin = commercialSellSubtotal > 0 ? (estimatedGrossProfit / commercialSellSubtotal) * 100 : 0;
+  const noDriverRequired = Boolean((item as any)?.no_driver_required);
+  const driverAllocated = Boolean((item as any)?.operator_id || operator?.full_name);
+  const vehicleAllocated = Boolean((item as any)?.vehicle_id || vehicle?.name || vehicle?.reg_number);
+  const supplierCostExpected = supplierLinksForForm.some((supplier) =>
+    Boolean(
+      supplier.supplier_id ||
+        supplier.supplier_display_name ||
+        supplier.supplier_reference ||
+        supplier.service_description ||
+        supplier.notes
+    )
+  );
+  const supplierCostRecorded = Boolean(
+    commercialCostSubtotal > 0 ||
+      numberFromText((item as any)?.supplier_cost) > 0 ||
+      supplierLinksForForm.some((supplier) => numberFromText(supplier.supplier_cost) > 0)
+  );
+  const chargeLines = commercialLines.filter((line) => line.line_type !== "cost");
+  const costLines = commercialLines.filter((line) => line.line_type === "cost");
   const needsAttention = [
     !(item as any)?.invoice_status || String((item as any)?.invoice_status).toLowerCase() === "not invoiced" ? "Not invoiced" : null,
     commercialLines.length === 0 ? "Commercial breakdown missing" : null,
-    commercialCostSubtotal === 0 ? "No supplier/cost lines entered" : null,
-    !(item as any)?.vehicle_id ? "No vehicle allocated" : null,
-    !(item as any)?.operator_id ? "No driver allocated" : null,
+    supplierCostExpected && !supplierCostRecorded ? "Supplier/cost amount missing for linked supplier" : null,
+    !vehicleAllocated ? "No vehicle allocated" : null,
+    !noDriverRequired && !driverAllocated ? "No driver allocated" : null,
     movementOrderActive && !(item as any)?.movement_order_reference ? "Movement order reference missing" : null,
   ].filter(Boolean) as string[];
 
@@ -1303,32 +1348,64 @@ export default async function TransportJobDetailPage({
                   <SummaryMini label="Invoice status" value={(item as any)?.invoice_status ?? "Not Invoiced"} />
                 </div>
 
-                <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
-                  {commercialLines.length === 0 ? (
-                    <div style={emptyState}>No breakdown lines entered yet.</div>
-                  ) : (
-                    commercialLines.map((line, index) => (
-                      <div key={`${line.id}-${index}`} style={breakdownLineStyle}>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ fontWeight: 900 }}>{line.item || "Commercial line"}</div>
-                            <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
-                              {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
-                                .filter(Boolean)
-                                .join(" • ")}
+                <div style={{ marginTop: 14, display: "grid", gap: 12 }}>
+                  <div>
+                    <div style={{ ...labelStyle, marginBottom: 8 }}>Customer charges</div>
+                    {chargeLines.length === 0 ? (
+                      <div style={emptyState}>No customer charge lines entered yet.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {chargeLines.map((line, index) => (
+                          <div key={`${line.id}-charge-${index}`} style={breakdownLineStyle}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{line.item || "Customer charge"}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                                  {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                                {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={sellBadgeStyle}>Charge</div>
+                                <div style={{ marginTop: 6, fontWeight: 900 }}>{fmtMoney(line.amount)}</div>
+                              </div>
                             </div>
-                            {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
                           </div>
-                          <div style={{ textAlign: "right" }}>
-                            <div style={line.line_type === "cost" ? costBadgeStyle : sellBadgeStyle}>
-                              {line.line_type === "cost" ? "Cost" : "Charge"}
-                            </div>
-                            <div style={{ marginTop: 6, fontWeight: 900 }}>{fmtMoney(line.amount)}</div>
-                          </div>
-                        </div>
+                        ))}
                       </div>
-                    ))
-                  )}
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ ...labelStyle, marginBottom: 8 }}>Supplier / cost lines</div>
+                    {costLines.length === 0 ? (
+                      <div style={emptyState}>No supplier or subcontractor cost lines entered. This is fine if there is no external cost for this transport job.</div>
+                    ) : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {costLines.map((line, index) => (
+                          <div key={`${line.id}-cost-${index}`} style={breakdownLineStyle}>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontWeight: 900 }}>{line.item || "Supplier / cost"}</div>
+                                <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78, whiteSpace: "pre-wrap" }}>
+                                  {[line.description, dateRangeText(line.date_from, line.date_to), line.quantity ? `Qty ${line.quantity}` : "", line.rate ? `Rate ${line.rate}` : ""]
+                                    .filter(Boolean)
+                                    .join(" • ")}
+                                </div>
+                                {line.notes ? <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>{line.notes}</div> : null}
+                              </div>
+                              <div style={{ textAlign: "right" }}>
+                                <div style={costBadgeStyle}>Cost</div>
+                                <div style={{ marginTop: 6, fontWeight: 900 }}>{fmtMoney(line.amount)}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <details style={{ marginTop: 14 }}>
@@ -1393,14 +1470,67 @@ export default async function TransportJobDetailPage({
 
               <section style={{ ...sectionCard, marginTop: 18 }}>
                 <div style={sectionTitle}>Supplier, vehicle and driver breakdown</div>
-                <div style={gridStyle}>
-                  <SummaryMini label="Vehicle" value={`${vehicle?.name ?? "—"}${vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}`} />
-                  <SummaryMini label="Driver" value={operator?.full_name ?? "—"} />
-                  <SummaryMini label="Collection" value={`${fmtDate((item as any)?.transport_date)} ${((item as any)?.collection_time ?? "")}`.trim()} />
-                  <SummaryMini label="Delivery" value={`${fmtDate((item as any)?.delivery_date)} ${((item as any)?.delivery_time ?? "")}`.trim()} />
-                  <SummaryMini label="Movement order" value={movementOrderActive ? movementOrderStatusLabel((item as any)?.movement_order_status) : "Not required"} />
-                  <SummaryMini label="Self escort" value={(item as any)?.self_escort_required ? "Yes" : "No"} />
-                  <SummaryMini label="Police escort" value={(item as any)?.police_escort_required ? "Yes" : "No"} />
+
+                <form action={updateTransportRequirementFlags} style={{ marginBottom: 12, display: "grid", gap: 10 }}>
+                  <input type="hidden" name="transport_job_id" value={(item as any).id} />
+                  <label style={{ ...listCard, display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer" }}>
+                    <input type="checkbox" name="no_driver_required" defaultChecked={noDriverRequired} style={{ marginTop: 3 }} />
+                    <span>
+                      <strong>No driver required</strong>
+                      <span style={{ display: "block", marginTop: 4, fontSize: 12, opacity: 0.72 }}>
+                        Tick this where no driver needs allocating in the CRM for this transport job.
+                      </span>
+                    </span>
+                  </label>
+                  <div>
+                    <ServerSubmitButton style={secondaryBtn} pendingText="Saving…">
+                      Save allocation requirement
+                    </ServerSubmitButton>
+                  </div>
+                </form>
+
+                <div style={{ display: "grid", gap: 10 }}>
+                  {vehicleAllocated ? (
+                    <div style={listCard}>
+                      <div style={{ fontWeight: 900 }}>Vehicle</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                        {vehicle?.name ?? "Vehicle"}{vehicle?.reg_number ? ` (${vehicle.reg_number})` : ""}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={emptyState}>No vehicle allocated.</div>
+                  )}
+
+                  {driverAllocated ? (
+                    <div style={listCard}>
+                      <div style={{ fontWeight: 900 }}>Driver</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>{operator?.full_name ?? "Driver allocated"}</div>
+                    </div>
+                  ) : noDriverRequired ? (
+                    <div style={emptyState}>No driver required has been marked for this job.</div>
+                  ) : (
+                    <div style={emptyState}>No driver allocated.</div>
+                  )}
+
+                  <div style={listCard}>
+                    <div style={{ fontWeight: 900 }}>Movement</div>
+                    <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                      {[`Collection: ${fmtDate((item as any)?.transport_date)} ${((item as any)?.collection_time ?? "")}`.trim(), `Delivery: ${fmtDate((item as any)?.delivery_date)} ${((item as any)?.delivery_time ?? "")}`.trim()]
+                        .filter(Boolean)
+                        .join(" • ")}
+                    </div>
+                  </div>
+
+                  {movementOrderActive ? (
+                    <div style={listCard}>
+                      <div style={{ fontWeight: 900 }}>Movement order / escorts</div>
+                      <div style={{ marginTop: 4, fontSize: 13, opacity: 0.78 }}>
+                        {[movementOrderStatusLabel((item as any)?.movement_order_status), (item as any)?.movement_order_reference ? `Ref ${(item as any).movement_order_reference}` : "Reference missing", (item as any)?.self_escort_required ? "Self escort" : "", (item as any)?.police_escort_required ? "Police escort" : ""]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
