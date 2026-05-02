@@ -71,7 +71,6 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/vehicles")) return true;
   if (pathname.startsWith("/equipment")) return true;
   if (pathname.startsWith("/operators")) return true;
-  if (pathname.startsWith("/timesheets")) return true;
   if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
   return false;
@@ -83,7 +82,6 @@ function getMobilePageKind(pathname: string): "planner" | "default" {
   if (pathname.startsWith("/staff-planner")) return "planner";
   if (pathname.startsWith("/weekly-planner")) return "planner";
   if (pathname.startsWith("/calendar")) return "planner";
-  if (pathname.startsWith("/timesheets")) return "planner";
   return "default";
 }
 
@@ -266,8 +264,6 @@ export default function ClientShell({
       { label: "Equipment", href: "/equipment" },
       { label: "Asset Locations", href: "/equipment/locations" },
       { label: "Operators", href: "/operators" },
-      { label: "Timesheets", href: "/timesheets" },
-
       { label: "My Jobs", href: "/operator/jobs" },
 
       { label: "Settings", href: "/settings" },
