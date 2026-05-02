@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { writeJobStatusAudit } from "../../../lib/jobStatusAudit";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -730,6 +731,20 @@ export async function PATCH(
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
+
+    await writeJobStatusAudit({
+      recordType: "transport",
+      recordId: params.id,
+      recordReference: String(existing.transport_number ?? ""),
+      actorUserId: user.id,
+      actorUsername: user.email ? user.email.split("@")[0] : null,
+      source: "transport_job_edit_page",
+      changes: [
+        { field: "status", oldValue: existing.status ?? null, newValue: nextPayload.status ?? null },
+        { field: "invoice_status", oldValue: existing.invoice_status ?? null, newValue: nextPayload.invoice_status ?? null },
+        { field: "amount_paid", oldValue: existing.amount_paid ?? null, newValue: nextPayload.amount_paid ?? existing.amount_paid ?? null },
+      ],
+    });
 
     return NextResponse.json({ ok: true, transport_job: data });
   } catch (error: any) {
