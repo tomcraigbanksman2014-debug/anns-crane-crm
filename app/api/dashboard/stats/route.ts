@@ -105,6 +105,7 @@ export async function GET() {
     const [
       jobsRes,
       jobEquipmentRes,
+      jobAllocationsRes,
       transportJobsRes,
       cranesRes,
       vehiclesRes,
@@ -133,6 +134,9 @@ export async function GET() {
           invoice_subtotal,
           invoice_amount,
           amount_paid,
+          equipment_id,
+          operator_id,
+          main_operator_id,
           archived,
           clients:client_id (
             company_name
@@ -147,6 +151,10 @@ export async function GET() {
           agreed_sell_rate,
           agreed_cost
         `),
+
+      supabase
+        .from("job_allocations")
+        .select("id, job_id, crane_id, equipment_id, operator_id"),
 
       supabase
         .from("transport_jobs")
@@ -242,6 +250,9 @@ export async function GET() {
     if (jobEquipmentRes.error) {
       return NextResponse.json({ error: jobEquipmentRes.error.message }, { status: 400 });
     }
+    if (jobAllocationsRes.error) {
+      return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
+    }
     if (transportJobsRes.error) {
       return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
     }
@@ -263,6 +274,7 @@ export async function GET() {
 
     const jobs = jobsRes.data ?? [];
     const jobEquipment = jobEquipmentRes.data ?? [];
+    const jobAllocations = jobAllocationsRes.data ?? [];
     const transportJobs = transportJobsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
     const vehicles = vehiclesRes.data ?? [];
@@ -314,6 +326,8 @@ export async function GET() {
         .filter((j: any) => String(j.start_date ?? j.job_date ?? "") > today)
         .map((j: any) => ({
           id: `job-${j.id}`,
+          recordType: "crane",
+          recordId: j.id,
           href: `/jobs/${j.id}`,
           title: `Job #${j.job_number ?? "—"}`,
           subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.site_name ?? j.site_address ?? "No site"}`,
@@ -324,6 +338,8 @@ export async function GET() {
         .filter((j: any) => String(j.transport_date ?? "") > today)
         .map((j: any) => ({
           id: `transport-${j.id}`,
+          recordType: "transport",
+          recordId: j.id,
           href: `/transport-jobs/${j.id}`,
           title: `${j.transport_number ?? "Transport job"}`,
           subtitle: `${j.clients?.company_name ?? "Customer"} • ${j.delivery_address ?? j.collection_address ?? "No address"}`,
@@ -349,10 +365,14 @@ export async function GET() {
         })
         .map((j: any) => ({
           id: `job-${j.id}`,
+          recordType: "crane",
+          recordId: j.id,
           href: `/jobs/${j.id}`,
           title: `Job #${j.job_number ?? "—"}`,
           subtitle: j.clients?.company_name ?? "Customer",
           invoice_status: j.invoice_status ?? "—",
+          status: j.status ?? "—",
+          amountPaid: num(j.amount_paid),
           amount:
             Math.max(
               num(j.total_invoice),
@@ -370,10 +390,14 @@ export async function GET() {
         })
         .map((j: any) => ({
           id: `transport-${j.id}`,
+          recordType: "transport",
+          recordId: j.id,
           href: `/transport-jobs/${j.id}`,
           title: `${j.transport_number ?? "Transport job"}`,
           subtitle: j.clients?.company_name ?? "Customer",
           invoice_status: j.invoice_status ?? "—",
+          status: j.status ?? "—",
+          amountPaid: num(j.amount_paid),
           amount: num(j.total_invoice) - num(j.amount_paid),
         })),
     ]
@@ -491,6 +515,23 @@ export async function GET() {
       0
     );
 
+    const allocationMap = new Map<string, { hasCrane: boolean; hasOperator: boolean }>();
+    (jobAllocations ?? []).forEach((row: any) => {
+      const jobId = String(row?.job_id ?? "").trim();
+      if (!jobId) return;
+      const current = allocationMap.get(jobId) ?? { hasCrane: false, hasOperator: false };
+      if (row?.crane_id || row?.equipment_id) current.hasCrane = true;
+      if (row?.operator_id) current.hasOperator = true;
+      allocationMap.set(jobId, current);
+    });
+
+    const unassignedCraneJobs = activeJobs.filter((j: any) => {
+      const allocationsForJob = allocationMap.get(String(j.id));
+      const hasCrane = !!j.equipment_id || !!allocationsForJob?.hasCrane;
+      const hasOperator = !!j.operator_id || !!j.main_operator_id || !!allocationsForJob?.hasOperator;
+      return !hasCrane || !hasOperator;
+    }).length;
+
     const unassignedTransportJobs = activeTransportJobs.filter(
       (j: any) => !j.vehicle_id || !j.operator_id
     ).length;
@@ -589,6 +630,7 @@ export async function GET() {
       equipmentWithoutServiceHistory,
       lolerDueSoon,
       lolerOverdue,
+      unassignedCraneJobs,
       unassignedTransportJobs,
       completedCraneJobsNotInvoiced,
       completedTransportJobsNotInvoiced,
