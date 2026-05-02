@@ -42,6 +42,17 @@ function overlapsDateRange(
   return start <= rangeEnd && end >= rangeStart;
 }
 
+function endsTodayOrLater(
+  startDate: string | null | undefined,
+  endDate: string | null | undefined,
+  today: string
+) {
+  const start = String(startDate ?? "").slice(0, 10).trim();
+  const end = String(endDate ?? startDate ?? "").slice(0, 10).trim();
+  if (!start && !end) return false;
+  return (end || start) >= today;
+}
+
 function sumRangeTotal(
   rows: any[],
   startKey: string,
@@ -526,15 +537,21 @@ export async function GET() {
     });
 
     const unassignedCraneJobs = activeJobs.filter((j: any) => {
+      if (!endsTodayOrLater(j.start_date ?? j.job_date, j.end_date ?? j.job_date, today)) {
+        return false;
+      }
       const allocationsForJob = allocationMap.get(String(j.id));
       const hasCrane = !!j.equipment_id || !!allocationsForJob?.hasCrane;
       const hasOperator = !!j.operator_id || !!j.main_operator_id || !!allocationsForJob?.hasOperator;
       return !hasCrane || !hasOperator;
     }).length;
 
-    const unassignedTransportJobs = activeTransportJobs.filter(
-      (j: any) => !j.vehicle_id || !j.operator_id
-    ).length;
+    const unassignedTransportJobs = activeTransportJobs.filter((j: any) => {
+      if (!endsTodayOrLater(j.transport_date, j.delivery_date ?? j.transport_date, today)) {
+        return false;
+      }
+      return !j.vehicle_id || !j.operator_id;
+    }).length;
 
     const completedCraneJobsNotInvoiced = activeJobs.filter((j: any) => {
       return lower(j.status) === "completed" && lower(j.invoice_status || "not invoiced") === "not invoiced";
