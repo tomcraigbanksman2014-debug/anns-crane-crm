@@ -348,7 +348,7 @@ export default function DashboardPage() {
             )}
           </Panel>
 
-          <Panel title="Office action queue" subtitle="Click a row to open the exact records behind the number">
+          <Panel title="Office action queue" subtitle="Unassigned flags only include work from today onwards; completed not invoiced stays historic">
             <div className="dash-office-actions" style={stackGrid}>
               <ActionRow
                 title="Unassigned crane jobs"
