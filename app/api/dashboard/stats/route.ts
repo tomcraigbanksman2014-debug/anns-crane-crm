@@ -133,7 +133,6 @@ export async function GET() {
           invoice_subtotal,
           invoice_amount,
           amount_paid,
-          submitted_to_office_at,
           archived,
           clients:client_id (
             company_name
@@ -570,10 +569,6 @@ export async function GET() {
       ),
     };
 
-    const timesheetsNotSubmitted = activeJobs.filter((j: any) => {
-      return lower(j.status) === "completed" && !j.submitted_to_office_at;
-    }).length;
-
     return NextResponse.json({
       jobsToday: todayJobs.length,
       activeCraneJobs: craneJobsTodayRows.length,
@@ -597,7 +592,6 @@ export async function GET() {
       unassignedTransportJobs,
       completedCraneJobsNotInvoiced,
       completedTransportJobsNotInvoiced,
-      timesheetsNotSubmitted,
       weeklyIncomingJobs,
       weeklyPurchaseOrderCosts,
       upcomingJobs,
