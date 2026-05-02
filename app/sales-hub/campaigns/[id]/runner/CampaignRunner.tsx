@@ -43,10 +43,20 @@ type GmailSendResponse = {
   imageCount?: number;
   imageFilenames?: string[];
   unsubscribeEnabled?: boolean;
-  sent?: Array<{ key: string; to: string; messageId: string; threadId: string }>;
+  testModeEnabled?: boolean;
+  testRecipientEmail?: string | null;
+  sent?: Array<{ key: string; to: string; messageId: string; threadId: string; originalTo?: string | null }>;
   failed?: Array<{ key: string; to: string | null; error: string }>;
   skipped?: Array<{ key: string; reason: string }>;
   error?: string;
+};
+
+type CampaignTestModeSettings = {
+  testModeEnabled: boolean;
+  testRecipientEmail: string;
+  updatedAt?: string | null;
+  updatedByUsername?: string | null;
+  canUpdate?: boolean;
 };
 
 type CampaignImagePreview = {
@@ -81,6 +91,12 @@ export default function CampaignRunner({
   const [gmailSending, setGmailSending] = useState(false);
   const [gmailResult, setGmailResult] = useState<GmailSendResponse | null>(null);
   const [gmailSentKeys, setGmailSentKeys] = useState<string[]>([]);
+  const [testModeSettings, setTestModeSettings] = useState<CampaignTestModeSettings>({
+    testModeEnabled: true,
+    testRecipientEmail: "sales@annscranehire.co.uk",
+    canUpdate: false,
+  });
+  const [testModeSaving, setTestModeSaving] = useState(false);
 
   const [campaignImages, setCampaignImages] = useState<CampaignImagePreview[]>([]);
   const [imageError, setImageError] = useState<string | null>(null);
@@ -93,6 +109,7 @@ export default function CampaignRunner({
 
   useEffect(() => {
     refreshGmailStatus();
+    refreshCampaignTestModeSettings();
 
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
@@ -290,6 +307,63 @@ export default function CampaignRunner({
     }
   }
 
+
+  async function refreshCampaignTestModeSettings() {
+    try {
+      const res = await fetch("/api/sales-campaigns/test-mode", {
+        method: "GET",
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setTestModeSettings({
+          testModeEnabled: data?.testModeEnabled !== false,
+          testRecipientEmail: String(data?.testRecipientEmail || "sales@annscranehire.co.uk"),
+          updatedAt: data?.updatedAt ?? null,
+          updatedByUsername: data?.updatedByUsername ?? null,
+          canUpdate: Boolean(data?.canUpdate),
+        });
+      }
+    } catch {
+      // Test mode is safe by default; leave the local default on failure.
+    }
+  }
+
+  async function saveCampaignTestModeSettings() {
+    setTestModeSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/sales-campaigns/test-mode", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          testModeEnabled: testModeSettings.testModeEnabled,
+          testRecipientEmail: testModeSettings.testRecipientEmail,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data?.error || "Could not save campaign test mode settings.");
+        return;
+      }
+
+      setTestModeSettings({
+        testModeEnabled: data?.testModeEnabled !== false,
+        testRecipientEmail: String(data?.testRecipientEmail || "sales@annscranehire.co.uk"),
+        updatedAt: data?.updatedAt ?? null,
+        updatedByUsername: data?.updatedByUsername ?? null,
+        canUpdate: Boolean(data?.canUpdate),
+      });
+      setFeedback("Campaign test mode settings saved.");
+    } catch {
+      setError("Could not save campaign test mode settings.");
+    } finally {
+      setTestModeSaving(false);
+    }
+  }
+
   function connectGmail() {
     setError(
       "Microsoft Graph sending is configured through Vercel environment variables, not an in-app OAuth button. Add MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET and MICROSOFT_SENDER_EMAIL, then refresh Microsoft status."
@@ -313,7 +387,8 @@ export default function CampaignRunner({
       return;
     }
 
-    const batch = unsentEmailDrafts.slice(0, batchSize);
+    const effectiveBatchSize = testModeSettings.testModeEnabled ? 1 : batchSize;
+    const batch = unsentEmailDrafts.slice(0, effectiveBatchSize);
 
     setGmailSending(true);
     setError(null);
@@ -322,7 +397,7 @@ export default function CampaignRunner({
     try {
       const formData = new FormData();
       formData.append("drafts", JSON.stringify(batch));
-      formData.append("batch_limit", String(batchSize));
+      formData.append("batch_limit", String(effectiveBatchSize));
 
       for (const image of campaignImages) {
         formData.append("images", image.file, image.file.name);
@@ -341,7 +416,9 @@ export default function CampaignRunner({
         return;
       }
 
-      const sentKeys = Array.isArray(data.sent) ? data.sent.map((row) => row.key).filter(Boolean) : [];
+      const sentKeys = Array.isArray(data.sent) && !data.testModeEnabled
+        ? data.sent.map((row) => row.key).filter(Boolean)
+        : [];
 
       setGmailSentKeys((current) => Array.from(new Set([...current, ...sentKeys])));
       setGmailResult(data);
@@ -352,11 +429,17 @@ export default function CampaignRunner({
       const imageCount = data.imageCount ?? campaignImages.length;
 
       if (sentCount > 0 && failedCount === 0) {
-        setFeedback(
-          `${sentCount} email${sentCount === 1 ? "" : "s"} sent through Microsoft Graph${
-            imageCount ? ` with ${imageCount} image${imageCount === 1 ? "" : "s"}` : ""
-          }.`
-        );
+        if (data.testModeEnabled) {
+          setFeedback(
+            `Test mode is ON: ${sentCount} test email sent to ${data.testRecipientEmail || testModeSettings.testRecipientEmail}. No customer or lead received it.`
+          );
+        } else {
+          setFeedback(
+            `${sentCount} email${sentCount === 1 ? "" : "s"} sent through Microsoft Graph${
+              imageCount ? ` with ${imageCount} image${imageCount === 1 ? "" : "s"}` : ""
+            }.`
+          );
+        }
       } else if (sentCount > 0) {
         setError(`${sentCount} sent, ${failedCount} failed, ${skippedCount} skipped.`);
       } else {
@@ -642,6 +725,65 @@ export default function CampaignRunner({
             ) : null}
           </div>
 
+          <div style={testModeBoxStyle}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontWeight: 1000 }}>Campaign test mode</div>
+                <div style={{ marginTop: 5, fontSize: 13, opacity: 0.75 }}>
+                  When ON, the server sends one test email only to the test recipient. Customers and leads are protected.
+                </div>
+              </div>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 900 }}>
+                <input
+                  type="checkbox"
+                  checked={testModeSettings.testModeEnabled}
+                  disabled={!testModeSettings.canUpdate || testModeSaving}
+                  onChange={(e) =>
+                    setTestModeSettings((current) => ({ ...current, testModeEnabled: e.target.checked }))
+                  }
+                />
+                Test mode {testModeSettings.testModeEnabled ? "ON" : "OFF"}
+              </label>
+            </div>
+
+            <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+              <label style={labelStyle}>Test recipient email</label>
+              <input
+                value={testModeSettings.testRecipientEmail}
+                disabled={!testModeSettings.canUpdate || testModeSaving}
+                onChange={(e) =>
+                  setTestModeSettings((current) => ({ ...current, testRecipientEmail: e.target.value }))
+                }
+                style={inputStyle}
+              />
+
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  onClick={saveCampaignTestModeSettings}
+                  disabled={!testModeSettings.canUpdate || testModeSaving}
+                  style={testModeSettings.canUpdate ? primaryBtn : disabledBtn}
+                >
+                  {testModeSaving ? "Saving..." : "Save test mode settings"}
+                </button>
+                <button type="button" onClick={refreshCampaignTestModeSettings} style={secondaryBtn}>
+                  Refresh test mode
+                </button>
+                <span style={{ fontSize: 13, opacity: 0.72 }}>
+                  {testModeSettings.canUpdate
+                    ? "Only masteradmin can change this setting."
+                    : "Only masteradmin can change this setting."}
+                </span>
+              </div>
+
+              {testModeSettings.updatedAt ? (
+                <div style={{ fontSize: 12, opacity: 0.68 }}>
+                  Last changed {new Date(testModeSettings.updatedAt).toLocaleString()} by {testModeSettings.updatedByUsername || "—"}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
           {drafts.length > 0 ? (
             <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
               <div style={unsubscribeNoticeStyle}>
@@ -673,19 +815,19 @@ export default function CampaignRunner({
                 <button
                   type="button"
                   onClick={() => sendGmailBatch(25)}
-                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
-                  style={primaryBtn}
+                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0 || testModeSettings.testModeEnabled}
+                  style={testModeSettings.testModeEnabled ? disabledBtn : primaryBtn}
                 >
-                  {gmailSending ? "Sending..." : "Send next 25 through Microsoft Graph"}
+                  {gmailSending ? "Sending..." : testModeSettings.testModeEnabled ? "Bulk send locked by test mode" : "Send next 25 through Microsoft Graph"}
                 </button>
 
                 <button
                   type="button"
                   onClick={() => sendGmailBatch(50)}
-                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0}
-                  style={secondaryBtn}
+                  disabled={!gmailConnected || gmailSending || unsentEmailDrafts.length === 0 || testModeSettings.testModeEnabled}
+                  style={testModeSettings.testModeEnabled ? disabledBtn : secondaryBtn}
                 >
-                  {gmailSending ? "Sending..." : "Send next 50"}
+                  {gmailSending ? "Sending..." : testModeSettings.testModeEnabled ? "Turn off test mode for bulk" : "Send next 50"}
                 </button>
               </div>
 
@@ -705,6 +847,7 @@ export default function CampaignRunner({
                 <SummaryCard label="Images sent" value={String(gmailResult.imageCount ?? 0)} />
                 <SummaryCard label="Unsubscribe" value={gmailResult.unsubscribeEnabled ? "Enabled" : "—"} />
                 <SummaryCard label="Processed" value={String(gmailResult.processedCount ?? 0)} />
+                <SummaryCard label="Test mode" value={gmailResult.testModeEnabled ? "ON" : "OFF"} />
               </div>
 
               {gmailResult.imageFilenames?.length ? (
@@ -1006,6 +1149,25 @@ const unsubscribeNoticeStyle: React.CSSProperties = {
   border: "1px solid rgba(0,160,80,0.22)",
   fontSize: 13,
   color: "#0b5f3a",
+};
+
+
+const testModeBoxStyle: React.CSSProperties = {
+  marginTop: 14,
+  padding: 14,
+  borderRadius: 16,
+  border: "1px solid #f59e0b",
+  background: "#fffbeb",
+};
+
+const disabledBtn: React.CSSProperties = {
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#e5e7eb",
+  color: "#6b7280",
+  borderRadius: 10,
+  padding: "10px 14px",
+  fontWeight: 1000,
+  cursor: "not-allowed",
 };
 
 const imageGridStyle: React.CSSProperties = {
