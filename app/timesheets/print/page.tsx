@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { timesheetsEnabled } from "../../lib/features";
 import PrintTimesheetsButton from "./PrintTimesheetsButton";
 
 function getAdminClient() {
@@ -103,6 +104,10 @@ function calcShiftHoursWithinWindow(
 }
 
 export default async function TimesheetsPrintPage() {
+  if (!timesheetsEnabled()) {
+    redirect("/dashboard");
+  }
+
   const supabase = createSupabaseServerClient();
   const admin = getAdminClient();
 
