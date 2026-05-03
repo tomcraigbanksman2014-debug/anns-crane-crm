@@ -77,6 +77,7 @@ export default async function InvoicePrintPage({
 
   return (
     <div
+      className="invoice-print-page"
       style={{
         maxWidth: 1120,
         margin: "0 auto",
@@ -89,6 +90,36 @@ export default async function InvoicePrintPage({
       }}
     >
       <style>{`
+        @media screen and (max-width: 760px) {
+          body {
+            background: #fff !important;
+          }
+
+          .invoice-print-page {
+            padding: 16px 12px 28px !important;
+          }
+
+          .invoice-header-row,
+          .invoice-details-grid,
+          .invoice-totals-grid,
+          .invoice-footer-grid {
+            grid-template-columns: 1fr !important;
+            display: grid !important;
+          }
+
+          .invoice-company-row {
+            flex-direction: column-reverse !important;
+            align-items: flex-start !important;
+          }
+
+          .invoice-print-table {
+            display: block;
+            width: 100%;
+            overflow-x: auto;
+            white-space: nowrap;
+          }
+        }
+
         @media print {
           .print-hide {
             display: none !important;
@@ -117,6 +148,7 @@ export default async function InvoicePrintPage({
 
       <div style={{ display: "grid", gap: 18 }}>
         <div
+          className="invoice-company-row"
           style={{
             display: "flex",
             justifyContent: "space-between",
@@ -159,6 +191,7 @@ export default async function InvoicePrintPage({
         </div>
 
         <div
+          className="invoice-details-grid"
           style={{
             display: "grid",
             gridTemplateColumns: "1fr 0.95fr",
@@ -219,7 +252,7 @@ export default async function InvoicePrintPage({
         </div>
 
         <div style={{ marginTop: 16 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table className="invoice-print-table" style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#efefef" }}>
                 <th align="left" style={thStyleCode}>Code</th>
@@ -272,6 +305,7 @@ export default async function InvoicePrintPage({
         </div>
 
         <div
+          className="invoice-totals-grid"
           style={{
             marginTop: 8,
             borderTop: "2px solid #6d6d6d",
@@ -283,7 +317,7 @@ export default async function InvoicePrintPage({
           }}
         >
           <div>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <table className="invoice-print-table" style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#efefef" }}>
                   <th align="left" style={vatHeadLeft}>VAT Rate</th>
@@ -353,8 +387,9 @@ export default async function InvoicePrintPage({
         </div>
 
         <div
+          className="invoice-footer-grid"
           style={{
-            marginTop: 150,
+            marginTop: 70,
             display: "grid",
             gridTemplateColumns: "1fr 1fr 1fr",
             gap: 26,
