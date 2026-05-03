@@ -1,24 +1,11 @@
 import ClientShell from "../ClientShell";
 import SettingsForm from "./SettingsForm";
 import { createSupabaseServerClient } from "../lib/supabase/server";
-
-function isMasterAdminEmail(email?: string | null) {
-  const masterAdminEmail = String(process.env.MASTER_ADMIN_EMAIL ?? "")
-    .trim()
-    .toLowerCase();
-
-  return !!email && !!masterAdminEmail && email.toLowerCase() === masterAdminEmail;
-}
+import { requireAdmin } from "../lib/routeGuards";
 
 export default async function SettingsPage() {
+  await requireAdmin();
   const supabase = createSupabaseServerClient();
-
-  const { data: auth } = await supabase.auth.getUser();
-  const user = auth.user;
-
-  const email = String(user?.email ?? "").toLowerCase();
-  const metadataRole = (user?.user_metadata as any)?.role ?? "";
-  const role = isMasterAdminEmail(email) ? "admin" : metadataRole;
 
   const { data: settingsRow } = await supabase
     .from("app_settings")
@@ -50,13 +37,15 @@ export default async function SettingsPage() {
           </a>
         </div>
 
-        {role !== "admin" ? (
-          <div style={errorBox}>Admin access only.</div>
-        ) : (
-          <div style={{ marginTop: 16 }}>
-            <SettingsForm settings={settingsRow ?? null} />
-          </div>
-        )}
+        <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <a href="/settings/exports" style={btnStyle}>Exports</a>
+          <a href="/settings/data-cleanup" style={btnStyle}>Data cleanup</a>
+          <a href="/settings/system-health" style={btnStyle}>System health</a>
+        </div>
+
+        <div style={{ marginTop: 16 }}>
+          <SettingsForm settings={settingsRow ?? null} />
+        </div>
       </div>
     </ClientShell>
   );
@@ -71,12 +60,4 @@ const btnStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   fontWeight: 800,
-};
-
-const errorBox: React.CSSProperties = {
-  marginTop: 16,
-  padding: "10px 12px",
-  borderRadius: 10,
-  background: "rgba(255,0,0,0.10)",
-  border: "1px solid rgba(255,0,0,0.25)",
 };
