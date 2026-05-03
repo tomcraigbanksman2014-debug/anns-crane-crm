@@ -161,6 +161,25 @@ export default async function PurchaseOrderPrintPage({
             margin: 12mm;
           }
 
+          @media screen and (max-width: 760px) {
+            body {
+              background: #fff !important;
+            }
+
+            .po-print-page {
+              width: 100% !important;
+              margin: 0 !important;
+              padding: 16px !important;
+            }
+
+            .po-print-table {
+              display: block;
+              width: 100%;
+              overflow-x: auto;
+              white-space: nowrap;
+            }
+          }
+
           @media print {
             html, body {
               background: #fff !important;
@@ -245,7 +264,7 @@ export default async function PurchaseOrderPrintPage({
             {!printableLines || printableLines.length === 0 ? (
               <div>No line items added.</div>
             ) : (
-              <table style={tableStyle}>
+              <table className="po-print-table" style={tableStyle}>
                 <thead>
                   <tr>
                     <th style={thStyle}>Description</th>
@@ -323,7 +342,7 @@ const companyBox: React.CSSProperties = {
 
 const gridStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: 16,
   marginTop: 16,
 };
