@@ -202,6 +202,8 @@ export default function StaffPlannerBoard() {
     notes: "",
     blocks_assignment: true,
   });
+  const [isMobile, setIsMobile] = useState(false);
+  const [mobileDayIndex, setMobileDayIndex] = useState(0);
 
   async function loadBoard(targetWeekStart: string) {
     setLoading(true);
@@ -229,8 +231,33 @@ export default function StaffPlannerBoard() {
     loadBoard(weekStart);
   }, [weekStart]);
 
+  useEffect(() => {
+    function syncMobile() {
+      setIsMobile(window.innerWidth < 900);
+    }
+
+    syncMobile();
+    window.addEventListener("resize", syncMobile);
+    return () => window.removeEventListener("resize", syncMobile);
+  }, []);
+
   const days = data?.days ?? [];
   const operators = data?.operators ?? [];
+  const activeDay = days[Math.min(mobileDayIndex, Math.max(days.length - 1, 0))] ?? null;
+
+  useEffect(() => {
+    if (!days.length) {
+      setMobileDayIndex(0);
+      return;
+    }
+
+    const today = isoDateLocal(new Date());
+    const todayIndex = days.findIndex((day) => day.date === today);
+    setMobileDayIndex((current) => {
+      if (current >= 0 && current < days.length) return current;
+      return todayIndex >= 0 ? todayIndex : 0;
+    });
+  }, [weekStart, days.length]);
 
   const assignmentCounts = useMemo(() => {
     return operators.map((operator) => ({
@@ -334,6 +361,69 @@ export default function StaffPlannerBoard() {
     }
   }
 
+  function moveMobileDay(delta: number) {
+    setMobileDayIndex((current) => {
+      const next = current + delta;
+      if (next < 0) return 0;
+      if (next > days.length - 1) return days.length - 1;
+      return next;
+    });
+  }
+
+  function renderStaffDayCell(operator: OperatorRow, day: PlannerDay) {
+    const entries = operator.entries.filter((entry) => entryMatchesDay(entry, day.date));
+    const assignmentInfo = assignmentSummary(operator, day.date);
+
+    return (
+      <div key={`${operator.id}-${day.date}`} style={{ ...dayCell, ...(day.is_bank_holiday ? holidayCell : null) }}>
+        {entries.length > 0 ? entries.map((entry) => (
+          <div key={entry.id} style={{ ...entryCard, ...statusStyle(entry.status) }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+              <div>
+                <div style={{ fontWeight: 900 }}>{statusLabel(entry.status)}</div>
+                <div style={{ marginTop: 4, fontSize: 12 }}>{formatDateRange(entry.start_date, entry.end_date)}</div>
+                {String(entry.status ?? "").toLowerCase() === "holiday" ? (
+                  <div style={{ marginTop: 2, fontSize: 12, fontWeight: 800 }}>
+                    {holidayWorkingDays(entry)} working day{holidayWorkingDays(entry) === 1 ? "" : "s"}
+                  </div>
+                ) : null}
+                {clean(entry.start_time) || clean(entry.end_time) ? (
+                  <div style={{ marginTop: 2, fontSize: 12 }}>{clean(entry.start_time) ?? "—"} → {clean(entry.end_time) ?? "—"}</div>
+                ) : null}
+                {clean(entry.notes) ? <div style={{ marginTop: 4, fontSize: 12 }}>{entry.notes}</div> : null}
+                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800 }}>
+                  {entry.blocks_assignment ? "Blocks assignment" : "Does not block assignment"}
+                </div>
+              </div>
+              <div style={{ display: "grid", gap: 6 }}>
+                <button type="button" style={tinyBtn} onClick={() => beginEdit(entry)}>Edit</button>
+                <button type="button" style={tinyBtnDanger} onClick={() => deleteEntry(entry.id)}>Remove</button>
+              </div>
+            </div>
+          </div>
+        )) : (
+          <div style={availableCard}>Available</div>
+        )}
+
+        {assignmentInfo.craneJobs.length > 0 ? (
+          <div style={assignmentBox}>
+            {assignmentInfo.craneJobs.map((job) => (
+              <div key={job.id}>Crane job #{job.job_number ?? job.id}{clean(job.site_name) ? ` • ${job.site_name}` : ""}</div>
+            ))}
+          </div>
+        ) : null}
+
+        {assignmentInfo.transportJobs.length > 0 ? (
+          <div style={assignmentBox}>
+            {assignmentInfo.transportJobs.map((job) => (
+              <div key={job.id}>Transport {job.transport_number || job.id}</div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "grid", gap: 16 }}>
       <div style={toolbarStyle}>
@@ -349,6 +439,43 @@ export default function StaffPlannerBoard() {
           <button type="button" onClick={() => setWeekStart(isoDateLocal(addDays(new Date(`${weekStart}T00:00:00`), 7)))} style={secondaryBtn}>Next 7 days →</button>
         </div>
       </div>
+
+      {isMobile && activeDay ? (
+        <div style={mobileDayPickerWrap}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" onClick={() => moveMobileDay(-1)} style={secondaryBtn} disabled={mobileDayIndex === 0}>
+              ← Prev day
+            </button>
+            <div style={activeDayPill}>
+              <div style={{ fontWeight: 900 }}>{activeDay.label}</div>
+              <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
+                {activeDay.is_bank_holiday ? activeDay.bank_holiday_label ?? "Bank holiday" : activeDay.date}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => moveMobileDay(1)}
+              style={secondaryBtn}
+              disabled={mobileDayIndex === days.length - 1}
+            >
+              Next day →
+            </button>
+          </div>
+
+          <div style={mobileDayTabs}>
+            {days.map((day, index) => (
+              <button
+                key={day.date}
+                type="button"
+                onClick={() => setMobileDayIndex(index)}
+                style={index === mobileDayIndex ? mobileTabActive : mobileTabBtn}
+              >
+                {day.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <form onSubmit={saveEntry} style={sectionCard}>
         <div style={sectionTitle}>Add / edit staff availability</div>
@@ -434,83 +561,55 @@ export default function StaffPlannerBoard() {
 
           <div style={sectionCard}>
             <div style={sectionTitle}>Weekly board</div>
-            <div style={plannerScrollWrap}>
-              <div style={desktopGrid(days.length)}>
-                <div style={headCell}>Staff / Week</div>
-              {days.map((day) => (
-                <div key={day.date} style={{ ...headCell, ...(day.is_bank_holiday ? holidayHeaderCell : null) }}>
-                  <div>{day.label}</div>
-                  {day.is_bank_holiday ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>{day.bank_holiday_label ?? "Bank holiday"}</div> : null}
-                </div>
-              ))}
-
-              {operators.map((operator) => {
-                const countRow = assignmentCounts.find((row) => row.operatorId === operator.id);
-                return [
-                  <div key={`${operator.id}-header`} style={rowHeaderCell}>
-                    <div style={{ fontWeight: 900 }}>{operator.full_name || "Unnamed operator"}</div>
-                    <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{operator.status || "—"}</div>
-                    <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
-                      <div>Crane jobs: {countRow?.crane ?? 0}</div>
-                      <div>Transport jobs: {countRow?.transport ?? 0}</div>
-                    </div>
-                  </div>,
-                  ...days.map((day) => {
-                    const entries = operator.entries.filter((entry) => entryMatchesDay(entry, day.date));
-                    const assignmentInfo = assignmentSummary(operator, day.date);
-                    return (
-                      <div key={`${operator.id}-${day.date}`} style={{ ...dayCell, ...(day.is_bank_holiday ? holidayCell : null) }}>
-                        {entries.length > 0 ? entries.map((entry) => (
-                          <div key={entry.id} style={{ ...entryCard, ...statusStyle(entry.status) }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-                              <div>
-                                <div style={{ fontWeight: 900 }}>{statusLabel(entry.status)}</div>
-                                <div style={{ marginTop: 4, fontSize: 12 }}>{formatDateRange(entry.start_date, entry.end_date)}</div>
-                                {String(entry.status ?? "").toLowerCase() === "holiday" ? (
-                                  <div style={{ marginTop: 2, fontSize: 12, fontWeight: 800 }}>
-                                    {holidayWorkingDays(entry)} working day{holidayWorkingDays(entry) === 1 ? "" : "s"}
-                                  </div>
-                                ) : null}
-                                {clean(entry.start_time) || clean(entry.end_time) ? (
-                                  <div style={{ marginTop: 2, fontSize: 12 }}>{clean(entry.start_time) ?? "—"} → {clean(entry.end_time) ?? "—"}</div>
-                                ) : null}
-                                {clean(entry.notes) ? <div style={{ marginTop: 4, fontSize: 12 }}>{entry.notes}</div> : null}
-                                <div style={{ marginTop: 6, fontSize: 11, fontWeight: 800 }}>
-                                  {entry.blocks_assignment ? "Blocks assignment" : "Does not block assignment"}
-                                </div>
-                              </div>
-                              <div style={{ display: "grid", gap: 6 }}>
-                                <button type="button" style={tinyBtn} onClick={() => beginEdit(entry)}>Edit</button>
-                                <button type="button" style={tinyBtnDanger} onClick={() => deleteEntry(entry.id)}>Remove</button>
-                              </div>
-                            </div>
-                          </div>
-                        )) : (
-                          <div style={availableCard}>Available</div>
-                        )}
-
-                        {assignmentInfo.craneJobs.length > 0 ? (
-                          <div style={assignmentBox}>
-                            {assignmentInfo.craneJobs.map((job) => (
-                              <div key={job.id}>Crane job #{job.job_number ?? job.id}{clean(job.site_name) ? ` • ${job.site_name}` : ""}</div>
-                            ))}
-                          </div>
-                        ) : null}
-
-                        {assignmentInfo.transportJobs.length > 0 ? (
-                          <div style={assignmentBox}>
-                            {assignmentInfo.transportJobs.map((job) => (
-                              <div key={job.id}>Transport {job.transport_number || job.id}</div>
-                            ))}
-                          </div>
-                        ) : null}
+            {isMobile && activeDay ? (
+              <div style={{ display: "grid", gap: 12 }}>
+                {operators.map((operator) => {
+                  const countRow = assignmentCounts.find((row) => row.operatorId === operator.id);
+                  return (
+                    <div key={operator.id} style={mobileEquipmentBlock}>
+                      <div style={mobileRowHeader}>
+                        <div>
+                          <div style={{ fontWeight: 1000 }}>{operator.full_name || "Unnamed operator"}</div>
+                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{operator.status || "—"}</div>
+                        </div>
+                        <div style={{ fontSize: 12, opacity: 0.72, textAlign: "right" }}>
+                          <div>{activeDay.label}</div>
+                          <div>Crane: {countRow?.crane ?? 0} • Transport: {countRow?.transport ?? 0}</div>
+                        </div>
                       </div>
-                    );
-                  }),
-                ];
-              }).flat()}
+                      {renderStaffDayCell(operator, activeDay)}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
+            ) : (
+              <div style={plannerScrollWrap}>
+                <div style={desktopGrid(days.length)}>
+                  <div style={headCell}>Staff / Week</div>
+                  {days.map((day) => (
+                    <div key={day.date} style={{ ...headCell, ...(day.is_bank_holiday ? holidayHeaderCell : null) }}>
+                      <div>{day.label}</div>
+                      {day.is_bank_holiday ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.8 }}>{day.bank_holiday_label ?? "Bank holiday"}</div> : null}
+                    </div>
+                  ))}
+
+                  {operators.map((operator) => {
+                    const countRow = assignmentCounts.find((row) => row.operatorId === operator.id);
+                    return [
+                      <div key={`${operator.id}-header`} style={rowHeaderCell}>
+                        <div style={{ fontWeight: 900 }}>{operator.full_name || "Unnamed operator"}</div>
+                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{operator.status || "—"}</div>
+                        <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
+                          <div>Crane jobs: {countRow?.crane ?? 0}</div>
+                          <div>Transport jobs: {countRow?.transport ?? 0}</div>
+                        </div>
+                      </div>,
+                      ...days.map((day) => renderStaffDayCell(operator, day)),
+                    ];
+                  }).flat()}
+                </div>
+              </div>
+            )}
           </div>
         </>
       ) : null}
@@ -638,6 +737,55 @@ const legendItem: React.CSSProperties = {
   fontWeight: 900,
 };
 
+
+const mobileDayPickerWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 10,
+};
+
+const activeDayPill: React.CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const mobileDayTabs: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  overflowX: "auto",
+  paddingBottom: 4,
+};
+
+const mobileTabBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(255,255,255,0.60)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+const mobileTabActive: React.CSSProperties = {
+  ...mobileTabBtn,
+  background: "#111",
+  color: "#fff",
+  border: "1px solid #111",
+};
+
+const mobileRowHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 10,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const mobileEquipmentBlock: React.CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
 
 const plannerScrollWrap: React.CSSProperties = {
   width: "100%",
