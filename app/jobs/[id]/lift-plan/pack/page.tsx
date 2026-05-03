@@ -191,6 +191,7 @@ function PageShell({
 }) {
   return (
     <section
+      className="lift-pack-page"
       style={{
         ...pageStyle,
         pageBreakAfter: breakAfter ? "always" : "auto",
@@ -319,7 +320,7 @@ function CheckboxTable({
 }) {
   const rows = Math.max(left.length, right.length);
   return (
-    <table style={tableStyle}>
+    <div className="lift-pack-table-wrap"><table style={tableStyle}>
       <thead>
         <tr>
           <th style={thStyle}>{leftHeader ?? "PRE-LIFT CHECK POINTS"}</th>
@@ -342,7 +343,7 @@ function CheckboxTable({
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 
@@ -354,7 +355,7 @@ function BlankTable({
   rows: number;
 }) {
   return (
-    <table style={tableStyle}>
+    <div className="lift-pack-table-wrap"><table style={tableStyle}>
       <thead>
         <tr>
           {headers.map((header, index) => (
@@ -373,7 +374,7 @@ function BlankTable({
           </tr>
         ))}
       </tbody>
-    </table>
+    </table></div>
   );
 }
 
@@ -410,6 +411,7 @@ function AppendixPage({
 
   return (
     <section
+      className="lift-pack-page"
       style={{
         ...appendixPageStyle,
         pageBreakBefore: "always",
@@ -804,6 +806,25 @@ export default async function CraneLiftPlanPackPage({
   return (
     <div style={wrapper}>
       <style>{`
+        @media screen and (max-width: 760px) {
+          .lift-pack-page {
+            width: 100% !important;
+            min-height: auto !important;
+            padding: 14px !important;
+            margin: 0 auto 14px auto !important;
+          }
+
+          .lift-pack-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .lift-pack-table-wrap table {
+            min-width: 620px;
+          }
+        }
+
         @media print {
           .print-hide { display: none !important; }
           body { background: white !important; }
@@ -814,6 +835,8 @@ export default async function CraneLiftPlanPackPage({
             resize: none !important;
             overflow: visible !important;
           }
+          .lift-pack-table-wrap { overflow: visible !important; }
+          .lift-pack-table-wrap table { min-width: 0 !important; }
           @page { size: A4; margin: 10mm; }
         }
       `}</style>
@@ -1368,7 +1391,7 @@ const saveButtonStyle: CSSProperties = {
 };
 
 const saveOkStyle: CSSProperties = {
-  width: "190mm",
+  width: "min(190mm, 100%)",
   margin: "0 auto 16px auto",
   padding: "10px 12px",
   borderRadius: 10,
@@ -1379,7 +1402,7 @@ const saveOkStyle: CSSProperties = {
 };
 
 const saveErrorStyle: CSSProperties = {
-  width: "190mm",
+  width: "min(190mm, 100%)",
   margin: "0 auto 16px auto",
   padding: "10px 12px",
   borderRadius: 10,
@@ -1418,7 +1441,7 @@ const inlineTextareaStyle: CSSProperties = {
 };
 
 const pageStyle: CSSProperties = {
-  width: "190mm",
+  width: "min(190mm, 100%)",
   minHeight: "277mm",
   margin: "0 auto 16px auto",
   background: "#fff",
@@ -1501,7 +1524,7 @@ const subHeading: CSSProperties = {
 
 const infoTable: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "180px 1fr",
+  gridTemplateColumns: "minmax(130px, 180px) minmax(0, 1fr)",
   borderTop: "1px solid #333",
   borderLeft: "1px solid #333",
   breakInside: "avoid",
@@ -1545,7 +1568,7 @@ const boxedBody: CSSProperties = {
 
 const twoColGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: 12,
 };
 
@@ -1596,7 +1619,7 @@ const avoidBreak: CSSProperties = {
 
 const signatureGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
   gap: 12,
   marginTop: 14,
 };
@@ -1608,7 +1631,7 @@ const signatureBox: CSSProperties = {
 };
 
 const appendixPageStyle: CSSProperties = {
-  width: "190mm",
+  width: "min(190mm, 100%)",
   minHeight: "277mm",
   margin: "0 auto 16px auto",
   background: "#fff",
