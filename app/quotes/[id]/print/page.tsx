@@ -280,6 +280,24 @@ export default async function QuotePrintPage({
                 break-inside: avoid;
                 page-break-inside: avoid;
               }
+              @media screen and (max-width: 760px) {
+                body { background: #fff; }
+                .quote-sheet {
+                  width: calc(100vw - 20px);
+                  min-height: auto;
+                  margin: 10px auto;
+                  padding: 14px;
+                  border-radius: 12px;
+                  overflow-x: hidden;
+                }
+                .quote-sheet table {
+                  display: block;
+                  width: 100%;
+                  max-width: 100%;
+                  overflow-x: auto;
+                  white-space: nowrap;
+                }
+              }
               @media print {
                 body { background: #fff !important; }
                 .quote-hide-print { display: none !important; }
@@ -540,7 +558,7 @@ const screenSubStyle: CSSProperties = {
 
 const mastheadStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "150px 1fr 220px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
   gap: 16,
   alignItems: "center",
   borderBottom: "2px solid #0f172a",
@@ -619,13 +637,13 @@ const heroRefStyle: CSSProperties = {
 
 const topGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
   gap: 12,
 };
 
 const bodyGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
   gap: 12,
 };
 
@@ -636,7 +654,7 @@ const compactCommercialWrapStyle: CSSProperties = {
 
 const smallGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
   gap: 10,
 };
 
@@ -656,7 +674,7 @@ const panelTitleStyle: CSSProperties = {
 
 const dataRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "122px 1fr",
+  gridTemplateColumns: "minmax(98px, 122px) minmax(0, 1fr)",
   gap: 8,
   alignItems: "start",
 };
@@ -801,7 +819,7 @@ const signForStyle: CSSProperties = {
 
 const signatureRowStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
   gap: 14,
 };
 
@@ -826,7 +844,7 @@ const signatureFooterStyle: CSSProperties = {
   borderTop: "1px solid #111827",
   paddingTop: 8,
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
   gap: 12,
 };
 
