@@ -267,6 +267,7 @@ export default async function OutstandingInvoicesPage({ searchParams }: Props) {
   return (
     <ClientShell>
       <main style={pageWrap}>
+        <style dangerouslySetInnerHTML={{ __html: mobileInvoiceCss }} />
         <div style={headerRow}>
           <div>
             <h1 style={title}>Outstanding invoices</h1>
@@ -297,7 +298,60 @@ export default async function OutstandingInvoicesPage({ searchParams }: Props) {
         {craneRes.error ? <div style={errorBox}>Crane invoice lookup: {craneRes.error.message}</div> : null}
         {transportRes.error ? <div style={errorBox}>Transport invoice lookup: {transportRes.error.message}</div> : null}
 
-        <section style={card}>
+        <section className="crm-mobile-card-list" style={mobileCardsWrap}>
+          {rows.length === 0 ? (
+            <div style={emptyMobileCard}>No outstanding crane or transport invoices found.</div>
+          ) : rows.map((row) => (
+            <article key={`mobile-${row.type}-${row.id}`} style={mobileRecordCard}>
+              <div style={mobileCardHeader}>
+                <div>
+                  <div style={mobileTypeLabel}>{row.type}</div>
+                  <div style={mobileRef}>{row.ref}</div>
+                </div>
+                <div style={mobileMoney}>{money(row.amount)}</div>
+              </div>
+
+              <div style={mobileDetailGrid}>
+                <div><strong>Customer</strong><span>{row.customer}</span></div>
+                <div><strong>Job / movement</strong><span>{row.detail}</span></div>
+                <div><strong>Date</strong><span>{fmtDate(row.date)}</span></div>
+                <div><strong>Status</strong><span style={statusPill}>{row.status || "—"}</span></div>
+                <div><strong>Invoice</strong><span style={pill}>{row.invoice_status}</span></div>
+              </div>
+
+              <form action={updateOutstandingRecord} style={mobileUpdateForm}>
+                <input type="hidden" name="record_type" value={row.recordType} />
+                <input type="hidden" name="record_id" value={row.id} />
+                <label style={miniLabel}>
+                  Job status
+                  <select name="status" defaultValue={row.status} style={selectStyle}>
+                    {row.statusOptions.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={miniLabel}>
+                  Invoice status
+                  <select name="invoice_status" defaultValue={row.invoice_status} style={selectStyle}>
+                    {INVOICE_STATUSES.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </label>
+                <label style={miniLabel}>
+                  Amount paid
+                  <input name="amount_paid" type="number" step="0.01" min="0" defaultValue={row.amountPaid ? String(row.amountPaid) : ""} style={inputStyle} />
+                </label>
+                <div style={mobileActionRow}>
+                  <button type="submit" style={saveBtn}>Save</button>
+                  <Link href={row.href} style={secondaryBtn}>Open job</Link>
+                </div>
+              </form>
+            </article>
+          ))}
+        </section>
+
+        <section className="crm-desktop-table-section" style={card}>
           <div style={tableWrap}>
             <table style={table}>
               <thead>
@@ -560,4 +614,82 @@ const successBox: CSSProperties = {
   borderRadius: 14,
   padding: 14,
   fontWeight: 700,
+};
+
+
+const mobileInvoiceCss = `
+  .crm-mobile-card-list { display: none; }
+  @media (max-width: 900px) {
+    .crm-desktop-table-section { display: none !important; }
+    .crm-mobile-card-list { display: grid !important; }
+  }
+`;
+
+const mobileCardsWrap: CSSProperties = {
+  display: "none",
+  gap: 12,
+};
+
+const emptyMobileCard: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 16,
+  padding: 16,
+  background: "#fff",
+  color: "#6b7280",
+  fontWeight: 800,
+};
+
+const mobileRecordCard: CSSProperties = {
+  border: "1px solid #e5e7eb",
+  borderRadius: 18,
+  padding: 14,
+  background: "#fff",
+  boxShadow: "0 8px 24px rgba(15,23,42,0.06)",
+  display: "grid",
+  gap: 12,
+};
+
+const mobileCardHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+};
+
+const mobileTypeLabel: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 900,
+  color: "#64748b",
+  textTransform: "uppercase",
+  letterSpacing: "0.04em",
+};
+
+const mobileRef: CSSProperties = {
+  marginTop: 4,
+  fontSize: 20,
+  fontWeight: 1000,
+};
+
+const mobileMoney: CSSProperties = {
+  fontSize: 18,
+  fontWeight: 1000,
+};
+
+const mobileDetailGrid: CSSProperties = {
+  display: "grid",
+  gap: 8,
+};
+
+const mobileUpdateForm: CSSProperties = {
+  display: "grid",
+  gap: 10,
+  paddingTop: 10,
+  borderTop: "1px solid #e5e7eb",
+};
+
+const mobileActionRow: CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
 };
