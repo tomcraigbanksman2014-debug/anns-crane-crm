@@ -1,10 +1,9 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import ClientShell from "../../ClientShell";
-import { isMasterAdminEmail, getMasterAdminEmail } from "../../lib/admin";
+import { getMasterAdminEmail } from "../../lib/admin";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { requireMasterAdmin } from "../../lib/routeGuards";
 import { getMicrosoftSenderEmail, microsoftGraphConfigured } from "../../lib/email/microsoftGraph";
 
 export const dynamic = "force-dynamic";
@@ -47,13 +46,7 @@ async function countRows(admin: ReturnType<typeof createSupabaseAdminClient> | n
 }
 
 export default async function SystemHealthPage() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-  if (!isMasterAdminEmail(user.email ?? null)) redirect("/");
+  await requireMasterAdmin();
 
   const checks: HealthCheck[] = [];
 
@@ -91,6 +84,7 @@ export default async function SystemHealthPage() {
   }
 
   const tableChecks = await Promise.all([
+    tableCheck(admin, "CRM migration tracking", "crm_migrations", "id, description, applied_at"),
     tableCheck(admin, "Campaign test mode table", "campaign_email_settings", "id, test_mode_enabled, test_recipient_email"),
     tableCheck(admin, "Status/invoice audit table", "job_status_audit_log", "id, record_type, record_id, field_changed, created_at"),
     tableCheck(admin, "Marketing unsubscribe tokens", "marketing_unsubscribe_tokens", "id, token, email_normalized"),
@@ -115,6 +109,16 @@ export default async function SystemHealthPage() {
     campaignSettings = data ?? null;
   }
 
+  let migrations: any[] = [];
+  if (admin) {
+    const { data } = await admin
+      .from("crm_migrations")
+      .select("id, description, applied_at, applied_by")
+      .order("applied_at", { ascending: false })
+      .limit(10);
+    migrations = Array.isArray(data) ? data : [];
+  }
+
   const statusAuditRows = await countRows(admin, "job_status_audit_log");
   const auditRows = await countRows(admin, "audit_log");
 
@@ -132,6 +136,8 @@ export default async function SystemHealthPage() {
             <p style={subtleStyle}>Deployment and CRM configuration checks for AnnS Crane CRM.</p>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <Link href="/settings/exports" style={secondaryButtonStyle}>Exports</Link>
+            <Link href="/settings/data-cleanup" style={secondaryButtonStyle}>Data cleanup</Link>
             <Link href="/settings/status-audit" style={secondaryButtonStyle}>Status audit</Link>
             <Link href="/" style={secondaryButtonStyle}>Back to dashboard</Link>
           </div>
@@ -142,6 +148,7 @@ export default async function SystemHealthPage() {
           <Summary label="Needs checking" value={warnCount} tone="warn" />
           <Summary label="Failed" value={failCount} tone="fail" />
           <Summary label="Status audit rows" value={statusAuditRows ?? "—"} tone="plain" />
+          <Summary label="Migrations tracked" value={migrations.length} tone="plain" />
         </section>
 
         <section style={cardStyle}>
@@ -163,6 +170,26 @@ export default async function SystemHealthPage() {
               <div style={subtleStyle}>Existing CRM audit log count.</div>
             </div>
           </div>
+        </section>
+
+        <section style={cardStyle}>
+          <h2 style={sectionTitleStyle}>Migration tracking</h2>
+          {migrations.length === 0 ? (
+            <p style={subtleStyle}>No crm_migrations rows found yet. Run the SQL file in supabase/migrations to register this deploy.</p>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {migrations.map((migration: any) => (
+                <div key={migration.id} style={checkRowStyle}>
+                  <span style={{ ...badgeStyle, ...badgeTone("ok") }}>SQL</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 1000 }}>{migration.id}</div>
+                    <div style={subtleStyle}>{migration.description ?? "Migration recorded."}</div>
+                    <div style={subtleStyle}>Applied: {migration.applied_at ? new Date(migration.applied_at).toLocaleString("en-GB") : "—"}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <section style={cardStyle}>
