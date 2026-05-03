@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
@@ -511,6 +511,7 @@ export default async function DashboardActionsPage({ searchParams }: Props) {
   return (
     <ClientShell>
       <main style={pageWrap}>
+        <style dangerouslySetInnerHTML={{ __html: mobileActionStyles }} />
         <div style={headerRow}>
           <div>
             <h1 style={title}>{focusedSection ? focusedSection.title : "Urgent actions"}</h1>
@@ -595,7 +596,7 @@ function ActionSection({
         </div>
         <div style={countBubble}>{rows.length}</div>
       </div>
-      <div style={tableWrap}>
+      <div className="desktop-action-table" style={tableWrap}>
         <table style={table}>
           <thead>
             <tr>
@@ -643,7 +644,79 @@ function ActionSection({
           </tbody>
         </table>
       </div>
+
+      <div className="mobile-action-list" style={mobileActionListStyle}>
+        {rows.length === 0 ? (
+          <div style={emptyMobileCard}>No records found.</div>
+        ) : rows.map((row) => (
+          <MobileActionCard
+            key={`mobile-${row.type}-${row.id}`}
+            row={row}
+            mode={mode}
+            focus={focus}
+            operators={operators}
+            vehicles={vehicles}
+            cranes={cranes}
+          />
+        ))}
+      </div>
     </section>
+  );
+}
+
+function MobileActionCard({
+  row,
+  mode,
+  focus,
+  operators,
+  vehicles,
+  cranes,
+}: {
+  row: ActionItem;
+  mode: "assign-crane" | "assign-transport" | "invoice";
+  focus: string;
+  operators: SelectOption[];
+  vehicles: SelectOption[];
+  cranes: SelectOption[];
+}) {
+  return (
+    <article style={mobileActionCardStyle}>
+      <div style={mobileCardTopRow}>
+        <div style={{ minWidth: 0 }}>
+          <div style={mobileActionTitle}>{actionNeededText(row, mode)}</div>
+          <div style={mobileReference}>{row.reference}</div>
+        </div>
+        <Link href={row.href} style={mobileOpenButton}>Open</Link>
+      </div>
+
+      <div style={mobileDetailsGrid}>
+        <InfoLine label="Customer" value={row.customer} />
+        <InfoLine label="Job / movement" value={row.detail} />
+        <InfoLine label="Date" value={fmtDate(row.date)} />
+        <InfoLine label="Job status" value={row.status} />
+        <InfoLine label="Invoice status" value={row.invoiceStatus} />
+        {row.amount && mode === "invoice" ? <InfoLine label="Outstanding" value={money(row.amount)} /> : null}
+      </div>
+
+      <div style={mobileQuickActionBox}>
+        {mode === "assign-transport" ? (
+          <TransportAssignForm row={row} focus={focus} operators={operators} vehicles={vehicles} />
+        ) : mode === "assign-crane" ? (
+          <CraneAssignForm row={row} focus={focus} operators={operators} cranes={cranes} />
+        ) : (
+          <InvoiceActionForm row={row} focus={focus} />
+        )}
+      </div>
+    </article>
+  );
+}
+
+function InfoLine({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={mobileInfoLine}>
+      <div style={mobileInfoLabel}>{label}</div>
+      <div style={mobileInfoValue}>{value || "—"}</div>
+    </div>
   );
 }
 
@@ -731,6 +804,15 @@ function SummaryCard({ label, value }: { label: string; value: number }) {
   );
 }
 
+const mobileActionStyles = `
+  .mobile-action-list { display: none; }
+
+  @media (max-width: 900px) {
+    .desktop-action-table { display: none !important; }
+    .mobile-action-list { display: grid !important; }
+  }
+`;
+
 const pageWrap: CSSProperties = { display: "grid", gap: 18, padding: 20 };
 const headerRow: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14, flexWrap: "wrap" };
 const title: CSSProperties = { margin: 0, fontSize: 28, lineHeight: 1.15 };
@@ -764,3 +846,16 @@ const selectStyle: CSSProperties = { minHeight: 36, borderRadius: 10, border: "1
 const inputStyle: CSSProperties = { minHeight: 34, borderRadius: 10, border: "1px solid #d1d5db", padding: "7px 9px", background: "#fff", color: "#111827", fontWeight: 700 };
 const miniPrimaryBtn: CSSProperties = { border: 0, borderRadius: 10, padding: "9px 11px", background: "#0f172a", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const mutedSmall: CSSProperties = { marginTop: 5, color: "#64748b", fontSize: 12, fontWeight: 700 };
+const mobileActionListStyle: CSSProperties = { display: "none", gap: 12, padding: 12 };
+const mobileActionCardStyle: CSSProperties = { display: "grid", gap: 12, padding: 14, borderRadius: 16, background: "#ffffff", border: "1px solid #e5e7eb", boxShadow: "0 6px 18px rgba(15,23,42,0.06)" };
+const mobileCardTopRow: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 };
+const mobileActionTitle: CSSProperties = { fontWeight: 1000, fontSize: 16, lineHeight: 1.25, color: "#0f172a" };
+const mobileReference: CSSProperties = { marginTop: 4, color: "#64748b", fontSize: 13, fontWeight: 800, wordBreak: "break-word" };
+const mobileOpenButton: CSSProperties = { flex: "0 0 auto", borderRadius: 10, padding: "9px 11px", background: "#0f172a", color: "#ffffff", textDecoration: "none", fontWeight: 900 };
+const mobileDetailsGrid: CSSProperties = { display: "grid", gap: 8 };
+const mobileInfoLine: CSSProperties = { display: "grid", gridTemplateColumns: "100px minmax(0, 1fr)", gap: 8, alignItems: "start" };
+const mobileInfoLabel: CSSProperties = { color: "#64748b", fontSize: 12, fontWeight: 1000, textTransform: "uppercase", letterSpacing: "0.04em" };
+const mobileInfoValue: CSSProperties = { color: "#0f172a", fontSize: 14, fontWeight: 800, wordBreak: "break-word" };
+const mobileQuickActionBox: CSSProperties = { display: "grid", gap: 8, paddingTop: 10, borderTop: "1px solid #e5e7eb" };
+const emptyMobileCard: CSSProperties = { padding: 16, borderRadius: 14, background: "#ffffff", color: "#64748b", textAlign: "center", fontWeight: 800 };
+
