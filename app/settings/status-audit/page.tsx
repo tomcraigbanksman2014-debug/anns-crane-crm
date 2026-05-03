@@ -1,10 +1,8 @@
 import type { CSSProperties } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import ClientShell from "../../ClientShell";
-import { isMasterAdminEmail } from "../../lib/admin";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { requireMasterAdmin } from "../../lib/routeGuards";
 
 export const dynamic = "force-dynamic";
 
@@ -21,13 +19,7 @@ function clean(value: unknown) {
 }
 
 export default async function StatusAuditPage() {
-  const supabase = createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
-  if (!isMasterAdminEmail(user.email ?? null)) redirect("/");
+  await requireMasterAdmin();
 
   const admin = createSupabaseAdminClient();
   const { data, error } = await admin
