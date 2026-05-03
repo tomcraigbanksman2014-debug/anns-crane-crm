@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { writeAuditLog } from "../../lib/audit";
-import { isMasterAdminEmail } from "../../lib/admin";
+import { requireAdminApi } from "../../lib/routeGuards";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,22 +21,9 @@ function fromAuthEmail(email: string | null) {
 
 export async function POST(req: Request) {
   try {
-    const supabase = createSupabaseServerClient();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-
-    const role = (user.user_metadata as any)?.role;
-    const isAdmin = role === "admin" || isMasterAdminEmail(user.email ?? null);
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Admin only" }, { status: 403 });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
+    const user = auth.ctx!.user;
 
     const body = await req.json();
     const payload = {
