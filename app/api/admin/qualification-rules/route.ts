@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { requireAdminApi } from "../../../lib/routeGuards";
 
 function clean(value: unknown) {
   return String(value ?? "").trim();
@@ -11,40 +12,11 @@ function normaliseUnit(value: unknown) {
   return null;
 }
 
-async function requireAdmin(supabase: ReturnType<typeof createSupabaseServerClient>) {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { error: "Not signed in", status: 401 as const };
-  }
-
-  const myEmail = String(user.email ?? "").toLowerCase();
-  const myRole = String((user.user_metadata as any)?.role ?? "").toLowerCase();
-  const masterAdminEmail = String(
-    process.env.MASTER_ADMIN_EMAIL ??
-      process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
-      ""
-  )
-    .trim()
-    .toLowerCase();
-
-  if (myRole !== "admin" && myEmail !== masterAdminEmail) {
-    return { error: "Admin only", status: 403 as const };
-  }
-
-  return { ok: true as const };
-}
-
 export async function GET() {
   try {
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
     const supabase = createSupabaseServerClient();
-    const auth = await requireAdmin(supabase);
-
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
 
     const { data, error } = await supabase
       .from("operator_required_qualifications")
@@ -67,12 +39,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
     const supabase = createSupabaseServerClient();
-    const auth = await requireAdmin(supabase);
-
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
 
     const body = await req.json().catch(() => null);
 
@@ -121,12 +90,9 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
     const supabase = createSupabaseServerClient();
-    const auth = await requireAdmin(supabase);
-
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
 
     const body = await req.json().catch(() => null);
 
@@ -177,12 +143,9 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
     const supabase = createSupabaseServerClient();
-    const auth = await requireAdmin(supabase);
-
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
 
     const body = await req.json().catch(() => null);
     const ruleId = clean(body?.id);
