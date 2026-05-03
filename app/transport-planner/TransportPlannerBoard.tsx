@@ -1143,7 +1143,7 @@ const viewToggleActive: React.CSSProperties = {
 function desktopGrid(dayCount: number): React.CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: `240px repeat(${dayCount}, minmax(180px, 1fr))`,
+    gridTemplateColumns: `220px repeat(${dayCount}, minmax(160px, 1fr))`,
     gap: 10,
     alignItems: "stretch",
   };
@@ -1160,25 +1160,23 @@ const toolbarStyle: React.CSSProperties = {
 const mobileDayPickerWrap: React.CSSProperties = {
   display: "grid",
   gap: 10,
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(255,255,255,0.38)",
-  borderRadius: 16,
-  padding: 12,
 };
 
 const mobileDayTabs: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  display: "flex",
   gap: 8,
+  overflowX: "auto",
+  paddingBottom: 4,
 };
 
 const mobileTabBtn: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "8px 10px",
   borderRadius: 10,
-  border: "1px solid rgba(0,0,0,0.10)",
-  background: "rgba(255,255,255,0.82)",
-  fontWeight: 800,
+  background: "rgba(255,255,255,0.60)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontWeight: 700,
   cursor: "pointer",
+  whiteSpace: "nowrap",
 };
 
 const mobileTabActive: React.CSSProperties = {
@@ -1191,14 +1189,13 @@ const mobileTabActive: React.CSSProperties = {
 const activeDayPill: React.CSSProperties = {
   padding: "10px 12px",
   borderRadius: 12,
-  background: "rgba(255,255,255,0.42)",
+  background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
-  minWidth: 120,
 };
 
 const sectionCard: React.CSSProperties = {
-  background: "rgba(255,255,255,0.22)",
-  border: "1px solid rgba(255,255,255,0.38)",
+  background: "rgba(255,255,255,0.18)",
+  border: "1px solid rgba(255,255,255,0.40)",
   borderRadius: 16,
   padding: 16,
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
@@ -1221,7 +1218,7 @@ const sectionTitle: React.CSSProperties = {
 const headCell: React.CSSProperties = {
   padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.55)",
+  background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
   fontWeight: 900,
   fontSize: 13,
@@ -1230,7 +1227,7 @@ const headCell: React.CSSProperties = {
 const sideCell: React.CSSProperties = {
   padding: 12,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.55)",
+  background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
@@ -1238,7 +1235,7 @@ const dayCell: React.CSSProperties = {
   minHeight: 120,
   padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+  background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
@@ -1254,7 +1251,7 @@ const mobileDayCell: React.CSSProperties = {
   minHeight: 100,
   padding: 10,
   borderRadius: 12,
-  background: "rgba(255,255,255,0.45)",
+  background: "rgba(255,255,255,0.42)",
   border: "1px solid rgba(0,0,0,0.08)",
 };
 
@@ -1373,7 +1370,7 @@ const primaryBtn: React.CSSProperties = {
   background: "#111",
   color: "#fff",
   textDecoration: "none",
-  fontWeight: 800,
+  fontWeight: 900,
   border: "1px solid #111",
 };
 
