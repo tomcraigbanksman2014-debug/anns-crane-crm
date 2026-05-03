@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { timesheetsEnabled } from "../../../lib/features";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -110,6 +111,10 @@ function makeCsv(rows: Array<Record<string, unknown>>) {
 }
 
 export async function GET() {
+  if (!timesheetsEnabled()) {
+    return NextResponse.json({ error: "Timesheets are not enabled." }, { status: 403 });
+  }
+
   const supabase = createSupabaseServerClient();
   const admin = getAdminClient();
 
