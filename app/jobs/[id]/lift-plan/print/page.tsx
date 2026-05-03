@@ -161,6 +161,7 @@ export default async function LiftPlanPrintPage({
 
   return (
     <div
+      className="lift-plan-print-page"
       style={{
         maxWidth: 1100,
         margin: "0 auto",
@@ -173,6 +174,16 @@ export default async function LiftPlanPrintPage({
       }}
     >
       <style>{`
+        @media screen and (max-width: 760px) {
+          .lift-plan-print-page {
+            padding: 16px 12px 28px !important;
+          }
+
+          .lift-plan-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
         @media print {
           .print-hide {
             display: none !important;
@@ -299,9 +310,10 @@ function PrintGrid({
 }) {
   return (
     <div
+      className="lift-plan-grid"
       style={{
         display: "grid",
-        gridTemplateColumns: "220px 1fr",
+        gridTemplateColumns: "minmax(160px, 220px) minmax(0, 1fr)",
         gap: 10,
       }}
     >
