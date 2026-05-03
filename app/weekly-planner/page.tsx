@@ -519,6 +519,18 @@ export default async function WeeklyPlannerPage({
 
   return (
     <ClientShell>
+      <style>{`
+        @media screen and (max-width: 900px) {
+          .weekly-planner-grid {
+            grid-template-columns: 1fr !important;
+            min-width: 0 !important;
+          }
+
+          .weekly-planner-scroll {
+            overflow-x: visible !important;
+          }
+        }
+      `}</style>
       <div style={pageWrap}>
         <div style={headerRow}>
           <div>
@@ -567,8 +579,8 @@ export default async function WeeklyPlannerPage({
           />
         </div>
 
-        <div style={scrollWrap}>
-          <div style={weekGrid}>
+        <div className="weekly-planner-scroll" style={scrollWrap}>
+          <div className="weekly-planner-grid" style={weekGrid}>
             {days.map((day) => {
               const dayIso = isoDate(day);
               const holiday = bankHolidays.find((h) => h.date === dayIso);
