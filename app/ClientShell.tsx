@@ -409,7 +409,7 @@ export default function ClientShell({
         </div>
       ) : null}
 
-      <div style={shellStyle}>
+      <div style={{ ...shellStyle, ...(isMobile ? mobileShellStyle : {}) }}>
         {isMobile && menuOpen ? (
           <div onClick={() => setMenuOpen(false)} style={mobileBackdropStyle} />
         ) : null}
@@ -544,6 +544,14 @@ const shellStyle: React.CSSProperties = {
   overflowX: "hidden",
 };
 
+
+const mobileShellStyle: React.CSSProperties = {
+  display: "block",
+  padding: 0,
+  gap: 0,
+  overflowX: "hidden",
+};
+
 const sidebarStyle: React.CSSProperties = {
   width: 280,
   minWidth: 280,
@@ -608,6 +616,8 @@ const mobileMainStyle: React.CSSProperties = {
   width: "100%",
   minWidth: 0,
   maxWidth: "100%",
+  overflowX: "auto",
+  WebkitOverflowScrolling: "touch",
 };
 
 const operatorMainStyle: React.CSSProperties = {
