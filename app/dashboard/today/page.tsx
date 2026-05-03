@@ -98,6 +98,7 @@ export default async function DashboardTodayPage() {
   return (
     <ClientShell>
       <main style={pageWrap}>
+        <style dangerouslySetInnerHTML={{ __html: mobileTodayCss }} />
         <div style={headerRow}>
           <div>
             <h1 style={title}>Today’s work</h1>
@@ -115,7 +116,29 @@ export default async function DashboardTodayPage() {
           <SummaryCard label="Transport jobs" value={transportRows.length} />
         </section>
 
-        <section style={card}>
+        <section className="crm-mobile-card-list" style={mobileCardsWrap}>
+          {rows.length === 0 ? (
+            <div style={emptyMobileCard}>No work scheduled for today.</div>
+          ) : rows.map((row) => (
+            <article key={`mobile-${row.type}-${row.id}`} style={mobileRecordCard}>
+              <div style={mobileCardHeader}>
+                <div>
+                  <div style={mobileTypeLabel}>{row.type}</div>
+                  <div style={mobileRef}>{row.reference}</div>
+                </div>
+                <span style={pill}>{row.status}</span>
+              </div>
+              <div style={mobileDetailGrid}>
+                <div><strong>Customer</strong><span>{row.customer}</span></div>
+                <div><strong>Job / movement</strong><span>{row.detail}</span></div>
+                <div><strong>Time</strong><span>{row.time}</span></div>
+              </div>
+              <Link href={row.href} style={secondaryBtn}>Open job</Link>
+            </article>
+          ))}
+        </section>
+
+        <section className="crm-desktop-table-section" style={card}>
           <div style={tableWrap}>
             <table style={table}>
               <thead>
@@ -179,3 +202,19 @@ const pill: CSSProperties = { display: "inline-flex", borderRadius: 999, padding
 const linkStyle: CSSProperties = { fontWeight: 900, color: "#0f172a", textDecoration: "underline" };
 const secondaryBtn: CSSProperties = { border: "1px solid #d1d5db", borderRadius: 12, padding: "10px 14px", textDecoration: "none", color: "#111827", fontWeight: 800, background: "#fff" };
 const errorBox: CSSProperties = { border: "1px solid #fecaca", background: "#fef2f2", color: "#991b1b", borderRadius: 14, padding: 14, fontWeight: 700 };
+
+
+const mobileTodayCss = `
+  .crm-mobile-card-list { display: none; }
+  @media (max-width: 900px) {
+    .crm-desktop-table-section { display: none !important; }
+    .crm-mobile-card-list { display: grid !important; }
+  }
+`;
+const mobileCardsWrap: CSSProperties = { display: "none", gap: 12 };
+const emptyMobileCard: CSSProperties = { border: "1px solid #e5e7eb", borderRadius: 16, padding: 16, background: "#fff", color: "#6b7280", fontWeight: 800 };
+const mobileRecordCard: CSSProperties = { border: "1px solid #e5e7eb", borderRadius: 18, padding: 14, background: "#fff", boxShadow: "0 8px 24px rgba(15,23,42,0.06)", display: "grid", gap: 12 };
+const mobileCardHeader: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", flexWrap: "wrap" };
+const mobileTypeLabel: CSSProperties = { fontSize: 12, fontWeight: 900, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" };
+const mobileRef: CSSProperties = { marginTop: 4, fontSize: 20, fontWeight: 1000 };
+const mobileDetailGrid: CSSProperties = { display: "grid", gap: 8 };
