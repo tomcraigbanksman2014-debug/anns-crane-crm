@@ -370,7 +370,7 @@ async function loadOperatorQualifications(request: NextRequest) {
 
   let query = admin
     .from("operator_qualifications")
-    .select("id, operator_id, qualification_name, expiry_date, document_url, notes, created_at, operators:operator_id ( full_name )")
+    .select("id, operator_id, qualification_name, issuer, certificate_number, issue_date, expiry_date, notes, created_at, operators:operator_id ( full_name )")
     .order("expiry_date", { ascending: true })
     .limit(5000);
 
@@ -381,11 +381,14 @@ async function loadOperatorQualifications(request: NextRequest) {
 
   return (data ?? []).map((q: any) => {
     const operator = first(q.operators);
+
     return {
       operator: operator?.full_name ?? "",
       qualification_name: q.qualification_name ?? "",
+      issuer: q.issuer ?? "",
+      certificate_number: q.certificate_number ?? "",
+      issue_date: q.issue_date ?? "",
       expiry_date: q.expiry_date ?? "",
-      document_url: q.document_url ?? "",
       notes: q.notes ?? "",
       created_at: q.created_at ?? "",
     };
@@ -576,7 +579,7 @@ const EXPORTS: Record<string, ExportDefinition> = {
   "operator-qualifications": {
     title: "Operator qualifications",
     filename: "operator-qualifications",
-    headers: ["operator", "qualification_name", "expiry_date", "document_url", "notes", "created_at"],
+    headers: ["operator", "qualification_name", "issuer", "certificate_number", "issue_date", "expiry_date", "notes", "created_at"],
     loadRows: loadOperatorQualifications,
   },
   "campaign-recipients": {
