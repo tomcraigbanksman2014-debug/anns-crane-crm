@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { isMasterAdminEmail } from "../../../lib/admin";
+import { requireAdminApi } from "../../../lib/routeGuards";
 import { writeAuditLog } from "../../../lib/audit";
 
 function toAuthEmail(username: string) {
@@ -15,24 +14,9 @@ function fromAuthEmail(email: string | null) {
 
 export async function POST(req: Request) {
   try {
-    const supabaseSession = createSupabaseServerClient();
-    const { data, error: userErr } = await supabaseSession.auth.getUser();
-
-    if (userErr) {
-      return NextResponse.json({ error: userErr.message }, { status: 401 });
-    }
-
-    const user = data.user;
-    if (!user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
-    }
-
-    const role = (user.user_metadata as any)?.role ?? null;
-    const isAdmin = role === "admin" || isMasterAdminEmail(user.email ?? null);
-
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Admin only" }, { status: 403 });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
+    const user = auth.ctx!.user;
 
     const body = await req.json().catch(() => ({}));
     const username = String(body?.username ?? "").trim().toLowerCase();
