@@ -94,6 +94,7 @@ export default async function PortalJobPage({
 
   return (
     <div
+      className="portal-job-page"
       style={{
         maxWidth: 1100,
         margin: "0 auto",
@@ -105,6 +106,24 @@ export default async function PortalJobPage({
           "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Oxygen, Ubuntu, Cantarell, Open Sans, Helvetica Neue, sans-serif",
       }}
     >
+      <style>{`
+        @media screen and (max-width: 760px) {
+          .portal-job-page {
+            padding: 16px 12px 28px !important;
+          }
+
+          .portal-row {
+            grid-template-columns: 1fr !important;
+            gap: 4px !important;
+          }
+
+          .portal-line-item {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+          }
+        }
+      `}</style>
+
       <h1 style={{ marginTop: 0 }}>AnnS Crane Hire Customer Portal</h1>
       <p style={{ opacity: 0.8 }}>Job #{(job as any).job_number}</p>
 
@@ -145,6 +164,7 @@ export default async function PortalJobPage({
               {(invoiceLines ?? []).map((line: any) => (
                 <div
                   key={line.id}
+                  className="portal-line-item"
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
@@ -225,9 +245,10 @@ function Row({
 }) {
   return (
     <div
+      className="portal-row"
       style={{
-        display: "flex",
-        justifyContent: "space-between",
+        display: "grid",
+        gridTemplateColumns: "minmax(130px, 180px) minmax(0, 1fr)",
         gap: 12,
         padding: "10px 0",
         borderBottom: "1px solid rgba(0,0,0,0.08)",
