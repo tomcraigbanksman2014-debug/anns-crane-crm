@@ -434,8 +434,9 @@ export default function StaffPlannerBoard() {
 
           <div style={sectionCard}>
             <div style={sectionTitle}>Weekly board</div>
-            <div style={desktopGrid(days.length)}>
-              <div style={headCell}>Staff / Week</div>
+            <div style={plannerScrollWrap}>
+              <div style={desktopGrid(days.length)}>
+                <div style={headCell}>Staff / Week</div>
               {days.map((day) => (
                 <div key={day.date} style={{ ...headCell, ...(day.is_bank_holiday ? holidayHeaderCell : null) }}>
                   <div>{day.label}</div>
@@ -508,6 +509,7 @@ export default function StaffPlannerBoard() {
                   }),
                 ];
               }).flat()}
+              </div>
             </div>
           </div>
         </>
@@ -634,6 +636,15 @@ const legendItem: React.CSSProperties = {
   borderRadius: 999,
   fontSize: 12,
   fontWeight: 900,
+};
+
+
+const plannerScrollWrap: React.CSSProperties = {
+  width: "100%",
+  maxWidth: "100%",
+  overflowX: "auto",
+  WebkitOverflowScrolling: "touch",
+  paddingBottom: 6,
 };
 
 function desktopGrid(days: number): React.CSSProperties {
