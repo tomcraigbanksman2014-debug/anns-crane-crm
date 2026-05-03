@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
+import { timesheetsEnabled } from "../lib/features";
 
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -141,6 +142,24 @@ function calcShiftHoursWithinWindow(
 }
 
 export default async function TimesheetsPage() {
+  if (!timesheetsEnabled()) {
+    return (
+      <ClientShell>
+        <div style={{ width: "min(900px, 95vw)", margin: "0 auto" }}>
+          <div style={card}>
+            <h1 style={{ marginTop: 0, fontSize: 30 }}>Timesheets are not enabled yet</h1>
+            <p style={{ margin: 0, opacity: 0.78, lineHeight: 1.5 }}>
+              The timesheet code is still in the CRM, but access is locked behind <strong>TIMESHEETS_ENABLED=true</strong>.
+            </p>
+            <div style={{ marginTop: 14 }}>
+              <a href="/dashboard" style={btnStyle}>← Back to dashboard</a>
+            </div>
+          </div>
+        </div>
+      </ClientShell>
+    );
+  }
+
   const supabase = createSupabaseServerClient();
   const admin = getAdminClient();
 
@@ -400,6 +419,25 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const card: React.CSSProperties = {
+  background: "rgba(255,255,255,0.88)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 18,
+  padding: 18,
+  boxShadow: "0 10px 24px rgba(15,23,42,0.05)",
+};
+
+const btnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#111827",
+  color: "white",
+  textDecoration: "none",
+  fontWeight: 800,
 };
 
 const rangeBox: React.CSSProperties = {
