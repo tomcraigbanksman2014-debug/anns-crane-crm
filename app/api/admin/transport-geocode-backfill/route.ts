@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { requireAdminApi } from "../../../lib/routeGuards";
 import { geocodeAddress } from "../../../lib/geocode";
 
 const UK_BOUNDS = {
@@ -42,38 +43,12 @@ function shouldRefreshPoint(address: string, lat: any, lng: any) {
   return false;
 }
 
-async function requireAdmin() {
-  const supabase = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    return { ok: false as const, error: "Not signed in", status: 401 };
-  }
-
-  const role = String((user.user_metadata as any)?.role ?? "").toLowerCase();
-  const email = String(user.email ?? "").toLowerCase();
-  const masterAdminEmail = String(process.env.MASTER_ADMIN_EMAIL ?? "")
-    .trim()
-    .toLowerCase();
-
-  if (role !== "admin" && email !== masterAdminEmail) {
-    return { ok: false as const, error: "Admin only", status: 403 };
-  }
-
-  return { ok: true as const, supabase };
-}
-
 export async function POST(req: Request) {
   try {
-    const auth = await requireAdmin();
-    if (!auth.ok) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
 
-    const supabase = auth.supabase;
+    const supabase = createSupabaseServerClient();
     const body = await req.json().catch(() => null);
     const force = body?.force !== false;
 
