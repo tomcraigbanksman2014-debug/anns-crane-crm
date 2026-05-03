@@ -4,6 +4,8 @@ html, body { width: 100%; max-width: 100%; overflow-x: hidden; }
 body { overscroll-behavior-x: none; }
 
 @media (max-width: 900px) {
+  html, body { overflow-x: hidden; }
+
   [data-mobile-safe-root],
   [data-mobile-safe-root] * {
     min-width: 0;
@@ -12,7 +14,27 @@ body { overscroll-behavior-x: none; }
   [data-mobile-safe-root] {
     width: 100%;
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  [data-mobile-safe-root] > * {
+    max-width: 100%;
+  }
+
+  [data-mobile-safe-root] h1 {
+    font-size: clamp(28px, 9vw, 42px) !important;
+    line-height: 1.08 !important;
+  }
+
+  [data-mobile-safe-root] h2 {
+    font-size: clamp(22px, 7vw, 32px) !important;
+    line-height: 1.12 !important;
+  }
+
+  [data-mobile-safe-root] h3 {
+    font-size: clamp(18px, 6vw, 24px) !important;
+    line-height: 1.18 !important;
   }
 
   [data-mobile-safe-root] img,
@@ -28,11 +50,14 @@ body { overscroll-behavior-x: none; }
   [data-mobile-safe-root] select,
   [data-mobile-safe-root] textarea {
     max-width: 100% !important;
+    width: 100% !important;
     box-sizing: border-box !important;
+    min-height: 44px;
+    font-size: 16px !important;
   }
 
   [data-mobile-safe-root] textarea {
-    width: 100% !important;
+    min-height: 96px;
   }
 
   [data-mobile-safe-root] button,
@@ -40,25 +65,13 @@ body { overscroll-behavior-x: none; }
     max-width: 100%;
   }
 
-  [data-mobile-safe-root] table {
-    display: block;
-    width: 100%;
-    max-width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+  [data-mobile-safe-root] button,
+  [data-mobile-safe-root] a[style*="padding"] {
+    min-height: 42px;
   }
 
-  [data-mobile-safe-root] th,
-  [data-mobile-safe-root] td {
-    white-space: normal;
-    word-break: break-word;
-  }
-
-  [data-mobile-safe-root] [style*="display: flex"][style*="justify-content: space-between"] {
-    flex-wrap: wrap !important;
-  }
-
-  [data-mobile-safe-root] [style*="display:flex"][style*="justify-content: space-between"] {
+  [data-mobile-safe-root] [style*="display: flex"],
+  [data-mobile-safe-root] [style*="display:flex"] {
     flex-wrap: wrap !important;
   }
 
@@ -66,32 +79,70 @@ body { overscroll-behavior-x: none; }
     grid-template-columns: minmax(0, 1fr) !important;
   }
 
-  [data-mobile-safe-root]:not([data-mobile-page-kind="planner"]) [style*="min-width"] {
+  [data-mobile-safe-root] [style*="width: min("],
+  [data-mobile-safe-root] [style*="width:min("],
+  [data-mobile-safe-root] [style*="max-width: min("],
+  [data-mobile-safe-root] [style*="max-width:min("],
+  [data-mobile-safe-root] [style*="96vw"] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  [data-mobile-safe-root]:not([data-mobile-page-kind="planner"]) [style*="min-width"]:not(table):not(th):not(td) {
     min-width: 0 !important;
     max-width: 100% !important;
   }
 
-  [data-mobile-safe-root] [style*="width: min("] {
-    width: 100% !important;
+  [data-mobile-safe-root] [style*="overflow-x: auto"],
+  [data-mobile-safe-root] [style*="overflow-x:auto"] {
     max-width: 100% !important;
-  }
-
-  [data-mobile-safe-root] [style*="width:min("] {
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-
-  [data-mobile-safe-root][data-mobile-page-kind="planner"] [style*="min-width"] {
-    max-width: none !important;
-  }
-
-  [data-mobile-safe-root][data-mobile-page-kind="planner"] [style*="overflow-x: auto"],
-  [data-mobile-safe-root][data-mobile-page-kind="planner"] [style*="overflow-x:auto"] {
+    overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Generic CRM table protection: on phones, tables should scroll sideways,
+     never compress columns until headings become vertical letters. */
+  [data-mobile-safe-root] table {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border-collapse: collapse;
+    white-space: nowrap;
+  }
+
+  [data-mobile-safe-root] thead,
+  [data-mobile-safe-root] tbody,
+  [data-mobile-safe-root] tr {
+    width: max-content;
+  }
+
+  [data-mobile-safe-root] th,
+  [data-mobile-safe-root] td {
+    white-space: normal !important;
+    word-break: normal !important;
+    overflow-wrap: normal !important;
+    min-width: 128px !important;
+    max-width: 320px;
+    vertical-align: top;
+  }
+
+  [data-mobile-safe-root] th:last-child,
+  [data-mobile-safe-root] td:last-child {
+    min-width: 140px !important;
+  }
+
+  [data-mobile-safe-root][data-mobile-page-kind="planner"] {
+    overflow-x: auto !important;
+  }
+
+  [data-mobile-safe-root][data-mobile-page-kind="planner"] [style*="min-width"],
+  [data-mobile-safe-root][data-mobile-page-kind="planner"] [style*="grid-template-columns"] {
+    max-width: none !important;
   }
 }
 `;
-
 export const metadata = {
   title: "AnnS Crane CRM",
   description: "Enterprise CRM System",
