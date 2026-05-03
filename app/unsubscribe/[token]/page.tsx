@@ -127,7 +127,16 @@ export default async function UnsubscribePage({
 
   return (
     <main style={pageStyle}>
-      <section style={cardStyle}>
+      <style>{`
+        @media screen and (max-width: 520px) {
+          .unsubscribe-card {
+            width: 100% !important;
+            padding: 20px !important;
+            border-radius: 14px !important;
+          }
+        }
+      `}</style>
+      <section className="unsubscribe-card" style={cardStyle}>
         <img src="/logo.png" alt="AnnS Crane Hire" style={logoStyle} />
 
         <h1 style={{ margin: "18px 0 0", fontSize: 30 }}>{result.title}</h1>
