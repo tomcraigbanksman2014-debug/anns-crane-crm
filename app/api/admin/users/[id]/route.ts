@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "../../../../lib/supabase/server";
+import { getMasterAdminEmail } from "../../../../lib/admin";
+import { requireAdminApi } from "../../../../lib/routeGuards";
 import { writeAuditLog } from "../../../../lib/audit";
 
 function getAdminClient() {
@@ -12,38 +13,6 @@ function getAdminClient() {
   }
 
   return createClient(supabaseUrl, serviceKey);
-}
-
-function getMasterAdminEmail() {
-  return String(
-    process.env.MASTER_ADMIN_EMAIL ??
-      process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
-      ""
-  )
-    .trim()
-    .toLowerCase();
-}
-
-async function requireAdmin() {
-  const supabaseSession = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabaseSession.auth.getUser();
-
-  if (!user) {
-    return { error: "Not signed in", status: 401 as const };
-  }
-
-  const myEmail = String(user.email ?? "").toLowerCase();
-  const myRole = String((user.user_metadata as any)?.role ?? "").toLowerCase();
-  const masterAdminEmail = getMasterAdminEmail();
-
-  if (myRole !== "admin" && myEmail !== masterAdminEmail) {
-    return { error: "Admin only", status: 403 as const };
-  }
-
-  return { user };
 }
 
 async function getTargetUserById(admin: ReturnType<typeof getAdminClient>, id: string) {
@@ -73,10 +42,9 @@ export async function PATCH(
   { params }: { params: { id: string } }
 ) {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
+    const user = auth.ctx!.user;
 
     const body = await req.json().catch(() => ({}));
     const password = String(body?.password ?? "");
@@ -121,8 +89,8 @@ export async function PATCH(
     }
 
     await writeAuditLog({
-      actor_user_id: auth.user.id,
-      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
       action: "reset_password",
       entity_type: "staff_user",
       entity_id: params.id,
@@ -145,10 +113,9 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
+    const user = auth.ctx!.user;
 
     const admin = getAdminClient();
     const targetUser = await getTargetUserById(admin, params.id);
@@ -159,7 +126,7 @@ export async function DELETE(
 
     const masterAdminEmail = getMasterAdminEmail();
     const targetEmail = String(targetUser.email ?? "").toLowerCase();
-    const actorEmail = String(auth.user.email ?? "").toLowerCase();
+    const actorEmail = String(user.email ?? "").toLowerCase();
     const targetRole = String(targetUser.user_metadata?.role ?? "staff").toLowerCase();
 
     if (targetEmail === masterAdminEmail) {
@@ -187,8 +154,8 @@ export async function DELETE(
     }
 
     await writeAuditLog({
-      actor_user_id: auth.user.id,
-      actor_username: auth.user.email ? auth.user.email.split("@")[0] : null,
+      actor_user_id: user.id,
+      actor_username: user.email ? user.email.split("@")[0] : null,
       action: "delete_user",
       entity_type: "staff_user",
       entity_id: params.id,
