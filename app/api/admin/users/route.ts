@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import { getMasterAdminEmail } from "../../../lib/admin";
+import { requireAdminApi } from "../../../lib/routeGuards";
 
 function normalizeUsername(username: string) {
   return username.trim().toLowerCase();
@@ -21,50 +22,16 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceKey);
 }
 
-function getMasterAdminEmail() {
-  return String(
-    process.env.MASTER_ADMIN_EMAIL ??
-      process.env.NEXT_PUBLIC_MASTER_ADMIN_EMAIL ??
-      ""
-  )
-    .trim()
-    .toLowerCase();
-}
-
 function getMasterAdminUsername() {
   return String(process.env.MASTER_ADMIN_USERNAME ?? "")
     .trim()
     .toLowerCase();
 }
 
-async function requireAdmin() {
-  const supabaseSession = createSupabaseServerClient();
-
-  const {
-    data: { user },
-  } = await supabaseSession.auth.getUser();
-
-  if (!user) {
-    return { error: "Not signed in", status: 401 as const };
-  }
-
-  const myEmail = String(user.email ?? "").toLowerCase();
-  const myRole = String((user.user_metadata as any)?.role ?? "").toLowerCase();
-  const masterAdminEmail = getMasterAdminEmail();
-
-  if (myRole !== "admin" && myEmail !== masterAdminEmail) {
-    return { error: "Admin only", status: 403 as const };
-  }
-
-  return { user };
-}
-
 export async function GET() {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
 
     const admin = getAdminClient();
     const masterAdminEmail = getMasterAdminEmail();
@@ -118,10 +85,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await requireAdmin();
-    if ("error" in auth) {
-      return NextResponse.json({ error: auth.error }, { status: auth.status });
-    }
+    const auth = await requireAdminApi();
+    if (auth.response) return auth.response;
 
     const body = await req.json().catch(() => ({}));
     const rawUsername = String(body?.username ?? "");
