@@ -9,10 +9,6 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
-function normaliseDateOnly(value: string | null | undefined) {
-  return String(value ?? "").slice(0, 10);
-}
-
 async function getExactCount(query: any) {
   const { count, error } = await query;
   return {
@@ -282,12 +278,34 @@ export default async function SalesHubPage() {
   const dormant180Jobs = dormant180CraneResult.count + dormant180TransportResult.count;
   const dormant365Jobs = dormant365CraneResult.count + dormant365TransportResult.count;
   const quoteFollowUps = quoteFollowUpResult.count;
-  const craneCustomerIds = new Set((craneHistoryResponse.data ?? []).map((row: any) => String(row.client_id ?? "")).filter(Boolean));
-  const transportCustomerIds = new Set((transportHistoryResponse.data ?? []).map((row: any) => String(row.client_id ?? "")).filter(Boolean));
-  const transportOnlyPromptCount = Array.from(transportCustomerIds).filter((clientId) => !craneCustomerIds.has(clientId)).length;
-  const craneOnlyPromptCount = Array.from(craneCustomerIds).filter((clientId) => !transportCustomerIds.has(clientId)).length;
+
+  const craneCustomerIds = new Set(
+    (craneHistoryResponse.data ?? [])
+      .map((row: any) => String(row.client_id ?? ""))
+      .filter(Boolean)
+  );
+
+  const transportCustomerIds = new Set(
+    (transportHistoryResponse.data ?? [])
+      .map((row: any) => String(row.client_id ?? ""))
+      .filter(Boolean)
+  );
+
+  const transportOnlyPromptCount = Array.from(transportCustomerIds).filter(
+    (clientId) => !craneCustomerIds.has(clientId)
+  ).length;
+
+  const craneOnlyPromptCount = Array.from(craneCustomerIds).filter(
+    (clientId) => !transportCustomerIds.has(clientId)
+  ).length;
 
   const smartPrompts = [
+    {
+      label: "Equipment history availability",
+      count: craneCustomerIds.size + transportCustomerIds.size,
+      href: "/sales-hub/equipment-history-campaign",
+      note: "Target customers by what they have actually used before: low loader, HIAB, spider crane, HK40, Grove 80t and more.",
+    },
     {
       label: "Recent customer thank-you",
       count: recentCustomerJobs,
@@ -319,10 +337,10 @@ export default async function SalesHubPage() {
       note: "Prompt HIAB, low loader and transport support.",
     },
     {
-      label: "Availability notice",
+      label: "General availability notice",
       count: 0,
       href: "/sales-hub/campaigns?goal=availability",
-      note: "Start an availability-led campaign when kit or labour opens up.",
+      note: "Start a general availability-led campaign when kit or labour opens up.",
     },
   ];
 
@@ -354,6 +372,9 @@ export default async function SalesHubPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub/equipment-history-campaign" style={primaryBtnStyle}>
+              Equipment history campaign
+            </a>
             <a href="/sales-hub/leads" style={secondaryBtnStyle}>
               View leads
             </a>
@@ -390,12 +411,17 @@ export default async function SalesHubPage() {
           <p style={{ marginTop: -8, opacity: 0.75 }}>
             Suggestions are based on actual crane/transport job history and quote status, not broad activity.
           </p>
+
           <div style={promptGrid}>
             {smartPrompts.map((prompt) => (
               <a key={prompt.label} href={prompt.href} style={promptCard}>
                 <div style={{ fontWeight: 900 }}>{prompt.label}</div>
-                <div style={{ marginTop: 6, fontSize: 24, fontWeight: 1000 }}>{prompt.count}</div>
-                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>{prompt.note}</div>
+                <div style={{ marginTop: 6, fontSize: 24, fontWeight: 1000 }}>
+                  {prompt.count}
+                </div>
+                <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
+                  {prompt.note}
+                </div>
               </a>
             ))}
           </div>
@@ -404,7 +430,15 @@ export default async function SalesHubPage() {
         <div style={twoColGrid}>
           <section style={cardStyle}>
             <h2 style={sectionTitle}>Sales tools</h2>
+
             <div style={{ display: "grid", gap: 10 }}>
+              <a href="/sales-hub/equipment-history-campaign" style={toolCardHighlight}>
+                <div style={{ fontWeight: 1000 }}>Equipment History Campaigns</div>
+                <div style={toolCardSub}>
+                  Target customers by past equipment/service use
+                </div>
+              </a>
+
               <a href="/sales-hub/automation" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Automation Centre</div>
                 <div style={toolCardSub}>Live now</div>
@@ -613,6 +647,16 @@ const toolCardLink: CSSProperties = {
   borderRadius: 12,
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const toolCardHighlight: CSSProperties = {
+  display: "block",
+  textDecoration: "none",
+  color: "#111",
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(219,234,254,0.9)",
+  border: "1px solid rgba(37,99,235,0.22)",
 };
 
 const toolCardSub: CSSProperties = {
