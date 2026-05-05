@@ -1,6 +1,7 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
+import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
@@ -120,7 +121,7 @@ async function resolveClientId(
   const { data: existingClients, error: existingClientsError } = await supabase
     .from("clients")
     .select("id, company_name, contact_name, phone, email, address, archived")
-    .eq("archived", false)
+    .or("archived.is.null,archived.eq.false")
     .order("company_name", { ascending: true });
 
   if (existingClientsError) {
@@ -455,41 +456,54 @@ type PageProps = {
 export default async function NewJobPage({ searchParams }: PageProps) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: clients }, { data: equipment }, { data: cranes }, { data: operators }, { data: suppliers }] =
-    await Promise.all([
-      supabase
-        .from("clients")
-        .select("id, company_name, category, archived")
-        .or("archived.is.null,archived.eq.false")
-        .order("company_name", { ascending: true }),
+  let lookupSupabase: any = supabase;
 
-      supabase
-        .from("equipment")
-        .select("id, name, asset_number, archived, status")
-        .or("archived.is.null,archived.eq.false")
-        .eq("status", "active")
-        .order("name", { ascending: true }),
+  try {
+    lookupSupabase = createSupabaseAdminClient();
+  } catch {
+    lookupSupabase = supabase;
+  }
 
-      supabase
-        .from("cranes")
-        .select("id, name, reg_number, fleet_number, archived, status")
-        .or("archived.is.null,archived.eq.false")
-        .eq("status", "available")
-        .order("name", { ascending: true }),
+  const [
+    { data: clients, error: clientsError },
+    { data: equipment, error: equipmentError },
+    { data: cranes, error: cranesError },
+    { data: operators, error: operatorsError },
+    { data: suppliers, error: suppliersError },
+  ] = await Promise.all([
+    lookupSupabase
+      .from("clients")
+      .select("id, company_name, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("company_name", { ascending: true }),
 
-      supabase
-        .from("operators")
-        .select("id, full_name, archived, status")
-        .or("archived.is.null,archived.eq.false")
-        .eq("status", "active")
-        .order("full_name", { ascending: true }),
+    lookupSupabase
+      .from("equipment")
+      .select("id, name, asset_number, archived, status")
+      .or("archived.is.null,archived.eq.false")
+      .eq("status", "active")
+      .order("name", { ascending: true }),
 
-      supabase
-        .from("suppliers")
-        .select("id, company_name, category, archived")
-        .or("archived.is.null,archived.eq.false")
-        .order("company_name", { ascending: true }),
-    ]);
+    lookupSupabase
+      .from("cranes")
+      .select("id, name, reg_number, fleet_number, archived, status")
+      .or("archived.is.null,archived.eq.false")
+      .eq("status", "available")
+      .order("name", { ascending: true }),
+
+    lookupSupabase
+      .from("operators")
+      .select("id, full_name, archived, status")
+      .or("archived.is.null,archived.eq.false")
+      .eq("status", "active")
+      .order("full_name", { ascending: true }),
+
+    lookupSupabase
+      .from("suppliers")
+      .select("id, company_name, category, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("company_name", { ascending: true }),
+  ]);
 
   const quoteId = String(searchParams?.quote_id ?? "");
   const prefilledClientId = String(searchParams?.client_id ?? "");
@@ -503,7 +517,16 @@ export default async function NewJobPage({ searchParams }: PageProps) {
   const prefilledContactName = safeDecode(searchParams?.contact_name);
   const prefilledContactPhone = safeDecode(searchParams?.contact_phone);
   const defaultStatus = quoteToJobStatus(searchParams?.quote_status);
-  const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : "";
+
+  const lookupErrorMessage =
+    clientsError?.message ||
+    equipmentError?.message ||
+    cranesError?.message ||
+    operatorsError?.message ||
+    suppliersError?.message ||
+    "";
+
+  const errorMessage = searchParams?.error ? safeDecode(searchParams.error) : lookupErrorMessage;
   const timeOptions = buildQuarterHourOptions();
 
   return (
