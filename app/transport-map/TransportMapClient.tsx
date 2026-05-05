@@ -157,7 +157,6 @@ function isLikelyUkPoint(lat: number | null, lng: number | null) {
     typeof lat === "number" &&
     typeof lng === "number" &&
     Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
     lat >= UK_BOUNDS.minLat &&
     lat <= UK_BOUNDS.maxLat &&
     lng >= UK_BOUNDS.minLng &&
@@ -461,8 +460,6 @@ export default function TransportMapClient() {
 
   useEffect(() => {
     load();
-    const intervalId = window.setInterval(load, 30000);
-    return () => window.clearInterval(intervalId);
   }, [load]);
 
   const latestLocationByJob = useMemo(() => {
