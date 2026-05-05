@@ -154,14 +154,6 @@ function toBase64(value: string) {
   return foldBase64(Buffer.from(value, "utf8").toString("base64"));
 }
 
-function toBase64Url(value: string) {
-  return Buffer.from(value, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
 function createToken() {
   return randomBytes(32).toString("base64url");
 }
@@ -338,12 +330,14 @@ async function sendMicrosoftMimeMessage(args: {
   html: string;
   images: CampaignImageAttachment[];
   unsubscribe: UnsubscribeInfo;
+  sendAsMe: boolean;
 }) {
   const mime = buildMimeMessage(args);
   return sendMicrosoftRawMimeMessage({
     accessToken: args.accessToken,
     senderEmail: args.fromEmail,
     mime,
+    sendAsMe: args.sendAsMe,
   });
 }
 
@@ -494,7 +488,8 @@ export async function POST(
     if (!campaign) return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
 
     const { accessToken, connection } = await getFreshMicrosoftGraphAccessToken(admin);
-    const senderEmail = getMicrosoftSenderEmail();
+    const senderEmail = cleanEmail((connection as any)?.email_address) || getMicrosoftSenderEmail();
+    const sendAsMe = (connection as any)?.mode === "delegated";
 
     const campaignEmailSettings = await readCampaignEmailSettings(admin);
     const testModeEnabled = campaignEmailSettings.testModeEnabled;
@@ -575,6 +570,7 @@ export async function POST(
           html,
           images: campaignImages,
           unsubscribe,
+          sendAsMe,
         });
 
         sent.push({
@@ -602,6 +598,8 @@ export async function POST(
       meta: {
         campaign_name: (campaign as any).name ?? null,
         microsoft_graph_connection_id: connection.id,
+        microsoft_graph_connection_mode: (connection as any)?.mode ?? "unknown",
+        microsoft_graph_send_as_me: sendAsMe,
         sender_email: senderEmail,
         requested_count: drafts.length,
         batch_count: selectedDrafts.length,
@@ -621,6 +619,8 @@ export async function POST(
     return NextResponse.json({
       ok: true,
       senderEmail,
+      microsoftMode: (connection as any)?.mode ?? "unknown",
+      sendAsMe,
       batchLimit,
       requestedCount: drafts.length,
       processedCount: selectedDrafts.length,
