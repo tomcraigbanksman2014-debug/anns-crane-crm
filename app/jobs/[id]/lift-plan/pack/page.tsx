@@ -21,6 +21,12 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function fmtMonthYear(value: string | Date | null | undefined) {
+  const d = value ? new Date(value) : new Date();
+  const safeDate = Number.isNaN(d.getTime()) ? new Date() : d;
+  return safeDate.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -231,7 +237,7 @@ function PageHeader({
         </div>
       </div>
       <div style={{ textAlign: "right", minWidth: 150, maxWidth: 260, overflowWrap: "anywhere", wordBreak: "normal" }}>
-        <div style={{ fontSize: 11, opacity: 0.7, overflowWrap: "anywhere" }}>{month ?? "April 2026"}</div>
+        <div style={{ fontSize: 11, opacity: 0.7, overflowWrap: "anywhere" }}>{month ?? fmtMonthYear(new Date())}</div>
         <div style={{ fontWeight: 800, overflowWrap: "anywhere", lineHeight: 1.18 }}>{sectionTitle}</div>
       </div>
     </div>
@@ -401,11 +407,13 @@ function AppendixPage({
   index,
   titleNode,
   captionNode,
+  headerMonth,
 }: {
   asset: PackAppendixAssetItem;
   index: number;
   titleNode?: ReactNode;
   captionNode?: ReactNode;
+  headerMonth?: ReactNode;
 }) {
   const imageSrc = asset.image_url;
 
@@ -420,7 +428,7 @@ function AppendixPage({
         breakAfter: "page",
       }}
     >
-      <PageHeader sectionTitle={`Appendix ${index}`} />
+      <PageHeader sectionTitle={`Appendix ${index}`} month={headerMonth} />
       <div style={appendixPageBody}>
         <div style={appendixTitle}>{titleNode ?? asset.title}</div>
         {captionNode ? (
@@ -813,9 +821,18 @@ export default async function CraneLiftPlanPackPage({
   const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
   const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
 
+  const packMonthLabel = fmtMonthYear((job as any)?.start_date ?? (job as any)?.job_date ?? new Date());
   const fieldText = (key: string, fallback: string) => defaultSectionText(sections, key, fallback);
+  const packMonthText = (key: string) => {
+    const saved = defaultSectionText(sections, key, "");
+    if (!saved || saved === "April 2026") return packMonthLabel;
+    return saved;
+  };
   const inputField = (key: string, fallback: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={fieldText(key, fallback)} align={align} />
+  );
+  const monthInputField = (key: string, align: "left" | "right" = "left") => (
+    <EditableInput name={key} defaultValue={packMonthText(key)} align={align} />
   );
   const areaField = (key: string, fallback: string, rows = 4, compact = false) => (
     <EditableTextarea name={key} defaultValue={fieldText(key, fallback)} rows={rows} compact={compact} />
@@ -934,13 +951,13 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_cover", "Cover Sheet", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <div style={coverHero}>
           <div>
             <div style={coverTitle}>{inputField("cover_title", "ANNS – LIFTING PLAN – V1")}</div>
-            <div style={coverSubtitle}>{inputField("cover_subtitle", "April 2026")}</div>
+            <div style={coverSubtitle}>{monthInputField("cover_subtitle")}</div>
           </div>
           <div style={coverCompany}>
             <div>{inputField("cover_company_line_1", "Anns Crane Hire Ltd", "right")}</div>
@@ -986,7 +1003,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_toc", "Table of Contents", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("toc_title", "Table of Contents")}</SectionTitle>
@@ -1029,7 +1046,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_1", "1. Introduction", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_1", "1. Introduction")}</SectionTitle>
@@ -1058,7 +1075,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_2_5", "2–5. Planning & Scope", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_2", "2. Appointed Person Declaration")}</SectionTitle>
@@ -1092,7 +1109,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_6_12", "6–12. Site Controls", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_6", "6. Lifting Personnel")}</SectionTitle>
@@ -1134,7 +1151,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_13", "13. Equipment & Certification", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_13", "13. Lifting Equipment to be used & Certification")}</SectionTitle>
@@ -1154,7 +1171,7 @@ export default async function CraneLiftPlanPackPage({
         sectionTitle={inputField("page_section_14", "14. Crane Details", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_14", "14. Crane Details")}</SectionTitle>
@@ -1199,7 +1216,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_15_16", "15–16. Variation & Toolbox", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_15", "15. Variation from Method Statement")}</SectionTitle>
@@ -1242,7 +1259,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_17", "17. Crane Set-up Procedure", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_17", "17. Crane Set-up Procedure")}</SectionTitle>
@@ -1261,7 +1278,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_18_19", "18–19. Lifting & De-Rig Procedure", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_18", "18. Lifting Procedure")}</SectionTitle>
@@ -1279,7 +1296,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_20_21", "20–21. Emergency & Risk", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_20", "20. Emergency Procedure")}</SectionTitle>
@@ -1321,7 +1338,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_22", "22. Check Lists & Sign Offs", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
       >
         <SectionTitle>{inputField("section_title_22", "22. Check Lists and Sign Offs")}</SectionTitle>
@@ -1375,7 +1392,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         sectionTitle={inputField("page_section_wind", "Wind Speed Record Sheet", "right")}
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
-        headerMonth={inputField("page_header_month", "April 2026", "right")}
+        headerMonth={monthInputField("page_header_month", "right")}
         footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
         breakAfter={true}
       >
@@ -1398,6 +1415,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           index={index + 1}
           titleNode={inputField(`appendix_${index + 1}_title`, asset.title || `Appendix ${index + 1}`)}
           captionNode={areaField(`appendix_${index + 1}_caption`, asset.description || "", 2, true)}
+          headerMonth={monthInputField("page_header_month", "right")}
         />
       ))}
       </fieldset>
