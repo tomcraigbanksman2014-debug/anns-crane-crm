@@ -223,16 +223,16 @@ function PageHeader({
 }) {
   return (
     <div style={pageHeader}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0, flex: "1 1 auto" }}>
         <img src="/icon.png" alt="AnnS Crane Hire logo" style={logoStyle} />
-        <div>
-          <div style={{ fontWeight: 900, letterSpacing: 0.5 }}>{title ?? "ANNS – LIFTING PLAN – V1"}</div>
-          <div style={{ fontSize: 11, opacity: 0.72 }}>{subtitle ?? "Anns Crane Hire Ltd"}</div>
+        <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+          <div style={{ fontWeight: 900, letterSpacing: 0.5, overflowWrap: "anywhere" }}>{title ?? "ANNS – LIFTING PLAN – V1"}</div>
+          <div style={{ fontSize: 11, opacity: 0.72, overflowWrap: "anywhere" }}>{subtitle ?? "Anns Crane Hire Ltd"}</div>
         </div>
       </div>
-      <div style={{ textAlign: "right" }}>
-        <div style={{ fontSize: 11, opacity: 0.7 }}>{month ?? "April 2026"}</div>
-        <div style={{ fontWeight: 800 }}>{sectionTitle}</div>
+      <div style={{ textAlign: "right", minWidth: 110, maxWidth: 180, overflowWrap: "anywhere" }}>
+        <div style={{ fontSize: 11, opacity: 0.7, overflowWrap: "anywhere" }}>{month ?? "April 2026"}</div>
+        <div style={{ fontWeight: 800, overflowWrap: "anywhere" }}>{sectionTitle}</div>
       </div>
     </div>
   );
@@ -876,35 +876,41 @@ export default async function CraneLiftPlanPackPage({
             <div style={coverSubtitle}>{inputField("cover_subtitle", "April 2026")}</div>
           </div>
           <div style={coverCompany}>
-            <div>{inputField("cover_company_line_1", "Anns Crane Hire Ltd")}</div>
-            <div>{inputField("cover_company_line_2", "6 Bay St, Port Tennant, Swansea, SA1 8LB")}</div>
-            <div>{inputField("cover_company_line_3", "01792 641653 • info@annscranehire.co.uk")}</div>
+            <div>{inputField("cover_company_line_1", "Anns Crane Hire Ltd", "right")}</div>
+            <div>{inputField("cover_company_line_2", "6 Bay St, Port Tennant, Swansea, SA1 8LB", "right")}</div>
+            <div>{inputField("cover_company_line_3", "01792 641653 • info@annscranehire.co.uk", "right")}</div>
           </div>
         </div>
 
         <InfoTable
           rows={[
-            [inputField("cover_label_client", "Client"), clientName],
-            [inputField("cover_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            [inputField("cover_label_start_date", "Start Date"), fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            [inputField("cover_label_client", "Client"), inputField("cover_client", clientName)],
+            [inputField("cover_label_project", "Project"), inputField("cover_project", coverProjectText)],
             [
-              "Duration",
-              calcDuration(
-                (job as any)?.start_date ?? (job as any)?.job_date,
-                (job as any)?.end_date ?? (job as any)?.job_date
+              inputField("cover_label_start_date", "Start Date"),
+              inputField("cover_start_date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)),
+            ],
+            [
+              inputField("cover_label_duration", "Duration"),
+              inputField(
+                "cover_duration",
+                calcDuration(
+                  (job as any)?.start_date ?? (job as any)?.job_date,
+                  (job as any)?.end_date ?? (job as any)?.job_date
+                )
               ),
             ],
-            [inputField("cover_label_site_address", "Site Address"), coverAddress(job)],
-            [inputField("cover_label_site_contact", "Site Contact"), (job as any)?.contact_name],
-            [inputField("cover_label_appointed_person", "Appointed Person"), appointedPerson],
+            [inputField("cover_label_site_address", "Site Address"), areaField("cover_site_address", coverAddress(job), 2, true)],
+            [inputField("cover_label_site_contact", "Site Contact"), inputField("cover_site_contact", (job as any)?.contact_name || "—")],
+            [inputField("cover_label_appointed_person", "Appointed Person"), inputField("cover_appointed_person", appointedPerson)],
             [inputField("cover_label_prepared_by", "Prepared by"), inputField("cover_prepared_by_value", "ANNS CRANE HIRE LTD")],
             [
-              "Lift Classification",
-              <EditableInput name="lift_classification" defaultValue={liftClassificationText} />,
+              inputField("cover_label_lift_classification", "Lift Classification"),
+              inputField("lift_classification", liftClassificationText),
             ],
-            [inputField("cover_label_cranes", "Crane(s)"), craneName],
-            [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
-            [inputField("cover_label_boom_length", "Boom length"), <EditableInput name="boom_length" defaultValue={boomLengthText} />],
+            [inputField("cover_label_cranes", "Crane(s)"), inputField("cover_cranes", craneName)],
+            [inputField("cover_label_boom_configuration", "Boom configuration"), areaField("boom_configuration", boomConfigurationText, 3, true)],
+            [inputField("cover_label_boom_length", "Boom length"), inputField("boom_length", boomLengthText)],
           ]}
         />
       </PageShell>
@@ -1414,6 +1420,7 @@ const saveErrorStyle: CSSProperties = {
 
 const inlineInputStyle: CSSProperties = {
   width: "100%",
+  maxWidth: "100%",
   border: "none",
   background: "transparent",
   padding: 0,
@@ -1422,6 +1429,8 @@ const inlineInputStyle: CSSProperties = {
   fontWeight: 600,
   color: "#111",
   outline: "none",
+  boxSizing: "border-box",
+  overflowWrap: "anywhere",
 };
 
 const inlineTextareaStyle: CSSProperties = {
@@ -1459,6 +1468,8 @@ const pageHeader: CSSProperties = {
   gap: 12,
   paddingBottom: 10,
   borderBottom: "1px solid #bcbcbc",
+  minWidth: 0,
+  overflow: "hidden",
 };
 
 const pageBody: CSSProperties = {
@@ -1482,18 +1493,20 @@ const logoStyle: CSSProperties = {
 };
 
 const coverHero: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) minmax(190px, 240px)",
   gap: 16,
   alignItems: "flex-start",
-  flexWrap: "wrap",
   marginBottom: 18,
+  minWidth: 0,
 };
 
 const coverTitle: CSSProperties = {
   fontSize: 28,
   fontWeight: 900,
   lineHeight: 1.1,
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 const coverSubtitle: CSSProperties = {
@@ -1503,9 +1516,14 @@ const coverSubtitle: CSSProperties = {
 };
 
 const coverCompany: CSSProperties = {
-  fontSize: 13,
-  lineHeight: 1.55,
+  fontSize: 12,
+  lineHeight: 1.45,
   textAlign: "right",
+  width: "100%",
+  maxWidth: 240,
+  justifySelf: "end",
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
 };
 
 const sectionTitleStyle: CSSProperties = {
@@ -1543,6 +1561,8 @@ const infoValue: CSSProperties = {
   borderRight: "1px solid #333",
   borderBottom: "1px solid #333",
   fontWeight: 600,
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 const boxed: CSSProperties = {
