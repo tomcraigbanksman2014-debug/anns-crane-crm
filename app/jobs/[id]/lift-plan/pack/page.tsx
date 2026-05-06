@@ -230,9 +230,9 @@ function PageHeader({
           <div style={{ fontSize: 11, opacity: 0.72, overflowWrap: "anywhere" }}>{subtitle ?? "Anns Crane Hire Ltd"}</div>
         </div>
       </div>
-      <div style={{ textAlign: "right", minWidth: 110, maxWidth: 180, overflowWrap: "anywhere" }}>
+      <div style={{ textAlign: "right", minWidth: 150, maxWidth: 260, overflowWrap: "anywhere", wordBreak: "normal" }}>
         <div style={{ fontSize: 11, opacity: 0.7, overflowWrap: "anywhere" }}>{month ?? "April 2026"}</div>
-        <div style={{ fontWeight: 800, overflowWrap: "anywhere" }}>{sectionTitle}</div>
+        <div style={{ fontWeight: 800, overflowWrap: "anywhere", lineHeight: 1.18 }}>{sectionTitle}</div>
       </div>
     </div>
   );
@@ -456,16 +456,30 @@ function EditableInput({
   defaultValue: string;
   align?: "left" | "right";
 }) {
+  const printValue = defaultValue && String(defaultValue).trim() ? defaultValue : "—";
+
   return (
-    <input
-      name={name}
-      defaultValue={defaultValue}
-      spellCheck={false}
-      style={{
-        ...inlineInputStyle,
-        textAlign: align,
-      }}
-    />
+    <span className="editable-value-wrap" style={editableValueWrapStyle}>
+      <input
+        className="editable-control"
+        name={name}
+        defaultValue={defaultValue}
+        spellCheck={false}
+        style={{
+          ...inlineInputStyle,
+          textAlign: align,
+        }}
+      />
+      <span
+        className="print-value"
+        style={{
+          ...printValueStyle,
+          textAlign: align,
+        }}
+      >
+        {printValue}
+      </span>
+    </span>
   );
 }
 
@@ -480,17 +494,28 @@ function EditableTextarea({
   rows?: number;
   compact?: boolean;
 }) {
+  const printValue = defaultValue && String(defaultValue).trim() ? defaultValue : "—";
+
   return (
-    <textarea
-      name={name}
-      defaultValue={defaultValue}
-      rows={rows}
-      spellCheck={false}
-      style={{
-        ...inlineTextareaStyle,
-        minHeight: compact ? undefined : rows * 22,
-      }}
-    />
+    <span className="editable-value-wrap" style={editableValueWrapStyle}>
+      <textarea
+        className="editable-control"
+        name={name}
+        defaultValue={defaultValue}
+        rows={rows}
+        spellCheck={false}
+        style={{
+          ...inlineTextareaStyle,
+          minHeight: compact ? undefined : rows * 22,
+        }}
+      />
+      <span
+        className="print-value print-value-multiline"
+        style={printValueStyle}
+      >
+        {printValue}
+      </span>
+    </span>
   );
 }
 
@@ -826,18 +851,60 @@ export default async function CraneLiftPlanPackPage({
         }
 
         @media print {
+          @page { size: A4; margin: 10mm; }
+
+          html, body {
+            background: white !important;
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
           .print-hide { display: none !important; }
-          body { background: white !important; }
-          input, textarea {
-            border: none !important;
-            background: transparent !important;
+
+          .lift-pack-page {
+            width: 190mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            margin: 0 auto !important;
+            padding: 10mm 5mm 8mm 5mm !important;
             box-shadow: none !important;
-            resize: none !important;
+            border: none !important;
+            page-break-after: always !important;
+            break-after: page !important;
             overflow: visible !important;
           }
+
+          .lift-pack-page:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+
+          .editable-control {
+            display: none !important;
+          }
+
+          .print-value {
+            display: block !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            white-space: normal !important;
+            overflow: visible !important;
+            overflow-wrap: anywhere !important;
+            word-break: normal !important;
+            font: inherit !important;
+            color: #111 !important;
+          }
+
+          .print-value-multiline {
+            white-space: pre-wrap !important;
+            line-height: 1.38 !important;
+          }
+
           .lift-pack-table-wrap { overflow: visible !important; }
           .lift-pack-table-wrap table { min-width: 0 !important; }
-          @page { size: A4; margin: 10mm; }
         }
       `}</style>
 
@@ -1418,6 +1485,23 @@ const saveErrorStyle: CSSProperties = {
   fontWeight: 700,
 };
 
+const editableValueWrapStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  minWidth: 0,
+};
+
+const printValueStyle: CSSProperties = {
+  display: "none",
+  width: "100%",
+  minWidth: 0,
+  font: "inherit",
+  fontWeight: "inherit",
+  color: "#111",
+  overflowWrap: "anywhere",
+  boxSizing: "border-box",
+};
+
 const inlineInputStyle: CSSProperties = {
   width: "100%",
   maxWidth: "100%",
@@ -1469,7 +1553,7 @@ const pageHeader: CSSProperties = {
   paddingBottom: 10,
   borderBottom: "1px solid #bcbcbc",
   minWidth: 0,
-  overflow: "hidden",
+  overflow: "visible",
 };
 
 const pageBody: CSSProperties = {
