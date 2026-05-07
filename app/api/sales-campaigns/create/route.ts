@@ -17,6 +17,12 @@ const GOALS = new Set([
   "availability",
 ]);
 const TONES = new Set(["professional", "friendly", "direct"]);
+const RECIPIENT_SOURCES = new Set([
+  "job_quote_first",
+  "booking_contacts_only",
+  "customer_email_only",
+  "include_accounts_fallback",
+]);
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
@@ -42,6 +48,28 @@ function redirectToRunner(req: Request, campaignId: string, message: string) {
   const url = new URL(`/sales-hub/campaigns/${campaignId}/runner`, req.url);
   url.searchParams.set("success", message);
   return NextResponse.redirect(url, { status: 303 });
+}
+
+async function insertCampaignWithRecipientSourceFallback(args: {
+  admin: ReturnType<typeof createSupabaseAdminClient>;
+  payload: Record<string, any>;
+}) {
+  const { error } = await args.admin.from("sales_campaigns").insert([args.payload]);
+
+  if (!error) return null;
+
+  const message = String(error.message ?? "");
+  const missingRecipientSourceColumn =
+    message.includes("recipient_source") ||
+    message.toLowerCase().includes("column") && message.toLowerCase().includes("recipient_source");
+
+  if (!missingRecipientSourceColumn) return error;
+
+  const fallbackPayload = { ...args.payload };
+  delete fallbackPayload.recipient_source;
+
+  const { error: fallbackError } = await args.admin.from("sales_campaigns").insert([fallbackPayload]);
+  return fallbackError ?? null;
 }
 
 export async function POST(req: Request) {
@@ -123,6 +151,10 @@ export async function POST(req: Request) {
     const incomingGoal = String(getValue("goal") ?? "").trim();
     const goal = GOALS.has(incomingGoal) ? incomingGoal : "introduction";
     const tone = TONES.has(String(getValue("tone") ?? "")) ? String(getValue("tone")) : "professional";
+    const incomingRecipientSource = String(getValue("recipient_source") ?? "").trim();
+    const recipientSource = RECIPIENT_SOURCES.has(incomingRecipientSource)
+      ? incomingRecipientSource
+      : "job_quote_first";
     const templateId = clean(getValue("template_id"));
     const serviceFocus = clean(getValue("service_focus"));
     const availabilityNote = clean(getValue("availability_note"));
@@ -149,8 +181,9 @@ export async function POST(req: Request) {
     const campaignId = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const createdByUsername = fromAuthEmail(user.email ?? null) || null;
 
-    const { error: campaignError } = await admin.from("sales_campaigns").insert([
-      {
+    const campaignError = await insertCampaignWithRecipientSourceFallback({
+      admin,
+      payload: {
         id: campaignId,
         name,
         description,
@@ -158,6 +191,7 @@ export async function POST(req: Request) {
         channel,
         goal,
         tone,
+        recipient_source: recipientSource,
         template_id: templateId,
         service_focus: serviceFocus,
         availability_note: availabilityNote,
@@ -165,7 +199,7 @@ export async function POST(req: Request) {
         created_by_user_id: user.id,
         created_by_username: createdByUsername,
       },
-    ]);
+    });
 
     if (campaignError) {
       return fail(`Campaign insert failed: ${campaignError.message}`);
@@ -230,6 +264,7 @@ export async function POST(req: Request) {
         channel,
         goal,
         tone,
+        recipient_source: recipientSource,
         template_id: templateId,
         selected_lead_count: leadIds.length,
         selected_customer_count: customerIds.length,
