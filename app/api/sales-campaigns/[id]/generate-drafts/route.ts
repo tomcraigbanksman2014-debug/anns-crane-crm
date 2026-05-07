@@ -614,11 +614,28 @@ function inferServiceFocusFromText(value: unknown) {
   if (text.includes("jekko") || text.includes("spider")) return "Jekko / spider crane hire";
   if (text.includes("hk40") || text.includes("hk 40")) return "HK40 crane hire";
   if (text.includes("80t") || text.includes("80 t") || text.includes("80 tonne") || text.includes("grove")) return "80t mobile crane hire";
-  if (text.includes("low loader") || text.includes("lowloader") || text.includes("step frame")) return "low loader transport";
+  if (text.includes("100t") || text.includes("100 t") || text.includes("100 tonne") || text.includes("100 ton")) return "mobile crane hire up to 100 tonnes";
+  if (text.includes("low loader") || text.includes("lowloader" ) || text.includes("step frame")) return "low loader transport";
   if (text.includes("hiab")) return "HIAB transport";
   if (text.includes("abnormal") || text.includes("escort")) return "abnormal load transport";
   if (text.includes("contract lift")) return "contract lift support";
-  if (text.includes("crane")) return "mobile crane hire";
+  if (text.includes("mobile crane") || text.includes("crane")) return "mobile crane hire up to 100 tonnes";
+
+  return null;
+}
+
+function serviceGroupForText(value: unknown) {
+  const text = String(value ?? "").toLowerCase();
+
+  if (text.includes("jekko") || text.includes("spider")) return "spider";
+  if (text.includes("hk40") || text.includes("hk 40")) return "hk40";
+  if (text.includes("80t") || text.includes("80 t") || text.includes("80 tonne") || text.includes("grove")) return "mobile";
+  if (text.includes("100t") || text.includes("100 t") || text.includes("100 tonne") || text.includes("100 ton")) return "mobile";
+  if (text.includes("mobile crane") || text.includes("cpa crane") || text.includes("crane hire") || text.includes("all terrain") || text.includes("city crane")) return "mobile";
+  if (text.includes("low loader") || text.includes("lowloader") || text.includes("step frame")) return "low_loader";
+  if (text.includes("hiab")) return "hiab";
+  if (text.includes("abnormal") || text.includes("escort") || text.includes("movement order")) return "abnormal";
+  if (text.includes("contract lift")) return "contract_lift";
 
   return null;
 }
@@ -626,28 +643,50 @@ function inferServiceFocusFromText(value: unknown) {
 function noteConflictsWithService(note: string | null, serviceFocus: string | null) {
   if (!note || !serviceFocus) return false;
 
-  const noteText = note.toLowerCase();
-  const serviceText = serviceFocus.toLowerCase();
+  const noteGroup = serviceGroupForText(note);
+  const serviceGroup = serviceGroupForText(serviceFocus);
 
-  const serviceGroups = [
-    { key: "spider", words: ["spider", "jekko"] },
-    { key: "lowloader", words: ["low loader", "lowloader", "step frame"] },
-    { key: "hiab", words: ["hiab"] },
-    { key: "hk40", words: ["hk40", "hk 40"] },
-    { key: "abnormal", words: ["abnormal", "escort"] },
-    { key: "contract", words: ["contract lift"] },
-  ];
+  if (!noteGroup || !serviceGroup) return false;
 
-  const serviceGroup = serviceGroups.find((group) =>
-    group.words.some((word) => serviceText.includes(word))
-  );
+  return noteGroup !== serviceGroup;
+}
 
-  if (!serviceGroup) return false;
+function defaultAvailabilityNoteForService(serviceFocus: string | null) {
+  const raw = String(serviceFocus ?? "").trim().toLowerCase();
 
-  return serviceGroups.some((group) => {
-    if (group.key === serviceGroup.key) return false;
-    return group.words.some((word) => noteText.includes(word));
-  });
+  if (raw.includes("jekko") || raw.includes("spider")) {
+    return "This is ideal for restricted-access lifting, tight sites, internal lifts, glazing, machinery positioning and awkward places where a larger crane is not practical.";
+  }
+
+  if (raw.includes("hk40") || raw.includes("hk 40")) {
+    return "The HK40 is a strong option for city work, restricted sites and projects where a compact truck-mounted crane can keep the job moving efficiently.";
+  }
+
+  if (raw.includes("80t") || raw.includes("80 t") || raw.includes("80 tonne") || raw.includes("grove")) {
+    return "Our 80t mobile crane is available for planned and short-notice lifting requirements where extra capacity or reach is needed.";
+  }
+
+  if (raw.includes("mobile crane") || raw.includes("100 tonne") || raw.includes("100t") || raw.includes("crane hire")) {
+    return "Our mobile crane fleet covers planned and short-notice lifting requirements up to 100 tonnes, with CPA crane hire and contract lift support available where required.";
+  }
+
+  if (raw.includes("low loader") || raw.includes("lowloader") || raw.includes("haulage")) {
+    return "This is ideal for plant, machinery, containers, site-to-site moves and heavy or awkward loads that need planning properly.";
+  }
+
+  if (raw.includes("hiab")) {
+    return "This is ideal for loads that need collecting, delivering, lifting, placing or positioning without needing a separate crane on site.";
+  }
+
+  if (raw.includes("abnormal") || raw.includes("escort")) {
+    return "This is useful for oversized, awkward or movement-order controlled loads where transport planning and escort support may be required.";
+  }
+
+  if (raw.includes("contract")) {
+    return "This is ideal where you need the lift planned and managed properly, with the right paperwork, personnel and supervision in place.";
+  }
+
+  return "If you have anything coming up that needs lifting, shifting, moving or positioning, reply and I can confirm availability and pricing.";
 }
 
 function servicePitch(serviceFocus: string | null) {
@@ -678,8 +717,8 @@ function servicePitch(serviceFocus: string | null) {
     return "This is ideal where you need the lift planned and managed properly, with the right paperwork, personnel and supervision in place.";
   }
 
-  if (raw.includes("crane")) {
-    return "This is ideal for planned lifts, short-notice lifting requirements, site support and keeping jobs moving safely.";
+  if (raw.includes("mobile crane") || raw.includes("100 tonne") || raw.includes("100t") || raw.includes("crane")) {
+    return "Our mobile crane fleet covers planned and short-notice lifting requirements up to 100 tonnes, with CPA crane hire and contract lift support available where required.";
   }
 
   return `We can support ${serviceFocus} as well as wider mobile crane hire, lifting and transport requirements where needed.`;
@@ -751,8 +790,8 @@ function buildDraft(args: {
   const { lead, channel, goal, tone, serviceFocus } = args;
 
   const availabilityNote = noteConflictsWithService(args.availabilityNote, serviceFocus)
-    ? null
-    : args.availabilityNote;
+    ? defaultAvailabilityNoteForService(serviceFocus)
+    : args.availabilityNote || defaultAvailabilityNoteForService(serviceFocus);
 
   if (channel === "text") {
     let body = `Hi, Tom from AnnS Crane Hire here. We support ${serviceFocus || "mobile crane hire and lifting support"} and I wanted to introduce us to ${companyName(lead)}.`;
@@ -797,7 +836,7 @@ function buildDraft(args: {
       lines.push(availabilityNote, "");
     }
 
-    lines.push(servicePitch(serviceFocus), "", ctaLine(goal, channel));
+    lines.push(ctaLine(goal, channel));
   } else if (goal === "recent_customer_thank_you") {
     lines.push(
       "Thank you for using AnnS Crane Hire recently. We appreciate the work and wanted to keep our wider support on your radar.",
@@ -888,8 +927,12 @@ function resolveAvailabilityNote(args: {
 }) {
   const note = clean(args.campaign?.availability_note) || clean(args.template?.availability_note);
 
+  if (!note) {
+    return defaultAvailabilityNoteForService(args.serviceFocus);
+  }
+
   if (noteConflictsWithService(note, args.serviceFocus)) {
-    return null;
+    return defaultAvailabilityNoteForService(args.serviceFocus);
   }
 
   return note;
