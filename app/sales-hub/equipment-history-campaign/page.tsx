@@ -42,7 +42,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Jekko / spider crane",
     serviceFocus: "Jekko / spider crane hire",
     defaultAvailabilityNote:
-      "You have used restricted-access lifting support with us before, so I wanted to let you know we have Jekko / spider crane availability coming up. This is ideal for tight access, internal lifting, glazing, machinery positioning and awkward site work where a larger crane is not practical.",
+      "This is ideal for restricted-access lifting, tight sites, internal lifts, glazing, machinery positioning and awkward places where a larger crane is not practical.",
     keywords: [
       "jekko",
       "spider",
@@ -61,11 +61,37 @@ const SERVICE_PRESETS: ServicePreset[] = [
     ],
   },
   {
+    key: "mobile_crane",
+    label: "Mobile crane up to 100t",
+    serviceFocus: "mobile crane hire up to 100 tonnes",
+    defaultAvailabilityNote:
+      "Our mobile crane fleet covers planned and short-notice lifting requirements up to 100 tonnes, with CPA crane hire and contract lift support available where required.",
+    keywords: [
+      "mobile crane",
+      "crane hire",
+      "cpa",
+      "contract lift",
+      "all terrain",
+      "city crane",
+      "100t",
+      "100 t",
+      "100 tonne",
+      "100 ton",
+      "grove",
+      "liebherr",
+      "demag",
+      "terex",
+      "tadano",
+      "bocker",
+      "böcker",
+    ],
+  },
+  {
     key: "low_loader",
     label: "Low loader / step frame",
     serviceFocus: "low loader transport",
     defaultAvailabilityNote:
-      "You have used this type of transport with us before, so I wanted to let you know we have low loader availability coming up. If you have anything heavy, awkward, plant-related or site-to-site that needs moving, reply and I can confirm availability and pricing.",
+      "This is ideal for plant, machinery, containers, site-to-site moves and heavy or awkward loads that need planning properly.",
     keywords: [
       "low loader",
       "lowloader",
@@ -83,7 +109,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "HIAB transport",
     serviceFocus: "HIAB transport",
     defaultAvailabilityNote:
-      "You have used this type of transport with us before, so I wanted to let you know we have HIAB availability coming up. If you have anything that needs lifting, loading, delivering or positioning, reply and I can confirm availability and pricing.",
+      "This is ideal for loads that need collecting, delivering, lifting, placing or positioning without needing a separate crane on site.",
     keywords: [
       "hiab",
       "lorry mounted crane",
@@ -98,7 +124,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Artic HIAB",
     serviceFocus: "artic HIAB transport",
     defaultAvailabilityNote:
-      "You have used this type of transport with us before, so I wanted to let you know we have artic HIAB availability coming up. If you have longer loads, container moves or anything that needs lifting and shifting, reply and I can confirm availability and pricing.",
+      "This is ideal for longer loads, container moves or anything that needs lifting, shifting and placing with an artic HIAB.",
     keywords: [
       "artic hiab",
       "articulated hiab",
@@ -112,33 +138,15 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Rigid HIAB",
     serviceFocus: "rigid HIAB transport",
     defaultAvailabilityNote:
-      "You have used this type of transport with us before, so I wanted to let you know we have rigid HIAB availability coming up. If you have local deliveries, steel, containers or materials to lift and move, reply and I can confirm availability and pricing.",
+      "This is ideal for local deliveries, steel, containers and materials that need lifting, placing or moving with a rigid HIAB.",
     keywords: ["rigid hiab", "rigid", "hiab"],
-  },
-  {
-    key: "mobile_crane",
-    label: "Mobile crane",
-    serviceFocus: "mobile crane hire",
-    defaultAvailabilityNote:
-      "You have used crane hire with us before, so I wanted to let you know we have mobile crane availability coming up. If you have any planned or short-notice lifts, reply and I can confirm availability and pricing.",
-    keywords: [
-      "mobile crane",
-      "crane hire",
-      "cpa",
-      "all terrain",
-      "city crane",
-      "grove",
-      "liebherr",
-      "demag",
-      "terex",
-    ],
   },
   {
     key: "contract_lift",
     label: "Contract lift",
     serviceFocus: "contract lift support",
     defaultAvailabilityNote:
-      "You have used lifting support with us before, so I wanted to let you know we have contract lift availability coming up. If you need a planned lift with the right paperwork, supervision and personnel, reply and I can help get it priced.",
+      "This is ideal where you need the lift planned and managed properly, with the right paperwork, personnel and supervision in place.",
     keywords: [
       "contract lift",
       "appointed person",
@@ -153,7 +161,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Abnormal load / escort work",
     serviceFocus: "abnormal load transport",
     defaultAvailabilityNote:
-      "You have used transport support with us before, so I wanted to let you know we have abnormal load and escort-supported transport availability coming up. If you have anything oversized or awkward to move, reply and I can check the best option.",
+      "This is useful for oversized, awkward or movement-order controlled loads where transport planning and escort support may be required.",
     keywords: [
       "abnormal",
       "escort",
@@ -169,7 +177,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "HK40",
     serviceFocus: "HK40 crane hire",
     defaultAvailabilityNote:
-      "I wanted to let you know our HK40 has availability coming up. If you have any city, tight-access or lifting work where this could suit, reply and I can confirm availability and pricing.",
+      "The HK40 is a strong option for city work, restricted sites and projects where a compact truck-mounted crane can keep the job moving efficiently.",
     keywords: ["hk40", "hk 40", "bocker", "böcker"],
   },
   {
@@ -177,7 +185,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Grove 80t",
     serviceFocus: "80t mobile crane hire",
     defaultAvailabilityNote:
-      "You have used crane hire with us before, so I wanted to let you know our 80t mobile crane has availability coming up. If you have anything planned or short-notice that needs lifting, reply and I can confirm availability and pricing.",
+      "Our 80t mobile crane is available for planned and short-notice lifting requirements where extra capacity or reach is needed.",
     keywords: ["grove", "80t", "80 t", "80 tonne", "80 ton", "gmk4080"],
   },
   {
@@ -185,7 +193,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "Custom keyword search",
     serviceFocus: "specialist crane and transport support",
     defaultAvailabilityNote:
-      "You have used this type of service with us before, so I wanted to let you know we have availability coming up. If anything similar is coming up, reply and I can confirm availability and pricing.",
+      "If you have anything coming up that needs lifting, shifting, moving or positioning, reply and I can confirm availability and pricing.",
     keywords: [],
   },
 ];
@@ -260,6 +268,31 @@ function latestDate(current: string | null, next: string) {
   if (!next) return current;
   if (!current) return next;
   return next > current ? next : current;
+}
+
+function serviceGroupForText(value: unknown) {
+  const text = String(value ?? "").toLowerCase();
+
+  if (text.includes("jekko") || text.includes("spider")) return "spider";
+  if (text.includes("hk40") || text.includes("hk 40")) return "hk40";
+  if (text.includes("80t") || text.includes("80 t") || text.includes("80 tonne") || text.includes("grove")) return "mobile";
+  if (text.includes("100t") || text.includes("100 t") || text.includes("100 tonne") || text.includes("100 ton")) return "mobile";
+  if (text.includes("mobile crane") || text.includes("cpa crane") || text.includes("crane hire") || text.includes("all terrain") || text.includes("city crane")) return "mobile";
+  if (text.includes("low loader") || text.includes("lowloader") || text.includes("step frame")) return "low_loader";
+  if (text.includes("hiab")) return "hiab";
+  if (text.includes("abnormal") || text.includes("escort") || text.includes("movement order")) return "abnormal";
+  if (text.includes("contract lift")) return "contract_lift";
+
+  return null;
+}
+
+function noteConflictsWithPreset(note: string, preset: ServicePreset) {
+  const noteGroup = serviceGroupForText(note);
+  const presetGroup = serviceGroupForText(`${preset.label} ${preset.serviceFocus}`);
+
+  if (!noteGroup || !presetGroup) return false;
+
+  return noteGroup !== presetGroup;
 }
 
 function getSelectedPreset(key: string) {
@@ -563,8 +596,11 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
   const dateFrom = dateOnly(searchParams?.date_from);
   const dateTo = dateOnly(searchParams?.date_to);
   const selectedTone = clean(searchParams?.tone) || "direct";
+  const rawAvailabilityNote = clean(searchParams?.availability_note);
   const availabilityNote =
-    clean(searchParams?.availability_note) || selectedPreset.defaultAvailabilityNote;
+    rawAvailabilityNote && !noteConflictsWithPreset(rawAvailabilityNote, selectedPreset)
+      ? rawAvailabilityNote
+      : selectedPreset.defaultAvailabilityNote;
 
   const admin = createSupabaseAdminClient();
 
@@ -665,10 +701,14 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
               <label style={labelStyle}>Availability note</label>
               <textarea
                 name="availability_note"
-                defaultValue={availabilityNote}
+                value={availabilityNote}
+                readOnly
                 rows={3}
                 style={textareaStyle}
               />
+              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>
+                This note is locked to the selected service so mobile crane campaigns cannot accidentally use Jekko, low-loader or HIAB wording.
+              </div>
             </div>
 
             <div>
