@@ -630,6 +630,7 @@ type CampaignsPageProps = {
     availability_note?: string;
     success?: string;
     error?: string;
+    recipient_source?: string;
   };
 };
 
