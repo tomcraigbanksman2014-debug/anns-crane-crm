@@ -22,6 +22,21 @@ type Goal =
   | "reactivation"
   | "availability";
 type Tone = "professional" | "friendly" | "direct";
+type RecipientSource =
+  | "job_quote_first"
+  | "booking_contacts_only"
+  | "customer_email_only"
+  | "include_accounts_fallback";
+
+type EmailCandidate = {
+  email: string;
+  contactName: string | null;
+  phone: string | null;
+  source: string;
+  sourceDate: string | null;
+  priority: number;
+  isAccountsEmail: boolean;
+};
 
 function fromAuthEmail(email: string | null) {
   if (!email) return "";
@@ -31,6 +46,351 @@ function fromAuthEmail(email: string | null) {
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
   return s.length ? s : null;
+}
+
+function normaliseRecipientSource(value: unknown): RecipientSource {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (
+    raw === "booking_contacts_only" ||
+    raw === "customer_email_only" ||
+    raw === "include_accounts_fallback"
+  ) {
+    return raw;
+  }
+  return "job_quote_first";
+}
+
+function cleanEmail(value: unknown) {
+  const email = String(value ?? "")
+    .trim()
+    .replace(/^mailto:/i, "")
+    .replace(/[<>()\[\]{}'";,]+$/g, "")
+    .replace(/^[<>()\[\]{}'";,]+/g, "");
+
+  if (!email) return null;
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email.toLowerCase();
+}
+
+function extractEmailsFromText(value: unknown) {
+  const text = String(value ?? "");
+  const matches = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [];
+  return Array.from(new Set(matches.map((email) => cleanEmail(email)).filter(Boolean) as string[]));
+}
+
+function looksLikeAccountsEmail(value: unknown) {
+  const email = String(value ?? "").trim().toLowerCase();
+  if (!email.includes("@")) return false;
+
+  const local = email.split("@")[0] || "";
+  const blocked = [
+    "account",
+    "accounts",
+    "invoice",
+    "invoices",
+    "invoicing",
+    "finance",
+    "purchaseledger",
+    "purchase.ledger",
+    "ledger",
+    "payments",
+    "payment",
+    "payables",
+    "payable",
+    "ap",
+    "admin",
+    "bookkeeping",
+    "bookkeeper",
+  ];
+
+  return blocked.some((word) => local === word || local.includes(word));
+}
+
+function normaliseDateOnly(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match?.[1]) return match[1];
+
+  const d = new Date(text);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+function latestRowDate(row: any, keys: string[]) {
+  const values = keys
+    .map((key) => normaliseDateOnly(row?.[key]))
+    .filter(Boolean) as string[];
+  if (!values.length) return null;
+  values.sort();
+  return values[values.length - 1] || null;
+}
+
+function compareCandidateDate(a: string | null, b: string | null) {
+  if (a && b) return b.localeCompare(a);
+  if (a && !b) return -1;
+  if (!a && b) return 1;
+  return 0;
+}
+
+function recipientSourceLabel(source: RecipientSource) {
+  if (source === "booking_contacts_only") return "Booking/job/quote contacts only";
+  if (source === "customer_email_only") return "Customer account email only";
+  if (source === "include_accounts_fallback") return "Job/quote contacts first, then include accounts fallback";
+  return "Job/quote contacts first, then non-accounts customer email";
+}
+
+function addCandidate(
+  list: EmailCandidate[],
+  args: {
+    email: unknown;
+    contactName?: unknown;
+    phone?: unknown;
+    source: string;
+    sourceDate?: string | null;
+    priority: number;
+  }
+) {
+  const email = cleanEmail(args.email);
+  if (!email) return;
+
+  if (list.some((item) => item.email === email)) return;
+
+  list.push({
+    email,
+    contactName: clean(args.contactName) || null,
+    phone: clean(args.phone) || null,
+    source: args.source,
+    sourceDate: args.sourceDate ?? null,
+    priority: args.priority,
+    isAccountsEmail: looksLikeAccountsEmail(email),
+  });
+}
+
+async function fetchRowsWithFallbacks(args: {
+  supabase: ReturnType<typeof createSupabaseAdminClient>;
+  table: string;
+  selects: string[];
+  clientIds: string[];
+}) {
+  if (!args.clientIds.length) return [] as any[];
+
+  let lastError: any = null;
+
+  for (const select of args.selects) {
+    const { data, error } = await args.supabase
+      .from(args.table)
+      .select(select)
+      .in("client_id", args.clientIds);
+
+    if (!error) return data ?? [];
+    lastError = error;
+  }
+
+  throw new Error(lastError?.message || `Could not read ${args.table}.`);
+}
+
+async function buildCustomerRecipientCandidates(
+  supabase: ReturnType<typeof createSupabaseAdminClient>,
+  clientIds: string[]
+) {
+  const uniqueClientIds = Array.from(new Set(clientIds.map((id) => String(id ?? "").trim()).filter(Boolean)));
+  const map = new Map<string, EmailCandidate[]>();
+  for (const id of uniqueClientIds) map.set(id, []);
+
+  if (!uniqueClientIds.length) return map;
+
+  const [jobs, transportJobs, quotes] = await Promise.all([
+    fetchRowsWithFallbacks({
+      supabase,
+      table: "jobs",
+      clientIds: uniqueClientIds,
+      selects: [
+        "id, client_id, job_number, site_name, site_address, contact_name, contact_phone, contact_email, site_contact_email, booking_contact_email, customer_email, invoice_email, notes, status, archived, job_date, start_date, end_date, created_at",
+        "id, client_id, job_number, site_name, site_address, contact_name, contact_phone, invoice_email, notes, status, archived, job_date, start_date, end_date, created_at",
+        "id, client_id, job_number, site_name, site_address, contact_name, contact_phone, notes, status, archived, job_date, start_date, end_date, created_at",
+        "id, client_id, job_number, contact_name, contact_phone, notes, status, archived, job_date, start_date, end_date",
+      ],
+    }),
+    fetchRowsWithFallbacks({
+      supabase,
+      table: "transport_jobs",
+      clientIds: uniqueClientIds,
+      selects: [
+        "id, client_id, transport_number, collection_contact_name, collection_contact_phone, collection_contact_email, delivery_contact_name, delivery_contact_phone, delivery_contact_email, contact_email, site_contact_email, booking_contact_email, customer_email, invoice_email, load_description, collection_address, delivery_address, notes, status, archived, transport_date, delivery_date, created_at",
+        "id, client_id, transport_number, collection_contact_name, collection_contact_phone, delivery_contact_name, delivery_contact_phone, invoice_email, load_description, collection_address, delivery_address, notes, status, archived, transport_date, delivery_date, created_at",
+        "id, client_id, transport_number, load_description, collection_address, delivery_address, notes, status, archived, transport_date, delivery_date, created_at",
+        "id, client_id, transport_number, load_description, collection_address, delivery_address, notes, status, archived, transport_date, delivery_date",
+      ],
+    }),
+    fetchRowsWithFallbacks({
+      supabase,
+      table: "quotes",
+      clientIds: uniqueClientIds,
+      selects: [
+        "id, client_id, subject, notes, status, quote_date, created_at, contact_name, contact_email, customer_email, email",
+        "id, client_id, subject, notes, status, quote_date, created_at",
+        "id, client_id, subject, notes, status, quote_date",
+      ],
+    }),
+  ]);
+
+  for (const job of jobs) {
+    const clientId = String(job?.client_id ?? "").trim();
+    if (!clientId || !map.has(clientId)) continue;
+    if (Boolean(job?.archived)) continue;
+
+    const sourceDate = latestRowDate(job, ["end_date", "start_date", "job_date", "created_at"]);
+    const label = `crane job${job?.job_number ? ` #${job.job_number}` : ""}`;
+    const candidates = map.get(clientId)!;
+
+    addCandidate(candidates, { email: job?.contact_email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.site_contact_email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} site contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.booking_contact_email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} booking contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.customer_email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} customer email`, sourceDate, priority: 2 });
+
+    for (const email of extractEmailsFromText([job?.contact_name, job?.site_name, job?.site_address, job?.notes].join("\n"))) {
+      addCandidate(candidates, { email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} notes/details`, sourceDate, priority: 4 });
+    }
+
+    addCandidate(candidates, { email: job?.invoice_email, contactName: job?.contact_name, phone: job?.contact_phone, source: `${label} invoice email`, sourceDate, priority: 8 });
+  }
+
+  for (const job of transportJobs) {
+    const clientId = String(job?.client_id ?? "").trim();
+    if (!clientId || !map.has(clientId)) continue;
+    if (Boolean(job?.archived)) continue;
+
+    const sourceDate = latestRowDate(job, ["delivery_date", "transport_date", "created_at"]);
+    const label = `transport job${job?.transport_number ? ` ${job.transport_number}` : ""}`;
+    const candidates = map.get(clientId)!;
+
+    addCandidate(candidates, { email: job?.collection_contact_email, contactName: job?.collection_contact_name, phone: job?.collection_contact_phone, source: `${label} collection contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.delivery_contact_email, contactName: job?.delivery_contact_name, phone: job?.delivery_contact_phone, source: `${label} delivery contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.contact_email, contactName: job?.collection_contact_name || job?.delivery_contact_name, phone: job?.collection_contact_phone || job?.delivery_contact_phone, source: `${label} contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.site_contact_email, contactName: job?.delivery_contact_name || job?.collection_contact_name, phone: job?.delivery_contact_phone || job?.collection_contact_phone, source: `${label} site contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.booking_contact_email, contactName: job?.collection_contact_name || job?.delivery_contact_name, phone: job?.collection_contact_phone || job?.delivery_contact_phone, source: `${label} booking contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: job?.customer_email, contactName: job?.collection_contact_name || job?.delivery_contact_name, phone: job?.collection_contact_phone || job?.delivery_contact_phone, source: `${label} customer email`, sourceDate, priority: 2 });
+
+    for (const email of extractEmailsFromText([job?.collection_address, job?.delivery_address, job?.load_description, job?.notes].join("\n"))) {
+      addCandidate(candidates, { email, contactName: job?.collection_contact_name || job?.delivery_contact_name, phone: job?.collection_contact_phone || job?.delivery_contact_phone, source: `${label} notes/details`, sourceDate, priority: 4 });
+    }
+
+    addCandidate(candidates, { email: job?.invoice_email, contactName: job?.collection_contact_name || job?.delivery_contact_name, phone: job?.collection_contact_phone || job?.delivery_contact_phone, source: `${label} invoice email`, sourceDate, priority: 8 });
+  }
+
+  for (const quote of quotes) {
+    const clientId = String(quote?.client_id ?? "").trim();
+    if (!clientId || !map.has(clientId)) continue;
+
+    const sourceDate = latestRowDate(quote, ["quote_date", "created_at"]);
+    const label = `quote${quote?.subject ? ` ${quote.subject}` : ""}`;
+    const candidates = map.get(clientId)!;
+
+    addCandidate(candidates, { email: quote?.contact_email, contactName: quote?.contact_name, source: `${label} contact email`, sourceDate, priority: 1 });
+    addCandidate(candidates, { email: quote?.customer_email, contactName: quote?.contact_name, source: `${label} customer email`, sourceDate, priority: 2 });
+    addCandidate(candidates, { email: quote?.email, contactName: quote?.contact_name, source: `${label} email`, sourceDate, priority: 2 });
+
+    for (const email of extractEmailsFromText([quote?.subject, quote?.notes].join("\n"))) {
+      addCandidate(candidates, { email, contactName: quote?.contact_name, source: `${label} notes`, sourceDate, priority: 3 });
+    }
+  }
+
+  for (const [clientId, candidates] of map.entries()) {
+    map.set(
+      clientId,
+      candidates.sort((a, b) => {
+        const accountScore = Number(a.isAccountsEmail) - Number(b.isAccountsEmail);
+        if (accountScore !== 0) return accountScore;
+        const priorityScore = a.priority - b.priority;
+        if (priorityScore !== 0) return priorityScore;
+        return compareCandidateDate(a.sourceDate, b.sourceDate);
+      })
+    );
+  }
+
+  return map;
+}
+
+function resolveCustomerRecipient(args: {
+  customer: any;
+  source: RecipientSource;
+  candidates: EmailCandidate[];
+}) {
+  const candidateList = args.candidates ?? [];
+  const nonAccountsCandidates = candidateList.filter((candidate) => !candidate.isAccountsEmail);
+  const customerEmail = cleanEmail(args.customer?.email);
+  const customerEmailIsAccounts = customerEmail ? looksLikeAccountsEmail(customerEmail) : false;
+
+  if (args.source === "customer_email_only") {
+    if (!customerEmail) return { recipient: null, reason: "Customer has no email saved." };
+    return {
+      recipient: {
+        email: customerEmail,
+        contactName: clean(args.customer?.contact_name) || null,
+        phone: clean(args.customer?.phone) || null,
+        source: customerEmailIsAccounts ? "customer account email (accounts-style address)" : "customer account email",
+        isAccountsEmail: customerEmailIsAccounts,
+      },
+      reason: "",
+    };
+  }
+
+  if (args.source === "booking_contacts_only") {
+    const picked = nonAccountsCandidates[0] ?? null;
+    if (!picked) {
+      const accountsOnly = candidateList.some((candidate) => candidate.isAccountsEmail) || customerEmailIsAccounts;
+      return {
+        recipient: null,
+        reason: accountsOnly
+          ? "Only accounts/invoice-style email addresses were found. Booking contacts only is selected."
+          : "No job, transport or quote contact email found for this customer.",
+      };
+    }
+    return { recipient: picked, reason: "" };
+  }
+
+  if (args.source === "include_accounts_fallback") {
+    const picked = nonAccountsCandidates[0] ?? candidateList[0] ?? null;
+    if (picked) return { recipient: picked, reason: "" };
+    if (!customerEmail) return { recipient: null, reason: "No job/quote contact email or customer email found." };
+    return {
+      recipient: {
+        email: customerEmail,
+        contactName: clean(args.customer?.contact_name) || null,
+        phone: clean(args.customer?.phone) || null,
+        source: customerEmailIsAccounts ? "customer account email fallback (accounts-style address)" : "customer account email fallback",
+        isAccountsEmail: customerEmailIsAccounts,
+      },
+      reason: "",
+    };
+  }
+
+  const picked = nonAccountsCandidates[0] ?? null;
+  if (picked) return { recipient: picked, reason: "" };
+
+  if (customerEmail && !customerEmailIsAccounts) {
+    return {
+      recipient: {
+        email: customerEmail,
+        contactName: clean(args.customer?.contact_name) || null,
+        phone: clean(args.customer?.phone) || null,
+        source: "customer account email fallback",
+        isAccountsEmail: false,
+      },
+      reason: "",
+    };
+  }
+
+  if (customerEmailIsAccounts || candidateList.some((candidate) => candidate.isAccountsEmail)) {
+    return {
+      recipient: null,
+      reason: "Only accounts/invoice-style email addresses were found. Choose Include accounts fallback if you want to email them.",
+    };
+  }
+
+  return { recipient: null, reason: "No usable marketing email found." };
 }
 
 function finaliseCampaignDraftOutput(args: {
@@ -579,6 +939,7 @@ export async function POST(
     const channel = normaliseChannel((campaign as any).channel || template?.channel);
     const goal = normaliseGoal((campaign as any).goal || template?.goal);
     const tone = normaliseTone((campaign as any).tone || template?.tone);
+    const recipientSource = normaliseRecipientSource((campaign as any).recipient_source);
 
     const totalTargets =
       (leadLinks?.length ?? 0) +
@@ -723,26 +1084,52 @@ export async function POST(
       ? await getCustomerActivityRollups(supabase, customerIds)
       : new Map<string, any>();
 
+    const recipientCandidatesByCustomerId =
+      channel === "email" && customerIds.length
+        ? await buildCustomerRecipientCandidates(supabase, customerIds)
+        : new Map<string, EmailCandidate[]>();
+
     for (const row of customerLinks ?? []) {
       const customer = safeArray((row as any).clients)[0] ?? null;
       if (!customer?.id) continue;
 
-      if (channel === "email" && !customer.email) {
+      const customerId = String(customer.id);
+      const recipientResult =
+        channel === "email"
+          ? resolveCustomerRecipient({
+              customer,
+              source: recipientSource,
+              candidates: recipientCandidatesByCustomerId.get(customerId) ?? [],
+            })
+          : {
+              recipient: {
+                email: cleanEmail(customer.email),
+                contactName: clean(customer.contact_name),
+                phone: clean(customer.phone),
+                source: "customer account",
+                isAccountsEmail: looksLikeAccountsEmail(customer.email),
+              },
+              reason: "",
+            };
+
+      const recipient = recipientResult.recipient;
+
+      if (channel === "email" && !recipient?.email) {
         skipped.push({
           target_type: "customer",
-          target_id: String(customer.id),
+          target_id: customerId,
           company_name: String(customer.company_name ?? "Unknown customer"),
-          reason: "Customer has no email saved.",
+          reason: recipientResult.reason || "No usable email address found.",
         });
         continue;
       }
 
-      if (channel === "email") {
-        const suppression = await checkMarketingSuppression(supabase, customer.email);
+      if (channel === "email" && recipient?.email) {
+        const suppression = await checkMarketingSuppression(supabase, recipient.email);
         if (suppression.suppressed) {
           skipped.push({
             target_type: "customer",
-            target_id: String(customer.id),
+            target_id: customerId,
             company_name: String(customer.company_name ?? "Unknown customer"),
             reason: suppression.reason || "Email is suppressed for marketing.",
           });
@@ -753,14 +1140,14 @@ export async function POST(
       if (channel === "text" && !customer.phone) {
         skipped.push({
           target_type: "customer",
-          target_id: String(customer.id),
+          target_id: customerId,
           company_name: String(customer.company_name ?? "Unknown customer"),
           reason: "Customer has no phone saved.",
         });
         continue;
       }
 
-      const rollup = rollupByCustomerId.get(String(customer.id)) ?? null;
+      const rollup = rollupByCustomerId.get(customerId) ?? null;
 
       const serviceFocus = inferCustomerServiceFocus(
         rollup,
@@ -773,11 +1160,15 @@ export async function POST(
 
       const customCta = clean(template?.custom_cta);
       const subjectHint = clean(template?.subject_hint);
+      const customerContactName =
+        clean(recipient?.contactName) ||
+        clean(customer.contact_name) ||
+        "";
 
       const customerArgs = {
         lead: {
           company_name: customer.company_name,
-          contact_name: customer.contact_name,
+          contact_name: customerContactName,
           area: null,
           industry: null,
           services: serviceFocus ? [serviceFocus] : null,
@@ -804,15 +1195,15 @@ export async function POST(
 
       drafts.push({
         target_type: "customer",
-        target_id: String(customer.id),
+        target_id: customerId,
         company_name: String(customer.company_name ?? "Unknown customer"),
-        contact_name: String(customer.contact_name ?? ""),
+        contact_name: customerContactName,
         channel,
         subject: finalDraft.subject,
         body: finalDraft.body,
         provider,
-        target_email: String(customer.email ?? "").trim() || null,
-        target_phone: String(customer.phone ?? "").trim() || null,
+        target_email: channel === "email" ? String(recipient?.email ?? "").trim() || null : String(customer.email ?? "").trim() || null,
+        target_phone: channel === "text" ? String(customer.phone ?? "").trim() || null : String(recipient?.phone ?? customer.phone ?? "").trim() || null,
       });
     }
 
@@ -831,6 +1222,8 @@ export async function POST(
         skipped_count: skipped.length,
         provider_mode: forceFallback ? "fallback_batch" : "ai_or_fallback",
         total_targets: totalTargets,
+        customer_recipient_source: recipientSource,
+        customer_recipient_source_label: recipientSourceLabel(recipientSource),
       },
     });
 
