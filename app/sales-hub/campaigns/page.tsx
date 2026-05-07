@@ -726,6 +726,7 @@ export default async function SalesCampaignsPage({
     (selectedGoal === "availability" ? "available crane / transport support" : "crane hire and transport support");
   const selectedAvailabilityNote =
     clean(searchParams?.availability_note) || String(selectedTemplate?.availability_note ?? "");
+  const selectedRecipientSource = clean(searchParams?.recipient_source) || "job_quote_first";
 
   const ownerOptions = Array.from(
     new Set(
@@ -982,6 +983,16 @@ export default async function SalesCampaignsPage({
             </div>
 
             <div>
+              <label style={labelStyle}>Customer email source</label>
+              <select name="recipient_source" defaultValue={selectedRecipientSource} style={inputStyle}>
+                <option value="job_quote_first">Job/quote contacts first</option>
+                <option value="booking_contacts_only">Booking contacts only</option>
+                <option value="customer_email_only">Customer account email only</option>
+                <option value="include_accounts_fallback">Include accounts fallback</option>
+              </select>
+            </div>
+
+            <div>
               <label style={labelStyle}>Lead owner</label>
               <select name="owner" defaultValue={selectedOwner} style={inputStyle} disabled={!showLeadTargets}>
                 <option value="all">All owners</option>
@@ -1073,6 +1084,10 @@ export default async function SalesCampaignsPage({
               Recent customer thank-you campaigns now only target customers with an actual crane job or transport job in the last 30 days. Quotes, notes, imported history and general correspondence do not count.
             </div>
           ) : null}
+
+          <div style={{ ...infoBox, marginTop: 12 }}>
+            Customer campaigns now use the selected email source when drafts are generated. The default uses job, transport job and quote contact emails first, avoids obvious accounts/invoice addresses, then falls back to the customer account email only when it does not look like an accounts address.
+          </div>
         </section>
 
         <div style={twoColumnGrid}>
@@ -1150,6 +1165,7 @@ export default async function SalesCampaignsPage({
               <input type="hidden" name="tone" value={selectedTone} />
               <input type="hidden" name="service_focus" value={selectedServiceFocus} />
               <input type="hidden" name="availability_note" value={selectedAvailabilityNote} />
+              <input type="hidden" name="recipient_source" value={selectedRecipientSource} />
               <input type="hidden" name="all_lead_ids" value={filteredLeads.map((lead) => String(lead.id)).join(",")} />
               <input type="hidden" name="all_customer_ids" value={filteredCustomers.map((customer) => String(customer.id)).join(",")} />
 
