@@ -38,6 +38,29 @@ type PageProps = {
 
 const SERVICE_PRESETS: ServicePreset[] = [
   {
+    key: "jekko_spider_crane",
+    label: "Jekko / spider crane",
+    serviceFocus: "Jekko / spider crane hire",
+    defaultAvailabilityNote:
+      "You have used restricted-access lifting support with us before, so I wanted to let you know we have Jekko / spider crane availability coming up. This is ideal for tight access, internal lifting, glazing, machinery positioning and awkward site work where a larger crane is not practical.",
+    keywords: [
+      "jekko",
+      "spider",
+      "spider crane",
+      "mini crane",
+      "mini-crane",
+      "tracked crane",
+      "restricted access",
+      "tight access",
+      "internal lift",
+      "internal lifting",
+      "glazing",
+      "machinery positioning",
+      "spx",
+      "spx532",
+    ],
+  },
+  {
     key: "low_loader",
     label: "Low loader / step frame",
     serviceFocus: "low loader transport",
@@ -52,6 +75,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
       "semi-low loader",
       "plant move",
       "machinery move",
+      "heavy haulage",
     ],
   },
   {
@@ -90,22 +114,6 @@ const SERVICE_PRESETS: ServicePreset[] = [
     defaultAvailabilityNote:
       "You have used this type of transport with us before, so I wanted to let you know we have rigid HIAB availability coming up. If you have local deliveries, steel, containers or materials to lift and move, reply and I can confirm availability and pricing.",
     keywords: ["rigid hiab", "rigid", "hiab"],
-  },
-  {
-    key: "spider_crane",
-    label: "Spider crane",
-    serviceFocus: "spider crane hire",
-    defaultAvailabilityNote:
-      "You have used restricted-access lifting support with us before, so I wanted to let you know we have spider crane availability coming up. If you have tight access, internal lifting or awkward site work, reply and I can confirm availability and pricing.",
-    keywords: [
-      "spider",
-      "jekko",
-      "spx",
-      "tracked crane",
-      "restricted access",
-      "tight access",
-      "internal lift",
-    ],
   },
   {
     key: "mobile_crane",
@@ -255,6 +263,10 @@ function latestDate(current: string | null, next: string) {
 }
 
 function getSelectedPreset(key: string) {
+  if (key === "spider_crane") {
+    return SERVICE_PRESETS.find((preset) => preset.key === "jekko_spider_crane") ?? SERVICE_PRESETS[0];
+  }
+
   return SERVICE_PRESETS.find((preset) => preset.key === key) ?? SERVICE_PRESETS[0];
 }
 
@@ -541,7 +553,7 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
     );
   }
 
-  const selectedPreset = getSelectedPreset(clean(searchParams?.service_key) || "low_loader");
+  const selectedPreset = getSelectedPreset(clean(searchParams?.service_key) || "jekko_spider_crane");
   const customKeywords = clean(searchParams?.custom_keywords);
   const keywords =
     selectedPreset.key === "custom"
@@ -688,6 +700,7 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
               <input type="hidden" name="tone" value={selectedTone} />
               <input type="hidden" name="service_focus" value={selectedPreset.serviceFocus} />
               <input type="hidden" name="availability_note" value={availabilityNote} />
+              <input type="hidden" name="recipient_source" value="job_quote_first" />
               <input type="hidden" name="select_all_customers" value="1" />
               <input type="hidden" name="all_customer_ids" value={allCustomerIds} />
 
