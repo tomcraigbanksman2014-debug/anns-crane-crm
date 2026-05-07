@@ -38,55 +38,6 @@ type PageProps = {
 
 const SERVICE_PRESETS: ServicePreset[] = [
   {
-    key: "jekko_spider_crane",
-    label: "Jekko / spider crane",
-    serviceFocus: "Jekko / spider crane hire",
-    defaultAvailabilityNote:
-      "This is ideal for restricted-access lifting, tight sites, internal lifts, glazing, machinery positioning and awkward places where a larger crane is not practical.",
-    keywords: [
-      "jekko",
-      "spider",
-      "spider crane",
-      "mini crane",
-      "mini-crane",
-      "tracked crane",
-      "restricted access",
-      "tight access",
-      "internal lift",
-      "internal lifting",
-      "glazing",
-      "machinery positioning",
-      "spx",
-      "spx532",
-    ],
-  },
-  {
-    key: "mobile_crane",
-    label: "Mobile crane up to 100t",
-    serviceFocus: "mobile crane hire up to 100 tonnes",
-    defaultAvailabilityNote:
-      "Our mobile crane fleet covers planned and short-notice lifting requirements up to 100 tonnes, with CPA crane hire and contract lift support available where required.",
-    keywords: [
-      "mobile crane",
-      "crane hire",
-      "cpa",
-      "contract lift",
-      "all terrain",
-      "city crane",
-      "100t",
-      "100 t",
-      "100 tonne",
-      "100 ton",
-      "grove",
-      "liebherr",
-      "demag",
-      "terex",
-      "tadano",
-      "bocker",
-      "böcker",
-    ],
-  },
-  {
     key: "low_loader",
     label: "Low loader / step frame",
     serviceFocus: "low loader transport",
@@ -101,7 +52,6 @@ const SERVICE_PRESETS: ServicePreset[] = [
       "semi-low loader",
       "plant move",
       "machinery move",
-      "heavy haulage",
     ],
   },
   {
@@ -142,6 +92,47 @@ const SERVICE_PRESETS: ServicePreset[] = [
     keywords: ["rigid hiab", "rigid", "hiab"],
   },
   {
+    key: "jekko_spider_crane",
+    label: "Jekko / spider crane",
+    serviceFocus: "Jekko / spider crane hire",
+    defaultAvailabilityNote:
+      "Our Jekko / spider crane is ideal for restricted-access lifting, tight sites, internal lifts, glazing, machinery positioning and awkward areas where larger cranes are not practical.",
+    keywords: [
+      "spider",
+      "jekko",
+      "spx",
+      "tracked crane",
+      "restricted access",
+      "tight access",
+      "internal lift",
+    ],
+  },
+  {
+    key: "mobile_crane",
+    label: "Mobile crane up to 100t",
+    serviceFocus: "mobile crane hire up to 100 tonnes",
+    defaultAvailabilityNote:
+      "Our mobile crane fleet covers planned and short-notice lifting requirements up to 100 tonnes, with CPA crane hire and contract lift support available where required.",
+    keywords: [
+      "mobile crane",
+      "crane hire",
+      "cpa",
+      "all terrain",
+      "city crane",
+      "grove",
+      "liebherr",
+      "demag",
+      "terex",
+      "100t",
+      "100 t",
+      "100 tonne",
+      "100 ton",
+      "tadano",
+      "bocker",
+      "böcker",
+    ],
+  },
+  {
     key: "contract_lift",
     label: "Contract lift",
     serviceFocus: "contract lift support",
@@ -177,7 +168,7 @@ const SERVICE_PRESETS: ServicePreset[] = [
     label: "HK40",
     serviceFocus: "HK40 crane hire",
     defaultAvailabilityNote:
-      "The HK40 is a strong option for city work, restricted sites and projects where a compact truck-mounted crane can keep the job moving efficiently.",
+      "Our HK40 is a strong option for city work, restricted sites and projects where a compact truck-mounted crane can keep the job moving efficiently.",
     keywords: ["hk40", "hk 40", "bocker", "böcker"],
   },
   {
@@ -270,14 +261,48 @@ function latestDate(current: string | null, next: string) {
   return next > current ? next : current;
 }
 
+
 function serviceGroupForText(value: unknown) {
   const text = String(value ?? "").toLowerCase();
 
-  if (text.includes("jekko") || text.includes("spider")) return "spider";
+  if (
+    text.includes("jekko") ||
+    text.includes("spider") ||
+    text.includes("restricted-access") ||
+    text.includes("restricted access") ||
+    text.includes("tight access") ||
+    text.includes("internal lift") ||
+    text.includes("internal lifting") ||
+    text.includes("glazing") ||
+    text.includes("machinery positioning") ||
+    text.includes("larger crane is not practical") ||
+    text.includes("awkward areas where larger cranes")
+  ) {
+    return "spider";
+  }
+
   if (text.includes("hk40") || text.includes("hk 40")) return "hk40";
-  if (text.includes("80t") || text.includes("80 t") || text.includes("80 tonne") || text.includes("grove")) return "mobile";
-  if (text.includes("100t") || text.includes("100 t") || text.includes("100 tonne") || text.includes("100 ton")) return "mobile";
-  if (text.includes("mobile crane") || text.includes("cpa crane") || text.includes("crane hire") || text.includes("all terrain") || text.includes("city crane")) return "mobile";
+
+  if (
+    text.includes("mobile crane") ||
+    text.includes("crane hire up to") ||
+    text.includes("up to 100") ||
+    text.includes("100t") ||
+    text.includes("100 t") ||
+    text.includes("100 tonne") ||
+    text.includes("100 ton") ||
+    text.includes("80t") ||
+    text.includes("80 t") ||
+    text.includes("80 tonne") ||
+    text.includes("80 ton") ||
+    text.includes("all terrain") ||
+    text.includes("city crane") ||
+    text.includes("cpa crane") ||
+    text.includes("planned and short-notice lifting")
+  ) {
+    return "mobile";
+  }
+
   if (text.includes("low loader") || text.includes("lowloader") || text.includes("step frame")) return "low_loader";
   if (text.includes("hiab")) return "hiab";
   if (text.includes("abnormal") || text.includes("escort") || text.includes("movement order")) return "abnormal";
@@ -586,7 +611,7 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
     );
   }
 
-  const selectedPreset = getSelectedPreset(clean(searchParams?.service_key) || "jekko_spider_crane");
+  const selectedPreset = getSelectedPreset(clean(searchParams?.service_key) || "mobile_crane");
   const customKeywords = clean(searchParams?.custom_keywords);
   const keywords =
     selectedPreset.key === "custom"
@@ -701,14 +726,10 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
               <label style={labelStyle}>Availability note</label>
               <textarea
                 name="availability_note"
-                value={availabilityNote}
-                readOnly
+                defaultValue={availabilityNote}
                 rows={3}
                 style={textareaStyle}
               />
-              <div style={{ marginTop: 6, fontSize: 12, opacity: 0.72 }}>
-                This note is locked to the selected service so mobile crane campaigns cannot accidentally use Jekko, low-loader or HIAB wording.
-              </div>
             </div>
 
             <div>
@@ -740,7 +761,6 @@ export default async function EquipmentHistoryCampaignPage({ searchParams }: Pag
               <input type="hidden" name="tone" value={selectedTone} />
               <input type="hidden" name="service_focus" value={selectedPreset.serviceFocus} />
               <input type="hidden" name="availability_note" value={availabilityNote} />
-              <input type="hidden" name="recipient_source" value="job_quote_first" />
               <input type="hidden" name="select_all_customers" value="1" />
               <input type="hidden" name="all_customer_ids" value={allCustomerIds} />
 
