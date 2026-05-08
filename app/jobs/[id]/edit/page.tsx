@@ -209,7 +209,7 @@ export default async function EditJobPage({
 
     supabase
       .from("clients")
-      .select("id, company_name, category, archived")
+      .select("id, company_name, archived")
       .eq("archived", false)
       .order("company_name", { ascending: true }),
 
