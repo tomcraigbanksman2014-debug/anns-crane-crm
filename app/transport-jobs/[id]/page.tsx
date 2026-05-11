@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
+import PreviousPageBackButton from "../../components/PreviousPageBackButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
@@ -1218,9 +1219,7 @@ export default async function TransportJobDetailPage({
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href="/transport-jobs" style={secondaryBtn}>
-                ← Back
-              </a>
+              <PreviousPageBackButton fallbackHref="/transport-jobs" label="← Back" style={secondaryBtn} />
               <a href={`/transport-jobs/${params.id}/lift-plan`} style={secondaryBtn}>
                 Lift plan / RAMS
               </a>
