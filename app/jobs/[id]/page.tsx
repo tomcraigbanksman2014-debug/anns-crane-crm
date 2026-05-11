@@ -14,6 +14,7 @@ import {
 import { redirect } from "next/navigation";
 
 import ServerSubmitButton from "../../components/ServerSubmitButton";
+import PreviousPageBackButton from "../../components/PreviousPageBackButton";
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -800,9 +801,7 @@ export default async function JobDetailPage({
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a href="/jobs" style={secondaryBtn}>
-              ← Back to jobs
-            </a>
+            <PreviousPageBackButton fallbackHref="/jobs" label="← Back" style={secondaryBtn} />
             <a href={`/jobs/${params.id}/edit`} style={secondaryBtn}>
               Edit job
             </a>
