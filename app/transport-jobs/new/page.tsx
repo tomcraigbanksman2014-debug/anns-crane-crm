@@ -1,5 +1,6 @@
 import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
+import PreviousPageBackButton from "../../components/PreviousPageBackButton";
 import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
 import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
@@ -699,9 +700,7 @@ export default async function NewTransportJobPage({
               </p>
             </div>
 
-            <a href="/transport-jobs" style={secondaryBtn}>
-              ← Back
-            </a>
+            <PreviousPageBackButton fallbackHref="/transport-jobs" label="← Back" style={secondaryBtn} />
           </div>
 
           {errorMessage ? <div style={errorBox}>{decodeURIComponent(errorMessage)}</div> : null}
