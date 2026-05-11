@@ -1,4 +1,5 @@
 import ClientShell from "../../../ClientShell";
+import PreviousPageBackButton from "../../../components/PreviousPageBackButton";
 import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
@@ -283,9 +284,7 @@ export default async function EditJobPage({
             </p>
           </div>
 
-          <a href={job?.id ? `/jobs/${job.id}` : "/jobs"} style={backBtn}>
-            ← Back
-          </a>
+          <PreviousPageBackButton fallbackHref={job?.id ? `/jobs/${job.id}` : "/jobs"} label="← Back" style={backBtn} />
         </div>
 
         {errorMessage ? (
