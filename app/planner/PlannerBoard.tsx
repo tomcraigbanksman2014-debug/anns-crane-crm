@@ -1043,11 +1043,18 @@ export default function PlannerBoard() {
     );
   }
 
-  function renderDropCell(items: PlannerItem[], target: DropTarget, highlight = false, showEmptyCrossHire = false) {
+  function renderDropCell(
+    items: PlannerItem[],
+    target: DropTarget,
+    highlight = false,
+    showEmptyCrossHire = false,
+    crossHireSection = false
+  ) {
     return (
       <div
         style={{
           ...dayCell,
+          ...(crossHireSection ? crossHireDayCell : null),
           ...(highlight ? holidayCell : null),
           ...(draggingId ? dropReadyCell : null),
         }}
@@ -1221,7 +1228,7 @@ export default function PlannerBoard() {
             </div>
           </section>
 
-          <section style={sectionCard}>
+          <section style={crossHireSectionCard}>
             <div style={sectionTitleRow}>
               <div>
                 <div style={sectionTitle}>Cross-hired cranes</div>
@@ -1233,7 +1240,7 @@ export default function PlannerBoard() {
 
             {isMobile && activeDay ? (
               <div style={{ display: "grid", gap: 10 }}>
-                <div style={mobileRowHeader}>
+                <div style={crossHireMobileHeader}>
                   <div style={{ fontWeight: 1000 }}>Cross-hired cranes</div>
                   <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                 </div>
@@ -1243,18 +1250,19 @@ export default function PlannerBoard() {
                   ),
                   { equipmentId: null, dayIso: activeDay.date, plannerGroup: "cross_hired" },
                   activeDay.is_bank_holiday,
+                  true,
                   true
                 )}
               </div>
             ) : (
               <div style={desktopGrid(visibleDays.length)}>
-                <div style={headCell}>Cross-hire / Week</div>
+                <div style={crossHireHeadCell}>Cross-hire / Week</div>
 
                 {visibleDays.map((day) => (
                   <div
                     key={`cross-hire-head-${day.date}`}
                     style={{
-                      ...headCell,
+                      ...crossHireHeadCell,
                       ...(day.is_bank_holiday ? holidayHeaderCell : null),
                     }}
                   >
@@ -1267,7 +1275,7 @@ export default function PlannerBoard() {
                   </div>
                 ))}
 
-                <div style={rowHeaderCell}>Cross hired</div>
+                <div style={crossHireRowHeaderCell}>Cross hired</div>
 
                 {visibleDays.map((day) => {
                   const dayItems = sortItemsByStartTime(
@@ -1278,6 +1286,7 @@ export default function PlannerBoard() {
                     dayItems,
                     { equipmentId: null, dayIso: day.date, plannerGroup: "cross_hired" },
                     day.is_bank_holiday,
+                    true,
                     true
                   );
                 })}
@@ -1493,6 +1502,13 @@ const sectionCard: React.CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
+const crossHireSectionCard: React.CSSProperties = {
+  ...sectionCard,
+  background: "linear-gradient(135deg, rgba(255,239,135,0.72), rgba(235,255,198,0.58))",
+  border: "4px solid #f5c400",
+  boxShadow: "0 10px 32px rgba(181,137,0,0.22)",
+};
+
 const sectionTitleRow: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
@@ -1575,6 +1591,12 @@ const dayCell: React.CSSProperties = {
   alignContent: "start",
 };
 
+const crossHireDayCell: React.CSSProperties = {
+  background: "rgba(239,255,215,0.72)",
+  border: "1px solid rgba(91,164,66,0.38)",
+  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.40)",
+};
+
 const mobileDayPickerWrap: React.CSSProperties = {
   display: "grid",
   gap: 10,
@@ -1617,6 +1639,15 @@ const mobileRowHeader: React.CSSProperties = {
   gap: 10,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const crossHireMobileHeader: React.CSSProperties = {
+  ...mobileRowHeader,
+  padding: "10px 12px",
+  borderRadius: 12,
+  background: "rgba(249,255,235,0.92)",
+  border: "1px solid rgba(91,164,66,0.48)",
+  color: "#14532d",
 };
 
 const mobileEquipmentBlock: React.CSSProperties = {
@@ -1677,6 +1708,14 @@ const headCell: React.CSSProperties = {
   textAlign: "center",
 };
 
+const crossHireHeadCell: React.CSSProperties = {
+  ...headCell,
+  background: "rgba(249,255,235,0.94)",
+  border: "1px solid rgba(91,164,66,0.48)",
+  color: "#14532d",
+  boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.45)",
+};
+
 const holidayHeaderCell: React.CSSProperties = {
   background: "rgba(255,170,0,0.16)",
   border: "1px solid rgba(255,170,0,0.24)",
@@ -1693,6 +1732,14 @@ const rowHeaderCell: React.CSSProperties = {
   background: "rgba(255,255,255,0.72)",
   border: "1px solid rgba(0,0,0,0.08)",
   alignSelf: "stretch",
+};
+
+const crossHireRowHeaderCell: React.CSSProperties = {
+  ...rowHeaderCell,
+  background: "rgba(249,255,235,0.92)",
+  border: "1px solid rgba(91,164,66,0.48)",
+  color: "#14532d",
+  fontWeight: 1000,
 };
 
 const fullJobCard: React.CSSProperties = {
