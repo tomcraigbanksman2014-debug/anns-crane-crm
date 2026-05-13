@@ -30,6 +30,50 @@ function boolValue(value: unknown, fallback: boolean) {
   return raw === "true" || raw === "1" || raw === "yes" || raw === "on";
 }
 
+function parsePersonKey(value: unknown) {
+  const raw = String(value ?? "").trim();
+  const [type, id] = raw.split(":");
+  if (type === "office") return { personType: "office", id: clean(id) };
+  if (type === "operator") return { personType: "operator", id: clean(id) };
+  return { personType: "operator", id: clean(raw) };
+}
+
+async function resolveAvailabilityPerson(supabase: any, body: any) {
+  const parsed = parsePersonKey(body.person_key ?? body.staff_key ?? body.operator_id);
+
+  if (parsed.personType === "office") {
+    let staffMemberId = clean(body.staff_member_id) ?? parsed.id;
+    const officeStaffName = clean(body.office_staff_name) ?? clean(body.staff_member_name);
+
+    if (!staffMemberId || staffMemberId === "new") {
+      if (!officeStaffName) {
+        throw new Error("Office staff name is required.");
+      }
+
+      const { data, error } = await supabase
+        .from("staff_planner_people")
+        .insert({
+          full_name: officeStaffName,
+          staff_type: "office",
+          archived: false,
+          updated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (error) throw new Error(error.message);
+      staffMemberId = data?.id ?? null;
+    }
+
+    if (!staffMemberId) throw new Error("Office staff member is required.");
+    return { person_type: "office", operator_id: null, staff_member_id: staffMemberId };
+  }
+
+  const operatorId = clean(body.operator_id) ?? parsed.id;
+  if (!operatorId) throw new Error("Staff member is required.");
+  return { person_type: "operator", operator_id: operatorId, staff_member_id: null };
+}
+
 export async function POST(req: Request) {
   try {
     const { supabase, user, response } = await requireApiUser();
@@ -40,7 +84,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
     }
 
-    const operatorId = clean(body.operator_id);
+    const person = await resolveAvailabilityPerson(supabase, body);
     const startDate = clean(body.start_date);
     const endDate = clean(body.end_date) ?? startDate;
     const startTime = clean(body.start_time);
@@ -49,7 +93,6 @@ export async function POST(req: Request) {
     const notes = clean(body.notes);
     const blocksAssignment = boolValue(body.blocks_assignment, defaultBlocksAssignment(status));
 
-    if (!operatorId) return NextResponse.json({ error: "Operator is required." }, { status: 400 });
     if (!startDate) return NextResponse.json({ error: "Start date is required." }, { status: 400 });
     if (!endDate) return NextResponse.json({ error: "End date is required." }, { status: 400 });
     if (endDate < startDate) {
@@ -57,7 +100,9 @@ export async function POST(req: Request) {
     }
 
     const payload = {
-      operator_id: operatorId,
+      operator_id: person.operator_id,
+      staff_member_id: person.staff_member_id,
+      person_type: person.person_type,
       start_date: startDate,
       end_date: endDate,
       start_time: startTime,
