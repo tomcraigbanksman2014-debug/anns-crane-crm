@@ -9,6 +9,16 @@ type PlannerDay = {
   bank_holiday_label?: string | null;
 };
 
+type VisitInvoiceEntry = {
+  id?: string | null;
+  job_id?: string | null;
+  visit_date?: string | null;
+  invoice_status?: string | null;
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  notes?: string | null;
+};
+
 type PlannerItem = {
   id: string;
   allocation_id?: string | null;
@@ -45,6 +55,7 @@ type PlannerItem = {
   linked_transport_numbers?: string[] | null;
   lift_plan_status?: string | null;
   planner_group?: string | null;
+  visit_invoices?: Record<string, VisitInvoiceEntry>;
 };
 
 type PlannerPerson = {
@@ -425,6 +436,7 @@ export default function PlannerBoard() {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragSourceDay, setDragSourceDay] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [invoicingVisitKey, setInvoicingVisitKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const messageTimerRef = useRef<number | null>(null);
@@ -678,6 +690,44 @@ export default function PlannerBoard() {
       window.clearTimeout(messageTimerRef.current);
     }
     messageTimerRef.current = window.setTimeout(() => setMessage(""), 2500);
+  }
+
+  function getVisitInvoiceEntry(item: PlannerItem, dayIso?: string | null) {
+    if (!dayIso) return null;
+    return item.visit_invoices?.[dayIso] ?? null;
+  }
+
+  function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
+    const status = String(entry?.invoice_status ?? "").trim().toLowerCase();
+    return status === "invoiced" || status === "part paid" || status === "paid";
+  }
+
+  async function setVisitInvoiceStatus(item: PlannerItem, dayIso: string, nextStatus: "Not Invoiced" | "Invoiced") {
+    const key = `${item.job_id}:${dayIso}`;
+    setInvoicingVisitKey(key);
+    setActionError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/planner/visit-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          job_id: item.job_id,
+          visit_date: dayIso,
+          invoice_status: nextStatus,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not update visit invoice status.");
+
+      await loadBoard(weekStart);
+      showMessage(nextStatus === "Invoiced" ? "Visit marked as invoiced." : "Visit marked as not invoiced.");
+    } catch (e: any) {
+      setActionError(e?.message || "Could not update visit invoice status.");
+    } finally {
+      setInvoicingVisitKey(null);
+    }
   }
 
   async function movePlannerItem(
@@ -962,6 +1012,20 @@ export default function PlannerBoard() {
     const linkedTransportLabel = linkedTransportItem ? getLinkedTransportLabel(item) : null;
     const liftPlanLabel = getLiftPlanLabel(item.lift_plan_status);
     const displayPrice = getDisplayPrice(item);
+    const visitInvoiceEntry = getVisitInvoiceEntry(item, visibleDayIso);
+    const visitInvoiced = visitIsInvoiced(visitInvoiceEntry);
+    const visitInvoiceKey = visibleDayIso ? `${item.job_id}:${visibleDayIso}` : null;
+
+    function stopVisitInvoiceDown(e: React.MouseEvent | React.PointerEvent) {
+      e.stopPropagation();
+    }
+
+    function handleVisitInvoiceClick(e: React.MouseEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!visibleDayIso) return;
+      setVisitInvoiceStatus(item, visibleDayIso, visitInvoiced ? "Not Invoiced" : "Invoiced");
+    }
 
     return (
       <div
@@ -1011,20 +1075,40 @@ export default function PlannerBoard() {
               PO cost {fmtMoney(item.supplier_cost ?? 0)}
             </div>
             <div style={{ marginTop: 2, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-              Charge {fmtMoney(displayPrice)}
+              Charge {fmtMoney(displayPrice)} ex VAT
               {String(item.price_mode ?? "full_job") === "per_day"
-                ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}`
+                ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)} ex VAT`
                 : " • Full job"}
             </div>
           </>
         ) : (
           <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-            {fmtMoney(displayPrice)}
+            {fmtMoney(displayPrice)} ex VAT
             {String(item.price_mode ?? "full_job") === "per_day"
-              ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}`
+              ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)} ex VAT`
               : " • Full job"}
           </div>
         )}
+
+        {visibleDayIso ? (
+          <div data-no-drag="true" style={visitInvoiceRow}>
+            <span style={visitInvoiced ? visitInvoiceDonePill : visitInvoiceOpenPill}>
+              {visitInvoiced ? "Visit invoiced" : "Visit not invoiced"}
+              {visitInvoiceEntry?.invoice_number ? ` • ${visitInvoiceEntry.invoice_number}` : ""}
+            </span>
+            <button
+              type="button"
+              data-no-drag="true"
+              style={visitInvoiced ? visitInvoiceUndoBtn : visitInvoiceBtn}
+              disabled={invoicingVisitKey === visitInvoiceKey}
+              onMouseDown={stopVisitInvoiceDown}
+              onPointerDown={stopVisitInvoiceDown}
+              onClick={handleVisitInvoiceClick}
+            >
+              {invoicingVisitKey === visitInvoiceKey ? "Saving…" : visitInvoiced ? "Undo" : "Mark invoiced"}
+            </button>
+          </div>
+        ) : null}
 
         <div style={tagWrap}>
           {liftPlanLabel ? (
@@ -1805,6 +1889,48 @@ const pillCrossHire: React.CSSProperties = {
   color: "#8a5609",
   fontSize: 11,
   fontWeight: 900,
+};
+
+const visitInvoiceRow: React.CSSProperties = {
+  marginTop: 8,
+  display: "flex",
+  gap: 6,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const visitInvoiceOpenPill: React.CSSProperties = {
+  padding: "5px 8px",
+  borderRadius: 999,
+  background: "rgba(255,140,0,0.12)",
+  color: "#8a5609",
+  border: "1px solid rgba(255,140,0,0.20)",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const visitInvoiceDonePill: React.CSSProperties = {
+  ...visitInvoiceOpenPill,
+  background: "rgba(0,160,80,0.14)",
+  color: "#0b6b34",
+  border: "1px solid rgba(0,160,80,0.20)",
+};
+
+const visitInvoiceBtn: React.CSSProperties = {
+  padding: "5px 8px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  fontSize: 11,
+  cursor: "pointer",
+};
+
+const visitInvoiceUndoBtn: React.CSSProperties = {
+  ...visitInvoiceBtn,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
 };
 
 const pillLinked: React.CSSProperties = {
