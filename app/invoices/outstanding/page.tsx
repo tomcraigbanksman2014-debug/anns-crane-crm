@@ -62,30 +62,31 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
-function outstandingAmount(row: any) {
-  const total =
-    Number(row?.invoice_total ?? 0) ||
-    Number(row?.total_invoice ?? 0) ||
-    Number(row?.invoice_amount ?? 0) ||
-    Number(row?.invoice_subtotal ?? 0) ||
-    Number(row?.agreed_sell_rate ?? 0) ||
-    Number(row?.price ?? 0) ||
-    0;
-
-  const paid = Number(row?.amount_paid ?? 0) || 0;
-  return Math.max(total - paid, 0);
-}
-
 function invoiceBaseTotal(row: any) {
+  const subtotal = Number(row?.invoice_subtotal ?? 0);
+  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
+
+  const invoiceAmount = Number(row?.invoice_amount ?? 0);
+  if (Number.isFinite(invoiceAmount) && invoiceAmount > 0) return invoiceAmount;
+
+  const gross = Number(row?.invoice_total ?? row?.total_invoice ?? 0);
+  const vat = Number(row?.invoice_vat ?? 0);
+  if (Number.isFinite(gross) && gross > 0 && Number.isFinite(vat) && vat > 0) {
+    return Math.max(gross - vat, 0);
+  }
+
   return (
-    Number(row?.invoice_total ?? 0) ||
-    Number(row?.total_invoice ?? 0) ||
-    Number(row?.invoice_amount ?? 0) ||
-    Number(row?.invoice_subtotal ?? 0) ||
     Number(row?.agreed_sell_rate ?? 0) ||
     Number(row?.price ?? 0) ||
+    (Number.isFinite(gross) ? gross : 0) ||
     0
   );
+}
+
+function outstandingAmount(row: any) {
+  const total = invoiceBaseTotal(row);
+  const paid = Number(row?.amount_paid ?? 0) || 0;
+  return Math.max(total - paid, 0);
 }
 
 function activeOutstanding(row: any) {
@@ -123,8 +124,8 @@ async function updateOutstandingRecord(formData: FormData) {
 
   const selectColumns =
     recordType === "crane"
-      ? "id, job_number, status, invoice_status, total_invoice, invoice_total, invoice_amount, invoice_subtotal, amount_paid"
-      : "id, transport_number, status, invoice_status, total_invoice, invoice_total, invoice_subtotal, agreed_sell_rate, price, amount_paid";
+      ? "id, job_number, status, invoice_status, total_invoice, invoice_total, invoice_amount, invoice_subtotal, invoice_vat, amount_paid"
+      : "id, transport_number, status, invoice_status, total_invoice, invoice_total, invoice_subtotal, invoice_vat, agreed_sell_rate, price, amount_paid";
 
   const { data: existing, error: lookupError } = await supabase
     .from(table)
@@ -207,13 +208,13 @@ export default async function OutstandingInvoicesPage({ searchParams }: Props) {
   const [craneRes, transportRes] = await Promise.all([
     supabase
       .from("jobs")
-      .select("id, job_number, site_name, start_date, end_date, status, invoice_status, invoice_total, total_invoice, invoice_amount, invoice_subtotal, amount_paid, clients:client_id(company_name)")
+      .select("id, job_number, site_name, start_date, end_date, status, invoice_status, invoice_total, total_invoice, invoice_amount, invoice_subtotal, invoice_vat, amount_paid, clients:client_id(company_name)")
       .or("archived.is.null,archived.eq.false")
       .order("start_date", { ascending: false })
       .limit(250),
     supabase
       .from("transport_jobs")
-      .select("id, transport_number, collection_address, delivery_address, transport_date, delivery_date, status, invoice_status, invoice_total, total_invoice, invoice_subtotal, agreed_sell_rate, price, amount_paid, clients:client_id(company_name)")
+      .select("id, transport_number, collection_address, delivery_address, transport_date, delivery_date, status, invoice_status, invoice_total, total_invoice, invoice_subtotal, invoice_vat, agreed_sell_rate, price, amount_paid, clients:client_id(company_name)")
       .or("archived.is.null,archived.eq.false")
       .order("transport_date", { ascending: false })
       .limit(250),
@@ -284,7 +285,7 @@ export default async function OutstandingInvoicesPage({ searchParams }: Props) {
             <div style={summaryValue}>{rows.length}</div>
           </div>
           <div style={summaryCard}>
-            <div style={summaryLabel}>Estimated outstanding value</div>
+            <div style={summaryLabel}>Estimated outstanding value ex VAT</div>
             <div style={summaryValue}>{money(totalOutstanding)}</div>
           </div>
           <div style={summaryCard}>
@@ -363,7 +364,7 @@ export default async function OutstandingInvoicesPage({ searchParams }: Props) {
                   <th style={th}>Date</th>
                   <th style={th}>Current status</th>
                   <th style={th}>Current invoice</th>
-                  <th style={th}>Amount</th>
+                  <th style={th}>Amount ex VAT</th>
                   <th style={th}>Update</th>
                   <th style={th}>Open</th>
                 </tr>
