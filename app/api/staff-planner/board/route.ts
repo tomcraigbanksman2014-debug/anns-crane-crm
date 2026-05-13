@@ -78,12 +78,24 @@ function statusSortValue(status: string | null | undefined) {
   return 8;
 }
 
-function normaliseAvailabilityEntry(entry: any) {
+function availabilityPersonKey(entry: any) {
+  const personType = clean(entry?.person_type) ?? (entry?.staff_member_id ? "office" : "operator");
+  if (personType === "office") return `office:${entry?.staff_member_id ?? ""}`;
+  return `operator:${entry?.operator_id ?? ""}`;
+}
+
+function normaliseAvailabilityEntry(entry: any, officeNameById: Map<string, string>) {
   const startDate = clean(entry?.start_date);
   const endDate = clean(entry?.end_date) ?? startDate;
   const status = clean(entry?.status);
+  const personType = clean(entry?.person_type) ?? (entry?.staff_member_id ? "office" : "operator");
+  const staffMemberId = clean(entry?.staff_member_id);
   return {
     ...entry,
+    person_type: personType,
+    staff_member_id: staffMemberId,
+    staff_member_name: staffMemberId ? officeNameById.get(staffMemberId) ?? null : null,
+    person_key: availabilityPersonKey({ ...entry, person_type: personType }),
     start_date: startDate,
     end_date: endDate,
     working_day_count: status === "holiday" ? countWorkingDaysInclusive(startDate, endDate) : null,
@@ -143,16 +155,17 @@ export async function GET(req: Request) {
       directJobsRes,
       jobAllocationsRes,
       transportJobsRes,
+      officeStaffRes,
     ] = await Promise.all([
       supabase
         .from("operators")
-        .select("id, full_name, email, phone, status, archived")
+        .select("id, full_name, email, phone, status, archived, employment_type")
         .eq("archived", false)
         .order("full_name", { ascending: true }),
 
       supabase
         .from("operator_availability")
-        .select("id, operator_id, start_date, end_date, start_time, end_time, status, notes, blocks_assignment, working_day_count, created_at, updated_at")
+        .select("id, operator_id, staff_member_id, person_type, start_date, end_date, start_time, end_time, status, notes, blocks_assignment, working_day_count, created_at, updated_at")
         .lte("start_date", weekEnd)
         .or(`end_date.gte.${weekStart},end_date.is.null`)
         .order("start_date", { ascending: true }),
@@ -199,6 +212,12 @@ export async function GET(req: Request) {
         .not("operator_id", "is", null)
         .lte("transport_date", weekEnd)
         .or(`delivery_date.gte.${weekStart},delivery_date.is.null`),
+
+      supabase
+        .from("staff_planner_people")
+        .select("id, full_name, email, phone, staff_type, archived")
+        .eq("archived", false)
+        .order("full_name", { ascending: true }),
     ]);
 
     if (operatorsRes.error) return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
@@ -206,6 +225,10 @@ export async function GET(req: Request) {
     if (directJobsRes.error) return NextResponse.json({ error: directJobsRes.error.message }, { status: 400 });
     if (jobAllocationsRes.error) return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
     if (transportJobsRes.error) return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
+    if (officeStaffRes.error) return NextResponse.json({ error: officeStaffRes.error.message }, { status: 400 });
+
+    const officeStaffRows = officeStaffRes.data ?? [];
+    const officeNameById = new Map(officeStaffRows.map((row: any) => [String(row.id), String(row.full_name ?? "Office staff")]));
 
     const bankHolidays = (bankHolidaySeed ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
     const days = Array.from({ length: 7 }).map((_, index) => {
@@ -227,13 +250,13 @@ export async function GET(req: Request) {
 
     const entriesByOperator = new Map<string, any[]>();
     for (const entry of entriesRes.data ?? []) {
-      const operatorId = String((entry as any)?.operator_id ?? "");
-      if (!operatorId) continue;
+      const operatorId = availabilityPersonKey(entry);
+      if (!operatorId || operatorId.endsWith(":")) continue;
       const entryStart = clean((entry as any)?.start_date);
       const entryEnd = clean((entry as any)?.end_date) ?? entryStart;
       if (!overlapsWeek(entryStart, entryEnd, weekStart, weekEnd)) continue;
       const list = entriesByOperator.get(operatorId) ?? [];
-      list.push(normaliseAvailabilityEntry(entry));
+      list.push(normaliseAvailabilityEntry(entry, officeNameById));
       entriesByOperator.set(operatorId, list);
     }
 
@@ -249,10 +272,11 @@ export async function GET(req: Request) {
       if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
 
       const key = `${operatorId}:${(job as any).id}`;
+      const operatorKey = `operator:${operatorId}`;
       craneDedup.add(key);
-      const list = craneJobsByOperator.get(operatorId) ?? [];
+      const list = craneJobsByOperator.get(operatorKey) ?? [];
       list.push(normaliseCraneJob(job));
-      craneJobsByOperator.set(operatorId, list);
+      craneJobsByOperator.set(operatorKey, list);
     }
 
     for (const allocation of jobAllocationsRes.data ?? []) {
@@ -270,7 +294,8 @@ export async function GET(req: Request) {
       if (craneDedup.has(key)) continue;
       craneDedup.add(key);
 
-      const list = craneJobsByOperator.get(operatorId) ?? [];
+      const operatorKey = `operator:${operatorId}`;
+      const list = craneJobsByOperator.get(operatorKey) ?? [];
       list.push({
         ...normaliseCraneJob(relatedJob),
         start_date: start,
@@ -283,7 +308,7 @@ export async function GET(req: Request) {
         supplier_reference: (allocation as any)?.supplier_reference ?? null,
         notes: (allocation as any)?.notes ?? null,
       });
-      craneJobsByOperator.set(operatorId, list);
+      craneJobsByOperator.set(operatorKey, list);
     }
 
     const transportByOperator = new Map<string, any[]>();
@@ -295,13 +320,31 @@ export async function GET(req: Request) {
       const end = clean((job as any)?.delivery_date) ?? start;
       if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
 
-      const list = transportByOperator.get(operatorId) ?? [];
+      const operatorKey = `operator:${operatorId}`;
+      const list = transportByOperator.get(operatorKey) ?? [];
       list.push(normaliseTransportJob(job));
-      transportByOperator.set(operatorId, list);
+      transportByOperator.set(operatorKey, list);
     }
 
-    const operators = (operatorsRes.data ?? []).map((row: any) => {
-      const operatorId = String(row.id);
+    const employeeAndSubcontractorRows = (operatorsRes.data ?? []).map((row: any) => ({
+      ...row,
+      planner_person_type: String(row.employment_type ?? "").toLowerCase() === "subcontractor" ? "subcontractor" : "employee",
+      planner_person_key: `operator:${row.id}`,
+    }));
+
+    const officeRows = officeStaffRows.map((row: any) => ({
+      id: row.id,
+      full_name: row.full_name,
+      email: row.email,
+      phone: row.phone,
+      status: row.staff_type ?? "office",
+      employment_type: "office",
+      planner_person_type: "office",
+      planner_person_key: `office:${row.id}`,
+    }));
+
+    const operators = [...employeeAndSubcontractorRows, ...officeRows].map((row: any) => {
+      const operatorId = String(row.planner_person_key ?? `operator:${row.id}`);
       const entries = (entriesByOperator.get(operatorId) ?? []).sort((a: any, b: any) => {
         if (a.start_date !== b.start_date) return String(a.start_date).localeCompare(String(b.start_date));
         return statusSortValue(a.status) - statusSortValue(b.status);
@@ -321,9 +364,12 @@ export async function GET(req: Request) {
         email: row.email,
         phone: row.phone,
         status: row.status,
+        employment_type: row.employment_type ?? null,
+        planner_person_type: row.planner_person_type ?? "employee",
+        planner_person_key: operatorId,
         entries,
-        assigned_jobs: assignedJobs,
-        assigned_transport_jobs: assignedTransportJobs,
+        assigned_jobs: row.planner_person_type === "office" ? [] : assignedJobs,
+        assigned_transport_jobs: row.planner_person_type === "office" ? [] : assignedTransportJobs,
         holiday_working_days:
           entries
             .filter((entry: any) => String(entry.status ?? "").toLowerCase() === "holiday")
