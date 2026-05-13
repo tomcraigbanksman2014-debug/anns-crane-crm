@@ -12,7 +12,11 @@ type PlannerDay = {
 
 type AvailabilityEntry = {
   id: string;
-  operator_id: string;
+  operator_id?: string | null;
+  staff_member_id?: string | null;
+  person_type?: string | null;
+  person_key?: string | null;
+  staff_member_name?: string | null;
   start_date: string;
   end_date: string;
   start_time?: string | null;
@@ -49,6 +53,9 @@ type OperatorRow = {
   email?: string | null;
   phone?: string | null;
   status?: string | null;
+  employment_type?: string | null;
+  planner_person_type?: "employee" | "subcontractor" | "office" | string | null;
+  planner_person_key?: string | null;
   entries: AvailabilityEntry[];
   assigned_jobs: AssignedJob[];
   assigned_transport_jobs: AssignedTransportJob[];
@@ -65,7 +72,8 @@ type BoardResponse = {
 
 type FormState = {
   id: string | null;
-  operator_id: string;
+  person_key: string;
+  office_staff_name: string;
   status: string;
   start_date: string;
   end_date: string;
@@ -155,10 +163,30 @@ function statusStyle(status: string | null | undefined): React.CSSProperties {
   return { background: "rgba(255,170,0,0.14)", color: "#8a5200", border: "1px solid rgba(255,170,0,0.22)" };
 }
 
+function personKey(person: OperatorRow | null | undefined) {
+  if (!person) return "";
+  return person.planner_person_key ?? `operator:${person.id}`;
+}
+
+function personType(person: OperatorRow | null | undefined) {
+  const raw = String(person?.planner_person_type ?? person?.employment_type ?? "employee").trim().toLowerCase();
+  if (raw === "subcontractor") return "subcontractor";
+  if (raw === "office") return "office";
+  return "employee";
+}
+
+function personTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "employee").trim().toLowerCase();
+  if (raw === "subcontractor") return "Sub-contractor";
+  if (raw === "office") return "Office staff";
+  return "Employee";
+}
+
 function emptyForm(operators: OperatorRow[], weekStart: string): FormState {
   return {
     id: null,
-    operator_id: operators[0]?.id ?? "",
+    person_key: personKey(operators[0]) || "office:new",
+    office_staff_name: "",
     status: "holiday",
     start_date: weekStart,
     end_date: weekStart,
@@ -193,7 +221,8 @@ export default function StaffPlannerBoard() {
   const [formError, setFormError] = useState("");
   const [form, setForm] = useState<FormState>({
     id: null,
-    operator_id: "",
+    person_key: "",
+    office_staff_name: "",
     status: "holiday",
     start_date: weekStart,
     end_date: weekStart,
@@ -217,7 +246,7 @@ export default function StaffPlannerBoard() {
       setData(json);
       setWeekStart(json.week_start ?? targetWeekStart);
       setForm((prev) => {
-        if (prev.operator_id) return prev;
+        if (prev.person_key) return prev;
         return emptyForm(json.operators ?? [], json.week_start ?? targetWeekStart);
       });
     } catch (e: any) {
@@ -243,6 +272,12 @@ export default function StaffPlannerBoard() {
 
   const days = data?.days ?? [];
   const operators = data?.operators ?? [];
+  const staffGroups = useMemo(() => [
+    { key: "employee", label: "Employees", people: operators.filter((person) => personType(person) === "employee") },
+    { key: "subcontractor", label: "Sub-contractors", people: operators.filter((person) => personType(person) === "subcontractor") },
+    { key: "office", label: "Office staff", people: operators.filter((person) => personType(person) === "office") },
+  ], [operators]);
+  const selectedPersonIsNewOffice = form.person_key === "office:new";
   const activeDay = days[Math.min(mobileDayIndex, Math.max(days.length - 1, 0))] ?? null;
 
   useEffect(() => {
@@ -261,7 +296,7 @@ export default function StaffPlannerBoard() {
 
   const assignmentCounts = useMemo(() => {
     return operators.map((operator) => ({
-      operatorId: operator.id,
+      operatorId: personKey(operator),
       crane: operator.assigned_jobs?.length ?? 0,
       transport: operator.assigned_transport_jobs?.length ?? 0,
     }));
@@ -293,7 +328,8 @@ export default function StaffPlannerBoard() {
   function beginEdit(entry: AvailabilityEntry) {
     setForm({
       id: entry.id,
-      operator_id: entry.operator_id,
+      person_key: entry.person_key ?? (entry.person_type === "office" ? `office:${entry.staff_member_id ?? "new"}` : `operator:${entry.operator_id ?? ""}`),
+      office_staff_name: String(entry.staff_member_name ?? ""),
       status: String(entry.status ?? "holiday"),
       start_date: entry.start_date,
       end_date: entry.end_date,
@@ -315,7 +351,8 @@ export default function StaffPlannerBoard() {
 
     try {
       const payload = {
-        operator_id: form.operator_id,
+        person_key: form.person_key,
+        office_staff_name: clean(form.office_staff_name),
         status: form.status,
         start_date: form.start_date,
         end_date: form.end_date,
@@ -375,7 +412,7 @@ export default function StaffPlannerBoard() {
     const assignmentInfo = assignmentSummary(operator, day.date);
 
     return (
-      <div key={`${operator.id}-${day.date}`} style={{ ...dayCell, ...(day.is_bank_holiday ? holidayCell : null) }}>
+      <div key={`${personKey(operator)}-${day.date}`} style={{ ...dayCell, ...(day.is_bank_holiday ? holidayCell : null) }}>
         {entries.length > 0 ? entries.map((entry) => (
           <div key={entry.id} style={{ ...entryCard, ...statusStyle(entry.status) }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
@@ -430,7 +467,7 @@ export default function StaffPlannerBoard() {
         <div>
           <h2 style={{ margin: 0, fontSize: 28 }}>Staff Planner</h2>
           <div style={{ marginTop: 6, opacity: 0.75 }}>
-            Weekly staff availability for holiday, training, sickness, days off and other non-working periods.
+            Weekly staff availability for employees, sub-contractors and office staff holidays / non-working periods.
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -482,12 +519,38 @@ export default function StaffPlannerBoard() {
         <div style={formGrid}>
           <label style={fieldWrap}>
             <span style={fieldLabel}>Staff member</span>
-            <select value={form.operator_id} onChange={(e) => setField("operator_id", e.target.value)} style={inputStyle}>
-              {operators.map((operator) => (
-                <option key={operator.id} value={operator.id}>{operator.full_name || "Unnamed operator"}</option>
+            <select
+              value={form.person_key}
+              onChange={(e) => {
+                setField("person_key", e.target.value);
+                if (e.target.value !== "office:new") setField("office_staff_name", "");
+              }}
+              style={inputStyle}
+            >
+              {staffGroups.map((group) => (
+                <optgroup key={group.key} label={group.label}>
+                  {group.key === "office" ? <option value="office:new">+ Add new office staff member</option> : null}
+                  {group.people.map((operator) => (
+                    <option key={personKey(operator)} value={personKey(operator)}>
+                      {operator.full_name || (group.key === "office" ? "Unnamed office staff" : "Unnamed staff member")}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </label>
+          {selectedPersonIsNewOffice ? (
+            <label style={fieldWrap}>
+              <span style={fieldLabel}>Office staff name</span>
+              <input
+                type="text"
+                value={form.office_staff_name}
+                onChange={(e) => setField("office_staff_name", e.target.value)}
+                placeholder="e.g. Jane Smith"
+                style={inputStyle}
+              />
+            </label>
+          ) : null}
           <label style={fieldWrap}>
             <span style={fieldLabel}>Status</span>
             <select
@@ -562,25 +625,32 @@ export default function StaffPlannerBoard() {
           <div style={sectionCard}>
             <div style={sectionTitle}>Weekly board</div>
             {isMobile && activeDay ? (
-              <div style={{ display: "grid", gap: 12 }}>
-                {operators.map((operator) => {
-                  const countRow = assignmentCounts.find((row) => row.operatorId === operator.id);
-                  return (
-                    <div key={operator.id} style={mobileEquipmentBlock}>
-                      <div style={mobileRowHeader}>
-                        <div>
-                          <div style={{ fontWeight: 1000 }}>{operator.full_name || "Unnamed operator"}</div>
-                          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{operator.status || "—"}</div>
-                        </div>
-                        <div style={{ fontSize: 12, opacity: 0.72, textAlign: "right" }}>
-                          <div>{activeDay.label}</div>
-                          <div>Crane: {countRow?.crane ?? 0} • Transport: {countRow?.transport ?? 0}</div>
-                        </div>
-                      </div>
-                      {renderStaffDayCell(operator, activeDay)}
+              <div style={{ display: "grid", gap: 14 }}>
+                {staffGroups.map((group) => (
+                  group.people.length > 0 ? (
+                    <div key={group.key} style={{ display: "grid", gap: 10 }}>
+                      <div style={groupHeader}>{group.label}</div>
+                      {group.people.map((operator) => {
+                        const countRow = assignmentCounts.find((row) => row.operatorId === personKey(operator));
+                        return (
+                          <div key={personKey(operator)} style={mobileEquipmentBlock}>
+                            <div style={mobileRowHeader}>
+                              <div>
+                                <div style={{ fontWeight: 1000 }}>{operator.full_name || "Unnamed staff member"}</div>
+                                <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{personTypeLabel(operator.planner_person_type)}{operator.status ? ` • ${operator.status}` : ""}</div>
+                              </div>
+                              <div style={{ fontSize: 12, opacity: 0.72, textAlign: "right" }}>
+                                <div>{activeDay.label}</div>
+                                <div>Crane: {countRow?.crane ?? 0} • Transport: {countRow?.transport ?? 0}</div>
+                              </div>
+                            </div>
+                            {renderStaffDayCell(operator, activeDay)}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  ) : null
+                ))}
               </div>
             ) : (
               <div style={plannerScrollWrap}>
@@ -593,18 +663,27 @@ export default function StaffPlannerBoard() {
                     </div>
                   ))}
 
-                  {operators.map((operator) => {
-                    const countRow = assignmentCounts.find((row) => row.operatorId === operator.id);
+                  {staffGroups.map((group) => {
+                    if (group.people.length === 0) return [];
+
                     return [
-                      <div key={`${operator.id}-header`} style={rowHeaderCell}>
-                        <div style={{ fontWeight: 900 }}>{operator.full_name || "Unnamed operator"}</div>
-                        <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{operator.status || "—"}</div>
-                        <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
-                          <div>Crane jobs: {countRow?.crane ?? 0}</div>
-                          <div>Transport jobs: {countRow?.transport ?? 0}</div>
-                        </div>
+                      <div key={`${group.key}-group`} style={{ ...groupHeader, gridColumn: "1 / -1" }}>
+                        {group.label}
                       </div>,
-                      ...days.map((day) => renderStaffDayCell(operator, day)),
+                      ...group.people.map((operator) => {
+                        const countRow = assignmentCounts.find((row) => row.operatorId === personKey(operator));
+                        return [
+                          <div key={`${personKey(operator)}-header`} style={rowHeaderCell}>
+                            <div style={{ fontWeight: 900 }}>{operator.full_name || "Unnamed staff member"}</div>
+                            <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{personTypeLabel(operator.planner_person_type)}{operator.status ? ` • ${operator.status}` : ""}</div>
+                            <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
+                              <div>Crane jobs: {countRow?.crane ?? 0}</div>
+                              <div>Transport jobs: {countRow?.transport ?? 0}</div>
+                            </div>
+                          </div>,
+                          ...days.map((day) => renderStaffDayCell(operator, day)),
+                        ];
+                      }).flat(),
                     ];
                   }).flat()}
                 </div>
@@ -623,6 +702,14 @@ const toolbarStyle: React.CSSProperties = {
   gap: 12,
   alignItems: "center",
   flexWrap: "wrap",
+};
+
+const groupHeader: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  background: "rgba(0,0,0,0.08)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  fontWeight: 1000,
 };
 
 const summaryInline: React.CSSProperties = {
