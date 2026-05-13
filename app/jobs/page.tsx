@@ -43,6 +43,23 @@ function renderDateRange(startDate: string | null | undefined, endDate: string |
   return `${from} → ${to}`;
 }
 
+function netInvoiceValue(row: any) {
+  const subtotal = Number(row?.invoice_subtotal ?? 0);
+  if (Number.isFinite(subtotal) && subtotal > 0) return subtotal;
+
+  const invoiceAmount = Number(row?.invoice_amount ?? 0);
+  if (Number.isFinite(invoiceAmount) && invoiceAmount > 0) return invoiceAmount;
+
+  const invoiceTotal = Number(row?.invoice_total ?? row?.total_invoice ?? 0);
+  const vat = Number(row?.invoice_vat ?? 0);
+  if (Number.isFinite(invoiceTotal) && invoiceTotal > 0 && Number.isFinite(vat) && vat > 0) {
+    return Math.max(invoiceTotal - vat, 0);
+  }
+
+  const totalInvoice = Number(row?.total_invoice ?? 0);
+  return Number.isFinite(totalInvoice) ? totalInvoice : 0;
+}
+
 async function updateInvoiceStatus(formData: FormData) {
   "use server";
 
@@ -66,7 +83,7 @@ async function updateInvoiceStatus(formData: FormData) {
 
   const { data: existingJob, error: existingError } = await supabase
     .from("jobs")
-    .select("id, job_number, invoice_status, total_invoice, amount_paid")
+    .select("id, job_number, invoice_status, total_invoice, invoice_total, invoice_amount, invoice_subtotal, invoice_vat, amount_paid")
     .eq("id", jobId)
     .single();
 
@@ -76,7 +93,7 @@ async function updateInvoiceStatus(formData: FormData) {
     );
   }
 
-  const totalInvoice = Number(existingJob.total_invoice ?? 0);
+  const totalInvoice = netInvoiceValue(existingJob);
   const currentStatus = String(existingJob.invoice_status ?? "Not Invoiced");
   const currentAmountPaid = Number(existingJob.amount_paid ?? 0);
 
@@ -190,6 +207,10 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
       invoice_number,
       invoice_date,
       invoice_created_at,
+      invoice_subtotal,
+      invoice_amount,
+      invoice_vat,
+      invoice_total,
       total_invoice,
       amount_paid,
       clients:client_id (
@@ -291,7 +312,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     <th align="left" style={thStyle}>Equipment</th>
                     <th align="left" style={thStyle}>Site</th>
                     <th align="left" style={thStyle}>Status</th>
-                    <th align="left" style={thStyle}>Invoice</th>
+                    <th align="left" style={thStyle}>Invoice / value ex VAT</th>
                     <th align="left" style={thStyle}>Actions</th>
                   </tr>
                 </thead>
@@ -300,7 +321,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                     const client = first(job.clients);
                     const operator = first(job.operators);
                     const equipment = first(job.equipment);
-                    const totalInvoice = Number(job.total_invoice ?? 0);
+                    const totalInvoice = netInvoiceValue(job);
                     const amountPaid = clampMoney(Number(job.amount_paid ?? 0), 0, totalInvoice);
                     const amountOutstanding = Math.max(totalInvoice - amountPaid, 0);
 
@@ -355,7 +376,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                             #{job.invoice_number ?? "—"}
                           </div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
-                            Total: {money(totalInvoice)}
+                            Value ex VAT: {money(totalInvoice)}
                           </div>
                           <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>
                             Paid: {money(amountPaid)}
