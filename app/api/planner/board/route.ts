@@ -166,7 +166,17 @@ function effectiveJobPrice(job: any) {
     return rate * Math.max(days, 1);
   }
 
-  return num(job?.invoice_subtotal) || num(job?.invoice_amount) || num(job?.total_invoice);
+  const subtotal = num(job?.invoice_subtotal);
+  if (subtotal > 0) return subtotal;
+
+  const invoiceAmount = num(job?.invoice_amount);
+  if (invoiceAmount > 0) return invoiceAmount;
+
+  const gross = num(job?.invoice_total) || num(job?.total_invoice);
+  const vat = num(job?.invoice_vat);
+  if (gross > 0 && vat > 0) return Math.max(gross - vat, 0);
+
+  return gross;
 }
 
 function liftPlanStatusLabel(liftPlan: any) {
@@ -312,6 +322,7 @@ export async function GET(req: Request) {
       bankHolidayRes,
       liftPlansRes,
       jobSupplierLinksRes,
+      visitInvoicesRes,
     ] = await Promise.all([
       supabase
         .from("jobs")
@@ -336,6 +347,8 @@ export async function GET(req: Request) {
           cross_hire_cost_total,
           invoice_subtotal,
           invoice_amount,
+          invoice_vat,
+          invoice_total,
           total_invoice,
           price_mode,
           price_per_day,
@@ -385,6 +398,8 @@ export async function GET(req: Request) {
             cross_hire_cost_total,
             invoice_subtotal,
             invoice_amount,
+            invoice_vat,
+            invoice_total,
             total_invoice,
             price_mode,
             price_per_day,
@@ -431,6 +446,8 @@ export async function GET(req: Request) {
             price_per_day,
             invoice_subtotal,
             invoice_amount,
+            invoice_vat,
+            invoice_total,
             total_invoice,
             exclude_weekends,
             clients:client_id (id, company_name)
@@ -472,6 +489,12 @@ export async function GET(req: Request) {
           is_primary,
           sort_order
         `),
+
+      supabase
+        .from("job_visit_invoices")
+        .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
+        .gte("visit_date", weekStart)
+        .lte("visit_date", weekEnd),
     ]);
 
     if (jobsRes.error) {
@@ -502,6 +525,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: jobSupplierLinksRes.error.message }, { status: 400 });
     }
 
+    if (visitInvoicesRes.error) {
+      return NextResponse.json({ error: visitInvoicesRes.error.message }, { status: 400 });
+    }
+
     const jobs = jobsRes.data ?? [];
     const equipmentAllocations = equipmentAllocationsRes.data ?? [];
     const jobAllocations = jobAllocationsRes.data ?? [];
@@ -509,10 +536,25 @@ export async function GET(req: Request) {
     const cranes = cranesRes.data ?? [];
     const liftPlans = liftPlansRes.data ?? [];
     const jobSupplierLinks = jobSupplierLinksRes.data ?? [];
+    const visitInvoices = visitInvoicesRes.data ?? [];
 
     const bankHolidays = (bankHolidayRes ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
     const bankHolidayMap = new Map(bankHolidays.map((item) => [item.date, item.label]));
     const liftPlanByJobId = new Map(liftPlans.map((row: any) => [String(row.job_id), row]));
+
+    const visitInvoicesByJobId = new Map<string, Record<string, any>>();
+    (visitInvoices ?? []).forEach((row: any) => {
+      const jobId = String(row?.job_id ?? "").trim();
+      const visitDate = String(row?.visit_date ?? "").slice(0, 10);
+      if (!jobId || !visitDate) return;
+      const existing = visitInvoicesByJobId.get(jobId) ?? {};
+      existing[visitDate] = row;
+      visitInvoicesByJobId.set(jobId, existing);
+    });
+
+    const getVisitInvoicesForJob = (jobId: string | null | undefined) => {
+      return visitInvoicesByJobId.get(String(jobId ?? "").trim()) ?? {};
+    };
 
     const supplierLinksByJobId = new Map<string, any[]>();
     (jobSupplierLinks ?? []).forEach((row: any) => {
@@ -963,7 +1005,10 @@ export async function GET(req: Request) {
       ];
     });
 
-    const items = [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems];
+    const items = [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems].map((item: any) => ({
+      ...item,
+      visit_invoices: getVisitInvoicesForJob(item.job_id),
+    }));
 
     const days = Array.from({ length: 7 }).map((_, index) => {
       const dayDate = new Date(weekStartDate);
