@@ -112,6 +112,39 @@ function normaliseCraneJob(job: any) {
     job_date: clean(job.job_date),
     status: job.status,
     allocation_source: "jobs",
+    assignment_type: "main_job",
+  };
+}
+
+function normaliseEquipmentAssignment(allocation: any, relatedJob: any, startDate: string | null, endDate: string | null) {
+  const assetType = String(allocation?.asset_type ?? "").trim().toLowerCase();
+  const itemName = clean(allocation?.item_name);
+  const label =
+    assetType === "other"
+      ? itemName ?? "Labour / other"
+      : assetType === "crane"
+        ? "Crane allocation"
+        : assetType === "vehicle"
+          ? "Vehicle allocation"
+          : assetType === "equipment"
+            ? "Equipment allocation"
+            : itemName ?? "Allocation";
+
+  return {
+    ...normaliseCraneJob(relatedJob),
+    id: relatedJob?.id,
+    start_date: startDate,
+    end_date: endDate,
+    start_time: clean(allocation?.start_time),
+    end_time: clean(allocation?.end_time),
+    allocation_source: "job_equipment",
+    allocation_id: allocation?.id ?? null,
+    assignment_type: assetType === "other" ? "labour" : "equipment",
+    asset_type: assetType || null,
+    item_name: itemName,
+    assignment_label: label,
+    supplier_reference: clean(allocation?.supplier_reference),
+    notes: clean(allocation?.notes),
   };
 }
 
@@ -153,6 +186,7 @@ export async function GET(req: Request) {
       operatorsRes,
       entriesRes,
       directJobsRes,
+      equipmentAllocationsRes,
       jobAllocationsRes,
       transportJobsRes,
       officeStaffRes,
@@ -172,11 +206,39 @@ export async function GET(req: Request) {
 
       supabase
         .from("jobs")
-        .select("id, operator_id, job_number, site_name, start_date, end_date, job_date, status, archived")
-        .eq("archived", false)
-        .not("operator_id", "is", null)
-        .lte("start_date", weekEnd)
-        .or(`end_date.gte.${weekStart},end_date.is.null`),
+        .select("id, operator_id, main_operator_id, job_number, site_name, start_date, end_date, job_date, status, archived")
+        .eq("archived", false),
+
+      supabase
+        .from("job_equipment")
+        .select(`
+          id,
+          job_id,
+          asset_type,
+          crane_id,
+          vehicle_id,
+          equipment_id,
+          operator_id,
+          source_type,
+          item_name,
+          start_date,
+          end_date,
+          start_time,
+          end_time,
+          supplier_reference,
+          notes,
+          jobs:job_id (
+            id,
+            job_number,
+            site_name,
+            start_date,
+            end_date,
+            job_date,
+            status,
+            archived
+          )
+        `)
+        .not("operator_id", "is", null),
 
       supabase
         .from("job_allocations")
@@ -223,12 +285,13 @@ export async function GET(req: Request) {
     if (operatorsRes.error) return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
     if (entriesRes.error) return NextResponse.json({ error: entriesRes.error.message }, { status: 400 });
     if (directJobsRes.error) return NextResponse.json({ error: directJobsRes.error.message }, { status: 400 });
+    if (equipmentAllocationsRes.error) return NextResponse.json({ error: equipmentAllocationsRes.error.message }, { status: 400 });
     if (jobAllocationsRes.error) return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
     if (transportJobsRes.error) return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
     if (officeStaffRes.error) return NextResponse.json({ error: officeStaffRes.error.message }, { status: 400 });
 
     const officeStaffRows = officeStaffRes.data ?? [];
-    const officeNameById = new Map(officeStaffRows.map((row: any) => [String(row.id), String(row.full_name ?? "Office staff")]));
+    const officeNameById = new Map<string, string>(officeStaffRows.map((row: any) => [String(row.id), String(row.full_name ?? "Office staff")] as [string, string]));
 
     const bankHolidays = (bankHolidaySeed ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
     const days = Array.from({ length: 7 }).map((_, index) => {
@@ -265,17 +328,44 @@ export async function GET(req: Request) {
 
     for (const job of directJobsRes.data ?? []) {
       if (!isVisibleStatus((job as any)?.status)) continue;
-      const operatorId = String((job as any)?.operator_id ?? "");
-      if (!operatorId) continue;
       const start = normaliseJobStart(job);
       const end = normaliseJobEnd(job);
       if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
 
-      const key = `${operatorId}:${(job as any).id}`;
-      const operatorKey = `operator:${operatorId}`;
+      const operatorIds = Array.from(
+        new Set(
+          [clean((job as any)?.operator_id), clean((job as any)?.main_operator_id)].filter(Boolean) as string[]
+        )
+      );
+
+      for (const operatorId of operatorIds) {
+        const key = `${operatorId}:${(job as any).id}`;
+        const operatorKey = `operator:${operatorId}`;
+        craneDedup.add(key);
+        const list = craneJobsByOperator.get(operatorKey) ?? [];
+        list.push(normaliseCraneJob(job));
+        craneJobsByOperator.set(operatorKey, list);
+      }
+    }
+
+    for (const allocation of equipmentAllocationsRes.data ?? []) {
+      const operatorId = clean((allocation as any)?.operator_id);
+      const relatedJob = first((allocation as any)?.jobs);
+      if (!operatorId || !relatedJob) continue;
+      if (Boolean((relatedJob as any)?.archived)) continue;
+      if (!isVisibleStatus((relatedJob as any)?.status)) continue;
+
+      const start = clean((allocation as any)?.start_date) ?? normaliseJobStart(relatedJob);
+      const end = clean((allocation as any)?.end_date) ?? start ?? normaliseJobEnd(relatedJob);
+      if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
+
+      const key = `${operatorId}:${(relatedJob as any).id}`;
+      if (craneDedup.has(key)) continue;
       craneDedup.add(key);
+
+      const operatorKey = `operator:${operatorId}`;
       const list = craneJobsByOperator.get(operatorKey) ?? [];
-      list.push(normaliseCraneJob(job));
+      list.push(normaliseEquipmentAssignment(allocation, relatedJob, start, end));
       craneJobsByOperator.set(operatorKey, list);
     }
 
