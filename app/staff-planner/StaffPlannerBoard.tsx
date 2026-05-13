@@ -34,7 +34,15 @@ type AssignedJob = {
   start_date?: string | null;
   end_date?: string | null;
   job_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   status?: string | null;
+  allocation_id?: string | null;
+  allocation_source?: string | null;
+  assignment_type?: string | null;
+  asset_type?: string | null;
+  item_name?: string | null;
+  assignment_label?: string | null;
 };
 
 type AssignedTransportJob = {
@@ -116,6 +124,23 @@ function formatDateRange(startDate: string | null | undefined, endDate: string |
   if (!start && !end) return "No dates";
   if (start && end && start === end) return start;
   return `${start ?? "—"} → ${end ?? "—"}`;
+}
+
+function formatTimeRange(startTime: string | null | undefined, endTime: string | null | undefined) {
+  const start = clean(startTime);
+  const end = clean(endTime);
+  if (!start && !end) return "";
+  return `${start ?? "—"} → ${end ?? "—"}`;
+}
+
+function assignmentLabel(job: AssignedJob) {
+  const rawType = String(job.assignment_type ?? "").trim().toLowerCase();
+  const rawAsset = String(job.asset_type ?? "").trim().toLowerCase();
+  const label = clean(job.assignment_label) ?? clean(job.item_name);
+
+  if (rawType === "labour" || rawAsset === "other") return label ?? "Labour / other";
+  if (rawType === "equipment") return label ?? "Equipment allocation";
+  return "Crane job";
 }
 
 function entryMatchesDay(entry: AvailabilityEntry, dayIso: string) {
@@ -445,7 +470,12 @@ export default function StaffPlannerBoard() {
         {assignmentInfo.craneJobs.length > 0 ? (
           <div style={assignmentBox}>
             {assignmentInfo.craneJobs.map((job) => (
-              <div key={job.id}>Crane job #{job.job_number ?? job.id}{clean(job.site_name) ? ` • ${job.site_name}` : ""}</div>
+              <div key={`${job.id}-${job.allocation_id ?? job.allocation_source ?? "job"}`}>
+                {assignmentLabel(job)} #{job.job_number ?? job.id}{clean(job.site_name) ? ` • ${job.site_name}` : ""}
+                {formatTimeRange(job.start_time, job.end_time) ? (
+                  <span style={{ opacity: 0.75 }}> • {formatTimeRange(job.start_time, job.end_time)}</span>
+                ) : null}
+              </div>
             ))}
           </div>
         ) : null}
