@@ -17,7 +17,11 @@ type DraftPreviewRow = {
 type DraftAction = {
   type: string;
   title: string;
+  risk?: "low" | "medium" | "high";
   warning?: string | null;
+  requires_reason?: boolean;
+  requires_confirm_text?: boolean;
+  confirm_text?: string | null;
   preview: DraftPreviewRow[];
   payload: Record<string, any>;
 };
@@ -48,13 +52,14 @@ type ChatMessage = {
 };
 
 const EXAMPLES = [
-  "Create crane job for Crendons on Wednesday with Grove",
-  "Find job 169",
   "Open the lift plan for job 169",
-  "Show jobs needing lift plans this week",
+  "Create crane job for Crendons on Wednesday with Grove",
   "Move job 169 to Friday",
   "Add Shaun as operator on job 169",
+  "Assign HK40 to job 169",
   "Mark today's visit on job 169 as invoiced",
+  "Set job 169 to completed",
+  "Cancel job 174 because it was a duplicate",
 ];
 
 function supportsSpeechRecognition() {
@@ -70,32 +75,15 @@ function makeSpeechRecognition() {
   return new Recognition();
 }
 
-function normaliseSpokenText(value: string) {
-  let text = String(value ?? "")
-    .replace(/\blift\s+lamp\b/gi, "lift plan")
-    .replace(/\bleft\s+plan\b/gi, "lift plan")
-    .replace(/\blip\s+plan\b/gi, "lift plan")
-    .replace(/\bjob\s+number\s+(\d+)\b/gi, "job $1")
-    .replace(/\bjobs\s+(\d+)\b/gi, "job $1")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const words = text.split(" ").filter(Boolean);
-  const deduped: string[] = [];
-  for (const word of words) {
-    if (deduped[deduped.length - 1]?.toLowerCase() !== word.toLowerCase()) deduped.push(word);
-  }
-  text = deduped.join(" ");
-
-  const starts = new Set(["open", "show", "find", "create", "make", "move", "change", "add", "assign", "mark", "check", "search", "go", "take"]);
-  const lowerWords = text.toLowerCase().split(" ");
-  let lastStart = -1;
-  for (let i = 0; i < lowerWords.length; i++) {
-    if (starts.has(lowerWords[i])) lastStart = i;
-  }
-  if (lastStart > 0) text = text.split(" ").slice(lastStart).join(" ");
-
-  return text.replace(/\s+/g, " ").trim();
+function cleanupSpeech(value: string) {
+  let text = String(value ?? "").trim();
+  text = text.replace(/\blift\s+lamp\b/gi, "lift plan");
+  text = text.replace(/\bleft\s+plan\b/gi, "lift plan");
+  text = text.replace(/\bjob\s+number\s*(\d+)/gi, "job $1");
+  text = text.replace(/\bjob\s+hash\s*(\d+)/gi, "job $1");
+  text = text.replace(/\b(open|show|find|the|for|job|lift|plan)\s+\1\b/gi, "$1");
+  text = text.replace(/\s+/g, " ").trim();
+  return text;
 }
 
 export default function CrmAssistant() {
@@ -105,22 +93,24 @@ export default function CrmAssistant() {
   const [listening, setListening] = useState(false);
   const [speechSupported, setSpeechSupported] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<DraftAction | null>(null);
+  const [highRiskReason, setHighRiskReason] = useState("");
+  const [highRiskConfirm, setHighRiskConfirm] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 1,
       from: "assistant",
-      text: "Ask me to find jobs, check missing info, create crane job drafts, move jobs, assign operators, or mark a visit invoiced.",
+      text: "Ask me to search, open pages, check missing job info, or prepare CRM changes behind a Confirm screen. Use the mic on mobile and tap Stop & send when finished.",
       response: { examples: EXAMPLES, mode: "help" },
     },
   ]);
+
   const messageIdRef = useRef(2);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const manualStopRef = useRef(false);
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speechTranscriptRef = useRef("");
-  const speechFinalTranscriptRef = useRef("");
+  const commandRef = useRef("");
+  const listeningRef = useRef(false);
   const stoppingForSendRef = useRef(false);
+  const restartTimerRef = useRef<number | null>(null);
 
   const lastAssistantResponse = useMemo(() => {
     const reversed = [...messages].reverse();
@@ -129,23 +119,33 @@ export default function CrmAssistant() {
 
   useEffect(() => {
     setSpeechSupported(supportsSpeechRecognition());
-
-    return () => {
-      manualStopRef.current = true;
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      try {
-        recognitionRef.current?.stop?.();
-      } catch {
-        // Ignore browser speech cleanup errors.
-      }
-    };
   }, []);
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 80);
-    }
+    commandRef.current = command;
+  }, [command]);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 80);
   }, [open]);
+
+  useEffect(() => {
+    if (pendingDraft) {
+      setHighRiskReason("");
+      setHighRiskConfirm("");
+    }
+  }, [pendingDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+      try {
+        recognitionRef.current?.stop?.();
+      } catch {
+        // Ignore browser speech API cleanup errors.
+      }
+    };
+  }, []);
 
   function addMessage(from: ChatMessage["from"], text: string, response?: AssistantResponse | null) {
     const id = messageIdRef.current++;
@@ -153,11 +153,12 @@ export default function CrmAssistant() {
   }
 
   async function sendCommand(rawCommand?: string) {
-    const text = String(rawCommand ?? command).trim();
+    const text = cleanupSpeech(String(rawCommand ?? commandRef.current ?? command).trim());
     if (!text || busy) return;
 
     setOpen(true);
     setCommand("");
+    commandRef.current = "";
     setPendingDraft(null);
     addMessage("user", text);
     setBusy(true);
@@ -173,10 +174,7 @@ export default function CrmAssistant() {
       const json = (await res.json().catch(() => ({}))) as AssistantResponse;
       const replyText = json?.error || json?.message || json?.title || "Done.";
 
-      if (json?.draftAction) {
-        setPendingDraft(json.draftAction);
-      }
-
+      if (json?.draftAction) setPendingDraft(json.draftAction);
       addMessage("assistant", replyText, json);
     } catch (e: any) {
       addMessage("assistant", e?.message || "CRM Assistant failed.", { error: e?.message || "CRM Assistant failed." });
@@ -194,12 +192,17 @@ export default function CrmAssistant() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ mode: "execute", draftAction: pendingDraft }),
+        body: JSON.stringify({
+          mode: "execute",
+          draftAction: pendingDraft,
+          reason: highRiskReason,
+          confirmText: highRiskConfirm,
+        }),
       });
 
       const json = (await res.json().catch(() => ({}))) as AssistantResponse;
       const replyText = json?.error || json?.message || json?.title || "Saved.";
-      setPendingDraft(null);
+      if (!json?.error) setPendingDraft(null);
       addMessage("assistant", replyText, json);
     } catch (e: any) {
       addMessage("assistant", e?.message || "Could not save the confirmed action.", { error: e?.message || "Could not save the confirmed action." });
@@ -213,109 +216,100 @@ export default function CrmAssistant() {
     addMessage("assistant", "Cancelled. Nothing has been saved.", { mode: "cancelled" });
   }
 
-  function startListening() {
-    if (!speechSupported || listening || busy) return;
-
+  function buildRecognition() {
     const recognition = makeSpeechRecognition();
-    if (!recognition) {
-      setSpeechSupported(false);
-      return;
-    }
+    if (!recognition) return null;
 
-    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-
-    manualStopRef.current = false;
-    stoppingForSendRef.current = false;
-    speechTranscriptRef.current = "";
-    speechFinalTranscriptRef.current = "";
-    recognitionRef.current = recognition;
     recognition.lang = "en-GB";
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
 
     recognition.onstart = () => {
+      listeningRef.current = true;
       setListening(true);
       setOpen(true);
-      setCommand("");
     };
 
     recognition.onresult = (event: any) => {
-      let interimTranscript = "";
+      const finalParts: string[] = [];
+      const interimParts: string[] = [];
 
-      for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        const piece = String(result?.[0]?.transcript ?? "").trim();
-        if (!piece) continue;
-
-        if (result?.isFinal) {
-          speechFinalTranscriptRef.current = `${speechFinalTranscriptRef.current} ${piece}`.trim();
-        } else {
-          interimTranscript = `${interimTranscript} ${piece}`.trim();
-        }
+      for (let i = 0; i < event.results.length; i++) {
+        const transcript = String(event.results[i]?.[0]?.transcript ?? "").trim();
+        if (!transcript) continue;
+        if (event.results[i]?.isFinal) finalParts.push(transcript);
+        else interimParts.push(transcript);
       }
 
-      const liveTranscript = `${speechFinalTranscriptRef.current} ${interimTranscript}`.trim();
-      const cleaned = normaliseSpokenText(liveTranscript);
-      if (cleaned) {
-        speechTranscriptRef.current = cleaned;
-        setCommand(cleaned);
-      }
+      const text = cleanupSpeech([...finalParts, ...interimParts].join(" "));
+      setCommand(text);
+      commandRef.current = text;
     };
 
     recognition.onerror = () => {
-      // Mobile browsers sometimes throw no-speech/network errors during pauses.
-      // Keep the mic session alive until the user taps Stop & send.
+      // Some mobile browsers end recognition on silence or network hiccups.
+      // The onend handler below restarts unless the user explicitly tapped Stop & send.
     };
 
     recognition.onend = () => {
-      if (!manualStopRef.current) {
-        restartTimerRef.current = setTimeout(() => {
+      const shouldRestart = listeningRef.current && !stoppingForSendRef.current;
+      if (shouldRestart) {
+        restartTimerRef.current = window.setTimeout(() => {
           try {
-            recognition.start();
+            recognitionRef.current = buildRecognition();
+            recognitionRef.current?.start?.();
           } catch {
             setListening(false);
+            listeningRef.current = false;
           }
-        }, 220);
+        }, 250);
         return;
       }
 
       setListening(false);
-      const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
-      if (spoken) {
-        setCommand(spoken);
-        if (stoppingForSendRef.current) {
-          stoppingForSendRef.current = false;
-          void sendCommand(spoken);
-        }
+      listeningRef.current = false;
+
+      if (stoppingForSendRef.current) {
+        const spoken = cleanupSpeech(commandRef.current);
+        stoppingForSendRef.current = false;
+        if (spoken) void sendCommand(spoken);
       }
     };
 
+    return recognition;
+  }
+
+  function startListening() {
+    if (!speechSupported || listening || busy) return;
+    stoppingForSendRef.current = false;
+    listeningRef.current = true;
+    setCommand("");
+    commandRef.current = "";
+
+    const recognition = buildRecognition();
+    if (!recognition) {
+      setSpeechSupported(false);
+      return;
+    }
+
+    recognitionRef.current = recognition;
     try {
       recognition.start();
     } catch {
       setListening(false);
+      listeningRef.current = false;
     }
   }
 
-  function stopListening() {
-    manualStopRef.current = true;
+  function stopListeningAndSend() {
     stoppingForSendRef.current = true;
-    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    listeningRef.current = false;
     try {
       recognitionRef.current?.stop?.();
-      window.setTimeout(() => {
-        if (!stoppingForSendRef.current) return;
-        const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
-        stoppingForSendRef.current = false;
-        setListening(false);
-        if (spoken) void sendCommand(spoken);
-      }, 700);
     } catch {
-      // Ignore stop errors from browser speech APIs.
-      const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
-      stoppingForSendRef.current = false;
       setListening(false);
+      const spoken = cleanupSpeech(commandRef.current);
       if (spoken) void sendCommand(spoken);
     }
   }
@@ -371,10 +365,16 @@ export default function CrmAssistant() {
 
   function renderDraft(draft: DraftAction | null) {
     if (!draft) return null;
+    const highRisk = draft.risk === "high";
+    const requiredConfirmText = draft.confirm_text ?? "CONFIRM";
+    const highRiskReady = !highRisk || ((!draft.requires_reason || highRiskReason.trim()) && (!draft.requires_confirm_text || highRiskConfirm.trim() === requiredConfirmText));
 
     return (
       <div style={draftBoxStyle}>
-        <div style={{ fontWeight: 1000 }}>{draft.title}</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 1000 }}>{draft.title}</div>
+          {draft.risk ? <span style={draft.risk === "high" ? highRiskBadgeStyle : draft.risk === "medium" ? mediumRiskBadgeStyle : lowRiskBadgeStyle}>{draft.risk} risk</span> : null}
+        </div>
         {draft.warning ? <div style={warningStyle}>{draft.warning}</div> : null}
         <div style={{ display: "grid", gap: 6 }}>
           {draft.preview.map((row) => (
@@ -384,9 +384,33 @@ export default function CrmAssistant() {
             </div>
           ))}
         </div>
+
+        {highRisk ? (
+          <div style={highRiskBoxStyle}>
+            <strong>Extra confirmation required</strong>
+            {draft.requires_reason ? (
+              <textarea
+                value={highRiskReason}
+                onChange={(event) => setHighRiskReason(event.target.value)}
+                placeholder="Reason for this high-risk change"
+                style={{ ...textareaStyle, minHeight: 58 }}
+                rows={2}
+              />
+            ) : null}
+            {draft.requires_confirm_text ? (
+              <input
+                value={highRiskConfirm}
+                onChange={(event) => setHighRiskConfirm(event.target.value)}
+                placeholder={`Type ${requiredConfirmText}`}
+                style={inputStyle}
+              />
+            ) : null}
+          </div>
+        ) : null}
+
         <div style={draftActionsStyle}>
-          <button type="button" onClick={confirmDraft} disabled={busy} style={confirmBtnStyle}>
-            {busy ? "Saving..." : "Confirm"}
+          <button type="button" onClick={confirmDraft} disabled={busy || !highRiskReady} style={{ ...confirmBtnStyle, opacity: busy || !highRiskReady ? 0.55 : 1 }}>
+            {busy ? "Saving..." : highRisk ? "Confirm high-risk change" : "Confirm"}
           </button>
           {lastAssistantResponse?.results?.[0]?.href ? (
             <a href={lastAssistantResponse.results[0].href} style={editLinkStyle}>
@@ -415,7 +439,7 @@ export default function CrmAssistant() {
           <div style={panelHeaderStyle}>
             <div>
               <div style={{ fontWeight: 1000, fontSize: 17 }}>AnnS CRM Assistant</div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>Type or talk — Stop & send when finished</div>
+              <div style={{ fontSize: 12, opacity: 0.72 }}>Type or speak a CRM command</div>
             </div>
             <button type="button" onClick={() => setOpen(false)} style={closeBtnStyle} aria-label="Close CRM Assistant">
               ×
@@ -423,7 +447,7 @@ export default function CrmAssistant() {
           </div>
 
           <div style={messagesStyle}>
-            {messages.slice(-8).map((message) => (
+            {messages.slice(-10).map((message) => (
               <div key={message.id} style={message.from === "user" ? userBubbleStyle : assistantBubbleStyle}>
                 <div style={{ whiteSpace: "pre-wrap" }}>{message.text}</div>
                 {message.from === "assistant" ? renderResponse(message.response) : null}
@@ -433,7 +457,7 @@ export default function CrmAssistant() {
           </div>
 
           <div style={inputAreaStyle}>
-            {listening ? <div style={listeningStyle}>Mic on — keep talking, pause whenever needed, then tap Stop & send.</div> : null}
+            {listening ? <div style={listeningStyle}>Listening… take your time. Tap Stop & send when finished.</div> : null}
             <textarea
               ref={inputRef}
               value={command}
@@ -449,7 +473,7 @@ export default function CrmAssistant() {
               </button>
               {speechSupported ? (
                 listening ? (
-                  <button type="button" onClick={stopListening} style={micStopBtnStyle}>
+                  <button type="button" onClick={stopListeningAndSend} style={micStopBtnStyle}>
                     Stop & send
                   </button>
                 ) : (
@@ -505,8 +529,8 @@ const panelStyle: React.CSSProperties = {
   right: 18,
   bottom: "calc(18px + env(safe-area-inset-bottom))",
   zIndex: 2147483001,
-  width: "min(440px, calc(100vw - 24px))",
-  maxHeight: "min(720px, calc(100dvh - 24px))",
+  width: "min(520px, calc(100vw - 24px))",
+  maxHeight: "min(760px, calc(100dvh - 24px))",
   background: "rgba(255,255,255,0.96)",
   border: "1px solid rgba(0,0,0,0.14)",
   borderRadius: 18,
@@ -527,12 +551,12 @@ const panelHeaderStyle: React.CSSProperties = {
 };
 
 const closeBtnStyle: React.CSSProperties = {
-  width: 36,
-  height: 36,
-  borderRadius: 12,
+  width: 44,
+  height: 44,
+  borderRadius: 14,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "#fff",
-  fontSize: 24,
+  fontSize: 28,
   lineHeight: 1,
   cursor: "pointer",
 };
@@ -566,9 +590,7 @@ const assistantBubbleStyle: React.CSSProperties = {
   fontSize: 14,
 };
 
-const responseTitleStyle: React.CSSProperties = {
-  fontWeight: 1000,
-};
+const responseTitleStyle: React.CSSProperties = { fontWeight: 1000 };
 
 const resultLinkStyle: React.CSSProperties = {
   display: "block",
@@ -590,12 +612,7 @@ const badgeStyle: React.CSSProperties = {
   background: "rgba(0,0,0,0.08)",
 };
 
-const resultDescriptionStyle: React.CSSProperties = {
-  marginTop: 4,
-  opacity: 0.72,
-  fontSize: 12,
-  lineHeight: 1.35,
-};
+const resultDescriptionStyle: React.CSSProperties = { marginTop: 4, opacity: 0.72, fontSize: 12, lineHeight: 1.35 };
 
 const exampleButtonStyle: React.CSSProperties = {
   textAlign: "left",
@@ -625,18 +642,18 @@ const warningStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
-const previewRowStyle: React.CSSProperties = {
+const previewRowStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "125px 1fr", gap: 8, fontSize: 13 };
+
+const highRiskBoxStyle: React.CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "110px 1fr",
   gap: 8,
-  fontSize: 13,
+  background: "rgba(190,0,0,0.08)",
+  border: "1px solid rgba(190,0,0,0.18)",
+  padding: 10,
+  borderRadius: 12,
 };
 
-const draftActionsStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  flexWrap: "wrap",
-};
+const draftActionsStyle: React.CSSProperties = { display: "flex", gap: 8, flexWrap: "wrap" };
 
 const confirmBtnStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.16)",
@@ -688,12 +705,18 @@ const textareaStyle: React.CSSProperties = {
   fontFamily: "inherit",
 };
 
-const inputActionsStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 8,
-  alignItems: "center",
-  flexWrap: "wrap",
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  height: 42,
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.14)",
+  padding: "0 11px",
+  boxSizing: "border-box",
+  fontSize: 14,
+  fontFamily: "inherit",
 };
+
+const inputActionsStyle: React.CSSProperties = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
 
 const sendBtnStyle: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.16)",
@@ -715,16 +738,8 @@ const micBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const micStopBtnStyle: React.CSSProperties = {
-  ...micBtnStyle,
-  background: "#fff0f0",
-};
-
-const micHintStyle: React.CSSProperties = {
-  fontSize: 12,
-  opacity: 0.65,
-  fontWeight: 800,
-};
+const micStopBtnStyle: React.CSSProperties = { ...micBtnStyle, background: "#fff0f0" };
+const micHintStyle: React.CSSProperties = { fontSize: 12, opacity: 0.65, fontWeight: 800 };
 
 const listeningStyle: React.CSSProperties = {
   padding: "8px 10px",
@@ -736,23 +751,12 @@ const listeningStyle: React.CSSProperties = {
   fontSize: 12,
 };
 
-const checklistWrapStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 7,
-};
-
-const checklistGroupStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.78)",
-  border: "1px solid rgba(0,0,0,0.07)",
-  borderRadius: 11,
-  padding: 9,
-};
-
-const checklistTitleStyle: React.CSSProperties = {
-  fontWeight: 1000,
-  marginBottom: 4,
-};
-
+const checklistWrapStyle: React.CSSProperties = { display: "grid", gap: 7 };
+const checklistGroupStyle: React.CSSProperties = { background: "rgba(255,255,255,0.78)", border: "1px solid rgba(0,0,0,0.07)", borderRadius: 11, padding: 9 };
+const checklistTitleStyle: React.CSSProperties = { fontWeight: 1000, marginBottom: 4 };
 const badTextStyle: React.CSSProperties = { color: "#b00020" };
 const warnTextStyle: React.CSSProperties = { color: "#8a5200" };
 const goodTextStyle: React.CSSProperties = { color: "#0b7a4b" };
+const lowRiskBadgeStyle: React.CSSProperties = { ...badgeStyle, background: "rgba(0,150,90,0.12)", color: "#0b7a4b" };
+const mediumRiskBadgeStyle: React.CSSProperties = { ...badgeStyle, background: "rgba(255,170,0,0.18)", color: "#8a5200" };
+const highRiskBadgeStyle: React.CSSProperties = { ...badgeStyle, background: "rgba(190,0,0,0.12)", color: "#b00020" };
