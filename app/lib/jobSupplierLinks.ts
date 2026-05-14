@@ -85,6 +85,27 @@ export function parseSupplierLinksFromFormData(formData: FormData): SupplierLink
   return rows;
 }
 
+function text(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function isLegacyOnlyServiceDescription(value: unknown) {
+  const raw = text(value).toLowerCase();
+  return raw === "legacy / primary supplier" || raw === "legacy / primary transport supplier";
+}
+
+function hasRealSupplierLinkContent(link: SupplierLinkInput) {
+  return Boolean(
+    text(link.supplier_id) ||
+      text(link.supplier_display_name) ||
+      text(link.supplier_category) ||
+      text(link.supplier_reference) ||
+      text(link.notes) ||
+      Number(link.supplier_cost ?? 0) > 0 ||
+      (text(link.service_description) && !isLegacyOnlyServiceDescription(link.service_description))
+  );
+}
+
 export function buildFallbackSupplierLink(input: {
   supplier_id?: string | null;
   supplier_display_name?: string | null;
@@ -108,7 +129,7 @@ export function buildFallbackSupplierLink(input: {
     sort_order: 0,
   };
 
-  if (!link.supplier_id && !link.supplier_display_name && !link.supplier_category && !link.supplier_reference && !link.service_description && link.supplier_cost === null && !link.notes) {
+  if (!hasRealSupplierLinkContent(link)) {
     return null;
   }
 
@@ -128,6 +149,7 @@ export function normaliseSupplierLinks(rawRows: any[] | null | undefined, fallba
       is_primary: Boolean(row.is_primary),
       sort_order: Number.isFinite(Number(row.sort_order)) ? Number(row.sort_order) : index,
     }))
+    .filter(hasRealSupplierLinkContent)
     .sort((a, b) => a.sort_order - b.sort_order);
 
   if (rows.length === 0 && fallback) return [fallback];
