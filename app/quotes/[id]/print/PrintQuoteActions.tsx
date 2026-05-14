@@ -1,15 +1,19 @@
 "use client";
 
+import { printWithDocumentTitle } from "../../../lib/printDocumentTitle";
+
 export default function PrintQuoteActions({
   backHref,
   editHref,
+  printTitle,
 }: {
   backHref: string;
   editHref?: string;
+  printTitle?: string;
 }) {
   return (
     <div className="quote-print-hide" style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <button type="button" onClick={() => window.print()} style={printBtn}>
+      <button type="button" onClick={() => printWithDocumentTitle(printTitle)} style={printBtn}>
         Print / Save PDF
       </button>
       {editHref ? (
