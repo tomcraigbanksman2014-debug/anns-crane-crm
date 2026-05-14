@@ -137,6 +137,12 @@ function normalisePlannerViewMode(value: unknown): PlannerViewMode {
     : DEFAULT_PLANNER_VIEW_MODE;
 }
 
+function queryDateOverride() {
+  if (typeof window === "undefined") return "";
+  const value = new URLSearchParams(window.location.search).get("date") ?? "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "";
+}
+
 function parseDateOnly(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
@@ -477,12 +483,14 @@ export default function PlannerBoard() {
         if (!res.ok) throw new Error(json?.error || "Could not load planner view preference.");
 
         const nextMode = normalisePlannerViewMode(json?.planner_view_mode);
+        const requestedDate = queryDateOverride();
         setPlannerViewMode(nextMode);
-        setWeekStart(plannerStartForMode(nextMode));
+        setWeekStart(requestedDate || plannerStartForMode(nextMode));
       } catch (e: any) {
         setPreferenceError(e?.message || "Could not load planner view preference.");
+        const requestedDate = queryDateOverride();
         setPlannerViewMode(DEFAULT_PLANNER_VIEW_MODE);
-        setWeekStart(plannerStartForMode(DEFAULT_PLANNER_VIEW_MODE));
+        setWeekStart(requestedDate || plannerStartForMode(DEFAULT_PLANNER_VIEW_MODE));
       } finally {
         setPreferenceLoading(false);
       }
