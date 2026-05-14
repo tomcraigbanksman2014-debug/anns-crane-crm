@@ -153,6 +153,12 @@ export default async function LiftPlanPrintPage({
     flatten((job as any)?.operators)[0] ??
     null;
 
+  const printTitle = [
+    client?.company_name || "Customer",
+    "Lift Plan",
+    (job as any)?.job_number ? `Job ${(job as any).job_number}` : null,
+  ].filter(Boolean).join(" - ");
+
   const equipmentProfile = matchCraneJobEquipmentProfile({
     ...selectedJob,
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
@@ -223,7 +229,7 @@ export default async function LiftPlanPrintPage({
         }}
       >
         <h1 style={{ margin: 0 }}>AnnS Crane Hire Lift Plan & RAMS</h1>
-        <PrintLiftPlanButton />
+        <PrintLiftPlanButton printTitle={printTitle} />
       </div>
 
       <section style={printCard}>
