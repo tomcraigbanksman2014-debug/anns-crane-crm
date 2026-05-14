@@ -272,7 +272,7 @@ function buildTimeOptions() {
   return options;
 }
 
-const POLICE_ESCORT_ROW_COUNT = 3;
+const POLICE_ESCORT_ROW_COUNT = 5;
 
 function normaliseMovementOrderStatus(value: FormDataEntryValue | null, required: boolean) {
   const raw = String(value ?? "").trim().toLowerCase();
@@ -1932,6 +1932,7 @@ export default async function TransportJobDetailPage({
   <label style={{ ...checkboxRow, marginTop: 12 }}>
     <input
       type="checkbox"
+      id="abnormal_load_enabled"
       name="abnormal_load_enabled"
       value="true"
       defaultChecked={movementOrderActive}
