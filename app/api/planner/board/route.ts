@@ -30,27 +30,6 @@ function num(value: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
-function cleanText(value: unknown) {
-  return String(value ?? "").trim();
-}
-
-function isLegacyOnlySupplierDescription(value: unknown) {
-  const raw = cleanText(value).toLowerCase();
-  return raw === "legacy / primary supplier" || raw === "legacy / primary transport supplier";
-}
-
-function hasMeaningfulSupplierLink(row: any) {
-  return Boolean(
-    cleanText(row?.supplier_id) ||
-      cleanText(row?.supplier_display_name) ||
-      cleanText(row?.supplier_category) ||
-      cleanText(row?.supplier_reference) ||
-      cleanText(row?.notes) ||
-      num(row?.supplier_cost) > 0 ||
-      (cleanText(row?.service_description) && !isLegacyOnlySupplierDescription(row?.service_description))
-  );
-}
-
 function parseDateOnly(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
@@ -278,21 +257,18 @@ function looksLikeCrossHireCraneAllocation(row: any) {
   const sourceType = String(row?.source_type ?? "").trim().toLowerCase();
   const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
   const craneId = String(row?.crane_id ?? "").trim();
-  const craneRow = first(row?.cranes);
   const supplierId = String(row?.supplier_id ?? first(row?.jobs)?.supplier_id ?? "").trim();
   const supplierReference = String(row?.supplier_reference ?? "").trim();
   const supplierCost = num(row?.supplier_cost ?? row?.agreed_cost);
-  const hasSupplierMeta = Boolean(supplierId || supplierReference || supplierCost > 0);
-
-  if (craneId || craneRow?.id) return false;
 
   if (sourceType === "cross_hire") {
-    return hasSupplierMeta;
+    return true;
   }
 
   if (assetType !== "crane") return false;
+  if (craneId) return false;
 
-  return hasSupplierMeta;
+  return Boolean(supplierId || supplierReference || supplierCost > 0);
 }
 
 function looksLikeLabourAllocation(row: any) {
@@ -366,6 +342,7 @@ export async function GET(req: Request) {
           hire_type,
           lift_type,
           status,
+          archived,
           notes,
           supplier_id,
           cross_hire_cost_total,
@@ -380,7 +357,8 @@ export async function GET(req: Request) {
           clients:client_id (id, company_name),
           operators:operator_id (id, full_name),
           cranes:crane_id (id, name, asset_number:reg_number)
-        `),
+        `)
+        .eq("archived", false),
 
       supabase
         .from("job_equipment")
@@ -417,6 +395,7 @@ export async function GET(req: Request) {
             hire_type,
             lift_type,
             status,
+            archived,
             notes,
             supplier_id,
             cross_hire_cost_total,
@@ -463,6 +442,7 @@ export async function GET(req: Request) {
             hire_type,
             lift_type,
             status,
+            archived,
             notes,
             supplier_id,
             cross_hire_cost_total,
@@ -559,7 +539,7 @@ export async function GET(req: Request) {
     const operators = operatorsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
     const liftPlans = liftPlansRes.data ?? [];
-    const jobSupplierLinks = (jobSupplierLinksRes.data ?? []).filter(hasMeaningfulSupplierLink);
+    const jobSupplierLinks = jobSupplierLinksRes.data ?? [];
     const visitInvoices = visitInvoicesRes.data ?? [];
 
     const bankHolidays = (bankHolidayRes ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
@@ -621,8 +601,7 @@ export async function GET(req: Request) {
     const activeJobs = jobs.filter((job: any) => isPlannerVisibleStatus(job?.status));
     const activeJobById = new Map(activeJobs.map((job: any) => [String(job.id), job]));
 
-    const allAllocations = [...equipmentAllocations, ...jobAllocations]
-      .filter((job: any) => job && isPlannerVisibleStatus(job?.status));
+    const allAllocations = [...equipmentAllocations, ...jobAllocations].filter(Boolean);
 
     const activeAllocations = allAllocations
       .map((row: any) => {
@@ -660,6 +639,10 @@ export async function GET(req: Request) {
       })
       .filter((row: any) => {
         const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+        if (!relatedJob) return false;
+        if (Boolean(relatedJob?.archived)) return false;
+        if (!isPlannerVisibleStatus(relatedJob?.status)) return false;
+
         const excludeWeekends = Boolean(relatedJob?.exclude_weekends);
         return overlapsWorkingWeek(
           row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
