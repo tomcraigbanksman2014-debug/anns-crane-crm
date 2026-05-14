@@ -50,8 +50,7 @@ type ChatMessage = {
 const EXAMPLES = [
   "Create crane job for Crendons on Wednesday with Grove",
   "Find job 169",
-  "Show jobs today",
-  "Show unassigned jobs",
+  "Open the lift plan for job 169",
   "Show jobs needing lift plans this week",
   "Move job 169 to Friday",
   "Add Shaun as operator on job 169",
@@ -69,6 +68,34 @@ function makeSpeechRecognition() {
   const Recognition = w.SpeechRecognition || w.webkitSpeechRecognition;
   if (!Recognition) return null;
   return new Recognition();
+}
+
+function normaliseSpokenText(value: string) {
+  let text = String(value ?? "")
+    .replace(/\blift\s+lamp\b/gi, "lift plan")
+    .replace(/\bleft\s+plan\b/gi, "lift plan")
+    .replace(/\blip\s+plan\b/gi, "lift plan")
+    .replace(/\bjob\s+number\s+(\d+)\b/gi, "job $1")
+    .replace(/\bjobs\s+(\d+)\b/gi, "job $1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const words = text.split(" ").filter(Boolean);
+  const deduped: string[] = [];
+  for (const word of words) {
+    if (deduped[deduped.length - 1]?.toLowerCase() !== word.toLowerCase()) deduped.push(word);
+  }
+  text = deduped.join(" ");
+
+  const starts = new Set(["open", "show", "find", "create", "make", "move", "change", "add", "assign", "mark", "check", "search", "go", "take"]);
+  const lowerWords = text.toLowerCase().split(" ");
+  let lastStart = -1;
+  for (let i = 0; i < lowerWords.length; i++) {
+    if (starts.has(lowerWords[i])) lastStart = i;
+  }
+  if (lastStart > 0) text = text.split(" ").slice(lastStart).join(" ");
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export default function CrmAssistant() {
@@ -89,11 +116,11 @@ export default function CrmAssistant() {
   const messageIdRef = useRef(2);
   const recognitionRef = useRef<any>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const accumulatedSpeechRef = useRef("");
-  const interimSpeechRef = useRef("");
-  const userStoppedListeningRef = useRef(false);
-  const sendAfterSpeechStopRef = useRef(false);
+  const manualStopRef = useRef(false);
   const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const speechTranscriptRef = useRef("");
+  const speechFinalTranscriptRef = useRef("");
+  const stoppingForSendRef = useRef(false);
 
   const lastAssistantResponse = useMemo(() => {
     const reversed = [...messages].reverse();
@@ -104,6 +131,7 @@ export default function CrmAssistant() {
     setSpeechSupported(supportsSpeechRecognition());
 
     return () => {
+      manualStopRef.current = true;
       if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       try {
         recognitionRef.current?.stop?.();
@@ -185,32 +213,21 @@ export default function CrmAssistant() {
     addMessage("assistant", "Cancelled. Nothing has been saved.", { mode: "cancelled" });
   }
 
-  function finishVoiceCommand(shouldSend: boolean) {
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
+  function startListening() {
+    if (!speechSupported || listening || busy) return;
 
-    const spoken = `${accumulatedSpeechRef.current} ${interimSpeechRef.current}`.trim();
-    interimSpeechRef.current = "";
-    setListening(false);
-
-    if (spoken) {
-      setCommand(spoken);
-      if (shouldSend) {
-        void sendCommand(spoken);
-      }
-    }
-  }
-
-  function startRecognitionInstance() {
     const recognition = makeSpeechRecognition();
     if (!recognition) {
       setSpeechSupported(false);
-      setListening(false);
       return;
     }
 
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+
+    manualStopRef.current = false;
+    stoppingForSendRef.current = false;
+    speechTranscriptRef.current = "";
+    speechFinalTranscriptRef.current = "";
     recognitionRef.current = recognition;
     recognition.lang = "en-GB";
     recognition.continuous = true;
@@ -220,57 +237,58 @@ export default function CrmAssistant() {
     recognition.onstart = () => {
       setListening(true);
       setOpen(true);
+      setCommand("");
     };
 
     recognition.onresult = (event: any) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text = String(event.results[i]?.[0]?.transcript ?? "").trim();
-        if (!text) continue;
-        if (event.results[i]?.isFinal) {
-          accumulatedSpeechRef.current = `${accumulatedSpeechRef.current} ${text}`.trim();
+      let interimTranscript = "";
+
+      for (let i = event.resultIndex ?? 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const piece = String(result?.[0]?.transcript ?? "").trim();
+        if (!piece) continue;
+
+        if (result?.isFinal) {
+          speechFinalTranscriptRef.current = `${speechFinalTranscriptRef.current} ${piece}`.trim();
         } else {
-          interim = `${interim} ${text}`.trim();
+          interimTranscript = `${interimTranscript} ${piece}`.trim();
         }
       }
-      interimSpeechRef.current = interim;
-      setCommand(`${accumulatedSpeechRef.current} ${interim}`.trim());
+
+      const liveTranscript = `${speechFinalTranscriptRef.current} ${interimTranscript}`.trim();
+      const cleaned = normaliseSpokenText(liveTranscript);
+      if (cleaned) {
+        speechTranscriptRef.current = cleaned;
+        setCommand(cleaned);
+      }
     };
 
-    recognition.onerror = (event: any) => {
-      const error = String(event?.error ?? "");
-      if (userStoppedListeningRef.current) return;
-
-      if (["not-allowed", "service-not-allowed"].includes(error)) {
-        setListening(false);
-        setSpeechSupported(false);
-        addMessage("assistant", "The browser has blocked microphone access. Allow microphone permission, then try again.", { mode: "mic_error" });
-      }
+    recognition.onerror = () => {
+      // Mobile browsers sometimes throw no-speech/network errors during pauses.
+      // Keep the mic session alive until the user taps Stop & send.
     };
 
     recognition.onend = () => {
-      recognitionRef.current = null;
-
-      if (userStoppedListeningRef.current) {
-        finishVoiceCommand(sendAfterSpeechStopRef.current);
+      if (!manualStopRef.current) {
+        restartTimerRef.current = setTimeout(() => {
+          try {
+            recognition.start();
+          } catch {
+            setListening(false);
+          }
+        }, 220);
         return;
       }
 
-      if (interimSpeechRef.current) {
-        accumulatedSpeechRef.current = `${accumulatedSpeechRef.current} ${interimSpeechRef.current}`.trim();
-        interimSpeechRef.current = "";
-        setCommand(accumulatedSpeechRef.current);
-      }
-
-      // Chrome can end speech recognition after a pause even when continuous=true.
-      // Restart it until the user taps Stop mic.
-      restartTimerRef.current = setTimeout(() => {
-        try {
-          startRecognitionInstance();
-        } catch {
-          setListening(false);
+      setListening(false);
+      const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
+      if (spoken) {
+        setCommand(spoken);
+        if (stoppingForSendRef.current) {
+          stoppingForSendRef.current = false;
+          void sendCommand(spoken);
         }
-      }, 180);
+      }
     };
 
     try {
@@ -280,26 +298,25 @@ export default function CrmAssistant() {
     }
   }
 
-  function startListening() {
-    if (!speechSupported || listening || busy) return;
-
-    accumulatedSpeechRef.current = "";
-    interimSpeechRef.current = "";
-    userStoppedListeningRef.current = false;
-    sendAfterSpeechStopRef.current = false;
-    setCommand("");
-    setOpen(true);
-    startRecognitionInstance();
-  }
-
   function stopListening() {
-    userStoppedListeningRef.current = true;
-    sendAfterSpeechStopRef.current = true;
-
+    manualStopRef.current = true;
+    stoppingForSendRef.current = true;
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
     try {
       recognitionRef.current?.stop?.();
+      window.setTimeout(() => {
+        if (!stoppingForSendRef.current) return;
+        const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
+        stoppingForSendRef.current = false;
+        setListening(false);
+        if (spoken) void sendCommand(spoken);
+      }, 700);
     } catch {
-      finishVoiceCommand(true);
+      // Ignore stop errors from browser speech APIs.
+      const spoken = normaliseSpokenText(speechTranscriptRef.current || speechFinalTranscriptRef.current || command);
+      stoppingForSendRef.current = false;
+      setListening(false);
+      if (spoken) void sendCommand(spoken);
     }
   }
 
@@ -398,7 +415,7 @@ export default function CrmAssistant() {
           <div style={panelHeaderStyle}>
             <div>
               <div style={{ fontWeight: 1000, fontSize: 17 }}>AnnS CRM Assistant</div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>Type or speak a simple command</div>
+              <div style={{ fontSize: 12, opacity: 0.72 }}>Type or talk — Stop & send when finished</div>
             </div>
             <button type="button" onClick={() => setOpen(false)} style={closeBtnStyle} aria-label="Close CRM Assistant">
               ×
@@ -416,7 +433,7 @@ export default function CrmAssistant() {
           </div>
 
           <div style={inputAreaStyle}>
-            {listening ? <div style={listeningStyle}>Listening… take your time. Tap Stop mic when finished and I will run the command.</div> : null}
+            {listening ? <div style={listeningStyle}>Mic on — keep talking, pause whenever needed, then tap Stop & send.</div> : null}
             <textarea
               ref={inputRef}
               value={command}
@@ -433,7 +450,7 @@ export default function CrmAssistant() {
               {speechSupported ? (
                 listening ? (
                   <button type="button" onClick={stopListening} style={micStopBtnStyle}>
-                    ■ Stop mic
+                    Stop & send
                   </button>
                 ) : (
                   <button type="button" onClick={startListening} disabled={busy} style={micBtnStyle}>
