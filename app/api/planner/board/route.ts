@@ -30,6 +30,27 @@ function num(value: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function isLegacyOnlySupplierDescription(value: unknown) {
+  const raw = cleanText(value).toLowerCase();
+  return raw === "legacy / primary supplier" || raw === "legacy / primary transport supplier";
+}
+
+function hasMeaningfulSupplierLink(row: any) {
+  return Boolean(
+    cleanText(row?.supplier_id) ||
+      cleanText(row?.supplier_display_name) ||
+      cleanText(row?.supplier_category) ||
+      cleanText(row?.supplier_reference) ||
+      cleanText(row?.notes) ||
+      num(row?.supplier_cost) > 0 ||
+      (cleanText(row?.service_description) && !isLegacyOnlySupplierDescription(row?.service_description))
+  );
+}
+
 function parseDateOnly(value: string | null | undefined) {
   const raw = String(value ?? "").trim();
   if (!raw) return null;
@@ -257,18 +278,21 @@ function looksLikeCrossHireCraneAllocation(row: any) {
   const sourceType = String(row?.source_type ?? "").trim().toLowerCase();
   const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
   const craneId = String(row?.crane_id ?? "").trim();
+  const craneRow = first(row?.cranes);
   const supplierId = String(row?.supplier_id ?? first(row?.jobs)?.supplier_id ?? "").trim();
   const supplierReference = String(row?.supplier_reference ?? "").trim();
   const supplierCost = num(row?.supplier_cost ?? row?.agreed_cost);
+  const hasSupplierMeta = Boolean(supplierId || supplierReference || supplierCost > 0);
+
+  if (craneId || craneRow?.id) return false;
 
   if (sourceType === "cross_hire") {
-    return true;
+    return hasSupplierMeta;
   }
 
   if (assetType !== "crane") return false;
-  if (craneId) return false;
 
-  return Boolean(supplierId || supplierReference || supplierCost > 0);
+  return hasSupplierMeta;
 }
 
 function looksLikeLabourAllocation(row: any) {
@@ -535,7 +559,7 @@ export async function GET(req: Request) {
     const operators = operatorsRes.data ?? [];
     const cranes = cranesRes.data ?? [];
     const liftPlans = liftPlansRes.data ?? [];
-    const jobSupplierLinks = jobSupplierLinksRes.data ?? [];
+    const jobSupplierLinks = (jobSupplierLinksRes.data ?? []).filter(hasMeaningfulSupplierLink);
     const visitInvoices = visitInvoicesRes.data ?? [];
 
     const bankHolidays = (bankHolidayRes ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
