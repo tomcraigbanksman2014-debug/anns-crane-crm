@@ -70,6 +70,11 @@ export default async function InvoicePrintPage({
   const invoiceDate = fmtDate((job as any)?.invoice_created_at);
   const dueDate = fmtDate((job as any)?.invoice_due_date);
   const reference = `Job ${(job as any)?.job_number ?? ""}`.trim();
+  const printTitle = [
+    safeText(client?.company_name) || "Customer",
+    "Invoice",
+    safeText((job as any)?.invoice_number) || reference,
+  ].filter(Boolean).join(" - ");
   const vatRate = "20.00";
   const subtotal = Number((job as any)?.invoice_subtotal ?? 0);
   const vat = Number((job as any)?.invoice_vat ?? 0);
@@ -159,7 +164,7 @@ export default async function InvoicePrintPage({
         }}
       >
         <div style={{ fontWeight: 900, fontSize: 24 }}>Invoice Preview</div>
-        <PrintInvoiceButton />
+        <PrintInvoiceButton printTitle={printTitle} />
       </div>
 
       <div style={{ display: "grid", gap: 18 }}>
