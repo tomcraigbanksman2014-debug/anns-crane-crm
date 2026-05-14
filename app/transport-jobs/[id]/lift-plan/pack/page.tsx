@@ -345,7 +345,7 @@ export default async function TransportLiftPlanPackPage({
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
 
   return (
-    <div style={wrapper}>
+    <div className="print-document-root" style={wrapper}>
       <style>{`
         @media screen and (max-width: 760px) {
           .lift-pack-page {
@@ -367,11 +367,45 @@ export default async function TransportLiftPlanPackPage({
         }
 
         @media print {
+          @page { size: A4; margin: 0; }
+
+          html, body {
+            background: white !important;
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
           .print-hide { display: none !important; }
-          body { background: white !important; }
+
+          .print-document-root {
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          .lift-pack-page {
+            width: 190mm !important;
+            min-height: auto !important;
+            height: auto !important;
+            margin: 0 auto !important;
+            padding: 10mm 5mm 8mm 5mm !important;
+            box-shadow: none !important;
+            border: none !important;
+            page-break-after: always !important;
+            break-after: page !important;
+            overflow: visible !important;
+          }
+
+          .lift-pack-page:last-child {
+            page-break-after: auto !important;
+            break-after: auto !important;
+          }
+
           .lift-pack-table-wrap { overflow: visible !important; }
           .lift-pack-table-wrap table { min-width: 0 !important; }
-          @page { size: A4; margin: 10mm; }
         }
       `}</style>
 
