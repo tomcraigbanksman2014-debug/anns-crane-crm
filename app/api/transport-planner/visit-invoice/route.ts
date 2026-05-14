@@ -1,0 +1,103 @@
+import { NextResponse } from "next/server";
+import { requireApiUser } from "../../../lib/apiAuth";
+
+const VALID_STATUSES = new Set(["Not Invoiced", "Invoiced", "Part Paid", "Paid"]);
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+function clean(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text.length ? text : null;
+}
+
+function cleanDate(value: unknown) {
+  const text = clean(value);
+  if (!text) return null;
+  const dateOnly = text.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
+}
+
+function weekdayFromDate(dateOnly: string) {
+  const parsed = new Date(`${dateOnly}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return WEEKDAYS[parsed.getDay()] ?? "";
+}
+
+export async function POST(req: Request) {
+  try {
+    const { supabase, response } = await requireApiUser();
+    if (response) return response;
+
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+
+    const transportJobId = clean(body.transport_job_id ?? body.job_id);
+    const visitDate = cleanDate(body.visit_date);
+    const invoiceStatus = clean(body.invoice_status) ?? "Invoiced";
+    const invoiceNumber = clean(body.invoice_number);
+    const notes = clean(body.notes);
+
+    if (!transportJobId) return NextResponse.json({ error: "Transport job is required." }, { status: 400 });
+    if (!visitDate) return NextResponse.json({ error: "Visit date is required." }, { status: 400 });
+    if (!VALID_STATUSES.has(invoiceStatus)) {
+      return NextResponse.json({ error: "Invalid visit invoice status." }, { status: 400 });
+    }
+
+    const { data: existingRows, error: existingError } = await supabase
+      .from("job_daily_visit_rates")
+      .select("id, charge, repeat_group_id, repeat_occurrence_number, weekday, notes")
+      .eq("job_type", "transport")
+      .eq("job_id", transportJobId)
+      .eq("visit_date", visitDate);
+
+    if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
+
+    const payload = {
+      invoice_status: invoiceStatus,
+      invoice_number: invoiceNumber,
+      invoice_date:
+        invoiceStatus === "Not Invoiced"
+          ? null
+          : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
+      notes,
+      updated_at: new Date().toISOString(),
+    };
+
+    if ((existingRows ?? []).length > 0) {
+      const ids = (existingRows ?? []).map((row: any) => row.id).filter(Boolean);
+      const { data, error } = await supabase
+        .from("job_daily_visit_rates")
+        .update(payload)
+        .in("id", ids)
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .single();
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ ok: true, visit_invoice: data });
+    }
+
+    const { data, error } = await supabase
+      .from("job_daily_visit_rates")
+      .insert({
+        job_type: "transport",
+        job_id: transportJobId,
+        visit_date: visitDate,
+        weekday: weekdayFromDate(visitDate),
+        charge: 0,
+        invoice_status: payload.invoice_status,
+        invoice_number: payload.invoice_number,
+        invoice_date: payload.invoice_date,
+        notes: payload.notes,
+        updated_at: payload.updated_at,
+      })
+      .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, visit_invoice: data });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Could not update transport visit invoice status." }, { status: 400 });
+  }
+}
