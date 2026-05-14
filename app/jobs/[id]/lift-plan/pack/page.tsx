@@ -687,6 +687,11 @@ export default async function CraneLiftPlanPackPage({
   const appendixAssets = [...craneAppendixAssets, ...jobAppendixAssets];
 
   const clientName = client?.company_name || "the client";
+  const printTitle = [
+    client?.company_name || "Customer",
+    "Lift Plan Pack",
+    (job as any)?.job_number ? `Job ${(job as any).job_number}` : null,
+  ].filter(Boolean).join(" - ");
   const projectName =
     sections.cover_project ||
     (job as any)?.site_name ||
@@ -940,7 +945,7 @@ export default async function CraneLiftPlanPackPage({
             <button type="submit" style={isLocked ? { ...saveButtonStyle, opacity: 0.55, cursor: "not-allowed" } : saveButtonStyle} disabled={isLocked}>
               {isLocked ? "Lift plan locked" : "Save pack edits"}
             </button>
-            <PrintPackButton />
+            <PrintPackButton printTitle={printTitle} />
           </div>
         </div>
 
