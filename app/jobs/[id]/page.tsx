@@ -4,6 +4,7 @@ import JobEquipmentManager from "./JobEquipmentManager";
 import DocumentUploadForm from "./DocumentUploadForm";
 import DocumentDeleteButton from "./DocumentDeleteButton";
 import DuplicateJobButton from "./DuplicateJobButton";
+import RepeatJobPatternButton from "../../components/RepeatJobPatternButton";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
 import {
   buildFallbackSupplierLink,
@@ -809,6 +810,13 @@ export default async function JobDetailPage({
               Lift plan / RAMS
             </a>
             <DuplicateJobButton jobId={params.id} />
+            <RepeatJobPatternButton
+              jobId={params.id}
+              jobType="crane"
+              defaultStartDate={(job as any)?.start_date ?? (job as any)?.job_date ?? null}
+              defaultEndDate={(job as any)?.end_date ?? (job as any)?.start_date ?? (job as any)?.job_date ?? null}
+              defaultRate={Number((job as any)?.invoice_subtotal ?? (job as any)?.price ?? (job as any)?.agreed_sell_rate ?? 0) || null}
+            />
             {![("cancelled"), ("late_cancelled"), ("provisional")].includes(
               String((job as any)?.status ?? "").toLowerCase()
             ) ? (
