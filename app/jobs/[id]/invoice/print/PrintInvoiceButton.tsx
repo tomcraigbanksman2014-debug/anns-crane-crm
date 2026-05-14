@@ -1,10 +1,12 @@
 "use client";
 
-export default function PrintInvoiceButton() {
+import { printWithDocumentTitle } from "../../../../lib/printDocumentTitle";
+
+export default function PrintInvoiceButton({ printTitle }: { printTitle?: string }) {
   return (
     <button
       type="button"
-      onClick={() => window.print()}
+      onClick={() => printWithDocumentTitle(printTitle)}
       style={{
         padding: "10px 14px",
         borderRadius: 10,
