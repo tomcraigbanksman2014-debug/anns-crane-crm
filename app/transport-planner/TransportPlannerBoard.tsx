@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+type VisitInvoiceEntry = {
+  id?: string;
+  invoice_status?: string | null;
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  charge?: number | null;
+  notes?: string | null;
+};
+
 type PlannerItem = {
   job_id: string;
   transport_number?: string | null;
@@ -37,6 +46,7 @@ type PlannerItem = {
   approval_status?: string | null;
   approval_reference?: string | null;
   authorised_to_move?: boolean | null;
+  visit_invoices?: Record<string, VisitInvoiceEntry>;
 };
 
 type VehicleRow = {
@@ -267,6 +277,7 @@ export default function TransportPlannerBoard() {
   const [actionId, setActionId] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const [invoicingVisitKey, setInvoicingVisitKey] = useState<string | null>(null);
   const dragPointerYRef = useRef<number | null>(null);
   const dragAutoScrollFrameRef = useRef<number | null>(null);
 
@@ -476,6 +487,44 @@ export default function TransportPlannerBoard() {
       setMessage(`Planner view saved: ${PLANNER_VIEW_LABELS[safeMode]}.`);
     } catch (e: any) {
       setPreferenceError(e?.message || "Could not save planner view preference.");
+    }
+  }
+
+  function getVisitInvoiceEntry(item: PlannerItem, visibleDayIso?: string | null) {
+    if (!visibleDayIso) return null;
+    return item.visit_invoices?.[visibleDayIso] ?? null;
+  }
+
+  function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
+    const status = String(entry?.invoice_status ?? "").trim().toLowerCase();
+    return status === "invoiced" || status === "part paid" || status === "paid";
+  }
+
+  async function setVisitInvoiceStatus(item: PlannerItem, visibleDayIso: string, nextStatus: "Not Invoiced" | "Invoiced") {
+    const visitInvoiceKey = `${item.job_id}:${visibleDayIso}`;
+    setInvoicingVisitKey(visitInvoiceKey);
+    setActionError("");
+    setMessage("");
+
+    try {
+      const res = await fetch("/api/transport-planner/visit-invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transport_job_id: item.job_id,
+          visit_date: visibleDayIso,
+          invoice_status: nextStatus,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not update transport visit invoice status.");
+
+      setMessage(nextStatus === "Invoiced" ? "Transport visit marked as invoiced." : "Transport visit marked as not invoiced.");
+      await loadBoard(weekStart);
+    } catch (e: any) {
+      setActionError(e?.message || "Could not update transport visit invoice status.");
+    } finally {
+      setInvoicingVisitKey(null);
     }
   }
 
@@ -697,11 +746,25 @@ export default function TransportPlannerBoard() {
     );
   }
 
-  function renderJobCard(item: PlannerItem, compact = false) {
+  function renderJobCard(item: PlannerItem, compact = false, visibleDayIso?: string | null) {
     const busy = actionId === item.job_id || movingId === item.job_id;
     const crossHireItem = isCrossHiredTransportItem(item);
     const linkedCraneItem = isLinkedCraneTransportItem(item);
     const displayPrice = getDisplayPrice(item);
+    const visitInvoiceEntry = getVisitInvoiceEntry(item, visibleDayIso);
+    const visitInvoiced = visitIsInvoiced(visitInvoiceEntry);
+    const visitInvoiceKey = visibleDayIso ? `${item.job_id}:${visibleDayIso}` : null;
+
+    function stopVisitInvoiceDown(e: React.MouseEvent | React.PointerEvent) {
+      e.stopPropagation();
+    }
+
+    function handleVisitInvoiceClick(e: React.MouseEvent) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!visibleDayIso) return;
+      setVisitInvoiceStatus(item, visibleDayIso, visitInvoiced ? "Not Invoiced" : "Invoiced");
+    }
 
     return (
       <div
@@ -764,6 +827,25 @@ export default function TransportPlannerBoard() {
             {String(item.price_mode ?? "full_job") === "per_day" ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)}` : " • Full job"}
           </div>
         )}
+        {visibleDayIso ? (
+          <div data-no-open="true" style={visitInvoiceRow}>
+            <span style={visitInvoiced ? visitInvoiceDonePill : visitInvoiceOpenPill}>
+              {visitInvoiced ? "Visit invoiced" : "Visit not invoiced"}
+              {visitInvoiceEntry?.invoice_number ? ` • ${visitInvoiceEntry.invoice_number}` : ""}
+            </span>
+            <button
+              type="button"
+              data-no-open="true"
+              style={visitInvoiced ? visitInvoiceUndoBtn : visitInvoiceBtn}
+              disabled={invoicingVisitKey === visitInvoiceKey}
+              onMouseDown={stopVisitInvoiceDown}
+              onPointerDown={stopVisitInvoiceDown}
+              onClick={handleVisitInvoiceClick}
+            >
+              {invoicingVisitKey === visitInvoiceKey ? "Saving…" : visitInvoiced ? "Undo" : "Mark invoiced"}
+            </button>
+          </div>
+        ) : null}
         <div style={tagWrap}>
           <div style={pillNeutral}>{item.operator_name ?? "Unassigned"}</div>
           {crossHireItem ? <div style={pillCrossHire}>Cross hire / subcontract</div> : null}
@@ -820,7 +902,7 @@ export default function TransportPlannerBoard() {
           }
         }}
       >
-        {items.length === 0 ? (showEmptyCrossHire ? <div style={emptyState}>No cross-hired transport jobs</div> : <div style={emptyState}>Free</div>) : <div style={{ display: "grid", gap: 8 }}>{items.map((item) => renderJobCard(item, true))}</div>}
+        {items.length === 0 ? (showEmptyCrossHire ? <div style={emptyState}>No cross-hired transport jobs</div> : <div style={emptyState}>Free</div>) : <div style={{ display: "grid", gap: 8 }}>{items.map((item) => renderJobCard(item, true, target.dayIso))}</div>}
       </div>
     );
   }
@@ -1046,7 +1128,7 @@ export default function TransportPlannerBoard() {
                     <MobileDayCell
                       day={activeDay}
                       items={sortItemsByStartTime(vehicle.items.filter((item) => itemMatchesDay(item, activeDay.key)))}
-                      renderItem={(item) => renderJobCard(item, true)}
+                      renderItem={(item) => renderJobCard(item, true, activeDay.key)}
                     />
                   </div>
                 ) : (
@@ -1342,6 +1424,49 @@ const pillCrossHire: React.CSSProperties = {
   background: "rgba(214,137,16,0.14)",
   border: "1px solid rgba(214,137,16,0.24)",
   color: "#8a5609",
+};
+
+
+const visitInvoiceRow: React.CSSProperties = {
+  marginTop: 8,
+  display: "flex",
+  gap: 6,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+
+const visitInvoiceOpenPill: React.CSSProperties = {
+  padding: "5px 8px",
+  borderRadius: 999,
+  background: "rgba(255,140,0,0.12)",
+  color: "#8a5609",
+  border: "1px solid rgba(255,140,0,0.20)",
+  fontSize: 11,
+  fontWeight: 900,
+};
+
+const visitInvoiceDonePill: React.CSSProperties = {
+  ...visitInvoiceOpenPill,
+  background: "rgba(0,160,80,0.14)",
+  color: "#0b6b34",
+  border: "1px solid rgba(0,160,80,0.20)",
+};
+
+const visitInvoiceBtn: React.CSSProperties = {
+  padding: "5px 8px",
+  borderRadius: 8,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  fontSize: 11,
+  cursor: "pointer",
+};
+
+const visitInvoiceUndoBtn: React.CSSProperties = {
+  ...visitInvoiceBtn,
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
 };
 
 const pillLinked: React.CSSProperties = {
