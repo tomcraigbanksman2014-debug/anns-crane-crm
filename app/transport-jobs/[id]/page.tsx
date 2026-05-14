@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
 import DuplicateTransportJobButton from "./DuplicateTransportJobButton";
+import RepeatJobPatternButton from "../../components/RepeatJobPatternButton";
 import TransportDocumentUploadForm from "./TransportDocumentUploadForm";
 import TransportDocumentDeleteButton from "./TransportDocumentDeleteButton";
 import TransportJobDetailFormEnhancer from "./TransportJobDetailFormEnhancer";
@@ -915,11 +916,23 @@ async function updateTransportJob(formData: FormData) {
       redirect(`/transport-jobs/${id}?error=${encodeURIComponent(supplierError?.message || "Could not save transport suppliers.")}`);
     }
 
-    await supabase.from("transport_job_police_escorts").delete().eq("transport_job_id", id);
+    const { error: policeDeleteError } = await supabase
+      .from("transport_job_police_escorts")
+      .delete()
+      .eq("transport_job_id", id);
+
+    if (policeDeleteError) {
+      redirect(`/transport-jobs/${id}?error=${encodeURIComponent(policeDeleteError.message || "Could not save police escort details.")}`);
+    }
+
     if (policeEscortRows.length > 0) {
-      await supabase.from("transport_job_police_escorts").insert(
-        policeEscortRows.map((row) => ({ ...row, transport_job_id: id }))
+      const { error: policeInsertError } = await supabase.from("transport_job_police_escorts").insert(
+        policeEscortRows.map((row) => ({ ...row, transport_job_id: id, updated_at: new Date().toISOString() }))
       );
+
+      if (policeInsertError) {
+        redirect(`/transport-jobs/${id}?error=${encodeURIComponent(policeInsertError.message || "Could not save police escort details.")}`);
+      }
     }
   }
 
@@ -1224,6 +1237,13 @@ export default async function TransportJobDetailPage({
                 Lift plan / RAMS
               </a>
               <DuplicateTransportJobButton jobId={params.id} />
+              <RepeatJobPatternButton
+                jobId={params.id}
+                jobType="transport"
+                defaultStartDate={(item as any)?.transport_date ?? null}
+                defaultEndDate={(item as any)?.delivery_date ?? (item as any)?.transport_date ?? null}
+                defaultRate={Number((item as any)?.invoice_subtotal ?? (item as any)?.price ?? (item as any)?.agreed_sell_rate ?? 0) || null}
+              />
             </div>
           </div>
 
