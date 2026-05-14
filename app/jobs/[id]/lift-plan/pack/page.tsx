@@ -846,7 +846,7 @@ export default async function CraneLiftPlanPackPage({
   const jibRef = formatJibReference(equipmentProfile);
 
   return (
-    <div style={wrapper}>
+    <div className="print-document-root" style={wrapper}>
       <style>{`
         @media screen and (max-width: 760px) {
           .lift-pack-page {
@@ -868,7 +868,7 @@ export default async function CraneLiftPlanPackPage({
         }
 
         @media print {
-          @page { size: A4; margin: 10mm; }
+          @page { size: A4; margin: 0; }
 
           html, body {
             background: white !important;
@@ -880,6 +880,12 @@ export default async function CraneLiftPlanPackPage({
           }
 
           .print-hide { display: none !important; }
+
+          .print-document-root {
+            background: white !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
 
           .lift-pack-page {
             width: 190mm !important;
