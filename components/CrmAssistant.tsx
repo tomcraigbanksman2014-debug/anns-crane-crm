@@ -75,15 +75,115 @@ function makeSpeechRecognition() {
   return new Recognition();
 }
 
+function compressRepeatedWords(text: string) {
+  const words = text.split(/\s+/).filter(Boolean);
+  const output: string[] = [];
+
+  for (const word of words) {
+    const last = output[output.length - 1];
+    if (last && last.toLowerCase() === word.toLowerCase()) continue;
+    output.push(word);
+  }
+
+  return output.join(" ");
+}
+
+function compressRepeatedPhrases(text: string) {
+  let words = text.split(/\s+/).filter(Boolean);
+
+  // Android/Chrome speech recognition can repeatedly return a growing interim phrase.
+  // Remove adjacent duplicate phrase blocks while keeping the final command readable.
+  for (let phraseLength = 8; phraseLength >= 2; phraseLength--) {
+    const output: string[] = [];
+    let i = 0;
+
+    while (i < words.length) {
+      const phrase = words.slice(i, i + phraseLength).join(" ").toLowerCase();
+      const nextPhrase = words.slice(i + phraseLength, i + phraseLength * 2).join(" ").toLowerCase();
+
+      output.push(words[i]);
+      if (phrase && phrase === nextPhrase) {
+        i += phraseLength + 1;
+      } else {
+        i += 1;
+      }
+    }
+
+    words = output;
+  }
+
+  return words.join(" ");
+}
+
+function bestSuffixCommand(value: string) {
+  const text = String(value ?? "").trim();
+  if (!text) return "";
+
+  const lower = text.toLowerCase();
+  const intentStarts = [
+    "open ",
+    "show ",
+    "find ",
+    "create ",
+    "move ",
+    "add ",
+    "assign ",
+    "mark ",
+    "set ",
+    "cancel ",
+    "update ",
+    "change ",
+    "check ",
+    "what ",
+    "where ",
+  ];
+
+  let best = text;
+  let bestScore = -1;
+
+  for (const start of intentStarts) {
+    let index = lower.indexOf(start);
+    while (index >= 0) {
+      const candidate = text.slice(index).trim();
+      const words = candidate.split(/\s+/).filter(Boolean);
+      const lowerCandidate = candidate.toLowerCase();
+      const uniqueWords = new Set(words.map((word) => word.toLowerCase()));
+      const repeatedWordPenalty = Math.max(0, words.length - uniqueWords.size);
+      let score = index / Math.max(1, text.length); // Prefer the later, cleaner command when recognition repeats itself.
+      if (/\bjob\s*#?\s*\d+\b/i.test(candidate)) score += 10;
+      if (/\blift\s+plan\b/i.test(candidate)) score += 8;
+      if (/\binvoiced?|completed|confirmed|cancelled|operator|crane|vehicle|driver\b/i.test(candidate)) score += 5;
+      if (candidate.length < 12) score -= 5;
+      if (words.length > 16) score -= (words.length - 16) * 0.5;
+      score -= repeatedWordPenalty * 0.75;
+      score -= ((lowerCandidate.match(/\b(open|show|find|create|move|add|assign|mark|set|cancel|update|change|check)\b/g) ?? []).length - 1) * 4;
+
+      if (score >= bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+
+      index = lower.indexOf(start, index + start.length);
+    }
+  }
+
+  return best;
+}
+
 function cleanupSpeech(value: string) {
   let text = String(value ?? "").trim();
-  text = text.replace(/\blift\s+lamp\b/gi, "lift plan");
-  text = text.replace(/\bleft\s+plan\b/gi, "lift plan");
+  text = text.replace(/\b(lift|left|leaf|leif|leave|lee|life)\s+(lamp|lamb|plan|plant|planned)\b/gi, "lift plan");
+  text = text.replace(/\bopen\s+leaf\b/gi, "open lift");
   text = text.replace(/\bjob\s+number\s*(\d+)/gi, "job $1");
   text = text.replace(/\bjob\s+hash\s*(\d+)/gi, "job $1");
+  text = text.replace(/\bjob\s*#\s*(\d+)/gi, "job $1");
   text = text.replace(/\b(open|show|find|the|for|job|lift|plan)\s+\1\b/gi, "$1");
   text = text.replace(/\s+/g, " ").trim();
-  return text;
+  text = compressRepeatedWords(text);
+  text = compressRepeatedPhrases(text);
+  text = bestSuffixCommand(text);
+  text = text.replace(/\b(open|show|find|the|for|job|lift|plan)\s+\1\b/gi, "$1");
+  return text.replace(/\s+/g, " ").trim();
 }
 
 export default function CrmAssistant() {
@@ -111,6 +211,8 @@ export default function CrmAssistant() {
   const listeningRef = useRef(false);
   const stoppingForSendRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
+  const finalSpeechRef = useRef("");
+  const interimSpeechRef = useRef("");
 
   const lastAssistantResponse = useMemo(() => {
     const reversed = [...messages].reverse();
@@ -232,17 +334,26 @@ export default function CrmAssistant() {
     };
 
     recognition.onresult = (event: any) => {
-      const finalParts: string[] = [];
       const interimParts: string[] = [];
+      const startIndex = typeof event.resultIndex === "number" ? event.resultIndex : 0;
 
-      for (let i = 0; i < event.results.length; i++) {
+      for (let i = startIndex; i < event.results.length; i++) {
         const transcript = String(event.results[i]?.[0]?.transcript ?? "").trim();
         if (!transcript) continue;
-        if (event.results[i]?.isFinal) finalParts.push(transcript);
-        else interimParts.push(transcript);
+
+        if (event.results[i]?.isFinal) {
+          const existing = ` ${finalSpeechRef.current.toLowerCase()} `;
+          const next = ` ${transcript.toLowerCase()} `;
+          if (!existing.includes(next)) {
+            finalSpeechRef.current = `${finalSpeechRef.current} ${transcript}`.trim();
+          }
+        } else {
+          interimParts.push(transcript);
+        }
       }
 
-      const text = cleanupSpeech([...finalParts, ...interimParts].join(" "));
+      interimSpeechRef.current = interimParts.join(" ").trim();
+      const text = cleanupSpeech(`${finalSpeechRef.current} ${interimSpeechRef.current}`);
       setCommand(text);
       commandRef.current = text;
     };
@@ -282,8 +393,11 @@ export default function CrmAssistant() {
 
   function startListening() {
     if (!speechSupported || listening || busy) return;
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     stoppingForSendRef.current = false;
     listeningRef.current = true;
+    finalSpeechRef.current = "";
+    interimSpeechRef.current = "";
     setCommand("");
     commandRef.current = "";
 
@@ -303,6 +417,7 @@ export default function CrmAssistant() {
   }
 
   function stopListeningAndSend() {
+    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     stoppingForSendRef.current = true;
     listeningRef.current = false;
     try {
