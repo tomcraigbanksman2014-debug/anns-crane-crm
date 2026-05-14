@@ -188,7 +188,7 @@ function mondayOf(value: Date) {
 function weekBoundsFromCommand(command: string) {
   const lower = String(command ?? "").toLowerCase();
   const start = mondayOf(new Date());
-  if (/next week/.test(lower)) start.setDate(start.getDate() + 7);
+  if (/\bnext week\b/.test(lower)) start.setDate(start.getDate() + 7);
   const end = new Date(start);
   end.setDate(end.getDate() + 6);
   return { start: isoDateLocal(start), end: isoDateLocal(end) };
@@ -695,7 +695,7 @@ async function handleJobsNeedingLiftPlans(supabase: any, command: string) {
 
 async function handleSearch(supabase: any, parsed: ParsedCommand, command: string) {
   const lower = String(command ?? "").toLowerCase();
-  if (/(lift\s*plan|lp)/.test(lower) && /(need|missing|required|review|show|check)/.test(lower)) {
+  if (/(lift\s*plan|\blp\b)/.test(lower) && /(need|missing|required|review|show|check)/.test(lower)) {
     return handleJobsNeedingLiftPlans(supabase, command);
   }
 
