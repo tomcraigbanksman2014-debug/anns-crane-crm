@@ -129,6 +129,11 @@ export default async function PurchaseOrderPrintPage({
 
   const poNumber = pdfText("poNumber", (po as any)?.po_number ?? "—");
   const supplierCompany = pdfText("supplierCompany", supplier?.company_name ?? "—");
+  const printTitle = [
+    supplierCompany && supplierCompany !== "—" ? supplierCompany : "Supplier",
+    "Purchase Order",
+    poNumber && poNumber !== "—" ? poNumber : null,
+  ].filter(Boolean).join(" - ");
   const supplierReference = pdfText("supplierReference", (po as any)?.supplier_reference ?? "—");
   const poStatus = pdfText("status", (po as any)?.status ?? "—");
   const orderDate = pdfText("orderDate", fmtDate((po as any)?.order_date));
@@ -154,7 +159,7 @@ export default async function PurchaseOrderPrintPage({
   return (
     <html>
       <head>
-        <title>Purchase Order {poNumber}</title>
+        <title>{printTitle}</title>
         <style>{`
           @page {
             size: A4;
@@ -217,7 +222,7 @@ export default async function PurchaseOrderPrintPage({
             </div>
 
             <div className="po-print-actions">
-              <PrintPOActions backHref={`/purchase-orders/${params.id}`} editHref={`/purchase-orders/${params.id}/print/edit`} />
+              <PrintPOActions backHref={`/purchase-orders/${params.id}`} editHref={`/purchase-orders/${params.id}/print/edit`} printTitle={printTitle} />
             </div>
           </div>
 
