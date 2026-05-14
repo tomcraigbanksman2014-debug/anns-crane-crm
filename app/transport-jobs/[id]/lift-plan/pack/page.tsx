@@ -329,6 +329,11 @@ export default async function TransportLiftPlanPackPage({
 
   const projectName = sections.cover_project || (job as any)?.load_description || `Transport ${(job as any)?.transport_number ?? ""}`.trim();
   const clientName = client?.company_name || "the client";
+  const printTitle = [
+    client?.company_name || "Customer",
+    "Transport Lift Plan Pack",
+    (job as any)?.transport_number ? `Transport ${(job as any).transport_number}` : null,
+  ].filter(Boolean).join(" - ");
   const operatorName = liftPlan?.operator_name || operator?.full_name || "—";
   const appointedPerson = liftPlan?.appointed_person || "Shaun Robinson";
   const supervisor = liftPlan?.lift_supervisor || appointedPerson;
@@ -413,7 +418,7 @@ export default async function TransportLiftPlanPackPage({
         <a href={`/transport-jobs/${params.id}/lift-plan`} style={buttonStyle}>
           ← Back to lift plan
         </a>
-        <PrintPackButton />
+        <PrintPackButton printTitle={printTitle} />
       </div>
 
       <PageShell sectionTitle="Cover Sheet">
