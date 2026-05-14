@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createSupabaseBrowserClient } from "./lib/supabase/browser";
+import CrmAssistant from "./components/CrmAssistant";
 
 type NavItem = {
   label: string;
@@ -505,6 +506,8 @@ export default function ClientShell({
           {children}
         </main>
       </div>
+
+      {role === "admin" || role === "staff" ? <CrmAssistant /> : null}
     </div>
   );
 }
