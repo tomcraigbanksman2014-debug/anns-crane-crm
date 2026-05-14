@@ -216,6 +216,11 @@ export default async function QuotePrintPage({
   const displayQuoteDate = pdfText("quoteDate", fmtLongDate((quote as any)?.quote_date));
   const displayValidUntil = pdfText("validUntil", fmtDate((quote as any)?.valid_until));
   const displayClientCompany = pdfText("clientCompany", client?.company_name ?? "");
+  const printTitle = [
+    displayClientCompany || "Customer",
+    "Quote",
+    displaySubject && displaySubject !== "Quote" ? displaySubject : null,
+  ].filter(Boolean).join(" - ");
 
   const breakdownRows = parseBreakdownRows(fields.breakdown);
   const additionalEquipment = splitBulletLines(fields.additionalEquipment);
@@ -252,7 +257,7 @@ export default async function QuotePrintPage({
   return (
     <html>
       <head>
-        <title>{displaySubject}</title>
+        <title>{printTitle}</title>
         <style
           dangerouslySetInnerHTML={{
             __html: `
@@ -329,7 +334,7 @@ export default async function QuotePrintPage({
               <div style={screenTitleStyle}>QUOTE</div>
               <div style={screenSubStyle}>{displaySubject || displayClientCompany || "Customer quote"}</div>
             </div>
-            <PrintQuoteActions backHref={`/quotes/${params.id}`} editHref={`/quotes/${params.id}/print/edit`} />
+            <PrintQuoteActions backHref={`/quotes/${params.id}`} editHref={`/quotes/${params.id}/print/edit`} printTitle={printTitle} />
           </div>
 
           <div style={mastheadStyle}>
