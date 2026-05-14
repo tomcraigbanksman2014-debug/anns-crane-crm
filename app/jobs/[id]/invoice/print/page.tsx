@@ -90,6 +90,8 @@ export default async function InvoicePrintPage({
       }}
     >
       <style>{`
+        @page { size: A4; margin: 0; }
+
         @media screen and (max-width: 760px) {
           body {
             background: #fff !important;
@@ -121,12 +123,26 @@ export default async function InvoicePrintPage({
         }
 
         @media print {
+          html, body {
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
           .print-hide {
             display: none !important;
           }
 
-          body {
-            background: #fff !important;
+          .invoice-print-page {
+            width: 190mm !important;
+            max-width: 190mm !important;
+            margin: 0 auto !important;
+            padding: 10mm 0 !important;
+            min-height: auto !important;
+            box-sizing: border-box !important;
           }
         }
       `}</style>
