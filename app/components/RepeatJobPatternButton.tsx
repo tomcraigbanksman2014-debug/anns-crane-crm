@@ -69,18 +69,30 @@ function defaultRows(defaultStartDate?: string | null, defaultEndDate?: string |
   const startIndex = start ? weekdayIndex(start) : 0;
   const endIndex = end ? weekdayIndex(end) : 4;
   const baseRate = money(defaultRate);
+  const activeDates = new Set<string>();
+
+  if (start && end && start.getTime() <= end.getTime()) {
+    let cursor = new Date(start.getTime());
+    while (cursor.getTime() <= end.getTime()) {
+      activeDates.add(String(weekdayIndex(cursor)));
+      cursor = addDays(cursor, 1);
+    }
+  }
+
+  const enabledIndexes = WEEKDAYS.filter((day) => {
+    if (start && end) {
+      if (activeDates.size > 0) return activeDates.has(String(day.index));
+      return day.index >= startIndex && day.index <= endIndex;
+    }
+    return day.index >= 0 && day.index <= 4;
+  });
+  const shouldPrefillRate = baseRate > 0 && enabledIndexes.length <= 1;
 
   return WEEKDAYS.map((day) => {
     let enabled = day.index >= 0 && day.index <= 4;
 
     if (start && end) {
-      if (start.getTime() <= end.getTime()) {
-        const activeDates = new Set<string>();
-        let cursor = new Date(start.getTime());
-        while (cursor.getTime() <= end.getTime()) {
-          activeDates.add(String(weekdayIndex(cursor)));
-          cursor = addDays(cursor, 1);
-        }
+      if (activeDates.size > 0) {
         enabled = activeDates.has(String(day.index));
       } else {
         enabled = day.index >= startIndex && day.index <= endIndex;
@@ -92,7 +104,7 @@ function defaultRows(defaultStartDate?: string | null, defaultEndDate?: string |
       label: day.label,
       shortLabel: day.shortLabel,
       enabled,
-      rate: baseRate > 0 ? baseRate.toFixed(2) : "",
+      rate: shouldPrefillRate ? baseRate.toFixed(2) : "",
     };
   });
 }
