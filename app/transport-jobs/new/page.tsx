@@ -640,6 +640,24 @@ async function createTransportJob(formData: FormData) {
     }
   }
 
+  if (policeEscortRows.length > 0) {
+    const { error: policeEscortError } = await supabase.from("transport_job_police_escorts").insert(
+      policeEscortRows.map((row) => ({
+        ...row,
+        transport_job_id: data.id,
+        updated_at: new Date().toISOString(),
+      }))
+    );
+
+    if (policeEscortError) {
+      await supabase.from("transport_jobs").delete().eq("id", data.id);
+      if (createdClientId) {
+        await supabase.from("clients").delete().eq("id", createdClientId);
+      }
+      redirect(`/transport-jobs/new?error=${encodeURIComponent(policeEscortError.message || "Could not save police escort details.")}`);
+    }
+  }
+
   await writeAuditLog({
     actor_user_id: user?.id ?? null,
     actor_username: fromAuthEmail(user?.email ?? null) || null,
@@ -960,7 +978,7 @@ export default async function NewTransportJobPage({
   <div style={helperText}>Use this only where a movement order is required.</div>
 
   <label style={{ ...checkboxRow, marginTop: 12 }}>
-    <input type="checkbox" name="abnormal_load_enabled" value="true" />
+    <input type="checkbox" id="abnormal_load_enabled" name="abnormal_load_enabled" value="true" />
     <span>Movement order required</span>
   </label>
 
