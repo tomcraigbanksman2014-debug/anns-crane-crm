@@ -507,7 +507,7 @@ export default function ClientShell({
         </main>
       </div>
 
-      {role !== "operator" ? <CrmAssistant /> : null}
+      <CrmAssistant />
     </div>
   );
 }
