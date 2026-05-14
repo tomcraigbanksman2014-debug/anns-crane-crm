@@ -165,6 +165,93 @@ function normaliseName(value: unknown) {
     .trim();
 }
 
+function nameTokens(value: unknown) {
+  return normaliseName(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2);
+}
+
+function levenshtein(a: string, b: string) {
+  const aa = normaliseName(a);
+  const bb = normaliseName(b);
+  if (aa === bb) return 0;
+  if (!aa.length) return bb.length;
+  if (!bb.length) return aa.length;
+
+  const previous = Array.from({ length: bb.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: bb.length + 1 }, () => 0);
+
+  for (let i = 1; i <= aa.length; i++) {
+    current[0] = i;
+    for (let j = 1; j <= bb.length; j++) {
+      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost
+      );
+    }
+    for (let j = 0; j <= bb.length; j++) previous[j] = current[j];
+  }
+
+  return previous[bb.length];
+}
+
+function tokenScore(wanted: string, candidate: string) {
+  const wantedTokens = nameTokens(wanted);
+  const candidateTokens = nameTokens(candidate);
+  if (!wantedTokens.length || !candidateTokens.length) return 0;
+
+  let hits = 0;
+  for (const wantedToken of wantedTokens) {
+    if (candidateTokens.some((candidateToken) => candidateToken === wantedToken || candidateToken.includes(wantedToken) || wantedToken.includes(candidateToken))) {
+      hits++;
+    }
+  }
+
+  return hits / wantedTokens.length;
+}
+
+function fuzzyNameScore(wanted: string, candidate: string) {
+  const wantedNorm = normaliseName(wanted);
+  const candidateNorm = normaliseName(candidate);
+  if (!wantedNorm || !candidateNorm) return 0;
+  if (wantedNorm === candidateNorm) return 1;
+  if (candidateNorm.includes(wantedNorm) || wantedNorm.includes(candidateNorm)) return 0.94;
+
+  const maxLength = Math.max(wantedNorm.length, candidateNorm.length, 1);
+  const distanceScore = 1 - levenshtein(wantedNorm, candidateNorm) / maxLength;
+  const tokens = tokenScore(wantedNorm, candidateNorm);
+
+  return Math.max(distanceScore, tokens * 0.9);
+}
+
+function fuzzySortRows(rows: any[], wanted: string, labelKey: string) {
+  const unique = new Map<string, any>();
+  for (const row of rows ?? []) {
+    const key = String(row?.id ?? row?.[labelKey] ?? Math.random());
+    if (!unique.has(key)) unique.set(key, row);
+  }
+
+  return [...unique.values()]
+    .map((row) => ({
+      row,
+      score: fuzzyNameScore(wanted, String(row?.[labelKey] ?? "")),
+    }))
+    .filter((item) => item.score >= 0.42)
+    .sort((a, b) => b.score - a.score);
+}
+
+function matchWarning(kind: string, wanted: string | null | undefined, selected: any, key: string, score: number) {
+  const raw = clean(wanted);
+  const chosen = clean(selected?.[key]);
+  if (!raw || !chosen) return null;
+  if (normaliseName(raw) === normaliseName(chosen)) return null;
+  if (score < 0.68) return null;
+  return `I matched the ${kind} "${chosen}" from "${raw}". Check this before confirming.`;
+}
+
 function stripCommandNoise(value: string) {
   return String(value ?? "")
     .replace(/\b(show|find|open|me|job|jobs|customer|customers|for|the|this|week|needing|need|needs|lift|plans|planner)\b/gi, " ")
@@ -365,6 +452,8 @@ function fallbackParseCommand(command: string): ParsedCommand {
   return {
     ...emptyParsed("search_jobs", text),
     search_query: stripCommandNoise(text) || text,
+    date_text: dateText,
+    target_date: resolveDate(dateText),
     confidence: 0.55,
   };
 }
@@ -499,71 +588,140 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
 
 async function resolveCustomer(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[] };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
 
-  const { data } = await supabase
-    .from("clients")
-    .select("id, company_name, contact_name, phone, email, archived")
-    .or("archived.is.null,archived.eq.false")
-    .ilike("company_name", safeLike(wanted))
-    .order("company_name", { ascending: true })
-    .limit(8);
+  const tokens = nameTokens(wanted);
+  const firstToken = tokens[0] ?? wanted;
 
-  const rows = data ?? [];
-  const normWanted = normaliseName(wanted);
-  const selected =
-    rows.find((row: any) => normaliseName(row?.company_name) === normWanted) ??
-    rows.find((row: any) => normaliseName(row?.company_name).includes(normWanted)) ??
-    rows[0] ??
-    null;
+  const queries = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, company_name, contact_name, phone, email, archived")
+      .or("archived.is.null,archived.eq.false")
+      .ilike("company_name", safeLike(wanted))
+      .order("company_name", { ascending: true })
+      .limit(25),
+    firstToken
+      ? supabase
+          .from("clients")
+          .select("id, company_name, contact_name, phone, email, archived")
+          .or("archived.is.null,archived.eq.false")
+          .ilike("company_name", safeLike(firstToken))
+          .order("company_name", { ascending: true })
+          .limit(50)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("clients")
+      .select("id, company_name, contact_name, phone, email, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("company_name", { ascending: true })
+      .limit(600),
+  ]);
 
-  return { selected, matches: rows };
+  const rows = queries.flatMap((result: any) => result?.data ?? []);
+  const ranked = fuzzySortRows(rows, wanted, "company_name");
+  const top = ranked[0] ?? null;
+  const second = ranked[1] ?? null;
+  const selected = top && (top.score >= 0.74 || (top.score >= 0.66 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+
+  return {
+    selected,
+    matches: ranked.slice(0, 8).map((item) => item.row),
+    score: top?.score ?? 0,
+    warning: selected ? matchWarning("customer", wanted, selected, "company_name", top?.score ?? 0) : null,
+  };
 }
 
 async function resolveCrane(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[] };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
 
-  const { data } = await supabase
-    .from("cranes")
-    .select("id, name, reg_number, fleet_number, status, archived")
-    .or("archived.is.null,archived.eq.false")
-    .ilike("name", safeLike(wanted))
-    .order("name", { ascending: true })
-    .limit(8);
+  const tokens = nameTokens(wanted);
+  const firstToken = tokens[0] ?? wanted;
 
-  const rows = data ?? [];
-  const normWanted = normaliseName(wanted);
-  const selected =
-    rows.find((row: any) => normaliseName(row?.name) === normWanted) ??
-    rows.find((row: any) => normaliseName(row?.name).includes(normWanted)) ??
-    rows[0] ??
-    null;
+  const queries = await Promise.all([
+    supabase
+      .from("cranes")
+      .select("id, name, reg_number, fleet_number, status, archived")
+      .or("archived.is.null,archived.eq.false")
+      .ilike("name", safeLike(wanted))
+      .order("name", { ascending: true })
+      .limit(25),
+    firstToken
+      ? supabase
+          .from("cranes")
+          .select("id, name, reg_number, fleet_number, status, archived")
+          .or("archived.is.null,archived.eq.false")
+          .ilike("name", safeLike(firstToken))
+          .order("name", { ascending: true })
+          .limit(50)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("cranes")
+      .select("id, name, reg_number, fleet_number, status, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("name", { ascending: true })
+      .limit(300),
+  ]);
 
-  return { selected, matches: rows };
+  const rows = queries.flatMap((result: any) => result?.data ?? []);
+  const ranked = fuzzySortRows(rows, wanted, "name");
+  const top = ranked[0] ?? null;
+  const second = ranked[1] ?? null;
+  const selected = top && (top.score >= 0.72 || (top.score >= 0.64 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+
+  return {
+    selected,
+    matches: ranked.slice(0, 8).map((item) => item.row),
+    score: top?.score ?? 0,
+    warning: selected ? matchWarning("crane", wanted, selected, "name", top?.score ?? 0) : null,
+  };
 }
 
 async function resolveOperator(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[] };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
 
-  const { data } = await supabase
-    .from("operators")
-    .select("id, full_name, email, status, archived")
-    .or("archived.is.null,archived.eq.false")
-    .ilike("full_name", safeLike(wanted))
-    .order("full_name", { ascending: true })
-    .limit(8);
+  const tokens = nameTokens(wanted);
+  const firstToken = tokens[0] ?? wanted;
 
-  const rows = data ?? [];
-  const normWanted = normaliseName(wanted);
-  const selected =
-    rows.find((row: any) => normaliseName(row?.full_name) === normWanted) ??
-    rows.find((row: any) => normaliseName(row?.full_name).includes(normWanted)) ??
-    rows[0] ??
-    null;
+  const queries = await Promise.all([
+    supabase
+      .from("operators")
+      .select("id, full_name, email, status, archived")
+      .or("archived.is.null,archived.eq.false")
+      .ilike("full_name", safeLike(wanted))
+      .order("full_name", { ascending: true })
+      .limit(25),
+    firstToken
+      ? supabase
+          .from("operators")
+          .select("id, full_name, email, status, archived")
+          .or("archived.is.null,archived.eq.false")
+          .ilike("full_name", safeLike(firstToken))
+          .order("full_name", { ascending: true })
+          .limit(50)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("operators")
+      .select("id, full_name, email, status, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("full_name", { ascending: true })
+      .limit(500),
+  ]);
 
-  return { selected, matches: rows };
+  const rows = queries.flatMap((result: any) => result?.data ?? []);
+  const ranked = fuzzySortRows(rows, wanted, "full_name");
+  const top = ranked[0] ?? null;
+  const second = ranked[1] ?? null;
+  const selected = top && (top.score >= 0.74 || (top.score >= 0.66 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+
+  return {
+    selected,
+    matches: ranked.slice(0, 8).map((item) => item.row),
+    score: top?.score ?? 0,
+    warning: selected ? matchWarning("operator", wanted, selected, "full_name", top?.score ?? 0) : null,
+  };
 }
 
 async function findJobByNumber(supabase: any, jobNumber: number | null | undefined) {
@@ -623,12 +781,140 @@ function helpResponse() {
     examples: [
       "Create crane job for Crendons on Wednesday with Grove",
       "Find job 169",
+      "Show jobs today",
+      "Show unassigned jobs",
       "Show jobs needing lift plans this week",
       "Move job 169 to Friday",
       "Add Shaun as operator on job 169",
       "Mark today's visit on job 169 as invoiced",
     ],
   });
+}
+
+function commandDateRange(parsed: ParsedCommand, command: string) {
+  const lower = String(command ?? "").toLowerCase();
+
+  if (/\bthis week\b/.test(lower) || /\bweek\b/.test(lower)) {
+    return weekBoundsFromCommand(command);
+  }
+
+  const date = resolveDate(parsed.date_text, parsed.target_date) ?? resolveDate(stripCommandNoise(command), null);
+  if (!date) return null;
+  return { start: date, end: date };
+}
+
+function jobOverlapsRange(job: any, start: string, end: string) {
+  const jobStart = clean(job?.start_date) ?? clean(job?.job_date);
+  const jobEnd = clean(job?.end_date) ?? jobStart;
+  if (!jobStart || !jobEnd) return false;
+  return jobEnd >= start && jobStart <= end;
+}
+
+function isCancelledOrArchived(job: any) {
+  const status = String(job?.status ?? "").toLowerCase();
+  return Boolean(job?.archived) || ["cancelled", "late_cancelled"].includes(status);
+}
+
+async function handleJobsByDate(supabase: any, parsed: ParsedCommand, command: string) {
+  const range = commandDateRange(parsed, command);
+  if (!range) return null;
+
+  const { data: jobs, error } = await supabase
+    .from("jobs")
+    .select(`
+      id,
+      job_number,
+      client_id,
+      site_name,
+      site_address,
+      job_date,
+      start_date,
+      end_date,
+      status,
+      archived,
+      clients:client_id (id, company_name)
+    `)
+    .or("archived.is.null,archived.eq.false")
+    .order("start_date", { ascending: true })
+    .limit(200);
+
+  if (error) throw new Error(error.message);
+
+  const matches = (jobs ?? []).filter((job: any) => !isCancelledOrArchived(job) && jobOverlapsRange(job, range.start, range.end));
+
+  return responseJson({
+    mode: "read",
+    action: "search_jobs",
+    title: range.start === range.end ? `Jobs on ${formatDate(range.start)}` : `Jobs ${formatDate(range.start)} → ${formatDate(range.end)}`,
+    message: matches.length ? `I found ${matches.length} job${matches.length === 1 ? "" : "s"}.` : "I could not find any jobs for that date range.",
+    results: matches.slice(0, 16).map(jobResult),
+  });
+}
+
+async function handleUnassignedJobs(supabase: any) {
+  const { data: jobs, error } = await supabase
+    .from("jobs")
+    .select(`
+      id,
+      job_number,
+      client_id,
+      operator_id,
+      crane_id,
+      site_name,
+      site_address,
+      job_date,
+      start_date,
+      end_date,
+      status,
+      archived,
+      clients:client_id (id, company_name)
+    `)
+    .or("archived.is.null,archived.eq.false")
+    .order("start_date", { ascending: true })
+    .limit(250);
+
+  if (error) throw new Error(error.message);
+
+  const active = (jobs ?? []).filter((job: any) => !isCancelledOrArchived(job));
+  const jobIds = active.map((job: any) => job.id).filter(Boolean);
+  const { data: equipmentRows, error: equipmentError } = jobIds.length
+    ? await supabase.from("job_equipment").select("job_id, crane_id, operator_id, asset_type").in("job_id", jobIds)
+    : { data: [], error: null };
+
+  if (equipmentError) throw new Error(equipmentError.message);
+
+  const equipmentByJobId = new Map<string, any[]>();
+  for (const row of equipmentRows ?? []) {
+    const key = String(row.job_id);
+    const list = equipmentByJobId.get(key) ?? [];
+    list.push(row);
+    equipmentByJobId.set(key, list);
+  }
+
+  const unassigned = active.filter((job: any) => {
+    const rows = equipmentByJobId.get(String(job.id)) ?? [];
+    const hasCrane = Boolean(job.crane_id || rows.some((row) => row.crane_id || String(row.asset_type ?? "") === "crane"));
+    const hasOperator = Boolean(job.operator_id || rows.some((row) => row.operator_id));
+    return !hasCrane || !hasOperator;
+  });
+
+  return responseJson({
+    mode: "read",
+    action: "search_jobs",
+    title: "Unassigned crane jobs",
+    message: unassigned.length ? `I found ${unassigned.length} active job${unassigned.length === 1 ? "" : "s"} missing a crane or operator.` : "I could not find active unassigned crane jobs.",
+    results: unassigned.slice(0, 16).map(jobResult),
+  });
+}
+
+async function fuzzyCustomerResults(supabase: any, query: string) {
+  const customer = await resolveCustomer(supabase, query);
+  return customer.matches.slice(0, 8).map((row: any) => ({
+    label: row.company_name ?? "Customer",
+    href: `/customers/${row.id}`,
+    badge: "similar customer",
+    description: `${row.contact_name ?? "—"} • ${row.phone ?? row.email ?? "—"}`,
+  }));
 }
 
 async function handleJobsNeedingLiftPlans(supabase: any, command: string) {
@@ -699,20 +985,61 @@ async function handleSearch(supabase: any, parsed: ParsedCommand, command: strin
     return handleJobsNeedingLiftPlans(supabase, command);
   }
 
+  if (/\bunassigned\b/.test(lower) && /\bjob/.test(lower)) {
+    return handleUnassignedJobs(supabase);
+  }
+
+  if (/\b(outstanding|not\s+invoiced|unpaid)\b/.test(lower) && /\b(invoice|invoices|jobs?)\b/.test(lower)) {
+    return responseJson({
+      mode: "read",
+      action: "search_jobs",
+      title: "Outstanding invoices",
+      message: "Open the outstanding invoice page to review crane and transport invoice status.",
+      results: [
+        {
+          label: "Outstanding invoices",
+          href: "/invoices/outstanding",
+          badge: "finance",
+          description: "Combined crane and transport outstanding invoice list.",
+        },
+      ],
+      open_href: "/invoices/outstanding",
+    });
+  }
+
+  if (/\bjob/.test(lower) && (parsed.date_text || parsed.target_date || /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|this week|next week)\b/.test(lower))) {
+    const jobsByDate = await handleJobsByDate(supabase, parsed, command);
+    if (jobsByDate) return jobsByDate;
+  }
+
   const query = clean(parsed.search_query) ?? clean(parsed.customer_name) ?? stripCommandNoise(command) ?? command;
   const results = await runGlobalSearch(supabase, query, "all", 8);
+  const mappedResults = results.flat.slice(0, 8).map((item) => ({
+    label: item.title,
+    href: item.href,
+    badge: item.type,
+    description: item.subtitle,
+  }));
+
+  if (!mappedResults.length) {
+    const similarCustomers = await fuzzyCustomerResults(supabase, query);
+    if (similarCustomers.length) {
+      return responseJson({
+        mode: "read",
+        action: parsed.action,
+        title: `Similar matches for: ${query}`,
+        message: "I could not find an exact match, but these customer names look similar.",
+        results: similarCustomers,
+      });
+    }
+  }
 
   return responseJson({
     mode: "read",
     action: parsed.action,
     title: `Search: ${query}`,
-    message: results.flat.length ? `I found ${results.flat.length} result${results.flat.length === 1 ? "" : "s"}.` : "I could not find anything matching that.",
-    results: results.flat.slice(0, 8).map((item) => ({
-      label: item.title,
-      href: item.href,
-      badge: item.type,
-      description: item.subtitle,
-    })),
+    message: mappedResults.length ? `I found ${mappedResults.length} result${mappedResults.length === 1 ? "" : "s"}.` : "I could not find anything matching that.",
+    results: mappedResults,
   });
 }
 
@@ -834,32 +1161,39 @@ async function handleCreateCraneDraft(supabase: any, parsed: ParsedCommand, comm
   if (!date) missing.push(parsed.date_text ? `I could not understand the date: ${parsed.date_text}` : "Date missing");
 
   if (missing.length > 0) {
+    const possibleMatches = [
+      ...customer.matches.slice(0, 6).map((row: any) => ({
+        label: row.company_name ?? "Customer",
+        href: `/customers/${row.id}`,
+        badge: "similar customer",
+        description: `${row.contact_name ?? "—"} • ${row.phone ?? row.email ?? "—"}`,
+      })),
+      ...crane.matches.slice(0, 5).map((row: any) => ({
+        label: row.name ?? "Crane",
+        href: `/cranes/${row.id}`,
+        badge: "similar crane",
+        description: `${row.reg_number ?? row.fleet_number ?? "—"} • ${row.status ?? "—"}`,
+      })),
+    ];
+
     return responseJson({
       mode: "needs_more_info",
       action: parsed.action,
-      title: "I need a bit more information",
-      message: missing.join(". "),
-      results: [
-        ...customer.matches.slice(0, 5).map((row: any) => ({
-          label: row.company_name ?? "Customer",
-          href: `/customers/${row.id}`,
-          badge: "customer",
-          description: `${row.contact_name ?? "—"} • ${row.phone ?? "—"}`,
-        })),
-        ...crane.matches.slice(0, 5).map((row: any) => ({
-          label: row.name ?? "Crane",
-          href: `/cranes/${row.id}`,
-          badge: "crane",
-          description: `${row.reg_number ?? row.fleet_number ?? "—"} • ${row.status ?? "—"}`,
-        })),
-      ],
+      title: possibleMatches.length ? "I found similar matches, but need you to be sure" : "I need a bit more information",
+      message: possibleMatches.length
+        ? `${missing.join(". ")}. Click the closest match to check it, or type the command again with the exact name.`
+        : missing.join(". "),
+      results: possibleMatches,
     });
   }
+
+  const warnings = [customer.warning, crane.warning, operator.warning].filter(Boolean) as string[];
+  if (!crane.selected) warnings.push("No crane was confidently matched, so this will create the job without a crane allocation.");
 
   const draft: DraftAction = {
     type: "create_crane_job",
     title: "Create crane job",
-    warning: crane.selected ? null : "No crane was confidently matched, so this will create the job without a crane allocation.",
+    warning: warnings.length ? warnings.join(" ") : null,
     preview: [
       { label: "Customer", value: customer.selected.company_name ?? "—" },
       { label: "Date", value: formatDate(date) },
@@ -966,7 +1300,7 @@ async function handleAssignOperatorDraft(supabase: any, parsed: ParsedCommand) {
   const draft: DraftAction = {
     type: "assign_operator",
     title: `Add ${operator.selected.full_name} to job ${job.job_number}`,
-    warning: null,
+    warning: operator.warning,
     preview: [
       { label: "Job", value: `Job ${job.job_number}` },
       { label: "Customer", value: first(job.clients)?.company_name ?? "—" },
