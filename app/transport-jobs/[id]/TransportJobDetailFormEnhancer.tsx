@@ -35,6 +35,13 @@ function countInclusiveDays(startDate: string, endDate: string) {
 
 export default function TransportJobDetailFormEnhancer() {
   useEffect(() => {
+    function getField(idOrName: string) {
+      return (
+        (document.getElementById(idOrName) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null) ||
+        (document.querySelector(`[name="${idOrName}"]`) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null)
+      );
+    }
+
     const priceModeInput = document.getElementById("price_mode") as HTMLSelectElement | null;
     const sellRateInput = document.getElementById("agreed_sell_rate") as HTMLInputElement | null;
     const pricePerDayInput = document.getElementById("price_per_day") as HTMLInputElement | null;
@@ -138,18 +145,18 @@ export default function TransportJobDetailFormEnhancer() {
     };
 
     function hasText(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+      const el = getField(id);
       return !!String(el?.value || "").trim();
     }
 
     function numericPositive(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | null;
+      const el = getField(id) as HTMLInputElement | null;
       const n = Number(String(el?.value || "").trim());
       return Number.isFinite(n) && n > 0;
     }
 
     function checkboxChecked(id: string) {
-      const el = document.getElementById(id) as HTMLInputElement | null;
+      const el = getField(id) as HTMLInputElement | null;
       return !!el?.checked;
     }
 
@@ -162,12 +169,12 @@ export default function TransportJobDetailFormEnhancer() {
     }
 
     function submissionStatusValue() {
-      const el = document.getElementById("submission_status") as HTMLSelectElement | null;
+      const el = getField("submission_status") as HTMLSelectElement | null;
       return String(el?.value || "").trim().toLowerCase();
     }
 
     function approvalStatusValue() {
-      const el = document.getElementById("approval_status") as HTMLSelectElement | null;
+      const el = getField("approval_status") as HTMLSelectElement | null;
       return String(el?.value || "").trim().toLowerCase();
     }
 
@@ -393,7 +400,7 @@ export default function TransportJobDetailFormEnhancer() {
       policeEscortCheckbox?.removeEventListener("change", syncPoliceEscortVisibility);
       addPoliceEscortRowBtn?.removeEventListener("click", addPoliceEscortRow);
       checklistWatchers.forEach((id) => {
-        const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+        const el = getField(id);
         el?.removeEventListener("input", checklistSyncHandler);
         el?.removeEventListener("change", checklistSyncHandler);
       });
