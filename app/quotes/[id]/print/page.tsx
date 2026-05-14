@@ -256,7 +256,7 @@ export default async function QuotePrintPage({
         <style
           dangerouslySetInnerHTML={{
             __html: `
-              @page { size: A4; margin: 10mm; }
+              @page { size: A4; margin: 0; }
               * { box-sizing: border-box; }
               html, body { margin: 0; padding: 0; }
               body { font-family: Arial, Helvetica, sans-serif; background: #eef2f7; color: #111827; }
@@ -299,15 +299,23 @@ export default async function QuotePrintPage({
                 }
               }
               @media print {
-                body { background: #fff !important; }
+                html, body {
+                  width: 210mm !important;
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  background: #fff !important;
+                  -webkit-print-color-adjust: exact;
+                  print-color-adjust: exact;
+                }
                 .quote-hide-print { display: none !important; }
                 .quote-sheet {
-                  width: auto;
-                  min-height: auto;
-                  margin: 0;
-                  border: none;
-                  box-shadow: none;
-                  padding: 0;
+                  width: 190mm !important;
+                  min-height: auto !important;
+                  margin: 0 auto !important;
+                  border: none !important;
+                  box-shadow: none !important;
+                  padding: 0 !important;
+                  overflow: visible !important;
                 }
               }
             `,
