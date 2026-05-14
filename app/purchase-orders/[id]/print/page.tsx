@@ -158,7 +158,7 @@ export default async function PurchaseOrderPrintPage({
         <style>{`
           @page {
             size: A4;
-            margin: 12mm;
+            margin: 0;
           }
 
           @media screen and (max-width: 760px) {
@@ -182,7 +182,12 @@ export default async function PurchaseOrderPrintPage({
 
           @media print {
             html, body {
+              width: 210mm !important;
+              margin: 0 !important;
+              padding: 0 !important;
               background: #fff !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
 
             .po-print-actions,
@@ -191,10 +196,12 @@ export default async function PurchaseOrderPrintPage({
             }
 
             .po-print-page {
-              width: 100% !important;
-              margin: 0 !important;
+              width: 190mm !important;
+              max-width: 190mm !important;
+              margin: 0 auto !important;
               padding: 0 !important;
               box-shadow: none !important;
+              overflow: visible !important;
             }
           }
         `}</style>
