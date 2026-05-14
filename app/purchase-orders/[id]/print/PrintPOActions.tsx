@@ -1,17 +1,21 @@
 "use client";
 
+import { printWithDocumentTitle } from "../../../lib/printDocumentTitle";
+
 export default function PrintPOActions({
   backHref,
   editHref,
+  printTitle,
 }: {
   backHref: string;
   editHref?: string;
+  printTitle?: string;
 }) {
   return (
     <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
       <button
         type="button"
-        onClick={() => window.print()}
+        onClick={() => printWithDocumentTitle(printTitle)}
         style={printBtn}
       >
         Print / Save PDF
