@@ -197,6 +197,39 @@ export async function GET(req: Request) {
         effective_price: effectiveTransportPrice(row),
       }));
 
+    const activeJobIds = activeJobs.map((row: any) => String(row.id ?? "").trim()).filter(Boolean);
+    let visitInvoices: any[] = [];
+
+    if (activeJobIds.length > 0) {
+      const { data: visitInvoiceData, error: visitInvoiceError } = await supabase
+        .from("job_daily_visit_rates")
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
+        .eq("job_type", "transport")
+        .in("job_id", activeJobIds)
+        .gte("visit_date", rangeStart)
+        .lte("visit_date", rangeEnd);
+
+      if (visitInvoiceError) {
+        return NextResponse.json({ error: visitInvoiceError.message }, { status: 400 });
+      }
+
+      visitInvoices = visitInvoiceData ?? [];
+    }
+
+    const visitInvoicesByJobId = new Map<string, Record<string, any>>();
+    visitInvoices.forEach((row: any) => {
+      const jobId = String(row?.job_id ?? "").trim();
+      const visitDate = String(row?.visit_date ?? "").slice(0, 10);
+      if (!jobId || !visitDate) return;
+      const existing = visitInvoicesByJobId.get(jobId) ?? {};
+      existing[visitDate] = row;
+      visitInvoicesByJobId.set(jobId, existing);
+    });
+
+    const getVisitInvoicesForJob = (jobId: string | null | undefined) => {
+      return visitInvoicesByJobId.get(String(jobId ?? "").trim()) ?? {};
+    };
+
     const operatorById = new Map<string, any>();
     for (const operator of operators) {
       operatorById.set(String((operator as any).id ?? ""), operator);
@@ -240,6 +273,7 @@ export async function GET(req: Request) {
         approval_status: row.approval_status ?? null,
         approval_reference: row.approval_reference ?? null,
         authorised_to_move: Boolean(row.authorised_to_move),
+        visit_invoices: getVisitInvoicesForJob(row.id),
       };
     };
 
