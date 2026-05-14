@@ -174,6 +174,8 @@ export default async function LiftPlanPrintPage({
       }}
     >
       <style>{`
+        @page { size: A4; margin: 0; }
+
         @media screen and (max-width: 760px) {
           .lift-plan-print-page {
             padding: 16px 12px 28px !important;
@@ -185,8 +187,26 @@ export default async function LiftPlanPrintPage({
         }
 
         @media print {
+          html, body {
+            width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff !important;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
           .print-hide {
             display: none !important;
+          }
+
+          .lift-plan-print-page {
+            width: 190mm !important;
+            max-width: 190mm !important;
+            margin: 0 auto !important;
+            padding: 10mm 0 !important;
+            min-height: auto !important;
+            box-sizing: border-box !important;
           }
         }
       `}</style>
