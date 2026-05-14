@@ -210,6 +210,7 @@ export default function CrmAssistant() {
   const commandRef = useRef("");
   const listeningRef = useRef(false);
   const stoppingForSendRef = useRef(false);
+  const speechStopAlreadySentRef = useRef(false);
   const restartTimerRef = useRef<number | null>(null);
   const finalSpeechRef = useRef("");
   const interimSpeechRef = useRef("");
@@ -384,7 +385,10 @@ export default function CrmAssistant() {
       if (stoppingForSendRef.current) {
         const spoken = cleanupSpeech(commandRef.current);
         stoppingForSendRef.current = false;
-        if (spoken) void sendCommand(spoken);
+        if (spoken && !speechStopAlreadySentRef.current) {
+          speechStopAlreadySentRef.current = true;
+          void sendCommand(spoken);
+        }
       }
     };
 
@@ -395,6 +399,7 @@ export default function CrmAssistant() {
     if (!speechSupported || listening || busy) return;
     if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
     stoppingForSendRef.current = false;
+    speechStopAlreadySentRef.current = false;
     listeningRef.current = true;
     finalSpeechRef.current = "";
     interimSpeechRef.current = "";
@@ -417,15 +422,33 @@ export default function CrmAssistant() {
   }
 
   function stopListeningAndSend() {
-    if (restartTimerRef.current) window.clearTimeout(restartTimerRef.current);
+    if (restartTimerRef.current) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+
+    const spoken = cleanupSpeech(commandRef.current);
     stoppingForSendRef.current = true;
+    speechStopAlreadySentRef.current = Boolean(spoken);
     listeningRef.current = false;
+    setListening(false);
+
     try {
       recognitionRef.current?.stop?.();
     } catch {
-      setListening(false);
-      const spoken = cleanupSpeech(commandRef.current);
-      if (spoken) void sendCommand(spoken);
+      try {
+        recognitionRef.current?.abort?.();
+      } catch {
+        // Ignore browser speech API cleanup errors.
+      }
+    }
+
+    recognitionRef.current = null;
+
+    if (spoken) {
+      void sendCommand(spoken);
+    } else {
+      addMessage("assistant", "I did not catch anything. Tap Talk and try again.", { error: "No speech detected." });
     }
   }
 
