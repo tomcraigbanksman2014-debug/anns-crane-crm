@@ -14,7 +14,11 @@ type AssistantAction =
   | "create_transport_job_draft"
   | "update_job_date_draft"
   | "assign_operator_draft"
+  | "assign_crane_draft"
+  | "update_job_status_draft"
   | "mark_visit_invoiced_draft"
+  | "open_related_job_page"
+  | "open_page"
   | "help"
   | "unknown";
 
@@ -32,6 +36,7 @@ type ParsedCommand = {
   site_name: string | null;
   site_address: string | null;
   notes: string | null;
+  job_status: string | null;
   dangerous: boolean;
 };
 
@@ -52,6 +57,8 @@ type DraftAction = {
     | "create_crane_job"
     | "move_crane_job"
     | "assign_operator"
+    | "assign_crane"
+    | "update_job_status"
     | "mark_visit_invoiced";
   title: string;
   warning?: string | null;
@@ -165,98 +172,115 @@ function normaliseName(value: unknown) {
     .trim();
 }
 
-function nameTokens(value: unknown) {
-  return normaliseName(value)
-    .split(" ")
-    .map((token) => token.trim())
-    .filter((token) => token.length >= 2);
+function words(value: unknown) {
+  return normaliseName(value).split(" ").filter(Boolean);
 }
 
 function levenshtein(a: string, b: string) {
-  const aa = normaliseName(a);
-  const bb = normaliseName(b);
-  if (aa === bb) return 0;
-  if (!aa.length) return bb.length;
-  if (!bb.length) return aa.length;
+  if (a === b) return 0;
+  if (!a) return b.length;
+  if (!b) return a.length;
 
-  const previous = Array.from({ length: bb.length + 1 }, (_, index) => index);
-  const current = Array.from({ length: bb.length + 1 }, () => 0);
+  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  const current = Array.from({ length: b.length + 1 }, () => 0);
 
-  for (let i = 1; i <= aa.length; i++) {
+  for (let i = 1; i <= a.length; i++) {
     current[0] = i;
-    for (let j = 1; j <= bb.length; j++) {
-      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
-      current[j] = Math.min(
-        previous[j] + 1,
-        current[j - 1] + 1,
-        previous[j - 1] + cost
-      );
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + cost);
     }
-    for (let j = 0; j <= bb.length; j++) previous[j] = current[j];
+    for (let j = 0; j <= b.length; j++) previous[j] = current[j];
   }
 
-  return previous[bb.length];
+  return previous[b.length];
 }
 
-function tokenScore(wanted: string, candidate: string) {
-  const wantedTokens = nameTokens(wanted);
-  const candidateTokens = nameTokens(candidate);
-  if (!wantedTokens.length || !candidateTokens.length) return 0;
+function similarity(a: string, b: string) {
+  const left = normaliseName(a);
+  const right = normaliseName(b);
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  if (right.includes(left) || left.includes(right)) return 0.9;
 
-  let hits = 0;
-  for (const wantedToken of wantedTokens) {
-    if (candidateTokens.some((candidateToken) => candidateToken === wantedToken || candidateToken.includes(wantedToken) || wantedToken.includes(candidateToken))) {
-      hits++;
-    }
-  }
+  const maxLen = Math.max(left.length, right.length, 1);
+  const editScore = 1 - levenshtein(left, right) / maxLen;
+  const leftWords = new Set(words(left));
+  const rightWords = new Set(words(right));
+  const rightList = [...rightWords];
+  const overlap = [...leftWords].filter((word) => rightWords.has(word) || rightList.some((candidate) => candidate.includes(word) || word.includes(candidate))).length;
+  const tokenScore = overlap / Math.max(leftWords.size, 1);
 
-  return hits / wantedTokens.length;
+  return Math.max(editScore, tokenScore * 0.86);
 }
 
-function fuzzyNameScore(wanted: string, candidate: string) {
-  const wantedNorm = normaliseName(wanted);
-  const candidateNorm = normaliseName(candidate);
-  if (!wantedNorm || !candidateNorm) return 0;
-  if (wantedNorm === candidateNorm) return 1;
-  if (candidateNorm.includes(wantedNorm) || wantedNorm.includes(candidateNorm)) return 0.94;
-
-  const maxLength = Math.max(wantedNorm.length, candidateNorm.length, 1);
-  const distanceScore = 1 - levenshtein(wantedNorm, candidateNorm) / maxLength;
-  const tokens = tokenScore(wantedNorm, candidateNorm);
-
-  return Math.max(distanceScore, tokens * 0.9);
-}
-
-function fuzzySortRows(rows: any[], wanted: string, labelKey: string) {
-  const unique = new Map<string, any>();
-  for (const row of rows ?? []) {
-    const key = String(row?.id ?? row?.[labelKey] ?? Math.random());
-    if (!unique.has(key)) unique.set(key, row);
-  }
-
-  return [...unique.values()]
-    .map((row) => ({
-      row,
-      score: fuzzyNameScore(wanted, String(row?.[labelKey] ?? "")),
-    }))
-    .filter((item) => item.score >= 0.42)
+function sortBySimilarity<T>(rows: T[], wanted: string, nameGetter: (row: T) => unknown) {
+  return rows
+    .map((row) => ({ row, score: similarity(wanted, String(nameGetter(row) ?? "")) }))
     .sort((a, b) => b.score - a.score);
 }
 
-function matchWarning(kind: string, wanted: string | null | undefined, selected: any, key: string, score: number) {
-  const raw = clean(wanted);
-  const chosen = clean(selected?.[key]);
-  if (!raw || !chosen) return null;
-  if (normaliseName(raw) === normaliseName(chosen)) return null;
-  if (score < 0.68) return null;
-  return `I matched the ${kind} "${chosen}" from "${raw}". Check this before confirming.`;
+function chooseLikelyMatch<T>(ranked: Array<{ row: T; score: number }>) {
+  const first = ranked[0] ?? null;
+  const second = ranked[1] ?? null;
+  if (!first) return null;
+  if (first.score >= 0.62) return first.row;
+  if (first.score >= 0.5 && (!second || first.score - second.score >= 0.18)) return first.row;
+  return null;
+}
+
+function repairSpokenCommand(value: string) {
+  let text = String(value ?? "")
+    .replace(/\blift\s+lamp\b/gi, "lift plan")
+    .replace(/\bleft\s+plan\b/gi, "lift plan")
+    .replace(/\blip\s+plan\b/gi, "lift plan")
+    .replace(/\bjob\s+number\s+(\d+)\b/gi, "job $1")
+    .replace(/\bjobs\s+(\d+)\b/gi, "job $1")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const parts = text.split(" ").filter(Boolean);
+  const deduped: string[] = [];
+  for (const part of parts) {
+    if (deduped[deduped.length - 1]?.toLowerCase() !== part.toLowerCase()) deduped.push(part);
+  }
+  text = deduped.join(" ");
+
+  const commandStartWords = new Set(["open", "show", "find", "create", "make", "move", "change", "add", "assign", "mark", "check", "search", "go", "take"]);
+  const lowerWords = text.toLowerCase().split(" ");
+  let startIndex = -1;
+  for (let i = 0; i < lowerWords.length; i++) {
+    if (commandStartWords.has(lowerWords[i])) startIndex = i;
+  }
+  if (startIndex > 0) text = text.split(" ").slice(startIndex).join(" ");
+
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function stripCommandNoise(value: string) {
   return String(value ?? "")
-    .replace(/\b(show|find|open|me|job|jobs|customer|customers|for|the|this|week|needing|need|needs|lift|plans|planner)\b/gi, " ")
+    .replace(/\b(show|find|open|go|take|me|job|jobs|customer|customers|for|the|this|week|needing|need|needs|lift|plans|plan|planner|please|can|you)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normaliseJobStatus(value: string | null | undefined) {
+  const lower = String(value ?? "").toLowerCase();
+  if (/\b(confirm|confirmed)\b/.test(lower)) return "confirmed";
+  if (/\b(provisional|pencil|hold)\b/.test(lower)) return "provisional";
+  if (/\b(progress|started|start|in progress|on site)\b/.test(lower)) return "in_progress";
+  if (/\b(complete|completed|done|finished)\b/.test(lower)) return "completed";
+  if (/\b(cancel|cancelled|canceled|archive|delete|remove)\b/.test(lower)) return "dangerous";
+  if (/\bdraft\b/.test(lower)) return "draft";
+  return null;
+}
+
+function friendlyStatus(value: string | null | undefined) {
+  const status = String(value ?? "").trim();
+  if (!status) return "—";
+  return status
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function currentTodayIso() {
@@ -394,13 +418,42 @@ function fallbackParseCommand(command: string): ParsedCommand {
     };
   }
 
-  if (/\b(move|change|put)\b/.test(lower) && jobNumber) {
+  if (jobNumber && /\b(open|view|show|go to|take me to)\b/.test(lower) && /\b(lift\s*plan|lp|invoice|documents?|files?|edit|pack|pdf|print)\b/.test(lower)) {
+    return {
+      ...emptyParsed("open_related_job_page", text),
+      job_number: jobNumber,
+      confidence: 0.86,
+    };
+  }
+
+  if (/\b(move|change|put)\b/.test(lower) && jobNumber && dateText) {
     return {
       ...emptyParsed("update_job_date_draft", text),
       job_number: jobNumber,
       date_text: dateText,
       target_date: resolveDate(dateText),
       confidence: 0.75,
+    };
+  }
+
+  const requestedStatus = normaliseJobStatus(lower);
+  if (jobNumber && requestedStatus) {
+    return {
+      ...emptyParsed("update_job_status_draft", text),
+      job_number: jobNumber,
+      job_status: requestedStatus,
+      dangerous: requestedStatus === "dangerous",
+      confidence: 0.78,
+    };
+  }
+
+  if (/\b(add|assign|put)\b/.test(lower) && /\b(crane|grove|tadano|bocker|jekko|hiab|hk40|spider)\b/.test(lower) && jobNumber) {
+    const craneMatch = text.match(/\b(?:add|assign|put)\s+(.+?)\s+(?:as\s+)?(?:crane|machine)?\s*(?:on|to|for)\s+job\b/i) ?? text.match(/\b(?:with|using)\s+(?:the\s+)?(.+?)(?:\s+on|\s+to|\s+for|$)/i);
+    return {
+      ...emptyParsed("assign_crane_draft", text),
+      job_number: jobNumber,
+      crane_name: clean(craneMatch?.[1]),
+      confidence: 0.72,
     };
   }
 
@@ -452,8 +505,6 @@ function fallbackParseCommand(command: string): ParsedCommand {
   return {
     ...emptyParsed("search_jobs", text),
     search_query: stripCommandNoise(text) || text,
-    date_text: dateText,
-    target_date: resolveDate(dateText),
     confidence: 0.55,
   };
 }
@@ -473,6 +524,7 @@ function emptyParsed(action: AssistantAction, command: string): ParsedCommand {
     site_name: null,
     site_address: null,
     notes: null,
+    job_status: null,
     dangerous: false,
   };
 }
@@ -499,7 +551,11 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
           "create_transport_job_draft",
           "update_job_date_draft",
           "assign_operator_draft",
+          "assign_crane_draft",
+          "update_job_status_draft",
           "mark_visit_invoiced_draft",
+          "open_related_job_page",
+          "open_page",
           "help",
           "unknown",
         ],
@@ -516,6 +572,7 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
       site_name: { type: ["string", "null"] },
       site_address: { type: ["string", "null"] },
       notes: { type: ["string", "null"] },
+      job_status: { type: ["string", "null"] },
       dangerous: { type: "boolean" },
     },
     required: [
@@ -532,6 +589,7 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
       "site_name",
       "site_address",
       "notes",
+      "job_status",
       "dangerous",
     ],
   };
@@ -549,7 +607,7 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
           {
             role: "system",
             content:
-              "You turn simple UK crane-hire CRM commands into one safe structured action. Do not invent CRM data. Extract names and dates only. Write actions must be drafts that need confirmation. If the command asks to cancel, delete, archive, unlock a lift plan, bulk invoice, or anything destructive, set action unknown and dangerous true. Today's date is " +
+              "You are the command parser for AnnS Crane CRM. Be as flexible as possible with UK crane-hire/site language and messy speech-to-text. Convert the user command into the best ONE structured action, not a chat answer. Prefer doing something useful: navigation/open/read actions, search, or a safe draft action. Do not invent database records. Use open_related_job_page for commands like open/view/show the lift plan, lift plan pack, invoice, documents, files, print, PDF, or edit page for a specific job. Use open_page for simple navigation such as open customers, jobs, staff planner, transport planner, outstanding invoices, suppliers, cranes, vehicles, settings, system health, sales hub, transport map, asset locations, quotes, or purchase orders. Use search_jobs for broad requests, names, sites, postcodes, customers, or anything not covered. Safe write actions must be drafts that need confirmation: create crane job, move job date, assign operator, assign crane, mark visit invoiced, or update job status to provisional/confirmed/in progress/completed. If the command asks to cancel, delete, archive, unlock a lift plan, bulk invoice, bulk change records, or anything destructive, set action unknown and dangerous true. Today's date is " +
               todayIso +
               ". Dates should be ISO YYYY-MM-DD when the user gives a clear date such as today, tomorrow, Wednesday, next Wednesday, or DD/MM/YYYY.",
           },
@@ -588,140 +646,98 @@ async function parseWithOpenAI(command: string): Promise<ParsedCommand | null> {
 
 async function resolveCustomer(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0 };
 
-  const tokens = nameTokens(wanted);
-  const firstToken = tokens[0] ?? wanted;
+  const direct = await supabase
+    .from("clients")
+    .select("id, company_name, contact_name, phone, email, archived")
+    .or("archived.is.null,archived.eq.false")
+    .ilike("company_name", safeLike(wanted))
+    .order("company_name", { ascending: true })
+    .limit(20);
 
-  const queries = await Promise.all([
-    supabase
-      .from("clients")
-      .select("id, company_name, contact_name, phone, email, archived")
-      .or("archived.is.null,archived.eq.false")
-      .ilike("company_name", safeLike(wanted))
-      .order("company_name", { ascending: true })
-      .limit(25),
-    firstToken
-      ? supabase
-          .from("clients")
-          .select("id, company_name, contact_name, phone, email, archived")
-          .or("archived.is.null,archived.eq.false")
-          .ilike("company_name", safeLike(firstToken))
-          .order("company_name", { ascending: true })
-          .limit(50)
-      : Promise.resolve({ data: [], error: null }),
-    supabase
+  let rows = direct.data ?? [];
+
+  if (rows.length < 3) {
+    const broad = await supabase
       .from("clients")
       .select("id, company_name, contact_name, phone, email, archived")
       .or("archived.is.null,archived.eq.false")
       .order("company_name", { ascending: true })
-      .limit(600),
-  ]);
+      .limit(250);
+    rows = [...rows, ...(broad.data ?? [])].filter((row, index, all) => all.findIndex((candidate) => candidate.id === row.id) === index);
+  }
 
-  const rows = queries.flatMap((result: any) => result?.data ?? []);
-  const ranked = fuzzySortRows(rows, wanted, "company_name");
-  const top = ranked[0] ?? null;
-  const second = ranked[1] ?? null;
-  const selected = top && (top.score >= 0.74 || (top.score >= 0.66 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+  const ranked = sortBySimilarity(rows, wanted, (row: any) => row.company_name).slice(0, 8);
+  const selected = chooseLikelyMatch(ranked) ?? null;
 
-  return {
-    selected,
-    matches: ranked.slice(0, 8).map((item) => item.row),
-    score: top?.score ?? 0,
-    warning: selected ? matchWarning("customer", wanted, selected, "company_name", top?.score ?? 0) : null,
-  };
+  return { selected, matches: ranked.map((item) => item.row), score: ranked[0]?.score ?? 0 };
 }
 
 async function resolveCrane(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0 };
 
-  const tokens = nameTokens(wanted);
-  const firstToken = tokens[0] ?? wanted;
+  const direct = await supabase
+    .from("cranes")
+    .select("id, name, reg_number, fleet_number, status, archived")
+    .or("archived.is.null,archived.eq.false")
+    .or(`name.ilike.${safeLike(wanted)},reg_number.ilike.${safeLike(wanted)},fleet_number.ilike.${safeLike(wanted)}`)
+    .order("name", { ascending: true })
+    .limit(20);
 
-  const queries = await Promise.all([
-    supabase
-      .from("cranes")
-      .select("id, name, reg_number, fleet_number, status, archived")
-      .or("archived.is.null,archived.eq.false")
-      .ilike("name", safeLike(wanted))
-      .order("name", { ascending: true })
-      .limit(25),
-    firstToken
-      ? supabase
-          .from("cranes")
-          .select("id, name, reg_number, fleet_number, status, archived")
-          .or("archived.is.null,archived.eq.false")
-          .ilike("name", safeLike(firstToken))
-          .order("name", { ascending: true })
-          .limit(50)
-      : Promise.resolve({ data: [], error: null }),
-    supabase
+  let rows = direct.data ?? [];
+
+  if (rows.length < 3) {
+    const broad = await supabase
       .from("cranes")
       .select("id, name, reg_number, fleet_number, status, archived")
       .or("archived.is.null,archived.eq.false")
       .order("name", { ascending: true })
-      .limit(300),
-  ]);
+      .limit(150);
+    rows = [...rows, ...(broad.data ?? [])].filter((row, index, all) => all.findIndex((candidate) => candidate.id === row.id) === index);
+  }
 
-  const rows = queries.flatMap((result: any) => result?.data ?? []);
-  const ranked = fuzzySortRows(rows, wanted, "name");
-  const top = ranked[0] ?? null;
-  const second = ranked[1] ?? null;
-  const selected = top && (top.score >= 0.72 || (top.score >= 0.64 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+  const ranked = rows
+    .map((row: any) => ({ row, score: Math.max(similarity(wanted, row.name), similarity(wanted, row.reg_number), similarity(wanted, row.fleet_number)) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+  const selected = chooseLikelyMatch(ranked) ?? null;
 
-  return {
-    selected,
-    matches: ranked.slice(0, 8).map((item) => item.row),
-    score: top?.score ?? 0,
-    warning: selected ? matchWarning("crane", wanted, selected, "name", top?.score ?? 0) : null,
-  };
+  return { selected, matches: ranked.map((item) => item.row), score: ranked[0]?.score ?? 0 };
 }
 
 async function resolveOperator(supabase: any, name: string | null | undefined) {
   const wanted = clean(name);
-  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0, warning: null as string | null };
+  if (!wanted) return { selected: null as any, matches: [] as any[], score: 0 };
 
-  const tokens = nameTokens(wanted);
-  const firstToken = tokens[0] ?? wanted;
+  const direct = await supabase
+    .from("operators")
+    .select("id, full_name, email, status, archived")
+    .or("archived.is.null,archived.eq.false")
+    .ilike("full_name", safeLike(wanted))
+    .order("full_name", { ascending: true })
+    .limit(20);
 
-  const queries = await Promise.all([
-    supabase
-      .from("operators")
-      .select("id, full_name, email, status, archived")
-      .or("archived.is.null,archived.eq.false")
-      .ilike("full_name", safeLike(wanted))
-      .order("full_name", { ascending: true })
-      .limit(25),
-    firstToken
-      ? supabase
-          .from("operators")
-          .select("id, full_name, email, status, archived")
-          .or("archived.is.null,archived.eq.false")
-          .ilike("full_name", safeLike(firstToken))
-          .order("full_name", { ascending: true })
-          .limit(50)
-      : Promise.resolve({ data: [], error: null }),
-    supabase
+  let rows = direct.data ?? [];
+
+  if (rows.length < 3) {
+    const broad = await supabase
       .from("operators")
       .select("id, full_name, email, status, archived")
       .or("archived.is.null,archived.eq.false")
       .order("full_name", { ascending: true })
-      .limit(500),
-  ]);
+      .limit(200);
+    rows = [...rows, ...(broad.data ?? [])].filter((row, index, all) => all.findIndex((candidate) => candidate.id === row.id) === index);
+  }
 
-  const rows = queries.flatMap((result: any) => result?.data ?? []);
-  const ranked = fuzzySortRows(rows, wanted, "full_name");
-  const top = ranked[0] ?? null;
-  const second = ranked[1] ?? null;
-  const selected = top && (top.score >= 0.74 || (top.score >= 0.66 && top.score - (second?.score ?? 0) >= 0.08)) ? top.row : null;
+  const ranked = rows
+    .map((row: any) => ({ row, score: Math.max(similarity(wanted, row.full_name), similarity(wanted, row.email)) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+  const selected = chooseLikelyMatch(ranked) ?? null;
 
-  return {
-    selected,
-    matches: ranked.slice(0, 8).map((item) => item.row),
-    score: top?.score ?? 0,
-    warning: selected ? matchWarning("operator", wanted, selected, "full_name", top?.score ?? 0) : null,
-  };
+  return { selected, matches: ranked.map((item) => item.row), score: ranked[0]?.score ?? 0 };
 }
 
 async function findJobByNumber(supabase: any, jobNumber: number | null | undefined) {
@@ -781,140 +797,14 @@ function helpResponse() {
     examples: [
       "Create crane job for Crendons on Wednesday with Grove",
       "Find job 169",
-      "Show jobs today",
-      "Show unassigned jobs",
+      "Open the lift plan for job 169",
       "Show jobs needing lift plans this week",
+      "Open staff planner",
       "Move job 169 to Friday",
       "Add Shaun as operator on job 169",
       "Mark today's visit on job 169 as invoiced",
     ],
   });
-}
-
-function commandDateRange(parsed: ParsedCommand, command: string) {
-  const lower = String(command ?? "").toLowerCase();
-
-  if (/\bthis week\b/.test(lower) || /\bweek\b/.test(lower)) {
-    return weekBoundsFromCommand(command);
-  }
-
-  const date = resolveDate(parsed.date_text, parsed.target_date) ?? resolveDate(stripCommandNoise(command), null);
-  if (!date) return null;
-  return { start: date, end: date };
-}
-
-function jobOverlapsRange(job: any, start: string, end: string) {
-  const jobStart = clean(job?.start_date) ?? clean(job?.job_date);
-  const jobEnd = clean(job?.end_date) ?? jobStart;
-  if (!jobStart || !jobEnd) return false;
-  return jobEnd >= start && jobStart <= end;
-}
-
-function isCancelledOrArchived(job: any) {
-  const status = String(job?.status ?? "").toLowerCase();
-  return Boolean(job?.archived) || ["cancelled", "late_cancelled"].includes(status);
-}
-
-async function handleJobsByDate(supabase: any, parsed: ParsedCommand, command: string) {
-  const range = commandDateRange(parsed, command);
-  if (!range) return null;
-
-  const { data: jobs, error } = await supabase
-    .from("jobs")
-    .select(`
-      id,
-      job_number,
-      client_id,
-      site_name,
-      site_address,
-      job_date,
-      start_date,
-      end_date,
-      status,
-      archived,
-      clients:client_id (id, company_name)
-    `)
-    .or("archived.is.null,archived.eq.false")
-    .order("start_date", { ascending: true })
-    .limit(200);
-
-  if (error) throw new Error(error.message);
-
-  const matches = (jobs ?? []).filter((job: any) => !isCancelledOrArchived(job) && jobOverlapsRange(job, range.start, range.end));
-
-  return responseJson({
-    mode: "read",
-    action: "search_jobs",
-    title: range.start === range.end ? `Jobs on ${formatDate(range.start)}` : `Jobs ${formatDate(range.start)} → ${formatDate(range.end)}`,
-    message: matches.length ? `I found ${matches.length} job${matches.length === 1 ? "" : "s"}.` : "I could not find any jobs for that date range.",
-    results: matches.slice(0, 16).map(jobResult),
-  });
-}
-
-async function handleUnassignedJobs(supabase: any) {
-  const { data: jobs, error } = await supabase
-    .from("jobs")
-    .select(`
-      id,
-      job_number,
-      client_id,
-      operator_id,
-      crane_id,
-      site_name,
-      site_address,
-      job_date,
-      start_date,
-      end_date,
-      status,
-      archived,
-      clients:client_id (id, company_name)
-    `)
-    .or("archived.is.null,archived.eq.false")
-    .order("start_date", { ascending: true })
-    .limit(250);
-
-  if (error) throw new Error(error.message);
-
-  const active = (jobs ?? []).filter((job: any) => !isCancelledOrArchived(job));
-  const jobIds = active.map((job: any) => job.id).filter(Boolean);
-  const { data: equipmentRows, error: equipmentError } = jobIds.length
-    ? await supabase.from("job_equipment").select("job_id, crane_id, operator_id, asset_type").in("job_id", jobIds)
-    : { data: [], error: null };
-
-  if (equipmentError) throw new Error(equipmentError.message);
-
-  const equipmentByJobId = new Map<string, any[]>();
-  for (const row of equipmentRows ?? []) {
-    const key = String(row.job_id);
-    const list = equipmentByJobId.get(key) ?? [];
-    list.push(row);
-    equipmentByJobId.set(key, list);
-  }
-
-  const unassigned = active.filter((job: any) => {
-    const rows = equipmentByJobId.get(String(job.id)) ?? [];
-    const hasCrane = Boolean(job.crane_id || rows.some((row) => row.crane_id || String(row.asset_type ?? "") === "crane"));
-    const hasOperator = Boolean(job.operator_id || rows.some((row) => row.operator_id));
-    return !hasCrane || !hasOperator;
-  });
-
-  return responseJson({
-    mode: "read",
-    action: "search_jobs",
-    title: "Unassigned crane jobs",
-    message: unassigned.length ? `I found ${unassigned.length} active job${unassigned.length === 1 ? "" : "s"} missing a crane or operator.` : "I could not find active unassigned crane jobs.",
-    results: unassigned.slice(0, 16).map(jobResult),
-  });
-}
-
-async function fuzzyCustomerResults(supabase: any, query: string) {
-  const customer = await resolveCustomer(supabase, query);
-  return customer.matches.slice(0, 8).map((row: any) => ({
-    label: row.company_name ?? "Customer",
-    href: `/customers/${row.id}`,
-    badge: "similar customer",
-    description: `${row.contact_name ?? "—"} • ${row.phone ?? row.email ?? "—"}`,
-  }));
 }
 
 async function handleJobsNeedingLiftPlans(supabase: any, command: string) {
@@ -985,61 +875,20 @@ async function handleSearch(supabase: any, parsed: ParsedCommand, command: strin
     return handleJobsNeedingLiftPlans(supabase, command);
   }
 
-  if (/\bunassigned\b/.test(lower) && /\bjob/.test(lower)) {
-    return handleUnassignedJobs(supabase);
-  }
-
-  if (/\b(outstanding|not\s+invoiced|unpaid)\b/.test(lower) && /\b(invoice|invoices|jobs?)\b/.test(lower)) {
-    return responseJson({
-      mode: "read",
-      action: "search_jobs",
-      title: "Outstanding invoices",
-      message: "Open the outstanding invoice page to review crane and transport invoice status.",
-      results: [
-        {
-          label: "Outstanding invoices",
-          href: "/invoices/outstanding",
-          badge: "finance",
-          description: "Combined crane and transport outstanding invoice list.",
-        },
-      ],
-      open_href: "/invoices/outstanding",
-    });
-  }
-
-  if (/\bjob/.test(lower) && (parsed.date_text || parsed.target_date || /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|this week|next week)\b/.test(lower))) {
-    const jobsByDate = await handleJobsByDate(supabase, parsed, command);
-    if (jobsByDate) return jobsByDate;
-  }
-
   const query = clean(parsed.search_query) ?? clean(parsed.customer_name) ?? stripCommandNoise(command) ?? command;
   const results = await runGlobalSearch(supabase, query, "all", 8);
-  const mappedResults = results.flat.slice(0, 8).map((item) => ({
-    label: item.title,
-    href: item.href,
-    badge: item.type,
-    description: item.subtitle,
-  }));
-
-  if (!mappedResults.length) {
-    const similarCustomers = await fuzzyCustomerResults(supabase, query);
-    if (similarCustomers.length) {
-      return responseJson({
-        mode: "read",
-        action: parsed.action,
-        title: `Similar matches for: ${query}`,
-        message: "I could not find an exact match, but these customer names look similar.",
-        results: similarCustomers,
-      });
-    }
-  }
 
   return responseJson({
     mode: "read",
     action: parsed.action,
     title: `Search: ${query}`,
-    message: mappedResults.length ? `I found ${mappedResults.length} result${mappedResults.length === 1 ? "" : "s"}.` : "I could not find anything matching that.",
-    results: mappedResults,
+    message: results.flat.length ? `I found ${results.flat.length} result${results.flat.length === 1 ? "" : "s"}.` : "I could not find anything matching that.",
+    results: results.flat.slice(0, 8).map((item) => ({
+      label: item.title,
+      href: item.href,
+      badge: item.type,
+      description: item.subtitle,
+    })),
   });
 }
 
@@ -1063,6 +912,113 @@ async function handleOpenJob(supabase: any, parsed: ParsedCommand) {
     message: "I found the job.",
     results: [jobResult(job)],
     open_href: `/jobs/${job.id}`,
+  });
+}
+
+function relatedJobHref(job: any, command: string) {
+  const lower = String(command ?? "").toLowerCase();
+  if (/\b(lift\s*plan|lp)\b/.test(lower)) {
+    if (/\b(pack|full pack|print pack)\b/.test(lower)) return `/jobs/${job.id}/lift-plan/pack`;
+    if (/\b(print|pdf)\b/.test(lower)) return `/jobs/${job.id}/lift-plan/print`;
+    return `/jobs/${job.id}/lift-plan`;
+  }
+  if (/\b(invoice|invoicing)\b/.test(lower)) return `/jobs/${job.id}/invoice`;
+  if (/\b(document|documents|upload|files)\b/.test(lower)) return `/jobs/${job.id}`;
+  if (/\b(edit|change)\b/.test(lower)) return `/jobs/${job.id}/edit`;
+  return `/jobs/${job.id}`;
+}
+
+function relatedJobLabel(command: string) {
+  const lower = String(command ?? "").toLowerCase();
+  if (/\b(lift\s*plan|lp)\b/.test(lower)) {
+    if (/\b(pack|full pack|print pack)\b/.test(lower)) return "Lift plan pack";
+    if (/\b(print|pdf)\b/.test(lower)) return "Lift plan print/PDF";
+    return "Lift plan";
+  }
+  if (/\b(invoice|invoicing)\b/.test(lower)) return "Invoice page";
+  if (/\b(document|documents|upload|files)\b/.test(lower)) return "Job documents";
+  if (/\b(edit|change)\b/.test(lower)) return "Edit job";
+  return "Job page";
+}
+
+async function handleOpenRelatedJobPage(supabase: any, parsed: ParsedCommand, command: string) {
+  const job = await findJobByNumber(supabase, parsed.job_number);
+  if (!job) {
+    return responseJson({
+      mode: "read",
+      action: "open_related_job_page",
+      title: "Job not found",
+      message: parsed.job_number ? `I could not find job ${parsed.job_number}.` : "Tell me the job number to open.",
+      results: [],
+    });
+  }
+
+  const href = relatedJobHref(job, command);
+  const label = relatedJobLabel(command);
+  return responseJson({
+    mode: "read",
+    action: "open_related_job_page",
+    title: `Open ${label.toLowerCase()} for job ${job.job_number}`,
+    message: `I found job ${job.job_number}.`,
+    results: [
+      {
+        label: `${label} — Job ${job.job_number}`,
+        href,
+        badge: "open",
+        description: jobResult(job).description,
+      },
+    ],
+    open_href: href,
+  });
+}
+
+function pageShortcut(command: string) {
+  const lower = String(command ?? "").toLowerCase();
+  const wantsOpen = /\b(open|go to|take me to|show|view)\b/.test(lower);
+  if (!wantsOpen) return null;
+
+  const shortcuts: Array<{ test: RegExp; label: string; href: string; description: string }> = [
+    { test: /\bstaff\s+planner\b/, label: "Staff planner", href: "/staff-planner", description: "Employee, sub-contractor and office-staff availability." },
+    { test: /\btransport\s+planner\b/, label: "Transport planner", href: "/transport-planner", description: "Transport planner board." },
+    { test: /\b(crane\s+)?planner\b/, label: "Crane planner", href: "/planner", description: "Crane planner board." },
+    { test: /\boutstanding\s+invoice|invoices?\s+outstanding|not\s+invoiced\b/, label: "Outstanding invoices", href: "/invoices/outstanding", description: "Crane and transport invoice status list." },
+    { test: /\bdashboard\s+actions?|action\s+queue\b/, label: "Dashboard actions", href: "/dashboard/actions", description: "Action-led dashboard list." },
+    { test: /\bsystem\s+health\b/, label: "System health", href: "/settings/system-health", description: "Masteradmin configuration checks." },
+    { test: /\bsettings\b/, label: "Settings", href: "/settings", description: "CRM settings." },
+    { test: /\bstatus\s+audit\b/, label: "Status audit", href: "/settings/status-audit", description: "Job and invoice status audit." },
+    { test: /\baudit\s+log\b/, label: "Audit log", href: "/admin/audit", description: "Admin audit log." },
+    { test: /\bstaff\s+accounts?|users?\b/, label: "Staff accounts", href: "/admin/users", description: "Admin user management." },
+    { test: /\bsubcontractors?\s+pay\b/, label: "Subcontractor Pay", href: "/subcontractor-pay", description: "Subcontractor pay records." },
+    { test: /\bsubcontractors?\b/, label: "Subcontractors", href: "/subcontractors", description: "Subcontractor records." },
+    { test: /\bsuppliers?\b/, label: "Suppliers", href: "/suppliers", description: "Supplier records." },
+    { test: /\bpurchase\s+orders?|\bpos?\b/, label: "Purchase orders", href: "/purchase-orders", description: "Purchase order list." },
+    { test: /\btransport\s+map\b/, label: "Transport map", href: "/transport-map", description: "Transport route map." },
+    { test: /\basset\s+locations?\b/, label: "Asset locations", href: "/equipment/locations", description: "Trailer, mats and asset drop-off locations." },
+    { test: /\bvehicles?|trucks?\b/, label: "Vehicles", href: "/vehicles", description: "Vehicle records." },
+    { test: /\bcranes?\b/, label: "Cranes", href: "/cranes", description: "Crane fleet records." },
+    { test: /\bequipment\b/, label: "Equipment", href: "/equipment", description: "Equipment records." },
+    { test: /\boperators?|drivers?\b/, label: "Operators", href: "/operators", description: "Operator records." },
+    { test: /\bcustomers?|clients?\b/, label: "Customers", href: "/customers", description: "Customer records." },
+    { test: /\btransport\s+jobs?\b/, label: "Transport jobs", href: "/transport-jobs", description: "Transport job list." },
+    { test: /\b(crane\s+)?jobs?\b/, label: "Crane jobs", href: "/jobs", description: "Crane job list." },
+    { test: /\bquotes?\b/, label: "Quotes", href: "/quotes", description: "Quote list." },
+    { test: /\bsales\s+hub|campaigns?|leads?\b/, label: "Sales Hub", href: "/sales", description: "Sales leads and campaigns." },
+  ];
+
+  return shortcuts.find((item) => item.test.test(lower)) ?? null;
+}
+
+function handleOpenPageShortcut(command: string) {
+  const shortcut = pageShortcut(command);
+  if (!shortcut) return null;
+
+  return responseJson({
+    mode: "read",
+    action: "open_page",
+    title: `Open ${shortcut.label}`,
+    message: `Open ${shortcut.label}.`,
+    results: [{ label: shortcut.label, href: shortcut.href, badge: "open", description: shortcut.description }],
+    open_href: shortcut.href,
   });
 }
 
@@ -1161,39 +1117,45 @@ async function handleCreateCraneDraft(supabase: any, parsed: ParsedCommand, comm
   if (!date) missing.push(parsed.date_text ? `I could not understand the date: ${parsed.date_text}` : "Date missing");
 
   if (missing.length > 0) {
-    const possibleMatches = [
-      ...customer.matches.slice(0, 6).map((row: any) => ({
-        label: row.company_name ?? "Customer",
-        href: `/customers/${row.id}`,
-        badge: "similar customer",
-        description: `${row.contact_name ?? "—"} • ${row.phone ?? row.email ?? "—"}`,
-      })),
-      ...crane.matches.slice(0, 5).map((row: any) => ({
-        label: row.name ?? "Crane",
-        href: `/cranes/${row.id}`,
-        badge: "similar crane",
-        description: `${row.reg_number ?? row.fleet_number ?? "—"} • ${row.status ?? "—"}`,
-      })),
-    ];
-
     return responseJson({
       mode: "needs_more_info",
       action: parsed.action,
-      title: possibleMatches.length ? "I found similar matches, but need you to be sure" : "I need a bit more information",
-      message: possibleMatches.length
-        ? `${missing.join(". ")}. Click the closest match to check it, or type the command again with the exact name.`
-        : missing.join(". "),
-      results: possibleMatches,
+      title: "I need a bit more information",
+      message: missing.join(". "),
+      results: [
+        ...customer.matches.slice(0, 5).map((row: any) => ({
+          label: row.company_name ?? "Customer",
+          href: `/customers/${row.id}`,
+          badge: "customer",
+          description: `${row.contact_name ?? "—"} • ${row.phone ?? "—"}`,
+        })),
+        ...crane.matches.slice(0, 5).map((row: any) => ({
+          label: row.name ?? "Crane",
+          href: `/cranes/${row.id}`,
+          badge: "crane",
+          description: `${row.reg_number ?? row.fleet_number ?? "—"} • ${row.status ?? "—"}`,
+        })),
+      ],
     });
   }
 
-  const warnings = [customer.warning, crane.warning, operator.warning].filter(Boolean) as string[];
-  if (!crane.selected) warnings.push("No crane was confidently matched, so this will create the job without a crane allocation.");
+  const matchWarnings = [
+    customer.selected && parsed.customer_name && normaliseName(customer.selected.company_name) !== normaliseName(parsed.customer_name)
+      ? `I matched customer "${customer.selected.company_name}" from "${parsed.customer_name}". Check this before confirming.`
+      : null,
+    crane.selected && parsed.crane_name && normaliseName(crane.selected.name) !== normaliseName(parsed.crane_name)
+      ? `I matched crane "${crane.selected.name}" from "${parsed.crane_name}". Check this before confirming.`
+      : null,
+    operator.selected && parsed.operator_name && normaliseName(operator.selected.full_name) !== normaliseName(parsed.operator_name)
+      ? `I matched operator "${operator.selected.full_name}" from "${parsed.operator_name}". Check this before confirming.`
+      : null,
+    crane.selected ? null : "No crane was confidently matched, so this will create the job without a crane allocation.",
+  ].filter(Boolean).join(" ");
 
   const draft: DraftAction = {
     type: "create_crane_job",
     title: "Create crane job",
-    warning: warnings.length ? warnings.join(" ") : null,
+    warning: matchWarnings || null,
     preview: [
       { label: "Customer", value: customer.selected.company_name ?? "—" },
       { label: "Date", value: formatDate(date) },
@@ -1300,7 +1262,9 @@ async function handleAssignOperatorDraft(supabase: any, parsed: ParsedCommand) {
   const draft: DraftAction = {
     type: "assign_operator",
     title: `Add ${operator.selected.full_name} to job ${job.job_number}`,
-    warning: operator.warning,
+    warning: parsed.operator_name && normaliseName(operator.selected.full_name) !== normaliseName(parsed.operator_name)
+      ? `I matched operator "${operator.selected.full_name}" from "${parsed.operator_name}". Check this before confirming.`
+      : null,
     preview: [
       { label: "Job", value: `Job ${job.job_number}` },
       { label: "Customer", value: first(job.clients)?.company_name ?? "—" },
@@ -1325,6 +1289,104 @@ async function handleAssignOperatorDraft(supabase: any, parsed: ParsedCommand) {
     action: parsed.action,
     title: draft.title,
     message: "I have prepared the operator allocation. Check it, then confirm to save it.",
+    draftAction: draft,
+    results: [jobResult(job)],
+  });
+}
+
+async function handleAssignCraneDraft(supabase: any, parsed: ParsedCommand) {
+  const job = await findJobByNumber(supabase, parsed.job_number);
+  const crane = await resolveCrane(supabase, parsed.crane_name);
+
+  if (!job || !crane.selected) {
+    return responseJson({
+      mode: "needs_more_info",
+      action: parsed.action,
+      title: "I need a job and crane",
+      message: !job ? "I could not find that job." : `I could not find crane ${parsed.crane_name ?? ""}.`,
+      results: crane.matches.slice(0, 6).map((row: any) => ({
+        label: row.name ?? "Crane",
+        href: `/cranes/${row.id}`,
+        badge: "crane",
+        description: `${row.reg_number ?? row.fleet_number ?? "—"} • ${row.status ?? "—"}`,
+      })),
+    });
+  }
+
+  const startDate = clean(job.start_date) ?? clean(job.job_date);
+  const endDate = clean(job.end_date) ?? startDate;
+  const draft: DraftAction = {
+    type: "assign_crane",
+    title: `Add ${crane.selected.name} to job ${job.job_number}`,
+    warning: parsed.crane_name && normaliseName(crane.selected.name) !== normaliseName(parsed.crane_name)
+      ? `I matched crane "${crane.selected.name}" from "${parsed.crane_name}". Check this before confirming.`
+      : null,
+    preview: [
+      { label: "Job", value: `Job ${job.job_number}` },
+      { label: "Customer", value: first(job.clients)?.company_name ?? "—" },
+      { label: "Crane", value: crane.selected.name ?? "—" },
+      { label: "Dates", value: `${formatDate(startDate)}${endDate && endDate !== startDate ? ` → ${formatDate(endDate)}` : ""}` },
+    ],
+    payload: {
+      job_id: job.id,
+      job_number: job.job_number,
+      crane_id: crane.selected.id,
+      crane_name: crane.selected.name,
+      start_date: startDate,
+      end_date: endDate,
+      start_time: job.start_time ?? null,
+      end_time: job.end_time ?? null,
+    },
+  };
+
+  return responseJson({
+    mode: "draft",
+    action: parsed.action,
+    title: draft.title,
+    message: "I have prepared the crane allocation. Check it, then confirm to save it.",
+    draftAction: draft,
+    results: [jobResult(job)],
+  });
+}
+
+async function handleUpdateJobStatusDraft(supabase: any, parsed: ParsedCommand) {
+  const job = await findJobByNumber(supabase, parsed.job_number);
+  const status = normaliseJobStatus(parsed.job_status ?? "");
+
+  if (!job || !status || status === "dangerous") {
+    return responseJson({
+      mode: status === "dangerous" ? "blocked" : "needs_more_info",
+      action: parsed.action,
+      title: status === "dangerous" ? "Use the normal CRM controls for that" : "I need a job and a safe status",
+      message: status === "dangerous"
+        ? "Cancelling, deleting or archiving must be done through the normal CRM page with the proper confirmation trail."
+        : !job ? "I could not find that job." : "Tell me the status to set, for example confirmed, provisional, in progress or completed.",
+    }, status === "dangerous" ? 400 : 200);
+  }
+
+  const draft: DraftAction = {
+    type: "update_job_status",
+    title: `Set job ${job.job_number} to ${friendlyStatus(status)}`,
+    warning: status === "completed" ? "This will mark the job as completed. Check this is the correct job before confirming." : null,
+    preview: [
+      { label: "Job", value: `Job ${job.job_number}` },
+      { label: "Customer", value: first(job.clients)?.company_name ?? "—" },
+      { label: "Current status", value: friendlyStatus(job.status) },
+      { label: "New status", value: friendlyStatus(status) },
+    ],
+    payload: {
+      job_id: job.id,
+      job_number: job.job_number,
+      old_status: job.status ?? null,
+      new_status: status,
+    },
+  };
+
+  return responseJson({
+    mode: "draft",
+    action: parsed.action,
+    title: draft.title,
+    message: "I have prepared the status change. Check it, then confirm to save it.",
     draftAction: draft,
     results: [jobResult(job)],
   });
@@ -1640,6 +1702,99 @@ async function executeAssignOperator(supabase: any, user: any, draft: DraftActio
   };
 }
 
+async function executeAssignCrane(supabase: any, user: any, draft: DraftAction) {
+  const p = draft.payload ?? {};
+  const jobId = clean(p.job_id);
+  const craneId = clean(p.crane_id);
+  if (!jobId || !craneId) throw new Error("Job and crane are required.");
+
+  const payload: Record<string, any> = {
+    job_id: jobId,
+    asset_type: "crane",
+    crane_id: craneId,
+    source_type: "owned",
+    start_date: clean(p.start_date),
+    end_date: clean(p.end_date) ?? clean(p.start_date),
+    start_time: clean(p.start_time),
+    end_time: clean(p.end_time),
+    agreed_cost: 0,
+    agreed_sell_rate: 0,
+    supplier_cost: 0,
+    notes: "Added by AnnS CRM Assistant.",
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("job_equipment").insert(payload);
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actor_user_id: user.id,
+    actor_username: user.email ? user.email.split("@")[0] : null,
+    action: "crm_assistant_crane_assigned",
+    entity_type: "job",
+    entity_id: jobId,
+    meta: {
+      job_number: p.job_number ?? null,
+      crane_id: craneId,
+      crane_name: p.crane_name ?? null,
+    },
+  });
+
+  return {
+    title: "Crane added",
+    message: `${p.crane_name ?? "Crane"} has been added to job ${p.job_number ?? ""}.`,
+    href: `/jobs/${jobId}`,
+    result: {
+      label: `Open job ${p.job_number ?? ""}`,
+      href: `/jobs/${jobId}`,
+      badge: "updated",
+      description: `${p.crane_name ?? "Crane"} added as a crane allocation.`,
+    },
+  };
+}
+
+async function executeUpdateJobStatus(supabase: any, user: any, draft: DraftAction) {
+  const p = draft.payload ?? {};
+  const jobId = clean(p.job_id);
+  const newStatus = normaliseJobStatus(clean(p.new_status));
+  if (!jobId || !newStatus || newStatus === "dangerous") throw new Error("A safe job status is required.");
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      status: newStatus,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) throw new Error(error.message);
+
+  await writeAuditLog({
+    actor_user_id: user.id,
+    actor_username: user.email ? user.email.split("@")[0] : null,
+    action: "crm_assistant_job_status_updated",
+    entity_type: "job",
+    entity_id: jobId,
+    meta: {
+      job_number: p.job_number ?? null,
+      old_status: p.old_status ?? null,
+      new_status: newStatus,
+    },
+  });
+
+  return {
+    title: "Job status updated",
+    message: `Job ${p.job_number ?? ""} is now ${friendlyStatus(newStatus)}.`,
+    href: `/jobs/${jobId}`,
+    result: {
+      label: `Open job ${p.job_number ?? ""}`,
+      href: `/jobs/${jobId}`,
+      badge: "updated",
+      description: `Status changed to ${friendlyStatus(newStatus)}.`,
+    },
+  };
+}
+
 async function executeVisitInvoice(supabase: any, user: any, draft: DraftAction) {
   const p = draft.payload ?? {};
   const jobId = clean(p.job_id);
@@ -1695,6 +1850,8 @@ async function executeDraft(supabase: any, user: any, draft: DraftAction | null)
   if (draft.type === "create_crane_job") return executeCreateCraneJob(supabase, user, draft);
   if (draft.type === "move_crane_job") return executeMoveJob(supabase, user, draft);
   if (draft.type === "assign_operator") return executeAssignOperator(supabase, user, draft);
+  if (draft.type === "assign_crane") return executeAssignCrane(supabase, user, draft);
+  if (draft.type === "update_job_status") return executeUpdateJobStatus(supabase, user, draft);
   if (draft.type === "mark_visit_invoiced") return executeVisitInvoice(supabase, user, draft);
 
   throw new Error("This action is not supported yet.");
@@ -1730,7 +1887,8 @@ export async function POST(req: Request) {
       });
     }
 
-    const command = clean(body?.command);
+    const rawCommand = clean(body?.command);
+    const command = clean(rawCommand ? repairSpokenCommand(rawCommand) : null);
     if (!command) {
       return responseJson({ error: "Command is required." }, 400);
     }
@@ -1748,17 +1906,30 @@ export async function POST(req: Request) {
     }
 
     const lowerCommand = command.toLowerCase();
+    const shortcut = handleOpenPageShortcut(command);
+
+    if (parsed.job_number && /\b(open|view|show|go to|take me to)\b/.test(lowerCommand) && /\b(lift\s*plan|\blp\b|invoice|documents?|files?|edit|pack|pdf|print)\b/.test(lowerCommand)) {
+      return handleOpenRelatedJobPage(supabase, parsed, command);
+    }
+
+    if (parsed.action === "open_page" && shortcut) return shortcut;
+    if (parsed.action !== "search_jobs" && shortcut && !parsed.job_number) return shortcut;
+
     if (/(lift\s*plan|\blp\b)/.test(lowerCommand) && !parsed.job_number) {
       return handleSearch(supabase, parsed, command);
     }
 
     if (parsed.action === "help") return helpResponse();
     if (parsed.action === "open_job") return handleOpenJob(supabase, parsed);
+    if (parsed.action === "open_related_job_page") return handleOpenRelatedJobPage(supabase, parsed, command);
+    if (parsed.action === "open_page" && shortcut) return shortcut;
     if (parsed.action === "check_job_missing_info") return handleMissingInfo(supabase, parsed);
     if (parsed.action === "open_planner_date") return handleOpenPlanner(parsed);
     if (parsed.action === "create_crane_job_draft") return handleCreateCraneDraft(supabase, parsed, command);
     if (parsed.action === "update_job_date_draft") return handleMoveJobDraft(supabase, parsed);
     if (parsed.action === "assign_operator_draft") return handleAssignOperatorDraft(supabase, parsed);
+    if (parsed.action === "assign_crane_draft") return handleAssignCraneDraft(supabase, parsed);
+    if (parsed.action === "update_job_status_draft") return handleUpdateJobStatusDraft(supabase, parsed);
     if (parsed.action === "mark_visit_invoiced_draft") return handleVisitInvoiceDraft(supabase, parsed);
     if (parsed.action === "create_transport_job_draft") {
       return responseJson({
