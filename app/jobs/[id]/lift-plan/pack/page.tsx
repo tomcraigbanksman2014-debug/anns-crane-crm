@@ -318,13 +318,18 @@ function CheckboxTable({
   rightHeader,
   left,
   right,
+  namePrefix = "checklist",
+  sections,
 }: {
   leftHeader?: ReactNode;
   rightHeader?: ReactNode;
   left: ReactNode[];
   right: ReactNode[];
+  namePrefix?: string;
+  sections?: StringMap;
 }) {
   const rows = Math.max(left.length, right.length);
+  const saved = (key: string) => defaultSectionText(sections ?? {}, key, "");
   return (
     <div className="lift-pack-table-wrap"><table style={tableStyle}>
       <thead>
@@ -341,11 +346,11 @@ function CheckboxTable({
         {Array.from({ length: rows }).map((_, i) => (
           <tr key={i}>
             <td style={tdStyle}>{left[i] ?? ""}</td>
-            <td style={tickCell}></td>
-            <td style={tickCell}></td>
+            <td style={tickCell}>{<EditableInput name={`${namePrefix}_left_${i + 1}_yes`} defaultValue={saved(`${namePrefix}_left_${i + 1}_yes`)} align="right" emptyPrintValue="" />}</td>
+            <td style={tickCell}>{<EditableInput name={`${namePrefix}_left_${i + 1}_no`} defaultValue={saved(`${namePrefix}_left_${i + 1}_no`)} align="right" emptyPrintValue="" />}</td>
             <td style={tdStyle}>{right[i] ?? ""}</td>
-            <td style={tickCell}></td>
-            <td style={tickCell}></td>
+            <td style={tickCell}>{<EditableInput name={`${namePrefix}_right_${i + 1}_yes`} defaultValue={saved(`${namePrefix}_right_${i + 1}_yes`)} align="right" emptyPrintValue="" />}</td>
+            <td style={tickCell}>{<EditableInput name={`${namePrefix}_right_${i + 1}_no`} defaultValue={saved(`${namePrefix}_right_${i + 1}_no`)} align="right" emptyPrintValue="" />}</td>
           </tr>
         ))}
       </tbody>
@@ -356,10 +361,15 @@ function CheckboxTable({
 function BlankTable({
   headers,
   rows,
+  namePrefix = "blank_table",
+  sections,
 }: {
   headers: ReactNode[];
   rows: number;
+  namePrefix?: string;
+  sections?: StringMap;
 }) {
+  const saved = (key: string) => defaultSectionText(sections ?? {}, key, "");
   return (
     <div className="lift-pack-table-wrap"><table style={tableStyle}>
       <thead>
@@ -375,7 +385,9 @@ function BlankTable({
         {Array.from({ length: rows }).map((_, i) => (
           <tr key={i}>
             {headers.map((_, idx) => (
-              <td key={idx} style={tdStyle}></td>
+              <td key={idx} style={tdStyle}>
+                {<EditableInput name={`${namePrefix}_r${i + 1}_c${idx + 1}`} defaultValue={saved(`${namePrefix}_r${i + 1}_c${idx + 1}`)} emptyPrintValue="" />}
+              </td>
             ))}
           </tr>
         ))}
@@ -387,16 +399,25 @@ function BlankTable({
 function SignatureRow({
   title,
   name,
+  nameField,
+  dateField,
+  sections,
 }: {
   title: ReactNode;
   name?: string | null;
+  nameField: string;
+  dateField: string;
+  sections?: StringMap;
 }) {
+  const savedName = defaultSectionText(sections ?? {}, nameField, name || "");
+  const savedDate = defaultSectionText(sections ?? {}, dateField, "");
   return (
     <div style={signatureBox}>
       <div style={{ fontWeight: 800 }}>{title}</div>
       <div style={{ marginTop: 12, borderBottom: "1px solid #333", minHeight: 22 }} />
-      <div style={{ marginTop: 6, fontSize: 12 }}>
-        Name: {name || "________________"} &nbsp;&nbsp; Date: ________________
+      <div style={{ marginTop: 6, fontSize: 12, display: "grid", gap: 4 }}>
+        <div>Name: {<EditableInput name={nameField} defaultValue={savedName} />}</div>
+        <div>Date: {<EditableInput name={dateField} defaultValue={savedDate} emptyPrintValue="" />}</div>
       </div>
     </div>
   );
@@ -408,12 +429,18 @@ function AppendixPage({
   titleNode,
   captionNode,
   headerMonth,
+  headerTitle,
+  headerSubtitle,
+  footerText,
 }: {
   asset: PackAppendixAssetItem;
   index: number;
   titleNode?: ReactNode;
   captionNode?: ReactNode;
   headerMonth?: ReactNode;
+  headerTitle?: ReactNode;
+  headerSubtitle?: ReactNode;
+  footerText?: ReactNode;
 }) {
   const imageSrc = asset.image_url;
 
@@ -428,7 +455,7 @@ function AppendixPage({
         breakAfter: "page",
       }}
     >
-      <PageHeader sectionTitle={`Appendix ${index}`} month={headerMonth} />
+      <PageHeader sectionTitle={`Appendix ${index}`} title={headerTitle} subtitle={headerSubtitle} month={headerMonth} />
       <div style={appendixPageBody}>
         <div style={appendixTitle}>{titleNode ?? asset.title}</div>
         {captionNode ? (
@@ -440,6 +467,7 @@ function AppendixPage({
           <img src={imageSrc} alt={typeof asset.title === "string" ? asset.title : `Appendix ${index}`} style={appendixImage} />
         </div>
       </div>
+      <PageFooter text={footerText} />
     </section>
   );
 }
@@ -459,12 +487,14 @@ function EditableInput({
   name,
   defaultValue,
   align = "left",
+  emptyPrintValue = "—",
 }: {
   name: string;
   defaultValue: string;
   align?: "left" | "right";
+  emptyPrintValue?: string;
 }) {
-  const printValue = defaultValue && String(defaultValue).trim() ? defaultValue : "—";
+  const printValue = defaultValue && String(defaultValue).trim() ? defaultValue : emptyPrintValue;
 
   return (
     <span className="editable-value-wrap" style={editableValueWrapStyle}>
@@ -949,6 +979,24 @@ export default async function CraneLiftPlanPackPage({
         }
       `}</style>
 
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            document.addEventListener("input", function (event) {
+              var target = event.target;
+              if (!target || !target.name) return;
+              var fields = document.getElementsByName(target.name);
+              for (var i = 0; i < fields.length; i += 1) {
+                var field = fields[i];
+                if (field !== target && "value" in field) {
+                  field.value = target.value;
+                }
+              }
+            });
+          `,
+        }}
+      />
+
       <form action={`/api/jobs/${params.id}/lift-plan/pack-selections`} method="post">
         <div className="print-hide" style={toolbar}>
           <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
@@ -1100,11 +1148,11 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>{inputField("section_title_2", "2. Appointed Person Declaration")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("ap_decl_label_name", "Name"), appointedPerson],
-            [inputField("ap_decl_label_prepared_for", "Prepared for job"), `#${(job as any)?.job_number ?? "—"}`],
+            [inputField("ap_decl_label_name", "Name"), inputField("ap_decl_name", appointedPerson)],
+            [inputField("ap_decl_label_prepared_for", "Prepared for job"), inputField("ap_decl_prepared_for_job", `#${(job as any)?.job_number ?? "—"}`)],
             [inputField("cover_label_prepared_by", "Prepared by"), inputField("cover_prepared_by_value", "ANNS CRANE HIRE LTD")],
-            [inputField("ap_decl_label_approved_by", "Approved by"), liftPlan?.approved_by],
-            [inputField("ap_decl_label_approved_at", "Approved at"), fmtDateTime(liftPlan?.approved_at)],
+            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", liftPlan?.approved_by || "—")],
+            [inputField("ap_decl_label_approved_at", "Approved at"), inputField("ap_decl_approved_at_value", fmtDateTime(liftPlan?.approved_at))],
           ]}
         />
 
@@ -1134,10 +1182,10 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>{inputField("section_title_6", "6. Lifting Personnel")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("cover_label_appointed_person", "Appointed Person"), appointedPerson],
-            [inputField("personnel_label_ls", "Lift Supervisor"), liftSupervisor],
-            [inputField("personnel_label_operator", "Crane Operator"), liftPlan?.crane_operator || operator?.full_name],
-            [inputField("personnel_label_client_contact", "Client / Site Contact"), (job as any)?.contact_name],
+            [inputField("cover_label_appointed_person", "Appointed Person"), inputField("personnel_appointed_person", appointedPerson)],
+            [inputField("personnel_label_ls", "Lift Supervisor"), inputField("personnel_lift_supervisor", liftSupervisor)],
+            [inputField("personnel_label_operator", "Crane Operator"), inputField("personnel_crane_operator", liftPlan?.crane_operator || operator?.full_name || "—")],
+            [inputField("personnel_label_client_contact", "Client / Site Contact"), inputField("personnel_client_contact", (job as any)?.contact_name || "—")],
           ]}
         />
 
@@ -1176,8 +1224,8 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>{inputField("section_title_13", "13. Lifting Equipment to be used & Certification")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("equipment_label_sling_type", "Sling type"), liftPlan?.sling_type],
-            [inputField("equipment_label_lifting_accessories", "Lifting accessories"), liftPlan?.lifting_accessories],
+            [inputField("equipment_label_sling_type", "Sling type"), inputField("equipment_sling_type", liftPlan?.sling_type || "—")],
+            [inputField("equipment_label_lifting_accessories", "Lifting accessories"), areaField("equipment_lifting_accessories", liftPlan?.lifting_accessories || "—", 3, true)],
             [
               inputField("equipment_label_loler", "LOLER / certification"),
               <EditableTextarea name="lifting_equipment_certification" defaultValue={liftingEquipmentText} rows={4} compact />,
@@ -1196,23 +1244,21 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>{inputField("section_title_14", "14. Crane Details")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("crane_label_type", "Crane type"), craneName],
+            [inputField("crane_label_type", "Crane type"), inputField("crane_type_value", craneName)],
             [
               inputField("crane_label_gross_weight", "Crane gross weight"),
-              crane?.capacity
-                ? `${crane?.capacity}`
-                : inputField("crane_gross_weight_fallback", "See selected machine profile / manufacturer information"),
+              inputField("crane_gross_weight", crane?.capacity ? `${crane?.capacity}` : "See selected machine profile / manufacturer information"),
             ],
-            [inputField("crane_label_load_weight", "Gross weight of load"), loadWeight],
+            [inputField("crane_label_load_weight", "Gross weight of load"), inputField("crane_load_weight", loadWeight)],
             [
               inputField("crane_label_lifting_accessories_weight", "Gross weight of lifting accessories"),
-              liftPlan?.lifting_accessories ? inputField("crane_lifting_accessories_weight_text", "Included within planned lift accessories.") : "—",
+              inputField("crane_lifting_accessories_weight_text", liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—"),
             ],
             [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
-            [inputField("crane_label_outreach_reference", "Boom / outreach reference"), outreachRef],
-            [inputField("crane_label_jib_reference", "Jib / max outreach"), jibRef],
-            [inputField("crane_label_max_capacity", "Max capacity"), craneCapacity],
-            [inputField("crane_label_utilisation", "Crane utilisation %"), utilisation],
+            [inputField("crane_label_outreach_reference", "Boom / outreach reference"), inputField("crane_outreach_reference", outreachRef)],
+            [inputField("crane_label_jib_reference", "Jib / max outreach"), inputField("crane_jib_reference", jibRef)],
+            [inputField("crane_label_max_capacity", "Max capacity"), inputField("crane_max_capacity", craneCapacity)],
+            [inputField("crane_label_utilisation", "Crane utilisation %"), inputField("crane_utilisation", utilisation)],
           ]}
         />
 
@@ -1247,6 +1293,8 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
             inputField("variation_header_4", "Initials"),
           ]}
           rows={5}
+          namePrefix="variation_table"
+          sections={sections}
         />
 
         <div style={avoidBreak}>
@@ -1270,6 +1318,8 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
               inputField("check_right_5", "Weather within acceptable limits"),
               inputField("check_right_6", "Site cleared"),
             ]}
+            namePrefix="toolbox_checklist"
+            sections={sections}
           />
         </div>
       </PageShell>
@@ -1331,24 +1381,24 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           }
           rightTitle={inputField("site_hazards_title", "Site hazards")}
           rightBody={
-            hazardLines.length
+            areaField("site_hazards", hazardLines.length
               ? hazardLines.join("\n")
-              : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival."
+              : "Overhead obstructions, restricted access, uneven ground, adjacent traffic, and any site-specific hazards identified at planning stage or on arrival.", 9)
           }
         />
 
         <TwoColumnBoxes
           leftTitle={inputField("control_measures_title", "Control measures")}
           leftBody={
-            controlLines.length
+            areaField("control_measures", controlLines.length
               ? controlLines.join("\n")
-              : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance."
+              : "Establish exclusion zone, use competent personnel, inspect equipment, monitor weather, maintain communication, and follow the approved lift plan and manufacturer guidance.", 9)
           }
           rightTitle={inputField("ppe_required_title", "PPE required")}
           rightBody={
-            ppeLines.length
+            areaField("ppe_required", ppeLines.length
               ? ppeLines.join("\n")
-              : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions."
+              : "Hard hat, hi-vis clothing, safety footwear, gloves and any additional PPE required for the specific load / site conditions.", 9)
           }
         />
       </PageShell>
@@ -1363,35 +1413,35 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         <SectionTitle>{inputField("section_title_22", "22. Check Lists and Sign Offs")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("signoff_label_lift_plan_complete", "Lift plan complete"), yesNo(liftPlan?.lift_plan_complete)],
-            [inputField("signoff_label_rams_complete", "RAMS complete"), yesNo(liftPlan?.rams_complete)],
-            [inputField("ap_decl_label_approved_by", "Approved by"), liftPlan?.approved_by],
-            [inputField("ap_decl_label_approved_at", "Approved at"), fmtDateTime(liftPlan?.approved_at)],
-            [inputField("signoff_label_approval_notes", "Approval notes"), liftPlan?.approval_notes],
+            [inputField("signoff_label_lift_plan_complete", "Lift plan complete"), inputField("signoff_lift_plan_complete", yesNo(liftPlan?.lift_plan_complete))],
+            [inputField("signoff_label_rams_complete", "RAMS complete"), inputField("signoff_rams_complete", yesNo(liftPlan?.rams_complete))],
+            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", liftPlan?.approved_by || "—")],
+            [inputField("ap_decl_label_approved_at", "Approved at"), inputField("ap_decl_approved_at_value", fmtDateTime(liftPlan?.approved_at))],
+            [inputField("signoff_label_approval_notes", "Approval notes"), areaField("signoff_approval_notes", liftPlan?.approval_notes || "—", 3, true)],
           ]}
         />
 
         <div style={avoidBreak}>
           <div style={subHeading}>{inputField("attendance_record_title", "Attendance Record")}</div>
-          <BlankTable headers={[inputField("attendance_header_1", "Name"), inputField("attendance_header_2", "Employer"), inputField("attendance_header_3", "Signature")]} rows={4} />
+          <BlankTable headers={[inputField("attendance_header_1", "Name"), inputField("attendance_header_2", "Employer"), inputField("attendance_header_3", "Signature")]} rows={4} namePrefix="attendance_record" sections={sections} />
         </div>
 
         <div style={avoidBreak}>
           <div style={subHeading}>{inputField("delegation_title", "Delegation of Duties")}</div>
           <InfoTable
             rows={[
-              [inputField("delegation_label_ap", "Appointed Person"), appointedPerson],
-              [inputField("delegation_label_ls", "Lift Supervisor"), liftSupervisor],
-              [inputField("delegation_label_operator", "Crane Operator"), liftPlan?.crane_operator || operator?.full_name],
+              [inputField("delegation_label_ap", "Appointed Person"), inputField("delegation_appointed_person", appointedPerson)],
+              [inputField("delegation_label_ls", "Lift Supervisor"), inputField("delegation_lift_supervisor", liftSupervisor)],
+              [inputField("delegation_label_operator", "Crane Operator"), inputField("delegation_crane_operator", liftPlan?.crane_operator || operator?.full_name || "—")],
             ]}
           />
         </div>
 
         <div style={signatureGrid}>
-          <SignatureRow title={inputField("signature_title_ap", "Appointed Person signature")} name={appointedPerson} />
-          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} />
-          <SignatureRow title={inputField("signature_title_operator", "Crane Operator signature")} name={liftPlan?.crane_operator || operator?.full_name} />
-          <SignatureRow title={inputField("signature_title_client", "Client completion sign-off")} name={(job as any)?.contact_name} />
+          <SignatureRow title={inputField("signature_title_ap", "Appointed Person signature")} name={appointedPerson} nameField="signature_ap_name" dateField="signature_ap_date" sections={sections} />
+          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} nameField="signature_ls_name" dateField="signature_ls_date" sections={sections} />
+          <SignatureRow title={inputField("signature_title_operator", "Crane Operator signature")} name={liftPlan?.crane_operator || operator?.full_name} nameField="signature_operator_name" dateField="signature_operator_date" sections={sections} />
+          <SignatureRow title={inputField("signature_title_client", "Client completion sign-off")} name={(job as any)?.contact_name} nameField="signature_client_name" dateField="signature_client_date" sections={sections} />
         </div>
 
         <BoxedParagraph title={inputField("toolbox_notes_title", "Toolbox / sign-off notes")}>
@@ -1419,12 +1469,12 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         <InfoTable
           rows={[
             [inputField("wind_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            [inputField("wind_label_lift_supervisor", "Lift Supervisor"), liftSupervisor],
-            [inputField("wind_label_date", "Date"), fmtDate((job as any)?.start_date ?? (job as any)?.job_date)],
+            [inputField("wind_label_lift_supervisor", "Lift Supervisor"), inputField("wind_lift_supervisor", liftSupervisor)],
+            [inputField("wind_label_date", "Date"), inputField("wind_date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date))],
           ]}
         />
         <div style={{ height: 8 }} />
-        <BlankTable headers={[inputField("wind_header_1", "Time"), inputField("wind_header_2", "Wind Speed"), inputField("wind_header_3", "OK To Work (Y / N)"), inputField("wind_header_4", "Notes")]} rows={12} />
+        <BlankTable headers={[inputField("wind_header_1", "Time"), inputField("wind_header_2", "Wind Speed"), inputField("wind_header_3", "OK To Work (Y / N)"), inputField("wind_header_4", "Notes")]} rows={12} namePrefix="wind_record" sections={sections} />
       </PageShell>
 
       {appendixAssets.map((asset, index) => (
@@ -1435,6 +1485,9 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           titleNode={inputField(`appendix_${index + 1}_title`, asset.title || `Appendix ${index + 1}`)}
           captionNode={areaField(`appendix_${index + 1}_caption`, asset.description || "", 2, true)}
           headerMonth={monthInputField("page_header_month", "right")}
+          headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+          headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+          footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
         />
       ))}
       </fieldset>
