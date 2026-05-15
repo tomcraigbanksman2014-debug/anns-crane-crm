@@ -119,15 +119,18 @@ function normaliseCraneJob(job: any) {
 function normaliseEquipmentAssignment(allocation: any, relatedJob: any, startDate: string | null, endDate: string | null) {
   const assetType = String(allocation?.asset_type ?? "").trim().toLowerCase();
   const itemName = clean(allocation?.item_name);
+  const crane = first(allocation?.cranes);
+  const operator = first(allocation?.operators);
+  const craneLabel = clean(crane?.name) ?? clean(crane?.reg_number);
   const label =
     assetType === "other"
       ? itemName ?? "Labour / other"
       : assetType === "crane"
-        ? "Crane allocation"
+        ? itemName ?? craneLabel ?? "Crane allocation"
         : assetType === "vehicle"
-          ? "Vehicle allocation"
+          ? itemName ?? "Vehicle allocation"
           : assetType === "equipment"
-            ? "Equipment allocation"
+            ? itemName ?? "Equipment allocation"
             : itemName ?? "Allocation";
 
   return {
@@ -144,6 +147,7 @@ function normaliseEquipmentAssignment(allocation: any, relatedJob: any, startDat
     item_name: itemName,
     assignment_label: label,
     supplier_reference: clean(allocation?.supplier_reference),
+    operator_name: clean(operator?.full_name),
     notes: clean(allocation?.notes),
   };
 }
@@ -227,6 +231,8 @@ export async function GET(req: Request) {
           end_time,
           supplier_reference,
           notes,
+          cranes:crane_id (id, name, reg_number),
+          operators:operator_id (id, full_name),
           jobs:job_id (
             id,
             job_number,
@@ -254,6 +260,8 @@ export async function GET(req: Request) {
           end_at,
           supplier_reference,
           notes,
+          cranes:crane_id (id, name, reg_number),
+          operators:operator_id (id, full_name),
           jobs:job_id (
             id,
             job_number,
@@ -324,7 +332,8 @@ export async function GET(req: Request) {
     }
 
     const craneJobsByOperator = new Map<string, any[]>();
-    const craneDedup = new Set<string>();
+    const directJobDedup = new Set<string>();
+    const allocationDedup = new Set<string>();
 
     for (const job of directJobsRes.data ?? []) {
       if (!isVisibleStatus((job as any)?.status)) continue;
@@ -339,9 +348,10 @@ export async function GET(req: Request) {
       );
 
       for (const operatorId of operatorIds) {
-        const key = `${operatorId}:${(job as any).id}`;
+        const key = `direct:${operatorId}:${(job as any).id}`;
+        if (directJobDedup.has(key)) continue;
+        directJobDedup.add(key);
         const operatorKey = `operator:${operatorId}`;
-        craneDedup.add(key);
         const list = craneJobsByOperator.get(operatorKey) ?? [];
         list.push(normaliseCraneJob(job));
         craneJobsByOperator.set(operatorKey, list);
@@ -359,9 +369,9 @@ export async function GET(req: Request) {
       const end = clean((allocation as any)?.end_date) ?? start ?? normaliseJobEnd(relatedJob);
       if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
 
-      const key = `${operatorId}:${(relatedJob as any).id}`;
-      if (craneDedup.has(key)) continue;
-      craneDedup.add(key);
+      const key = `job_equipment:${operatorId}:${(relatedJob as any).id}:${(allocation as any)?.id ?? `${start ?? ""}:${end ?? ""}:${(allocation as any)?.asset_type ?? ""}`}`;
+      if (allocationDedup.has(key)) continue;
+      allocationDedup.add(key);
 
       const operatorKey = `operator:${operatorId}`;
       const list = craneJobsByOperator.get(operatorKey) ?? [];
@@ -380,9 +390,9 @@ export async function GET(req: Request) {
       const end = dateOnlyFromTimestamp((allocation as any)?.end_at) ?? normaliseJobEnd(relatedJob);
       if (!overlapsWeek(start, end, weekStart, weekEnd)) continue;
 
-      const key = `${operatorId}:${(relatedJob as any).id}`;
-      if (craneDedup.has(key)) continue;
-      craneDedup.add(key);
+      const key = `job_allocations:${operatorId}:${(relatedJob as any).id}:${(allocation as any)?.id ?? `${start ?? ""}:${end ?? ""}:${(allocation as any)?.asset_type ?? ""}`}`;
+      if (allocationDedup.has(key)) continue;
+      allocationDedup.add(key);
 
       const operatorKey = `operator:${operatorId}`;
       const list = craneJobsByOperator.get(operatorKey) ?? [];
@@ -440,9 +450,20 @@ export async function GET(req: Request) {
         return statusSortValue(a.status) - statusSortValue(b.status);
       });
 
-      const assignedJobs = (craneJobsByOperator.get(operatorId) ?? []).sort((a: any, b: any) =>
-        String(a.start_date ?? "").localeCompare(String(b.start_date ?? ""))
+      const rawAssignedJobs = craneJobsByOperator.get(operatorId) ?? [];
+      const jobIdsWithAllocationRows = new Set(
+        rawAssignedJobs
+          .filter((job: any) => String(job.allocation_source ?? "") !== "jobs")
+          .map((job: any) => String(job.id))
       );
+      const assignedJobs = rawAssignedJobs
+        .filter((job: any) => String(job.allocation_source ?? "") !== "jobs" || !jobIdsWithAllocationRows.has(String(job.id)))
+        .sort((a: any, b: any) => {
+          const aDate = String(a.start_date ?? a.job_date ?? "");
+          const bDate = String(b.start_date ?? b.job_date ?? "");
+          if (aDate !== bDate) return aDate.localeCompare(bDate);
+          return String(a.start_time ?? "").localeCompare(String(b.start_time ?? ""));
+        });
 
       const assignedTransportJobs = (transportByOperator.get(operatorId) ?? []).sort((a: any, b: any) =>
         String(a.transport_date ?? "").localeCompare(String(b.transport_date ?? ""))
