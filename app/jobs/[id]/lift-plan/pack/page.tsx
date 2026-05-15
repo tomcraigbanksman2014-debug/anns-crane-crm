@@ -826,6 +826,19 @@ export default async function CraneLiftPlanPackPage({
   const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
   const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
 
+  const jobPlanningSnapshotText = defaultSectionText(
+    sections,
+    "job_planning_snapshot_text",
+    [
+      `Client: ${clientName}`,
+      `Project: ${coverProjectText}`,
+      `Crane: ${craneName}`,
+      `Lift Type: ${(job as any)?.lift_type || "—"}`,
+      `Site Contact: ${(job as any)?.contact_name || "—"}`,
+      `Job Notes: ${(job as any)?.notes || "—"}`,
+    ].join("\n")
+  );
+
   const packMonthLabel = fmtMonthYear((job as any)?.start_date ?? (job as any)?.job_date ?? new Date());
   const fieldText = (key: string, fallback: string) => defaultSectionText(sections, key, fallback);
   const packMonthText = (key: string) => {
@@ -1073,12 +1086,7 @@ export default async function CraneLiftPlanPackPage({
         />
 
         <BoxedParagraph title={inputField("job_planning_snapshot_title", "Job Planning Snapshot")} compact>
-          Client: {clientName}{"\n"}
-          Project: {coverProjectText}{"\n"}
-          Crane: {craneName}{"\n"}
-          Lift Type: {(job as any)?.lift_type || "—"}{"\n"}
-          Site Contact: {(job as any)?.contact_name || "—"}{"\n"}
-          Job Notes: {(job as any)?.notes || "—"}
+          {areaField("job_planning_snapshot_text", jobPlanningSnapshotText, 7, true)}
         </BoxedParagraph>
       </PageShell>
 
