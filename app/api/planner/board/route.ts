@@ -271,6 +271,37 @@ function looksLikeCrossHireCraneAllocation(row: any) {
   return Boolean(supplierId || supplierReference || supplierCost > 0);
 }
 
+
+function hasConcreteCraneReference(row: any) {
+  const craneId = String(row?.crane_id ?? "").trim();
+  const craneRow = first(row?.cranes);
+  return Boolean(craneId || craneRow?.id);
+}
+
+function hasDirectJobCrane(job: any) {
+  return Boolean(String(job?.crane_id ?? "").trim() || first(job?.cranes)?.id);
+}
+
+function allocationRowCanRepresentCrossHireCrane(row: any, relatedJob?: any) {
+  if (looksLikeCrossHireCraneAllocation(row)) return true;
+
+  const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
+  const sourceType = String(row?.source_type ?? "").trim().toLowerCase();
+
+  if (sourceType === "cross_hire") return true;
+
+  // Some older rows store the supplier/cost at job level and leave the allocation row sparse.
+  // Only treat that as a cross-hired crane when the row itself is intended to be a crane row.
+  if (assetType === "crane" && !hasConcreteCraneReference(row)) {
+    return Boolean(
+      String(relatedJob?.supplier_id ?? "").trim() ||
+        num(relatedJob?.cross_hire_cost_total) > 0
+    );
+  }
+
+  return false;
+}
+
 function looksLikeLabourAllocation(row: any) {
   if (looksLikeCraneAllocation(row)) return false;
 
@@ -331,6 +362,7 @@ export async function GET(req: Request) {
           job_number,
           client_id,
           operator_id,
+          main_operator_id,
           crane_id,
           site_name,
           site_address,
@@ -365,7 +397,10 @@ export async function GET(req: Request) {
         .select(`
           id,
           job_id,
+          asset_type,
           crane_id,
+          vehicle_id,
+          equipment_id,
           operator_id,
           start_date,
           end_date,
@@ -375,7 +410,10 @@ export async function GET(req: Request) {
           supplier_id,
           supplier_reference,
           supplier_cost,
+          agreed_cost,
           agreed_sell_rate,
+          item_name,
+          purchase_order_id,
           notes,
           cranes:crane_id (id, name, asset_number:reg_number),
           operators:operator_id (id, full_name),
@@ -384,6 +422,7 @@ export async function GET(req: Request) {
             job_number,
             client_id,
             operator_id,
+            main_operator_id,
             crane_id,
             site_name,
             site_address,
@@ -431,6 +470,7 @@ export async function GET(req: Request) {
             id,
             client_id,
             operator_id,
+            main_operator_id,
             crane_id,
             site_name,
             site_address,
@@ -611,7 +651,7 @@ export async function GET(req: Request) {
             allocation_source: "job_allocations",
             job_id: row.job_id,
             asset_type: row.asset_type,
-            crane_id: row.crane_id ?? row.equipment_id ?? null,
+            crane_id: row.crane_id ?? (String(row.asset_type ?? "").trim().toLowerCase() === "crane" ? row.equipment_id : null) ?? null,
             operator_id: row.operator_id ?? null,
             start_date: dateOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
             end_date: dateOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_date ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
@@ -631,10 +671,11 @@ export async function GET(req: Request) {
           };
         }
 
+        const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
         return {
           ...row,
           allocation_source: "job_equipment",
-          asset_type: looksLikeCraneAllocation(row) ? "crane" : "other",
+          asset_type: assetType || (looksLikeCraneAllocation(row) ? "crane" : "other"),
         };
       })
       .filter((row: any) => {
@@ -663,20 +704,38 @@ export async function GET(req: Request) {
       )
     );
 
-    const jobsWithAnyAllocationRows = new Set(activeAllocations.map((row: any) => String(row.job_id)));
     const allocationRowBelongsToCrossHireJob = (row: any) => {
-      if (looksLikeCrossHireCraneAllocation(row)) return true;
-      if (looksLikeCraneAllocation(row)) return false;
-
       const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
-      return jobHasCrossHireMeta(row.job_id, relatedJob);
+      return allocationRowCanRepresentCrossHireCrane(row, relatedJob);
     };
 
-    const jobsWithAnyCraneAllocationRows = new Set(
+    const jobsWithConcreteCraneAllocationRows = new Set(
       activeAllocations
-        .filter((row: any) => looksLikeCraneAllocation(row) || allocationRowBelongsToCrossHireJob(row))
+        .filter((row: any) => hasConcreteCraneReference(row))
         .map((row: any) => String(row.job_id))
     );
+
+    const jobsWithCrossHireAllocationRows = new Set(
+      activeAllocations
+        .filter((row: any) => allocationRowBelongsToCrossHireJob(row))
+        .map((row: any) => String(row.job_id))
+    );
+
+    const jobsWithAnyConcreteCraneOrCrossHireAllocationRows = new Set([
+      ...Array.from(jobsWithConcreteCraneAllocationRows),
+      ...Array.from(jobsWithCrossHireAllocationRows),
+    ]);
+
+    const jobsWithDirectCrane = new Set(
+      activeJobs
+        .filter((job: any) => hasDirectJobCrane(job))
+        .map((job: any) => String(job.id))
+    );
+
+    const jobsWithAnyCraneAllocationRows = new Set([
+      ...Array.from(jobsWithAnyConcreteCraneOrCrossHireAllocationRows),
+      ...Array.from(jobsWithDirectCrane),
+    ]);
 
     const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
     let linkedTransportJobs: any[] = [];
@@ -727,8 +786,16 @@ export async function GET(req: Request) {
       allocationRowBelongsToCrossHireJob(row)
     );
     const craneAllocationRows = activeAllocations.filter((row: any) => {
-      if (looksLikeCrossHireCraneAllocation(row)) return false;
-      return looksLikeCraneAllocation(row);
+      if (allocationRowBelongsToCrossHireJob(row)) return false;
+      if (!looksLikeCraneAllocation(row)) return false;
+
+      const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+
+      // If an older/sparse allocation row says "crane" but has no crane selected,
+      // do not let it create a false unallocated card when the job itself already has a crane.
+      if (!hasConcreteCraneReference(row) && hasDirectJobCrane(relatedJob)) return false;
+
+      return true;
     });
     const labourAllocationRows = activeAllocations.filter((row: any) => {
       if (!looksLikeLabourAllocation(row)) return false;
@@ -921,11 +988,15 @@ export async function GET(req: Request) {
       const supplierLinksCost = getSupplierCostTotalForJob(jobId);
       const liftPlan = liftPlanByJobId.get(String(job.id)) ?? null;
 
-      if (jobsWithAnyAllocationRows.has(jobId)) {
-        return [];
-      }
+      const hasPlannerCraneAllocationRow = jobsWithAnyConcreteCraneOrCrossHireAllocationRows.has(jobId);
 
       if (mainCraneId) {
+        // A job-level crane must still show even if the job also has operator/labour rows.
+        // Only hide it when a real crane/cross-hire allocation row already represents it.
+        if (hasPlannerCraneAllocationRow) {
+          return [];
+        }
+
         return [
           {
             id: `job_${job.id}_${mainCraneId}`,
@@ -941,7 +1012,7 @@ export async function GET(req: Request) {
             status: job.status ?? null,
             site_name: job.site_name ?? null,
             site_address: job.site_address ?? null,
-            operator_id: job.operator_id ?? null,
+            operator_id: job.operator_id ?? job.main_operator_id ?? null,
             equipment_id: job.crane_id ?? null,
             item_name: null,
             clients: client ? [client] : [],
@@ -964,6 +1035,20 @@ export async function GET(req: Request) {
         ];
       }
 
+      const hasNonDirectPlannerRows =
+        jobsWithCrossHireAllocationRows.has(jobId) ||
+        activeAllocations.some((row: any) => {
+          if (String(row.job_id) !== jobId) return false;
+          if (allocationRowBelongsToCrossHireJob(row)) return true;
+          if (looksLikeCraneAllocation(row)) return true;
+          if (looksLikeLabourAllocation(row) && !jobsWithAnyCraneAllocationRows.has(jobId)) return true;
+          return false;
+        });
+
+      if (hasNonDirectPlannerRows) {
+        return [];
+      }
+
       const plannerGroup = isCrossHiredDirect ? "cross_hired" : classifyUnassignedType(job);
 
       return [
@@ -981,7 +1066,7 @@ export async function GET(req: Request) {
           status: job.status ?? null,
           site_name: job.site_name ?? null,
           site_address: job.site_address ?? null,
-          operator_id: job.operator_id ?? null,
+          operator_id: job.operator_id ?? job.main_operator_id ?? null,
           equipment_id: null,
           item_name:
             plannerGroup === "labour_only"
