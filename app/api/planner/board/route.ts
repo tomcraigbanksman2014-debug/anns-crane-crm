@@ -612,15 +612,62 @@ export async function GET(req: Request) {
 
     const allAllocations = [...equipmentAllocations, ...jobAllocations].filter(Boolean);
 
-    const activeAllocations = allAllocations
+    const findCraneByLooseName = (value: string | null | undefined) => {
+      const target = String(value ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "");
+      if (!target) return null;
+
+      return (cranes as any[]).find((crane: any) => {
+        const names = [crane?.name, crane?.asset_number, crane?.reg_number]
+          .map((item) =>
+            String(item ?? "")
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "")
+          )
+          .filter(Boolean);
+
+        return names.some((name) => name === target || name.includes(target) || target.includes(name));
+      }) ?? null;
+    };
+
+    const resolveAllocationCrane = (row: any) => {
+      const joinedCrane = first(row?.cranes);
+      const directCraneId = String(row?.crane_id ?? "").trim();
+      const possibleEquipmentId = String(row?.equipment_id ?? "").trim();
+
+      const idMatch: any =
+        (directCraneId ? craneById.get(directCraneId) ?? null : null) ??
+        (possibleEquipmentId ? craneById.get(possibleEquipmentId) ?? null : null) ??
+        null;
+
+      const nameMatch: any =
+        joinedCrane ??
+        idMatch ??
+        findCraneByLooseName(row?.item_name) ??
+        findCraneByLooseName(row?.notes) ??
+        null;
+
+      return {
+        crane: nameMatch,
+        craneId: String(directCraneId || idMatch?.id || nameMatch?.id || "").trim() || null,
+      };
+    };
+
+    const normalisedAllocations = allAllocations
       .map((row: any) => {
         if ("start_at" in row || "end_at" in row) {
+          const fallbackCraneId = String(row.crane_id ?? row.equipment_id ?? "").trim() || null;
+          const fallbackCrane = fallbackCraneId ? craneById.get(fallbackCraneId) ?? first(row.cranes) : first(row.cranes);
+
           return {
             id: row.id,
             allocation_source: "job_allocations",
             job_id: row.job_id,
             asset_type: row.asset_type,
-            crane_id: row.crane_id ?? row.equipment_id ?? null,
+            crane_id: fallbackCraneId,
             operator_id: row.operator_id ?? null,
             start_date: dateOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
             end_date: dateOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_date ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
@@ -634,16 +681,28 @@ export async function GET(req: Request) {
             item_name: null,
             notes: row.notes ?? null,
             jobs: row.jobs,
-            cranes: row.cranes,
+            cranes: fallbackCrane ? [fallbackCrane] : row.cranes,
             operators: row.operators,
             suppliers: [],
           };
         }
 
+        const resolvedCrane = resolveAllocationCrane(row);
+        const assetType =
+          looksLikeCraneAllocation({ ...row, crane_id: resolvedCrane.craneId, cranes: resolvedCrane.crane ? [resolvedCrane.crane] : row.cranes })
+            ? "crane"
+            : String(row?.asset_type ?? "").trim().toLowerCase() === "vehicle"
+              ? "vehicle"
+              : String(row?.asset_type ?? "").trim().toLowerCase() === "equipment"
+                ? "equipment"
+                : "other";
+
         return {
           ...row,
           allocation_source: "job_equipment",
-          asset_type: looksLikeCraneAllocation(row) ? "crane" : "other",
+          asset_type: assetType,
+          crane_id: resolvedCrane.craneId,
+          cranes: resolvedCrane.crane ? [resolvedCrane.crane] : row.cranes,
         };
       })
       .filter((row: any) => {
@@ -651,16 +710,22 @@ export async function GET(req: Request) {
         if (!relatedJob) return false;
         if (Boolean(relatedJob?.archived)) return false;
         if (!isPlannerVisibleStatus(relatedJob?.status)) return false;
-
-        const excludeWeekends = Boolean(relatedJob?.exclude_weekends);
-        return overlapsWorkingWeek(
-          row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
-          row.end_date ?? relatedJob?.end_date ?? row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
-          weekStart,
-          weekEnd,
-          excludeWeekends
-        );
+        return true;
       });
+
+    const activeAllocations = normalisedAllocations.filter((row: any) => {
+      const relatedJob = activeJobById.get(String(row.job_id)) ?? first(row.jobs) ?? null;
+      if (!relatedJob) return false;
+
+      const excludeWeekends = Boolean(relatedJob?.exclude_weekends);
+      return overlapsWorkingWeek(
+        row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
+        row.end_date ?? relatedJob?.end_date ?? row.start_date ?? relatedJob?.start_date ?? relatedJob?.job_date ?? null,
+        weekStart,
+        weekEnd,
+        excludeWeekends
+      );
+    });
 
     const jobsInRange = activeJobs.filter((job: any) =>
       overlapsWorkingWeek(
@@ -672,7 +737,6 @@ export async function GET(req: Request) {
       )
     );
 
-    const jobsWithAnyAllocationRows = new Set(activeAllocations.map((row: any) => String(row.job_id)));
     const allocationRowBelongsToCrossHireJob = (row: any) => {
       if (looksLikeCrossHireCraneAllocation(row)) return true;
 
@@ -684,10 +748,15 @@ export async function GET(req: Request) {
       return false;
     };
 
+    const craneLikeAllocationRows = (rows: any[]) =>
+      rows.filter((row: any) => looksLikeCraneAllocation(row) || allocationRowBelongsToCrossHireJob(row));
+
+    const jobsWithActiveCraneAllocationRows = new Set(
+      craneLikeAllocationRows(activeAllocations).map((row: any) => String(row.job_id))
+    );
+
     const jobsWithAnyCraneAllocationRows = new Set(
-      activeAllocations
-        .filter((row: any) => looksLikeCraneAllocation(row) || allocationRowBelongsToCrossHireJob(row))
-        .map((row: any) => String(row.job_id))
+      craneLikeAllocationRows(normalisedAllocations).map((row: any) => String(row.job_id))
     );
 
     const jobsWithRealCraneAssignment = new Set<string>([
@@ -696,6 +765,17 @@ export async function GET(req: Request) {
         .filter((job: any) => String(job?.crane_id ?? "").trim())
         .map((job: any) => String(job.id)),
     ]);
+
+    const firstOwnedCraneAllocationByJobId = new Map<string, any>();
+    craneLikeAllocationRows(normalisedAllocations).forEach((row: any) => {
+      if (allocationRowBelongsToCrossHireJob(row)) return;
+      const jobId = String(row?.job_id ?? "").trim();
+      const rowCraneId = String(row?.crane_id ?? first(row?.cranes)?.id ?? "").trim();
+      if (!jobId || !rowCraneId) return;
+      if (!firstOwnedCraneAllocationByJobId.has(jobId)) {
+        firstOwnedCraneAllocationByJobId.set(jobId, row);
+      }
+    });
 
     const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
     let linkedTransportJobs: any[] = [];
@@ -941,18 +1021,27 @@ export async function GET(req: Request) {
       const primarySupplierLink = getPrimarySupplierLinkForJob(jobId);
       const supplierLinksCost = getSupplierCostTotalForJob(jobId);
       const liftPlan = liftPlanByJobId.get(String(job.id)) ?? null;
+      const fallbackCraneAllocation = firstOwnedCraneAllocationByJobId.get(jobId) ?? null;
+      const fallbackCrane = first(fallbackCraneAllocation?.cranes) ??
+        craneById.get(String(fallbackCraneAllocation?.crane_id ?? "")) ??
+        null;
+      const fallbackCraneId = String(fallbackCraneAllocation?.crane_id ?? fallbackCrane?.id ?? "").trim();
+      const effectiveCraneId = mainCraneId || fallbackCraneId;
+      const effectiveCrane = crane ?? fallbackCrane ?? (effectiveCraneId ? craneById.get(effectiveCraneId) ?? null : null);
+      const effectiveOperator = operator ?? first(fallbackCraneAllocation?.operators) ?? null;
 
-      // Only suppress the direct job fallback when there is an actual crane/cross-hire
-      // allocation row for this job. Operator/labour rows must not hide the job's
-      // main crane assignment.
-      if (jobsWithAnyCraneAllocationRows.has(jobId)) {
-        return [];
-      }
+      if (effectiveCraneId) {
+        // If this job has explicit crane allocation rows in the visible week, use those
+        // rows so day-specific crane changes show correctly. If the explicit rows are
+        // outside the visible week, keep/fall back to an assigned crane card so jobs do
+        // not appear as unallocated or disappear from the current planner view.
+        if (jobsWithActiveCraneAllocationRows.has(jobId)) {
+          return [];
+        }
 
-      if (mainCraneId) {
         return [
           {
-            id: `job_${job.id}_${mainCraneId}`,
+            id: `job_${job.id}_${effectiveCraneId}`,
             allocation_id: null,
             allocation_source: null,
             job_id: job.id,
@@ -960,19 +1049,19 @@ export async function GET(req: Request) {
             job_date: dateBounds.start || null,
             start_date: dateBounds.start || null,
             end_date: dateBounds.end || null,
-            start_time: job.start_time ?? null,
-            end_time: job.end_time ?? null,
+            start_time: job.start_time ?? fallbackCraneAllocation?.start_time ?? null,
+            end_time: job.end_time ?? fallbackCraneAllocation?.end_time ?? null,
             status: job.status ?? null,
             site_name: job.site_name ?? null,
             site_address: job.site_address ?? null,
-            operator_id: job.operator_id ?? null,
-            equipment_id: job.crane_id ?? null,
-            item_name: null,
+            operator_id: job.operator_id ?? fallbackCraneAllocation?.operator_id ?? null,
+            equipment_id: effectiveCraneId,
+            item_name: fallbackCraneAllocation?.item_name ?? null,
             clients: client ? [client] : [],
-            operators: operator ? [operator] : [],
-            equipment: crane ? [crane] : [],
-            agreed_sell_rate: 0,
-            supplier_cost: 0,
+            operators: effectiveOperator ? [effectiveOperator] : [],
+            equipment: effectiveCrane ? [effectiveCrane] : [],
+            agreed_sell_rate: num(fallbackCraneAllocation?.agreed_sell_rate),
+            supplier_cost: num(fallbackCraneAllocation?.supplier_cost),
             price_mode: job.price_mode ?? "full_job",
             price_per_day: num(job.price_per_day),
             job_price: effectiveJobPrice(job),
@@ -986,6 +1075,13 @@ export async function GET(req: Request) {
             lift_plan_status: plannerLiftPlanStatus(job, liftPlan),
           },
         ];
+      }
+
+      // If a job has explicit crane/cross-hire allocations anywhere but none could be
+      // resolved to an owned crane, do not also show the full job span as unassigned.
+      // Cross-hire allocation rows will appear in the cross-hire section instead.
+      if (jobsWithAnyCraneAllocationRows.has(jobId)) {
+        return [];
       }
 
       const plannerGroup = isCrossHiredDirect ? "cross_hired" : classifyUnassignedType(job);
