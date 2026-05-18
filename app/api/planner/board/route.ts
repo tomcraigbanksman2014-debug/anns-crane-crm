@@ -262,44 +262,13 @@ function looksLikeCrossHireCraneAllocation(row: any) {
   const supplierCost = num(row?.supplier_cost ?? row?.agreed_cost);
 
   if (sourceType === "cross_hire") {
-    return true;
+    return assetType !== "other" && Boolean(craneId || supplierId || supplierReference || supplierCost > 0 || assetType === "crane");
   }
 
   if (assetType !== "crane") return false;
   if (craneId) return false;
 
   return Boolean(supplierId || supplierReference || supplierCost > 0);
-}
-
-
-function hasConcreteCraneReference(row: any) {
-  const craneId = String(row?.crane_id ?? "").trim();
-  const craneRow = first(row?.cranes);
-  return Boolean(craneId || craneRow?.id);
-}
-
-function hasDirectJobCrane(job: any) {
-  return Boolean(String(job?.crane_id ?? "").trim() || first(job?.cranes)?.id);
-}
-
-function allocationRowCanRepresentCrossHireCrane(row: any, relatedJob?: any) {
-  if (looksLikeCrossHireCraneAllocation(row)) return true;
-
-  const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
-  const sourceType = String(row?.source_type ?? "").trim().toLowerCase();
-
-  if (sourceType === "cross_hire") return true;
-
-  // Some older rows store the supplier/cost at job level and leave the allocation row sparse.
-  // Only treat that as a cross-hired crane when the row itself is intended to be a crane row.
-  if (assetType === "crane" && !hasConcreteCraneReference(row)) {
-    return Boolean(
-      String(relatedJob?.supplier_id ?? "").trim() ||
-        num(relatedJob?.cross_hire_cost_total) > 0
-    );
-  }
-
-  return false;
 }
 
 function looksLikeLabourAllocation(row: any) {
@@ -362,7 +331,6 @@ export async function GET(req: Request) {
           job_number,
           client_id,
           operator_id,
-          main_operator_id,
           crane_id,
           site_name,
           site_address,
@@ -398,6 +366,7 @@ export async function GET(req: Request) {
           id,
           job_id,
           asset_type,
+          item_name,
           crane_id,
           vehicle_id,
           equipment_id,
@@ -412,8 +381,6 @@ export async function GET(req: Request) {
           supplier_cost,
           agreed_cost,
           agreed_sell_rate,
-          item_name,
-          purchase_order_id,
           notes,
           cranes:crane_id (id, name, asset_number:reg_number),
           operators:operator_id (id, full_name),
@@ -422,7 +389,6 @@ export async function GET(req: Request) {
             job_number,
             client_id,
             operator_id,
-            main_operator_id,
             crane_id,
             site_name,
             site_address,
@@ -468,9 +434,9 @@ export async function GET(req: Request) {
           notes,
           jobs:job_id (
             id,
+            job_number,
             client_id,
             operator_id,
-            main_operator_id,
             crane_id,
             site_name,
             site_address,
@@ -582,6 +548,9 @@ export async function GET(req: Request) {
     const jobSupplierLinks = jobSupplierLinksRes.data ?? [];
     const visitInvoices = visitInvoicesRes.data ?? [];
 
+    const craneById = new Map(cranes.map((row: any) => [String(row.id), row]));
+    const operatorById = new Map(operators.map((row: any) => [String(row.id), row]));
+
     const bankHolidays = (bankHolidayRes ?? []).filter((item) => item.date >= weekStart && item.date <= weekEnd);
     const bankHolidayMap = new Map(bankHolidays.map((item) => [item.date, item.label]));
     const liftPlanByJobId = new Map(liftPlans.map((row: any) => [String(row.job_id), row]));
@@ -651,7 +620,7 @@ export async function GET(req: Request) {
             allocation_source: "job_allocations",
             job_id: row.job_id,
             asset_type: row.asset_type,
-            crane_id: row.crane_id ?? (String(row.asset_type ?? "").trim().toLowerCase() === "crane" ? row.equipment_id : null) ?? null,
+            crane_id: row.crane_id ?? row.equipment_id ?? null,
             operator_id: row.operator_id ?? null,
             start_date: dateOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
             end_date: dateOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_date ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
@@ -671,15 +640,14 @@ export async function GET(req: Request) {
           };
         }
 
-        const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
         return {
           ...row,
           allocation_source: "job_equipment",
-          asset_type: assetType || (looksLikeCraneAllocation(row) ? "crane" : "other"),
+          asset_type: looksLikeCraneAllocation(row) ? "crane" : "other",
         };
       })
       .filter((row: any) => {
-        const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+        const relatedJob = activeJobById.get(String(row.job_id)) ?? first(row.jobs) ?? null;
         if (!relatedJob) return false;
         if (Boolean(relatedJob?.archived)) return false;
         if (!isPlannerVisibleStatus(relatedJob?.status)) return false;
@@ -704,37 +672,29 @@ export async function GET(req: Request) {
       )
     );
 
+    const jobsWithAnyAllocationRows = new Set(activeAllocations.map((row: any) => String(row.job_id)));
     const allocationRowBelongsToCrossHireJob = (row: any) => {
-      const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
-      return allocationRowCanRepresentCrossHireCrane(row, relatedJob);
+      if (looksLikeCrossHireCraneAllocation(row)) return true;
+
+      // Do not turn operator/labour rows into cross-hire planner cards just because
+      // the job has supplier/cost metadata. Only actual crane-like rows belong in
+      // the cross-hire crane lane.
+      if (!looksLikeCraneAllocation(row)) return false;
+
+      return false;
     };
 
-    const jobsWithConcreteCraneAllocationRows = new Set(
+    const jobsWithAnyCraneAllocationRows = new Set(
       activeAllocations
-        .filter((row: any) => hasConcreteCraneReference(row))
+        .filter((row: any) => looksLikeCraneAllocation(row) || allocationRowBelongsToCrossHireJob(row))
         .map((row: any) => String(row.job_id))
     );
 
-    const jobsWithCrossHireAllocationRows = new Set(
-      activeAllocations
-        .filter((row: any) => allocationRowBelongsToCrossHireJob(row))
-        .map((row: any) => String(row.job_id))
-    );
-
-    const jobsWithAnyConcreteCraneOrCrossHireAllocationRows = new Set([
-      ...Array.from(jobsWithConcreteCraneAllocationRows),
-      ...Array.from(jobsWithCrossHireAllocationRows),
-    ]);
-
-    const jobsWithDirectCrane = new Set(
-      activeJobs
-        .filter((job: any) => hasDirectJobCrane(job))
-        .map((job: any) => String(job.id))
-    );
-
-    const jobsWithAnyCraneAllocationRows = new Set([
-      ...Array.from(jobsWithAnyConcreteCraneOrCrossHireAllocationRows),
-      ...Array.from(jobsWithDirectCrane),
+    const jobsWithRealCraneAssignment = new Set<string>([
+      ...Array.from(jobsWithAnyCraneAllocationRows),
+      ...jobsInRange
+        .filter((job: any) => String(job?.crane_id ?? "").trim())
+        .map((job: any) => String(job.id)),
     ]);
 
     const activeJobIds = Array.from(activeJobById.keys()).filter(Boolean);
@@ -786,30 +746,24 @@ export async function GET(req: Request) {
       allocationRowBelongsToCrossHireJob(row)
     );
     const craneAllocationRows = activeAllocations.filter((row: any) => {
-      if (allocationRowBelongsToCrossHireJob(row)) return false;
-      if (!looksLikeCraneAllocation(row)) return false;
-
-      const relatedJob = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
-
-      // If an older/sparse allocation row says "crane" but has no crane selected,
-      // do not let it create a false unallocated card when the job itself already has a crane.
-      if (!hasConcreteCraneReference(row) && hasDirectJobCrane(relatedJob)) return false;
-
-      return true;
+      if (looksLikeCrossHireCraneAllocation(row)) return false;
+      return looksLikeCraneAllocation(row);
     });
     const labourAllocationRows = activeAllocations.filter((row: any) => {
       if (!looksLikeLabourAllocation(row)) return false;
-      return !jobsWithAnyCraneAllocationRows.has(String(row.job_id));
+      return !jobsWithRealCraneAssignment.has(String(row.job_id));
     });
 
     const allocationItems = craneAllocationRows.map((row: any) => {
-      const job = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
-      const operator = first(row.operators);
+      const job = activeJobById.get(String(row.job_id)) ?? first(row.jobs) ?? null;
+      const operator = first(row.operators) ?? first(job?.operators) ?? operatorById.get(String(row.operator_id ?? job?.operator_id ?? "")) ?? null;
       const crane = first(row.cranes);
+      const jobCrane = first(job?.cranes);
       const client = first(job?.clients);
       const liftPlan = liftPlanByJobId.get(String(row.job_id)) ?? null;
 
-      const rowCraneId = row.crane_id ?? crane?.id ?? null;
+      const rowCraneId = String(row.crane_id ?? crane?.id ?? job?.crane_id ?? jobCrane?.id ?? "").trim() || null;
+      const displayCrane = crane ?? jobCrane ?? (rowCraneId ? craneById.get(rowCraneId) ?? null : null);
       const dateBounds = normaliseDateBounds(
         row.start_date ?? job?.start_date ?? job?.job_date ?? null,
         row.end_date ?? job?.end_date ?? row.start_date ?? job?.start_date ?? job?.job_date ?? null
@@ -838,7 +792,7 @@ export async function GET(req: Request) {
         item_name: row.item_name ?? null,
         clients: client ? [client] : [],
         operators: operator ? [operator] : [],
-        equipment: crane ? [crane] : [],
+        equipment: displayCrane ? [displayCrane] : [],
         agreed_sell_rate: num(row.agreed_sell_rate),
         supplier_id: row?.supplier_id ?? job?.supplier_id ?? null,
         supplier_reference: row?.supplier_reference ?? null,
@@ -858,7 +812,7 @@ export async function GET(req: Request) {
     });
 
     const crossHireItems = crossHireCraneAllocationRows.map((row: any) => {
-      const job = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+      const job = activeJobById.get(String(row.job_id)) ?? first(row.jobs) ?? null;
       const operator = first(row.operators);
       const client = first(job?.clients);
       const supplier = first(row.suppliers);
@@ -918,7 +872,7 @@ export async function GET(req: Request) {
     });
 
     const labourOnlyItems = labourAllocationRows.map((row: any) => {
-      const job = first(row.jobs) ?? activeJobById.get(String(row.job_id)) ?? null;
+      const job = activeJobById.get(String(row.job_id)) ?? first(row.jobs) ?? null;
       const operator = first(row.operators);
       const client = first(job?.clients);
       const liftPlan = liftPlanByJobId.get(String(row.job_id)) ?? null;
@@ -988,15 +942,14 @@ export async function GET(req: Request) {
       const supplierLinksCost = getSupplierCostTotalForJob(jobId);
       const liftPlan = liftPlanByJobId.get(String(job.id)) ?? null;
 
-      const hasPlannerCraneAllocationRow = jobsWithAnyConcreteCraneOrCrossHireAllocationRows.has(jobId);
+      // Only suppress the direct job fallback when there is an actual crane/cross-hire
+      // allocation row for this job. Operator/labour rows must not hide the job's
+      // main crane assignment.
+      if (jobsWithAnyCraneAllocationRows.has(jobId)) {
+        return [];
+      }
 
       if (mainCraneId) {
-        // A job-level crane must still show even if the job also has operator/labour rows.
-        // Only hide it when a real crane/cross-hire allocation row already represents it.
-        if (hasPlannerCraneAllocationRow) {
-          return [];
-        }
-
         return [
           {
             id: `job_${job.id}_${mainCraneId}`,
@@ -1012,7 +965,7 @@ export async function GET(req: Request) {
             status: job.status ?? null,
             site_name: job.site_name ?? null,
             site_address: job.site_address ?? null,
-            operator_id: job.operator_id ?? job.main_operator_id ?? null,
+            operator_id: job.operator_id ?? null,
             equipment_id: job.crane_id ?? null,
             item_name: null,
             clients: client ? [client] : [],
@@ -1035,20 +988,6 @@ export async function GET(req: Request) {
         ];
       }
 
-      const hasNonDirectPlannerRows =
-        jobsWithCrossHireAllocationRows.has(jobId) ||
-        activeAllocations.some((row: any) => {
-          if (String(row.job_id) !== jobId) return false;
-          if (allocationRowBelongsToCrossHireJob(row)) return true;
-          if (looksLikeCraneAllocation(row)) return true;
-          if (looksLikeLabourAllocation(row) && !jobsWithAnyCraneAllocationRows.has(jobId)) return true;
-          return false;
-        });
-
-      if (hasNonDirectPlannerRows) {
-        return [];
-      }
-
       const plannerGroup = isCrossHiredDirect ? "cross_hired" : classifyUnassignedType(job);
 
       return [
@@ -1066,7 +1005,7 @@ export async function GET(req: Request) {
           status: job.status ?? null,
           site_name: job.site_name ?? null,
           site_address: job.site_address ?? null,
-          operator_id: job.operator_id ?? job.main_operator_id ?? null,
+          operator_id: job.operator_id ?? null,
           equipment_id: null,
           item_name:
             plannerGroup === "labour_only"
