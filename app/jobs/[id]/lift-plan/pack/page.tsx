@@ -5,7 +5,7 @@ import {
   matchCraneJobEquipmentProfile,
 } from "../../../../lib/ai/matchEquipmentProfile";
 import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
-import { getCraneAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
+import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -602,6 +602,23 @@ function isAppendixImageDocument(doc: any) {
   );
 }
 
+function parseSelectedAppendixKeys(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+  } catch {
+    return raw.split(",").map((item) => item.trim()).filter(Boolean);
+  }
+}
+
+function appendixKey(asset: PackAppendixAssetItem, index: number) {
+  return asset.key || `${asset.source_type ?? "appendix"}:${asset.source_document_id ?? asset.title}:${asset.page_number}:${index}`;
+}
+
 async function signedJobDocumentMap(paths: string[]) {
   const supabase = createSupabaseServerClient();
   if (!paths.length) return new Map<string, string>();
@@ -727,7 +744,10 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
-  const craneAppendixAssets = await getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null);
+  const [craneAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
+    getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null),
+    getJobSpecAppendixAssetsForPack(params.id),
+  ]);
   const appendixImageDocs = ((jobDocuments as any[]) ?? []).filter(isAppendixImageDocument);
   const signedJobDocs = await signedJobDocumentMap(
     appendixImageDocs.map((doc: any) => String(doc?.file_path ?? "")).filter(Boolean)
@@ -744,7 +764,13 @@ export default async function CraneLiftPlanPackPage({
       } as PackAppendixAssetItem;
     })
     .filter(Boolean) as PackAppendixAssetItem[];
-  const appendixAssets = [...craneAppendixAssets, ...jobAppendixAssets];
+  const specAppendixAssets = [...craneAppendixAssets, ...jobSpecAppendixAssets];
+  const selectedAppendixKeys = parseSelectedAppendixKeys(sections.selected_appendix_keys);
+  const selectedAppendixKeySet = selectedAppendixKeys === null ? null : new Set(selectedAppendixKeys);
+  const selectedSpecAppendixAssets = selectedAppendixKeySet
+    ? specAppendixAssets.filter((asset, index) => selectedAppendixKeySet.has(appendixKey(asset, index)))
+    : specAppendixAssets;
+  const appendixAssets = [...selectedSpecAppendixAssets, ...jobAppendixAssets];
 
   const clientName = client?.company_name || "the client";
   const printTitle = [
