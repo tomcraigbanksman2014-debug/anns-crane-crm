@@ -390,33 +390,39 @@ export default async function JobLiftPlanPage({
           </div>
         </div>
 
-        <details style={uploadCard} open={craneIsExternal}>
-          <summary style={sectionSummary}>
-            <span>Cross-hired / job-specific crane spec sheets</span>
-            <span style={summaryHint}>{craneIsExternal ? "Open because this looks cross-hired / external" : "Optional – open only if needed"}</span>
-          </summary>
-          <div style={{ fontSize: 14, opacity: 0.8, margin: "10px 0 12px" }}>
-            Use this only when the crane is sub-hired, temporary, or the correct specification/load chart is not already held against one of our crane records. Upload the supplier/manufacturer PDF and choose the pages to include in the lift plan pack.
+        {craneIsExternal || jobSpecDocuments.length > 0 ? (
+          <details style={uploadCard} open={craneIsExternal || jobSpecDocuments.length > 0}>
+            <summary style={sectionSummary}>
+              <span>Cross-hired / job-specific crane spec sheets</span>
+              <span style={summaryHint}>Only shown for cross-hired / external cranes</span>
+            </summary>
+            <div style={{ fontSize: 14, opacity: 0.8, margin: "10px 0 12px" }}>
+              Use this only when the crane is sub-hired, temporary, or the correct specification/load chart is not already stored against one of our crane records. For AnnS-owned cranes, upload and manage spec sheets on the crane record instead.
+            </div>
+            <AssetDocumentManager
+              assetLabel="Lift plan crane"
+              assetType="crane"
+              assetProfile={{
+                name: craneLabel,
+                make: (crane as any)?.make ?? null,
+                model: (crane as any)?.model ?? null,
+                capacity: (crane as any)?.capacity ?? null,
+              }}
+              uploadUrl={`/api/jobs/${params.id}/lift-plan/spec-sheets/upload`}
+              deleteUrlPrefix={`/api/jobs/${params.id}/lift-plan/spec-sheets`}
+              initialDocuments={jobSpecDocuments}
+              documentTypeOptions={[
+                { value: "spec_sheet", label: "Specification sheet" },
+                { value: "load_chart", label: "Load chart" },
+                { value: "manual", label: "Manual / manufacturer document" },
+              ]}
+            />
+          </details>
+        ) : (
+          <div style={ownedCraneSpecNotice}>
+            <strong>Spec sheets for this crane are managed on the crane record.</strong> This lift plan will use the stored crane spec/load-chart pages below. Use the selector to tick the pages that should go into the pack.
           </div>
-          <AssetDocumentManager
-            assetLabel="Lift plan crane"
-            assetType="crane"
-            assetProfile={{
-              name: craneLabel,
-              make: (crane as any)?.make ?? null,
-              model: (crane as any)?.model ?? null,
-              capacity: (crane as any)?.capacity ?? null,
-            }}
-            uploadUrl={`/api/jobs/${params.id}/lift-plan/spec-sheets/upload`}
-            deleteUrlPrefix={`/api/jobs/${params.id}/lift-plan/spec-sheets`}
-            initialDocuments={jobSpecDocuments}
-            documentTypeOptions={[
-              { value: "spec_sheet", label: "Specification sheet" },
-              { value: "load_chart", label: "Load chart" },
-              { value: "manual", label: "Manual / manufacturer document" },
-            ]}
-          />
-        </details>
+        )}
 
         <LiftPlanAppendixSelector
           jobId={params.id}
@@ -479,6 +485,15 @@ const summaryHint: CSSProperties = {
   padding: "5px 8px",
   borderRadius: 999,
   background: "rgba(255,255,255,0.65)",
+};
+
+const ownedCraneSpecNotice: CSSProperties = {
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.65)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+  lineHeight: 1.45,
 };
 
 const summaryTitle: CSSProperties = {
