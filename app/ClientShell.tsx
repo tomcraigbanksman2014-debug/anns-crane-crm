@@ -71,6 +71,7 @@ function isOfficeOnlyPath(pathname: string) {
   if (pathname.startsWith("/cranes")) return true;
   if (pathname.startsWith("/vehicles")) return true;
   if (pathname.startsWith("/equipment")) return true;
+  if (pathname.startsWith("/asset-availability")) return true;
   if (pathname.startsWith("/operators")) return true;
   if (pathname.startsWith("/settings")) return true;
   if (pathname.startsWith("/admin")) return true;
@@ -264,6 +265,7 @@ export default function ClientShell({
       { label: "Vehicles", href: "/vehicles" },
       { label: "Equipment", href: "/equipment" },
       { label: "Asset Locations", href: "/equipment/locations" },
+      { label: "Asset Availability", href: "/asset-availability" },
       { label: "Operators", href: "/operators" },
       { label: "My Jobs", href: "/operator/jobs" },
 
