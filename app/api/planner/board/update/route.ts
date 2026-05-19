@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
 import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
+import { assertAssetAvailable } from "../../../../lib/assetAvailability";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
@@ -214,6 +215,15 @@ export async function POST(req: Request) {
         endDate: effectiveAssignmentEnd,
         startTime,
         endTime: endTime ?? startTime,
+      });
+    }
+
+    if (movingToOwnedCrane && craneId) {
+      await assertAssetAvailable(supabase, {
+        assetType: "crane",
+        assetId: craneId,
+        startDate: effectiveAssignmentStart,
+        endDate: effectiveAssignmentEnd,
       });
     }
 
