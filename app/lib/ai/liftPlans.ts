@@ -535,7 +535,7 @@ function buildCranePrompt(job: any, profile: EquipmentProfile | null) {
   const operator = primary.operator ?? one(job?.operators);
   const mainOperator = one(job?.main_operator);
 
-  return `You are helping draft a crane lift plan and RAMS document for an internal crane hire CRM.
+  return `You are helping draft a crane lift plan and RAMS document for a UK crane hire company.
 Return ONLY valid JSON with these keys:
 load_description, load_weight, lift_radius, lift_height, crane_configuration, outrigger_setup, ground_conditions, sling_type, lifting_accessories, method_statement, risk_assessment, site_hazards, control_measures, ppe_required, exclusion_zone_details, weather_limitations, emergency_procedures, lift_supervisor, appointed_person, crane_operator, rams_complete, lift_plan_complete.
 
@@ -547,6 +547,7 @@ Rules:
 - Always include a clear warning that final capacity must be checked against the current manufacturer chart, actual setup, accessories and site conditions before approval.
 - Keep rams_complete and lift_plan_complete false.
 - NEVER refer to a different crane model than the selected crane / machine profile.
+- Do not mention internal systems, databases or software in any lift plan wording. Refer only to the lift plan, job details, site details and supplied information.
 
 Job data:
 ${JSON.stringify({
@@ -576,7 +577,7 @@ function buildTransportPrompt(job: any, linkedJob: any, profile: EquipmentProfil
   const vehicle = one(job?.vehicles);
   const operator = one(job?.operators);
 
-  return `You are helping draft a transport / HIAB lift plan and RAMS document for an internal crane hire CRM.
+  return `You are helping draft a transport / HIAB lift plan and RAMS document for a UK crane hire and transport company.
 Return ONLY valid JSON with these keys:
 job_summary, load_description, load_weight, lift_radius, lift_height, vehicle_configuration, hiab_configuration, outrigger_setup, ground_conditions, pickup_method, delivery_method, route_notes, access_notes, exclusion_zone_details, traffic_management, load_securing_method, lifting_accessories, site_hazards, control_measures, ppe_required, weather_limitations, emergency_procedures, method_statement, risk_assessment, appointed_person, lift_supervisor, operator_name, rams_complete, lift_plan_complete.
 
@@ -587,6 +588,7 @@ Rules:
 - Include loading, travel and unloading risks.
 - Always include a clear warning that final capacity must be checked against the current manufacturer chart, actual stabiliser setup, accessories and site conditions before approval.
 - Keep rams_complete and lift_plan_complete false.
+- Do not mention internal systems, databases or software in any lift plan wording. Refer only to the lift plan, transport details, site details and supplied information.
 
 Transport job data:
 ${JSON.stringify({
