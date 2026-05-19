@@ -183,10 +183,25 @@ function getEquipmentName(item: PlannerItem) {
   return (equipment as any)?.name ?? "No crane";
 }
 
+function isPerDayPriced(item: PlannerItem) {
+  return String(item.price_mode ?? "full_job").trim().toLowerCase() === "per_day";
+}
+
 function getDisplayPrice(item: PlannerItem) {
   const agreed = Number(item.agreed_sell_rate ?? 0);
-  if (agreed > 0) return agreed;
+  if (Number.isFinite(agreed) && agreed > 0) return agreed;
+
+  if (isPerDayPriced(item)) {
+    const dayRate = Number(item.price_per_day ?? 0);
+    if (Number.isFinite(dayRate) && dayRate > 0) return dayRate;
+  }
+
   return Number(item.job_price ?? 0);
+}
+
+function priceDisplaySuffix(item: PlannerItem) {
+  if (isPerDayPriced(item)) return " • Per day";
+  return " • Full job";
 }
 
 function isCrossHireItem(item: PlannerItem) {
@@ -1083,18 +1098,12 @@ export default function PlannerBoard() {
               PO cost {fmtMoney(item.supplier_cost ?? 0)}
             </div>
             <div style={{ marginTop: 2, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-              Charge {fmtMoney(displayPrice)} ex VAT
-              {String(item.price_mode ?? "full_job") === "per_day"
-                ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)} ex VAT`
-                : " • Full job"}
+              Charge {fmtMoney(displayPrice)} ex VAT{priceDisplaySuffix(item)}
             </div>
           </>
         ) : (
           <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, fontWeight: 900 }}>
-            {fmtMoney(displayPrice)} ex VAT
-            {String(item.price_mode ?? "full_job") === "per_day"
-              ? ` • Per day ${fmtMoney(item.price_per_day ?? 0)} ex VAT`
-              : " • Full job"}
+            {fmtMoney(displayPrice)} ex VAT{priceDisplaySuffix(item)}
           </div>
         )}
 
