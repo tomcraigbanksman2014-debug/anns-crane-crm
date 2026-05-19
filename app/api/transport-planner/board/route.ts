@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
+import { getAssetAvailabilityForRange } from "../../../lib/assetAvailability";
 
 function startOfWeekMonday(date: Date) {
   const d = new Date(date);
@@ -161,7 +162,7 @@ export async function GET(req: Request) {
       )
     );
 
-    const [vehiclesRes, operatorsRes] = await Promise.all([
+    const [vehiclesRes, operatorsRes, assetAvailability] = await Promise.all([
       supabase
         .from("vehicles")
         .select("id, name, reg_number, status, archived")
@@ -175,6 +176,7 @@ export async function GET(req: Request) {
             .eq("archived", false)
             .order("full_name", { ascending: true })
         : Promise.resolve({ data: [], error: null } as any),
+      getAssetAvailabilityForRange(supabase, "vehicle", rangeStart, rangeEnd),
     ]);
 
     if (vehiclesRes.error) {
@@ -186,6 +188,14 @@ export async function GET(req: Request) {
 
     const vehicles = vehiclesRes.data ?? [];
     const operators = operatorsRes.data ?? [];
+    const vehicleAvailabilityByAssetId = new Map<string, any[]>();
+    for (const entry of assetAvailability ?? []) {
+      const assetId = String((entry as any).asset_id ?? "").trim();
+      if (!assetId) continue;
+      const list = vehicleAvailabilityByAssetId.get(assetId) ?? [];
+      list.push(entry);
+      vehicleAvailabilityByAssetId.set(assetId, list);
+    }
 
     const activeJobs = transportJobs
       .filter((row: any) => lower(row.status) !== "cancelled")
@@ -285,6 +295,7 @@ export async function GET(req: Request) {
       name: vehicle.name,
       reg_number: vehicle.reg_number,
       status: vehicle.status,
+      availability: vehicleAvailabilityByAssetId.get(String(vehicle.id)) ?? [],
       items: ownedTransportJobs.filter((row: any) => row.vehicle_id === vehicle.id).map(mapJob),
     }));
 
