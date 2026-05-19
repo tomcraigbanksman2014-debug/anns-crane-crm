@@ -96,15 +96,15 @@ export default async function SubcontractorsPage({
         .order("qualification_name", { ascending: true })
     : { data: [] as any[] };
 
-  const quals = qualifications ?? [];
+  const quals = (qualifications ?? []) as any[];
   const qualificationsByOperator = new Map<string, any[]>();
   const qualificationOptions = Array.from(
-    new Set(
+    new Set<string>(
       quals
         .map((item: any) => String(item.qualification_name ?? "").trim())
-        .filter(Boolean)
+        .filter((value: string) => value.length > 0)
     )
-  ).sort((a, b) => a.localeCompare(b));
+  ).sort((a: string, b: string) => a.localeCompare(b));
 
   quals.forEach((item: any) => {
     const key = String(item.operator_id);
