@@ -297,7 +297,7 @@ function buildExternalProfile(job: any, crane: any, allocation: any): EquipmentP
       "Final lift to be checked against supplier/manufacturer chart",
     ],
     warnings: [
-      "This crane is not held as a full asset profile in the CRM unless matched above; verify all supplier/manufacturer information before approving the lift.",
+      "This crane is not held as a full verified machine profile unless matched above; verify all supplier/manufacturer information before approving the lift.",
       "Final capacity must be checked against the exact current load chart, radius, boom length, counterweight / ballast, outrigger setup and accessories.",
       "Hook block, slings and lifting accessories must be deducted from available chart capacity.",
     ],
