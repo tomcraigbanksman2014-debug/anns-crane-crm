@@ -108,6 +108,9 @@ export default async function LiftPlanPrintPage({
           asset_type,
           source_type,
           item_name,
+          supplier_id,
+          supplier_reference,
+          notes,
           start_date,
           end_date,
           start_time,
@@ -125,6 +128,11 @@ export default async function LiftPlanPrintPage({
           operators:operator_id (
             id,
             full_name
+          ),
+          suppliers:supplier_id (
+            id,
+            company_name,
+            category
           )
         )
       `)
@@ -143,6 +151,7 @@ export default async function LiftPlanPrintPage({
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
     selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+    pack_sections: (liftPlan as any)?.pack_sections ?? null,
   };
   const primary = getPrimaryCraneContext(selectedJob);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
