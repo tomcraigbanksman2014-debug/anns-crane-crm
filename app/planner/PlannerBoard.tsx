@@ -63,10 +63,24 @@ type PlannerPerson = {
   full_name?: string | null;
 };
 
+type AssetAvailabilityEntry = {
+  id: string;
+  asset_type?: "crane" | "vehicle" | string;
+  asset_id?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  blocks_assignment?: boolean | null;
+};
+
 type PlannerEquipment = {
   id: string;
   name?: string | null;
   asset_number?: string | null;
+  availability?: AssetAvailabilityEntry[];
 };
 
 type PlannerResponse = {
@@ -166,6 +180,40 @@ function itemMatchesDay(item: PlannerItem, dayIso: string) {
   if (!start || !end) return false;
 
   return start <= dayIso && end >= dayIso;
+}
+
+function availabilityMatchesDay(entry: AssetAvailabilityEntry, dayIso: string) {
+  const start = String(entry.start_date ?? "").trim();
+  const end = String(entry.end_date ?? entry.start_date ?? "").trim();
+  if (!start || !end) return false;
+  return start <= dayIso && end >= dayIso;
+}
+
+function assetAvailabilityStatusLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "mot") return "MOT";
+  if (raw === "maintenance") return "Maintenance";
+  if (raw === "service") return "Service";
+  if (raw === "inspection") return "Inspection";
+  if (raw === "repair") return "Repair";
+  if (raw === "breakdown") return "Breakdown";
+  if (raw === "unavailable") return "Unavailable";
+  if (raw === "other") return "Other";
+  return raw ? raw.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase()) : "Unavailable";
+}
+
+function availabilityTimeLabel(entry: AssetAvailabilityEntry) {
+  const start = String(entry.start_time ?? "").trim();
+  const end = String(entry.end_time ?? "").trim();
+  return start && end ? `${start}-${end}` : "";
+}
+
+function availabilityEntriesForDay(equipment: PlannerEquipment, dayIso: string) {
+  return (equipment.availability ?? []).filter((entry) => availabilityMatchesDay(entry, dayIso));
+}
+
+function availabilityBlocksAssignment(entries: AssetAvailabilityEntry[]) {
+  return entries.some((entry) => entry.blocks_assignment !== false);
 }
 
 function getClientName(item: PlannerItem) {
@@ -1144,26 +1192,58 @@ export default function PlannerBoard() {
     );
   }
 
+  function renderAssetAvailability(entries: AssetAvailabilityEntry[]) {
+    if (!entries.length) return null;
+
+    return (
+      <div style={assetAvailabilityWrap}>
+        {entries.map((entry) => {
+          const blocks = entry.blocks_assignment !== false;
+          const timeText = availabilityTimeLabel(entry);
+          return (
+            <div key={entry.id} style={blocks ? assetUnavailableBadge : assetSoftUnavailableBadge}>
+              <div style={{ fontWeight: 1000 }}>{assetAvailabilityStatusLabel(entry.status)}</div>
+              <div style={{ marginTop: 2, fontSize: 11 }}>
+                {blocks ? "Blocked" : "Note only"}
+                {timeText ? ` • ${timeText}` : ""}
+              </div>
+              {entry.notes ? (
+                <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{entry.notes}</div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderDropCell(
     items: PlannerItem[],
     target: DropTarget,
     highlight = false,
     showEmptyCrossHire = false,
-    crossHireSection = false
+    crossHireSection = false,
+    availabilityEntries: AssetAvailabilityEntry[] = []
   ) {
+    const blockedByAvailability = availabilityBlocksAssignment(availabilityEntries);
+
     return (
       <div
         style={{
           ...dayCell,
           ...(crossHireSection ? crossHireDayCell : null),
           ...(highlight ? holidayCell : null),
-          ...(draggingId ? dropReadyCell : null),
+          ...(availabilityEntries.length ? (blockedByAvailability ? assetUnavailableCell : assetSoftUnavailableCell) : null),
+          ...(draggingId && !blockedByAvailability ? dropReadyCell : null),
         }}
+        title={blockedByAvailability ? "This crane has downtime booked. Remove or unblock the downtime before assigning new work." : undefined}
         onDragOver={(e) => {
+          if (blockedByAvailability) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }}
         onDrop={(e) => {
+          if (blockedByAvailability) return;
           e.preventDefault();
           const item = (data?.items ?? []).find((row) => row.id === draggingId);
           if (item) {
@@ -1171,10 +1251,13 @@ export default function PlannerBoard() {
           }
         }}
       >
+        {renderAssetAvailability(availabilityEntries)}
         {items.length > 0 ? (
           sortItemsByStartTime(items).map((item) => renderCard(item, true, target.dayIso))
         ) : showEmptyCrossHire ? (
           <div style={emptyCellText}>No cross-hired crane jobs</div>
+        ) : availabilityEntries.length ? (
+          <div style={emptyCellText}>No jobs</div>
         ) : (
           <div style={emptyCellText}>Free</div>
         )}
@@ -1486,34 +1569,47 @@ export default function PlannerBoard() {
                         <div style={{ fontSize: 12, opacity: 0.72 }}>{activeDay.label}</div>
                       </div>
 
-                      <div
-                        style={{
-                          ...mobileDayCell,
-                          ...(activeDay.is_bank_holiday ? holidayCell : null),
-                          ...(draggingId ? dropReadyCell : null),
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = "move";
-                        }}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          const item = (data?.items ?? []).find((row) => row.id === draggingId);
-                          if (item) {
-                            movePlannerItem(item, {
-                              equipmentId: equipment.id,
-                              dayIso: activeDay.date,
-                              plannerGroup: "allocated",
-                            });
-                          }
-                        }}
-                      >
-                        {dayItems.length > 0 ? (
-                          dayItems.map((item) => renderCard(item, false, activeDay.date))
-                        ) : (
-                          <div style={emptyCellText}>No jobs</div>
-                        )}
-                      </div>
+                      {(() => {
+                        const dayAvailability = availabilityEntriesForDay(equipment, activeDay.date);
+                        const blockedByAvailability = availabilityBlocksAssignment(dayAvailability);
+                        return (
+                          <div
+                            style={{
+                              ...mobileDayCell,
+                              ...(activeDay.is_bank_holiday ? holidayCell : null),
+                              ...(dayAvailability.length ? (blockedByAvailability ? assetUnavailableCell : assetSoftUnavailableCell) : null),
+                              ...(draggingId && !blockedByAvailability ? dropReadyCell : null),
+                            }}
+                            title={blockedByAvailability ? "This crane has downtime booked. Remove or unblock the downtime before assigning new work." : undefined}
+                            onDragOver={(e) => {
+                              if (blockedByAvailability) return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(e) => {
+                              if (blockedByAvailability) return;
+                              e.preventDefault();
+                              const item = (data?.items ?? []).find((row) => row.id === draggingId);
+                              if (item) {
+                                movePlannerItem(item, {
+                                  equipmentId: equipment.id,
+                                  dayIso: activeDay.date,
+                                  plannerGroup: "allocated",
+                                });
+                              }
+                            }}
+                          >
+                            {renderAssetAvailability(dayAvailability)}
+                            {dayItems.length > 0 ? (
+                              dayItems.map((item) => renderCard(item, false, activeDay.date))
+                            ) : dayAvailability.length ? (
+                              <div style={emptyCellText}>No jobs</div>
+                            ) : (
+                              <div style={emptyCellText}>No jobs</div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -1556,7 +1652,10 @@ export default function PlannerBoard() {
                       renderDropCell(
                         items.filter((item) => itemMatchesDay(item, day.date)),
                         { equipmentId: equipment.id, dayIso: day.date, plannerGroup: "allocated" },
-                        Boolean(day.is_bank_holiday)
+                        Boolean(day.is_bank_holiday),
+                        false,
+                        false,
+                        availabilityEntriesForDay(equipment, day.date)
                       )
                     )}
                   />
@@ -1733,6 +1832,41 @@ const mobileTabActive: React.CSSProperties = {
   color: "#fff",
   border: "1px solid #111",
 };
+
+
+const assetUnavailableCell: React.CSSProperties = {
+  background: "rgba(220,38,38,0.10)",
+  border: "2px solid rgba(220,38,38,0.28)",
+};
+
+const assetSoftUnavailableCell: React.CSSProperties = {
+  background: "rgba(255,170,0,0.08)",
+  border: "1px solid rgba(255,170,0,0.22)",
+};
+
+const assetAvailabilityWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+  marginBottom: 8,
+};
+
+const assetUnavailableBadge: React.CSSProperties = {
+  padding: "7px 8px",
+  borderRadius: 10,
+  background: "rgba(220,38,38,0.14)",
+  color: "#7f1d1d",
+  border: "1px solid rgba(220,38,38,0.26)",
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const assetSoftUnavailableBadge: React.CSSProperties = {
+  ...assetUnavailableBadge,
+  background: "rgba(255,170,0,0.14)",
+  color: "#8a5609",
+  border: "1px solid rgba(255,170,0,0.26)",
+};
+
 
 const mobileRowHeader: React.CSSProperties = {
   display: "flex",
