@@ -1,15 +1,17 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
-import {
-  detectAssetAppendixPreset,
-  listAssetAppendixPresetBundles,
-  type AssetPresetKind,
-  type AssetProfileInput,
-} from "../lib/assetAppendixPresets";
+type AssetPresetKind = "crane" | "vehicle";
+type AssetProfileInput = {
+  name?: string | null;
+  make?: string | null;
+  model?: string | null;
+  vehicleType?: string | null;
+  capacity?: string | null;
+};
 
 export type AssetDocumentItem = {
   id: string;
@@ -314,8 +316,6 @@ async function createDocumentWithDirectUploads({
 
 export default function AssetDocumentManager({
   assetLabel,
-  assetType,
-  assetProfile,
   uploadUrl,
   deleteUrlPrefix,
   initialDocuments,
@@ -339,22 +339,9 @@ export default function AssetDocumentManager({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
-  const preset = useMemo(
-    () => detectAssetAppendixPreset(assetType, assetProfile ?? null),
-    [assetType, assetProfile]
-  );
-
-  const presetBundles = useMemo(
-    () => listAssetAppendixPresetBundles(assetType, assetProfile ?? null),
-    [assetType, assetProfile]
-  );
-
-  const helperText = useMemo(() => {
-    if (!includeInPack) {
-      return "This PDF will be stored on the asset record but not included in lift plan packs.";
-    }
-    return "Enter all, a single page, or ranges such as 1-4,8. Preview pages are shown below so you can tick exactly which diagrams go into the pack.";
-  }, [includeInPack]);
+  const helperText = includeInPack
+    ? "Enter all, a single page, or ranges such as 1-4,8. Preview pages are shown below so you can tick exactly which diagrams go into the pack."
+    : "This PDF will be stored on the asset record but not included in lift plan packs.";
 
   async function handleUpload(file: File) {
     setBusy(true);
@@ -402,61 +389,6 @@ export default function AssetDocumentManager({
     }
   }
 
-  async function handleAutoBundleUpload(file: File) {
-    if (!preset || !presetBundles.length) {
-      setMessage("No automatic appendix preset exists for this machine yet.");
-      return;
-    }
-
-    setBusy(true);
-    setMessage("");
-
-    try {
-      if (file.type !== "application/pdf") {
-        throw new Error("Only PDF files are allowed.");
-      }
-
-      const created: AssetDocumentItem[] = [];
-      setMessage("Reading PDF text…");
-      const extractedText = await extractPdfText(file);
-
-      for (let index = 0; index < presetBundles.length; index += 1) {
-        const bundle = presetBundles[index];
-        setMessage(
-          `Building ${preset.label} bundle ${index + 1} of ${presetBundles.length}: ${bundle.title}`
-        );
-
-        const previewFiles = await renderPreviewFiles(file, bundle.pages);
-
-        const result = await createDocumentWithDirectUploads({
-          uploadUrl,
-          file,
-          title: bundle.title,
-          documentType: bundle.documentType,
-          includeInPack: true,
-          appendixOrder: bundle.appendixOrder,
-          previewFiles,
-          extractedText,
-        });
-
-        if (result?.document) {
-          created.push(result.document as AssetDocumentItem);
-        }
-      }
-
-      if (created.length) {
-        setDocuments((prev) => [...created.reverse(), ...prev]);
-      }
-
-      setMessage(`${preset.label} default appendix bundles created. Specification text has been saved for lift plan use.`);
-      router.refresh();
-    } catch (error: any) {
-      setMessage(error?.message || "Automatic bundle upload failed.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function handleDelete(id: string) {
     const ok = window.confirm("Delete this PDF and its generated appendix previews?");
     if (!ok) return;
@@ -491,37 +423,10 @@ export default function AssetDocumentManager({
 
       {message ? <div style={messageBox}>{message}</div> : null}
 
-      {preset ? (
-        <>
-          <div style={helperBox}>
-            <strong>Detected machine preset:</strong> {preset.label}. Upload the full manual once
-            and the default appendix bundles will be created automatically.
-          </div>
-          <div style={autoBox}>
-            <div style={{ display: "grid", gap: 8 }}>
-              <div style={{ fontWeight: 900 }}>Automatic appendix bundles</div>
-              <div style={{ fontSize: 13, opacity: 0.78 }}>
-                {presetBundles
-                  .map((bundle) => `${bundle.title} (pages ${bundle.pages.join(",")})`)
-                  .join(" • ")}
-              </div>
-            </div>
-            <div>
-              <input
-                type="file"
-                accept="application/pdf"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleAutoBundleUpload(file);
-                  e.currentTarget.value = "";
-                }}
-                disabled={busy}
-                style={inputStyle}
-              />
-            </div>
-          </div>
-        </>
-      ) : null}
+      <div style={helperBox}>
+        Upload the PDF once, choose <strong>all</strong> or the exact pages/ranges you want previewed,
+        then tick the diagrams/pages below for the lift plan pack. This replaces the old automatic appendix bundle upload.
+      </div>
 
       <div style={helperBox}>{helperText}</div>
 
@@ -581,7 +486,7 @@ export default function AssetDocumentManager({
           </label>
         </div>
 
-        <Field label="Manual / one-off upload">
+        <Field label="Upload PDF">
           <input
             type="file"
             accept="application/pdf"
@@ -665,16 +570,6 @@ const sectionTitle: CSSProperties = {
   marginTop: 0,
   marginBottom: 14,
   fontSize: 22,
-};
-
-const autoBox: CSSProperties = {
-  marginBottom: 12,
-  padding: 12,
-  borderRadius: 12,
-  background: "rgba(255,255,255,0.38)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  display: "grid",
-  gap: 12,
 };
 
 const uploadGrid: CSSProperties = {
