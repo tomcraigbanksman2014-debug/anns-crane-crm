@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
+import { getAssetAvailabilityForRange } from "../../../lib/assetAvailability";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
@@ -327,6 +328,7 @@ export async function GET(req: Request) {
       liftPlansRes,
       jobSupplierLinksRes,
       visitInvoicesRes,
+      assetAvailability,
     ] = await Promise.all([
       supabase
         .from("jobs")
@@ -509,6 +511,8 @@ export async function GET(req: Request) {
         .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
         .gte("visit_date", weekStart)
         .lte("visit_date", weekEnd),
+
+      getAssetAvailabilityForRange(supabase, "crane", weekStart, weekEnd),
     ]);
 
     if (jobsRes.error) {
@@ -551,6 +555,14 @@ export async function GET(req: Request) {
     const liftPlans = liftPlansRes.data ?? [];
     const jobSupplierLinks = jobSupplierLinksRes.data ?? [];
     const visitInvoices = visitInvoicesRes.data ?? [];
+    const craneAvailabilityByAssetId = new Map<string, any[]>();
+    for (const entry of assetAvailability ?? []) {
+      const assetId = String((entry as any).asset_id ?? "").trim();
+      if (!assetId) continue;
+      const list = craneAvailabilityByAssetId.get(assetId) ?? [];
+      list.push(entry);
+      craneAvailabilityByAssetId.set(assetId, list);
+    }
 
     const craneById = new Map(cranes.map((row: any) => [String(row.id), row]));
     const operatorById = new Map(operators.map((row: any) => [String(row.id), row]));
@@ -1179,7 +1191,10 @@ export async function GET(req: Request) {
       bank_holidays: bankHolidays,
       items,
       operators,
-      equipment: cranes,
+      equipment: cranes.map((crane: any) => ({
+        ...crane,
+        availability: craneAvailabilityByAssetId.get(String(crane.id)) ?? [],
+      })),
     });
   } catch (e: any) {
     return NextResponse.json(
