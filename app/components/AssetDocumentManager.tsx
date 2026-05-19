@@ -464,7 +464,7 @@ export default function AssetDocumentManager({
 
   return (
     <div style={cardStyle}>
-      <h2 style={sectionTitle}>Asset PDFs</h2>
+      <h2 style={sectionTitle}>{assetLabel} PDFs</h2>
 
       {message ? <div style={messageBox}>{message}</div> : null}
 
