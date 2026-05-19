@@ -17,6 +17,37 @@ function cleanBool(value: unknown) {
   return value === true;
 }
 
+function cleanSectionText(value: unknown) {
+  if (value === null || value === undefined) return null;
+  const s = String(value).trim();
+  return s.length ? s : null;
+}
+
+const CUSTOM_CRANE_SECTION_KEYS = [
+  "custom_crane_name",
+  "custom_crane_make",
+  "custom_crane_model",
+  "custom_crane_capacity",
+  "custom_crane_capacity_kg",
+  "custom_crane_boom_length_m",
+  "custom_crane_max_radius_m",
+  "custom_crane_summary",
+  "custom_crane_configuration_note",
+  "custom_crane_outrigger_note",
+  "custom_crane_weather_note",
+  "custom_crane_chart_note",
+];
+
+function customCraneSectionsFromBody(body: Record<string, unknown>) {
+  const out: Record<string, string | null> = {};
+  for (const key of CUSTOM_CRANE_SECTION_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      out[key] = cleanSectionText(body[key]);
+    }
+  }
+  return out;
+}
+
 function cleanUuid(value: unknown) {
   const s = String(value ?? "").trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(s)
@@ -70,7 +101,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("lift_plans")
-      .select("id, paperwork_locked")
+      .select("id, paperwork_locked, pack_sections")
       .eq("job_id", params.id)
       .maybeSingle();
 
@@ -84,6 +115,8 @@ export async function POST(
         { status: 403 }
       );
     }
+
+    const customCraneSections = customCraneSectionsFromBody(body);
 
     const payload = {
       job_id: params.id,
@@ -123,9 +156,17 @@ export async function POST(
     };
 
     if (existing?.id) {
+      const mergedPackSections = {
+        ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
+        ...customCraneSections,
+      };
+
       const { error: updateError } = await supabase
         .from("lift_plans")
-        .update(payload)
+        .update({
+          ...payload,
+          pack_sections: mergedPackSections,
+        })
         .eq("job_id", params.id);
 
       if (updateError) {
@@ -145,6 +186,7 @@ export async function POST(
         .from("lift_plans")
         .insert({
           ...payload,
+          pack_sections: customCraneSections,
           created_at: new Date().toISOString(),
         })
         .select("id")
