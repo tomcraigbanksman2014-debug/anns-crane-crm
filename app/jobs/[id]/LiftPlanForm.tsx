@@ -43,6 +43,19 @@ type LiftPlanData = {
   office_signed_by?: string | null;
   finalised_at?: string | null;
   paperwork_locked?: boolean;
+  pack_sections?: Record<string, string | null> | null;
+  custom_crane_name?: string | null;
+  custom_crane_make?: string | null;
+  custom_crane_model?: string | null;
+  custom_crane_capacity?: string | null;
+  custom_crane_capacity_kg?: string | null;
+  custom_crane_boom_length_m?: string | null;
+  custom_crane_max_radius_m?: string | null;
+  custom_crane_summary?: string | null;
+  custom_crane_configuration_note?: string | null;
+  custom_crane_outrigger_note?: string | null;
+  custom_crane_weather_note?: string | null;
+  custom_crane_chart_note?: string | null;
 };
 
 function hasDraftValue(value: unknown) {
@@ -100,6 +113,14 @@ function toInputDateTime(value: string | null | undefined) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function sectionValue(initial: LiftPlanData | null, key: keyof LiftPlanData) {
+  const direct = initial?.[key];
+  if (direct !== null && direct !== undefined) return String(direct);
+  const sections = initial?.pack_sections ?? {};
+  const sectionValue = sections[String(key)];
+  return sectionValue === null || sectionValue === undefined ? "" : String(sectionValue);
+}
+
 export default function LiftPlanForm({
   jobId,
   initial,
@@ -144,6 +165,18 @@ export default function LiftPlanForm({
     office_signed_by: initial?.office_signed_by ?? "",
     finalised_at: initial?.finalised_at ?? "",
     paperwork_locked: initial?.paperwork_locked ?? false,
+    custom_crane_name: sectionValue(initial, "custom_crane_name"),
+    custom_crane_make: sectionValue(initial, "custom_crane_make"),
+    custom_crane_model: sectionValue(initial, "custom_crane_model"),
+    custom_crane_capacity: sectionValue(initial, "custom_crane_capacity"),
+    custom_crane_capacity_kg: sectionValue(initial, "custom_crane_capacity_kg"),
+    custom_crane_boom_length_m: sectionValue(initial, "custom_crane_boom_length_m"),
+    custom_crane_max_radius_m: sectionValue(initial, "custom_crane_max_radius_m"),
+    custom_crane_summary: sectionValue(initial, "custom_crane_summary"),
+    custom_crane_configuration_note: sectionValue(initial, "custom_crane_configuration_note"),
+    custom_crane_outrigger_note: sectionValue(initial, "custom_crane_outrigger_note"),
+    custom_crane_weather_note: sectionValue(initial, "custom_crane_weather_note"),
+    custom_crane_chart_note: sectionValue(initial, "custom_crane_chart_note"),
   });
 
   const [saving, setSaving] = useState(false);
@@ -332,6 +365,24 @@ export default function LiftPlanForm({
           <ReadOnlyFact label="Current selection" value={selectedCraneLabel} />
         </div>
         <div style={helperText}>This controls which allocated crane the AI draft, printable lift plan and full pack use.</div>
+      </Section>
+
+      <Section title="Sub-hired / external crane details">
+        <div style={helperText}>Use this when the crane is hired in or not saved as a full AnnS crane asset. These details override the pack wording and stop the lift plan pulling the wrong owned-crane information.</div>
+        <div style={grid2}>
+          <Field label="Actual crane name / model" value={form.custom_crane_name ?? ""} onChange={(v) => update("custom_crane_name", v)} disabled={locked} />
+          <Field label="Manufacturer" value={form.custom_crane_make ?? ""} onChange={(v) => update("custom_crane_make", v)} disabled={locked} />
+          <Field label="Model" value={form.custom_crane_model ?? ""} onChange={(v) => update("custom_crane_model", v)} disabled={locked} />
+          <Field label="Rated capacity shown on supplier info" value={form.custom_crane_capacity ?? ""} onChange={(v) => update("custom_crane_capacity", v)} disabled={locked} />
+          <Field label="Rated capacity kg, optional" type="number" step="1" value={form.custom_crane_capacity_kg ?? ""} onChange={(v) => update("custom_crane_capacity_kg", v)} disabled={locked} />
+          <Field label="Max boom length m, optional" type="number" step="0.01" value={form.custom_crane_boom_length_m ?? ""} onChange={(v) => update("custom_crane_boom_length_m", v)} disabled={locked} />
+          <Field label="Max radius m, optional" type="number" step="0.01" value={form.custom_crane_max_radius_m ?? ""} onChange={(v) => update("custom_crane_max_radius_m", v)} disabled={locked} />
+          <Field label="Chart / supplier reference" value={form.custom_crane_chart_note ?? ""} onChange={(v) => update("custom_crane_chart_note", v)} disabled={locked} />
+        </div>
+        <TextAreaField label="External crane summary / supplier specification notes" value={form.custom_crane_summary ?? ""} onChange={(v) => update("custom_crane_summary", v)} disabled={locked} rows={3} />
+        <TextAreaField label="Configuration note" value={form.custom_crane_configuration_note ?? ""} onChange={(v) => update("custom_crane_configuration_note", v)} disabled={locked} rows={3} />
+        <TextAreaField label="Outrigger / stabiliser note" value={form.custom_crane_outrigger_note ?? ""} onChange={(v) => update("custom_crane_outrigger_note", v)} disabled={locked} rows={3} />
+        <TextAreaField label="Weather / wind note" value={form.custom_crane_weather_note ?? ""} onChange={(v) => update("custom_crane_weather_note", v)} disabled={locked} rows={3} />
       </Section>
 
       {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
