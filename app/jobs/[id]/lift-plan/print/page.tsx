@@ -17,8 +17,22 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
+function removeInternalSystemReferences(value: string | null | undefined) {
+  const text = String(value ?? "");
+  return text
+    .replace(/recorded within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
+    .replace(/recorded in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
+    .replace(/within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "within the lifting documentation")
+    .replace(/in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "in the lifting documentation")
+    .replace(/internal crane hire (?:system|software|database|[A-Z]{3})/gi, "crane hire company")
+    .replace(/internal (?:system|software|database|[A-Z]{3})/gi, "company lifting documentation")
+    .replace(/[Cc][Rr][Mm]/g, "lifting documentation")
+    .trim();
+}
+
 function val(value: any) {
-  return value || "—";
+  const cleanValue = removeInternalSystemReferences(value);
+  return cleanValue || "—";
 }
 
 function yesNo(value: boolean | null | undefined) {
