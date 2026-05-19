@@ -14,6 +14,14 @@ function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
 }
 
+function paymentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "paye") return "PAYE";
+  if (raw === "cis_20") return "CIS 20%";
+  if (raw === "cis_30") return "CIS 30%";
+  return "—";
+}
+
 function toRadians(value: number) {
   return (value * Math.PI) / 180;
 }
@@ -61,6 +69,7 @@ export default async function SubcontractorsPage({
       standard_day_rate,
       standard_hourly_rate,
       pay_basis,
+      subcontractor_payment_type,
       has_login,
       employment_type
     `)
@@ -139,7 +148,7 @@ export default async function SubcontractorsPage({
 
   const filtered = enriched.filter((row) => {
     if (q) {
-      const haystack = [row.full_name, row.company_name, row.role, row.email, row.phone, row.base_postcode]
+      const haystack = [row.full_name, row.company_name, row.role, row.email, row.phone, row.base_postcode, paymentTypeLabel(row.subcontractor_payment_type)]
         .map((v: any) => String(v ?? "").toLowerCase())
         .join(" ");
       if (!haystack.includes(q)) return false;
@@ -229,6 +238,7 @@ export default async function SubcontractorsPage({
                   <div><strong>Postcode:</strong> {fmtText(row.base_postcode)}</div>
                   <div><strong>Day rate:</strong> {row.standard_day_rate != null ? `£${Number(row.standard_day_rate).toFixed(2)}` : "—"}</div>
                   <div><strong>Pay basis:</strong> {fmtText(row.pay_basis)}</div>
+                  <div><strong>How paid:</strong> {paymentTypeLabel(row.subcontractor_payment_type)}</div>
                   <div><strong>Login:</strong> {row.has_login ? "Yes" : "No"}</div>
                   {row.milesAway != null ? <div><strong>Distance:</strong> {row.milesAway.toFixed(1)} miles</div> : null}
                 </div>
