@@ -21,7 +21,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("lift_plans")
-      .select("id, paperwork_locked, selected_job_equipment_id, selected_crane_id, lift_supervisor, appointed_person, crane_operator")
+      .select("id, paperwork_locked, selected_job_equipment_id, selected_crane_id, lift_supervisor, appointed_person, crane_operator, pack_sections")
       .eq("job_id", params.id)
       .maybeSingle();
 
@@ -84,6 +84,10 @@ export async function POST(
         job_equipment (
           id,
           asset_type,
+          source_type,
+          supplier_id,
+          supplier_reference,
+          notes,
           start_date,
           end_date,
           start_time,
@@ -104,6 +108,11 @@ export async function POST(
             full_name,
             phone,
             email
+          ),
+          suppliers:supplier_id (
+            id,
+            company_name,
+            category
           )
         )
       `)
@@ -125,6 +134,7 @@ export async function POST(
       lift_supervisor: (existing as any)?.lift_supervisor ?? null,
       appointed_person: (existing as any)?.appointed_person ?? null,
       crane_operator: (existing as any)?.crane_operator ?? null,
+      pack_sections: (existing as any)?.pack_sections ?? null,
     });
 
     await writeAuditLog({
