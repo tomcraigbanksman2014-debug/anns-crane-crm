@@ -71,6 +71,13 @@ function payBasisLabel(operator: any, overrideAmount?: number | string | null | 
   return String(operator?.pay_basis ?? "day_rate");
 }
 function fmtMoney(value: number) { return `£${value.toFixed(2)}`; }
+function paymentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "paye") return "PAYE";
+  if (raw === "cis_20") return "CIS 20%";
+  if (raw === "cis_30") return "CIS 30%";
+  return "—";
+}
 
 type SearchParams = { week?: string };
 
@@ -86,7 +93,7 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
 
   const { data: subs, error } = await supabase
     .from("operators")
-    .select("id, full_name, company_name, standard_day_rate, standard_hourly_rate, pay_basis, phone, email, archived")
+    .select("id, full_name, company_name, standard_day_rate, standard_hourly_rate, pay_basis, subcontractor_payment_type, phone, email, archived")
     .eq("employment_type", "subcontractor")
     .eq("archived", false)
     .order("full_name", { ascending: true });
@@ -202,6 +209,7 @@ export default async function SubcontractorPayReportPage({ searchParams }: { sea
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 1000 }}>{operator.full_name || "Unnamed"}</div>
                   <div style={{ marginTop: 4, opacity: 0.78 }}>{operator.company_name || "No company name"}</div>
+                  <div style={{ marginTop: 4, opacity: 0.78 }}>How paid: {paymentTypeLabel(operator.subcontractor_payment_type)}</div>
                 </div>
                 <div style={{ fontWeight: 1000, fontSize: 22 }}>{fmtMoney(totalAmount)}</div>
               </div>
