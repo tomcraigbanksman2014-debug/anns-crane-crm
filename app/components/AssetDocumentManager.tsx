@@ -77,7 +77,7 @@ async function readJsonResponse(response: Response) {
   }
 }
 
-async function renderPreviewFiles(file: File, pageNumbers: number[]) {
+async function loadPdf(file: File) {
   const pdfjsLib: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
   if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -89,6 +89,38 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
   const loadingTask = pdfjsLib.getDocument({ data, useSystemFonts: true });
   const pdf = await loadingTask.promise;
 
+  return { pdf, loadingTask };
+}
+
+async function extractPdfText(file: File, maxPages = 30, maxChars = 45000) {
+  const { pdf, loadingTask } = await loadPdf(file);
+  const chunks: string[] = [];
+
+  try {
+    const pages = Math.min(pdf.numPages || 0, maxPages);
+    for (let pageNumber = 1; pageNumber <= pages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const pageText = (content.items ?? [])
+        .map((item: any) => String(item?.str ?? "").trim())
+        .filter(Boolean)
+        .join(" ");
+
+      if (pageText) chunks.push(`Page ${pageNumber}: ${pageText}`);
+      if (chunks.join("\n").length >= maxChars) break;
+    }
+  } finally {
+    if (typeof loadingTask.destroy === "function") {
+      loadingTask.destroy();
+    }
+  }
+
+  return chunks.join("\n").slice(0, maxChars);
+}
+
+async function renderPreviewFiles(file: File, pageNumbers: number[]) {
+  const { pdf, loadingTask } = await loadPdf(file);
+
   const validPages = pageNumbers.filter(
     (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
   );
@@ -99,52 +131,51 @@ async function renderPreviewFiles(file: File, pageNumbers: number[]) {
 
   const rendered: RenderedPreview[] = [];
 
-  for (const pageNumber of validPages) {
-    const page = await pdf.getPage(pageNumber);
-    const viewport = page.getViewport({ scale: 1.05 });
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
+  try {
+    for (const pageNumber of validPages) {
+      const page = await pdf.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.05 });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
 
-    if (!context) {
-      throw new Error("Could not create a canvas context for PDF preview rendering.");
+      if (!context) {
+        throw new Error("Could not create a canvas context for PDF preview rendering.");
+      }
+
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
+
+      await page.render({
+        canvasContext: context,
+        viewport,
+      }).promise;
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (value) => {
+            if (value) resolve(value);
+            else reject(new Error(`Could not render PDF page ${pageNumber}.`));
+          },
+          "image/jpeg",
+          0.78
+        );
+      });
+
+      rendered.push({
+        pageNumber,
+        file: new File([blob], `page-${pageNumber}.jpg`, { type: "image/jpeg" }),
+      });
     }
-
-    canvas.width = Math.ceil(viewport.width);
-    canvas.height = Math.ceil(viewport.height);
-
-    await page.render({
-      canvasContext: context,
-      viewport,
-    }).promise;
-
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      canvas.toBlob(
-        (value) => {
-          if (value) resolve(value);
-          else reject(new Error(`Could not render PDF page ${pageNumber}.`));
-        },
-        "image/jpeg",
-        0.78
-      );
-    });
-
-    rendered.push({
-      pageNumber,
-      file: new File([blob], `page-${pageNumber}.jpg`, { type: "image/jpeg" }),
-    });
-  }
-
-  if (typeof loadingTask.destroy === "function") {
-    loadingTask.destroy();
+  } finally {
+    if (typeof loadingTask.destroy === "function") {
+      loadingTask.destroy();
+    }
   }
 
   return rendered;
 }
 
-async function uploadToSignedTarget(
-  target: PreparedUploadTarget,
-  file: File
-) {
+async function uploadToSignedTarget(target: PreparedUploadTarget, file: File) {
   const supabase = createSupabaseBrowserClient();
   const { error } = await supabase.storage
     .from(target.bucket)
@@ -163,6 +194,7 @@ async function createDocumentWithDirectUploads({
   includeInPack,
   appendixOrder,
   previewFiles,
+  extractedText,
 }: {
   uploadUrl: string;
   file: File;
@@ -171,6 +203,7 @@ async function createDocumentWithDirectUploads({
   includeInPack: boolean;
   appendixOrder: number;
   previewFiles: RenderedPreview[];
+  extractedText?: string;
 }) {
   const initResponse = await fetch(uploadUrl, {
     method: "POST",
@@ -245,6 +278,7 @@ async function createDocumentWithDirectUploads({
         preview_file_name: target.file_name,
         content_type: target.content_type,
       })),
+      extracted_text: extractedText || "",
     }),
   });
 
@@ -299,7 +333,7 @@ export default function AssetDocumentManager({
     if (!includeInPack) {
       return "This PDF will be stored on the asset record but not included in lift plan packs.";
     }
-    return "Enter the page numbers the CRM should pull from the uploaded PDF, e.g. 1 or 2,5.";
+    return "Enter the PDF pages to pull into lift plan packs. Text from specification/load-chart PDFs is also read so future lift plans can use the latest crane data.";
   }, [includeInPack]);
 
   async function handleUpload(file: File) {
@@ -312,6 +346,9 @@ export default function AssetDocumentManager({
       }
 
       const selectedPages = includeInPack ? parsePageNumbers(pageInput || "1") : [];
+      setMessage("Reading PDF text…");
+      const extractedText = await extractPdfText(file);
+      setMessage("Building preview pages…");
       const previewFiles = includeInPack
         ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1])
         : [];
@@ -324,6 +361,7 @@ export default function AssetDocumentManager({
         includeInPack,
         appendixOrder: Number(appendixOrder || "10") || 10,
         previewFiles,
+        extractedText,
       });
 
       if (result?.document) {
@@ -335,7 +373,7 @@ export default function AssetDocumentManager({
       setIncludeInPack(true);
       setAppendixOrder("10");
       setPageInput("1");
-      setMessage(`${assetLabel} PDF uploaded.`);
+      setMessage(`${assetLabel} PDF uploaded. Specification text has been saved for lift plan use.`);
     } catch (error: any) {
       setMessage(error?.message || "Upload failed.");
     } finally {
@@ -358,6 +396,8 @@ export default function AssetDocumentManager({
       }
 
       const created: AssetDocumentItem[] = [];
+      setMessage("Reading PDF text…");
+      const extractedText = await extractPdfText(file);
 
       for (let index = 0; index < presetBundles.length; index += 1) {
         const bundle = presetBundles[index];
@@ -375,6 +415,7 @@ export default function AssetDocumentManager({
           includeInPack: true,
           appendixOrder: bundle.appendixOrder,
           previewFiles,
+          extractedText,
         });
 
         if (result?.document) {
@@ -386,7 +427,7 @@ export default function AssetDocumentManager({
         setDocuments((prev) => [...created.reverse(), ...prev]);
       }
 
-      setMessage(`${preset.label} default appendix bundles created.`);
+      setMessage(`${preset.label} default appendix bundles created. Specification text has been saved for lift plan use.`);
     } catch (error: any) {
       setMessage(error?.message || "Automatic bundle upload failed.");
     } finally {
@@ -431,7 +472,7 @@ export default function AssetDocumentManager({
         <>
           <div style={helperBox}>
             <strong>Detected machine preset:</strong> {preset.label}. Upload the full manual once
-            and the CRM will create the default appendix bundles automatically.
+            and the default appendix bundles will be created automatically.
           </div>
           <div style={autoBox}>
             <div style={{ display: "grid", gap: 8 }}>
