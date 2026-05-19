@@ -22,13 +22,16 @@ function flatten<T>(value: T | T[] | null | undefined): T[] {
 function allocationLabel(row: any) {
   const crane = one(row?.cranes) as any;
   const operator = one(row?.operators) as any;
+  const supplier = one(row?.suppliers) as any;
   const base =
     [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") ||
     row?.item_name ||
     "Allocated crane";
+  const supplierText = supplier?.company_name ? `Supplier: ${supplier.company_name}` : "";
+  const sourceText = row?.source_type ? String(row.source_type).replace(/_/g, " ") : "";
   const dateText = [row?.start_date, row?.end_date].filter(Boolean).join(" to ");
   const operatorText = operator?.full_name ? `Operator: ${operator.full_name}` : "";
-  return [base, dateText, operatorText].filter(Boolean).join(" • ");
+  return [base, supplierText, sourceText, dateText, operatorText].filter(Boolean).join(" • ");
 }
 
 function documentTypeLabel(value: string | null | undefined) {
@@ -123,6 +126,9 @@ export default async function JobLiftPlanPage({
             asset_type,
             source_type,
             item_name,
+            supplier_id,
+            supplier_reference,
+            notes,
             start_date,
             end_date,
             start_time,
@@ -140,6 +146,11 @@ export default async function JobLiftPlanPage({
             operators:operator_id (
               id,
               full_name
+            ),
+            suppliers:supplier_id (
+              id,
+              company_name,
+              category
             )
           )
         `)
@@ -161,6 +172,7 @@ export default async function JobLiftPlanPage({
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
     selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+    pack_sections: (liftPlan as any)?.pack_sections ?? null,
   };
 
   const primary = getPrimaryCraneContext(selectedJob);
@@ -187,8 +199,16 @@ export default async function JobLiftPlanPage({
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
   const craneOptions = flatten((job as any)?.job_equipment)
     .filter((row) => {
-      const type = String(row?.asset_type ?? row?.source_type ?? "").toLowerCase();
-      return type === "crane" || !!row?.crane_id || !!one(row?.cranes);
+      const type = String(row?.asset_type ?? "").toLowerCase();
+      const source = String(row?.source_type ?? "").toLowerCase();
+      const itemName = String(row?.item_name ?? "").toLowerCase();
+      return (
+        type === "crane" ||
+        !!row?.crane_id ||
+        !!one(row?.cranes) ||
+        ((source.includes("cross") || source.includes("sub") || source.includes("hire")) &&
+          /crane|ak|gmk|ltm|ac|atf|hk|spx|mtk|demag|liebherr|grove|tadano|terex|kato|marchetti|bocker|böcker/i.test(itemName))
+      );
     })
     .map((row) => {
       const craneRow = one(row?.cranes) as any;
