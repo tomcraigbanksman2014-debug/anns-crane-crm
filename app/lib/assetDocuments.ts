@@ -453,26 +453,22 @@ export async function getCraneAppendixAssetsForPack(
 
   const admin = createSupabaseAdminClient();
 
-  const [{ data: crane }, { data: docs, error }] = await Promise.all([
-    admin.from("cranes").select("name, make, model, capacity").eq("id", craneId).maybeSingle(),
-    admin
-      .from("crane_documents")
-      .select("id, title, document_type, appendix_order")
-      .eq("crane_id", craneId)
-      .eq("include_in_pack", true)
-      .order("appendix_order", { ascending: true })
-      .order("uploaded_at", { ascending: true }),
-  ]);
+  const { data: docs, error } = await admin
+    .from("crane_documents")
+    .select("id, title, document_type, appendix_order")
+    .eq("crane_id", craneId)
+    .eq("include_in_pack", true)
+    .order("appendix_order", { ascending: true })
+    .order("uploaded_at", { ascending: true });
 
   if (error || !docs || !docs.length) {
     return [];
   }
 
-  const preset = detectAssetAppendixPreset("crane", crane ?? null);
-  const chosenDocs = filterDocsByTitles(
-    docs,
-    preset ? selectCraneBundleTitlesForContext(crane ?? null, context ?? null) : null
-  );
+  // Show all included crane spec/load-chart preview pages here. The lift-plan page has
+  // a manual tick-box selector, so filtering by detected presets at this point can hide
+  // pages the appointed person may need to choose from.
+  const chosenDocs = docs;
 
   const { data: previews } = await admin
     .from("asset_document_previews")
