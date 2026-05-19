@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { geocodeAddress } from "../../../../lib/geocode";
 import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
+import { assertAssetAvailable } from "../../../../lib/assetAvailability";
 
 function clean(value: any) {
   const s = String(value ?? "").trim();
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
 
     const { data: existingJob, error: existingJobError } = await supabase
       .from("transport_jobs")
-      .select("id, supplier_id, supplier_reference, supplier_cost, operator_id, transport_date, delivery_date, collection_time, delivery_time")
+      .select("id, supplier_id, supplier_reference, supplier_cost, operator_id, vehicle_id, transport_date, delivery_date, collection_time, delivery_time")
       .eq("id", transportJobId)
       .single();
 
@@ -168,6 +169,8 @@ export async function POST(req: Request) {
 
     const effectiveOperatorId =
       updatePayload.operator_id !== undefined ? updatePayload.operator_id : existingJob.operator_id;
+    const effectiveVehicleId =
+      updatePayload.vehicle_id !== undefined ? updatePayload.vehicle_id : existingJob.vehicle_id;
 
     if (effectiveOperatorId) {
       await assertOperatorAvailable(supabase, {
@@ -176,6 +179,15 @@ export async function POST(req: Request) {
         endDate: effectiveDeliveryDate ?? existingJob.delivery_date ?? effectiveTransportDate ?? existingJob.transport_date,
         startTime: effectiveCollectionTime ?? existingJob.collection_time,
         endTime: effectiveDeliveryTime ?? existingJob.delivery_time,
+      });
+    }
+
+    if (effectiveVehicleId) {
+      await assertAssetAvailable(supabase, {
+        assetType: "vehicle",
+        assetId: effectiveVehicleId,
+        startDate: effectiveTransportDate ?? existingJob.transport_date,
+        endDate: effectiveDeliveryDate ?? existingJob.delivery_date ?? effectiveTransportDate ?? existingJob.transport_date,
       });
     }
 
