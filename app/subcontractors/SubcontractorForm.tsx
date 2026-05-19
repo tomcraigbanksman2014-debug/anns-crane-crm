@@ -17,6 +17,7 @@ type Subcontractor = {
   standard_day_rate?: number | string | null;
   standard_hourly_rate?: number | string | null;
   pay_basis?: string | null;
+  subcontractor_payment_type?: string | null;
   payroll_notes?: string | null;
   emergency_contact_name?: string | null;
   emergency_contact_phone?: string | null;
@@ -89,6 +90,17 @@ export default function SubcontractorForm({
           />
           <Field label="Standard day rate" name="standard_day_rate" defaultValue={toMoney(init.standard_day_rate)} type="number" step="0.01" />
           <Field label="Standard hourly rate" name="standard_hourly_rate" defaultValue={toMoney(init.standard_hourly_rate)} type="number" step="0.01" />
+          <SelectField
+            label="How paid"
+            name="subcontractor_payment_type"
+            defaultValue={String(init.subcontractor_payment_type ?? "")}
+            options={[
+              { value: "", label: "Select payment type" },
+              { value: "paye", label: "PAYE" },
+              { value: "cis_20", label: "CIS 20%" },
+              { value: "cis_30", label: "CIS 30%" },
+            ]}
+          />
         </div>
         <TextAreaField label="Payroll notes" name="payroll_notes" defaultValue={init.payroll_notes ?? ""} rows={4} />
       </section>
