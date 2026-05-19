@@ -3,6 +3,8 @@ import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { getVehicleDocumentsForManager } from "../../lib/assetDocuments";
+import { getAssetAvailabilityForAsset } from "../../lib/assetAvailability";
+import AssetAvailabilityManager from "../../components/AssetAvailabilityManager";
 import VehicleDocumentsManager from "./VehicleDocumentsManager";
 import { redirect } from "next/navigation";
 
@@ -59,7 +61,7 @@ export default async function VehicleDetailPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: vehicle, error }, { data: transportJobs }, docs] = await Promise.all([
+  const [{ data: vehicle, error }, { data: transportJobs }, docs, availabilityEntries] = await Promise.all([
     supabase.from("vehicles").select("*").eq("id", params.id).single(),
     supabase
       .from("transport_jobs")
@@ -77,6 +79,7 @@ export default async function VehicleDetailPage({
       .eq("vehicle_id", params.id)
       .order("transport_date", { ascending: false }),
     getVehicleDocumentsForManager(params.id),
+    getAssetAvailabilityForAsset(supabase, "vehicle", params.id),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -187,6 +190,15 @@ export default async function VehicleDetailPage({
                     </div>
                   )}
                 </section>
+              </div>
+
+              <div style={{ marginTop: 18 }}>
+                <AssetAvailabilityManager
+                  assetType="vehicle"
+                  assetId={vehicle.id}
+                  assetName={vehicle.name ?? vehicle.reg_number ?? "this vehicle"}
+                  initialEntries={availabilityEntries}
+                />
               </div>
 
               <div style={{ marginTop: 18 }}>
