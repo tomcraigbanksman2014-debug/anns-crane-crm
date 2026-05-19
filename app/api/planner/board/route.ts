@@ -250,6 +250,10 @@ function looksLikeCraneAllocation(row: any) {
   const craneId = String(row?.crane_id ?? "").trim();
   const craneRow = first(row?.cranes);
 
+  // Be deliberately forgiving here. The live CRM has had allocations saved
+  // through more than one route, so a real crane allocation may be identified
+  // by asset_type, crane_id, or the joined crane object. Do not treat a generic
+  // equipment_id as a crane here because lifting equipment also uses equipment_id.
   return Boolean(craneId || craneRow?.id || assetType === "crane");
 }
 
@@ -637,10 +641,14 @@ export async function GET(req: Request) {
       const joinedCrane = first(row?.cranes);
       const directCraneId = String(row?.crane_id ?? "").trim();
       const possibleEquipmentId = String(row?.equipment_id ?? "").trim();
+      const relatedJob = activeJobById.get(String(row?.job_id ?? "")) ?? first(row?.jobs) ?? null;
+      const jobCraneId = String(relatedJob?.crane_id ?? "").trim();
+      const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
 
       const idMatch: any =
         (directCraneId ? craneById.get(directCraneId) ?? null : null) ??
         (possibleEquipmentId ? craneById.get(possibleEquipmentId) ?? null : null) ??
+        (assetType === "crane" && jobCraneId ? craneById.get(jobCraneId) ?? null : null) ??
         null;
 
       const nameMatch: any =
@@ -652,28 +660,30 @@ export async function GET(req: Request) {
 
       return {
         crane: nameMatch,
-        craneId: String(directCraneId || idMatch?.id || nameMatch?.id || "").trim() || null,
+        craneId: String(directCraneId || idMatch?.id || nameMatch?.id || (assetType === "crane" ? jobCraneId : "")).trim() || null,
       };
     };
 
     const normalisedAllocations = allAllocations
       .map((row: any) => {
         if ("start_at" in row || "end_at" in row) {
-          const fallbackCraneId = String(row.crane_id ?? row.equipment_id ?? "").trim() || null;
-          const fallbackCrane = fallbackCraneId ? craneById.get(fallbackCraneId) ?? first(row.cranes) : first(row.cranes);
+          const resolvedCrane = resolveAllocationCrane(row);
+          const fallbackCraneId = String(resolvedCrane.craneId ?? row.crane_id ?? row.equipment_id ?? "").trim() || null;
+          const fallbackCrane = resolvedCrane.crane ?? (fallbackCraneId ? craneById.get(fallbackCraneId) ?? first(row.cranes) : first(row.cranes));
+          const normalisedAssetType = fallbackCraneId || String(row.asset_type ?? "").trim().toLowerCase() === "crane" ? "crane" : row.asset_type;
 
           return {
             id: row.id,
             allocation_source: "job_allocations",
             job_id: row.job_id,
-            asset_type: row.asset_type,
+            asset_type: normalisedAssetType,
             crane_id: fallbackCraneId,
             operator_id: row.operator_id ?? null,
             start_date: dateOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
             end_date: dateOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_date ?? row.jobs?.start_date ?? row.jobs?.job_date ?? null,
             start_time: timeOnlyFromTimestamp(row.start_at) ?? row.jobs?.start_time ?? null,
             end_time: timeOnlyFromTimestamp(row.end_at) ?? row.jobs?.end_time ?? null,
-            source_type: row.asset_type === "crane" ? "owned" : null,
+            source_type: normalisedAssetType === "crane" ? "owned" : null,
             supplier_id: null,
             supplier_reference: row.supplier_reference ?? null,
             supplier_cost: num(row.agreed_cost),
@@ -755,12 +765,19 @@ export async function GET(req: Request) {
       craneLikeAllocationRows(activeAllocations).map((row: any) => String(row.job_id))
     );
 
+    const jobsWithPotentialCraneRows = new Set(
+      normalisedAllocations
+        .filter((row: any) => looksLikeCraneAllocation(row))
+        .map((row: any) => String(row.job_id))
+    );
+
     const jobsWithAnyCraneAllocationRows = new Set(
       craneLikeAllocationRows(normalisedAllocations).map((row: any) => String(row.job_id))
     );
 
     const jobsWithRealCraneAssignment = new Set<string>([
       ...Array.from(jobsWithAnyCraneAllocationRows),
+      ...Array.from(jobsWithPotentialCraneRows),
       ...jobsInRange
         .filter((job: any) => String(job?.crane_id ?? "").trim())
         .map((job: any) => String(job.id)),
@@ -770,7 +787,8 @@ export async function GET(req: Request) {
     craneLikeAllocationRows(normalisedAllocations).forEach((row: any) => {
       if (allocationRowBelongsToCrossHireJob(row)) return;
       const jobId = String(row?.job_id ?? "").trim();
-      const rowCraneId = String(row?.crane_id ?? first(row?.cranes)?.id ?? "").trim();
+      const resolvedCrane = resolveAllocationCrane(row);
+      const rowCraneId = String(row?.crane_id ?? resolvedCrane.craneId ?? first(row?.cranes)?.id ?? "").trim();
       if (!jobId || !rowCraneId) return;
       if (!firstOwnedCraneAllocationByJobId.has(jobId)) {
         firstOwnedCraneAllocationByJobId.set(jobId, row);
@@ -1080,7 +1098,7 @@ export async function GET(req: Request) {
       // If a job has explicit crane/cross-hire allocations anywhere but none could be
       // resolved to an owned crane, do not also show the full job span as unassigned.
       // Cross-hire allocation rows will appear in the cross-hire section instead.
-      if (jobsWithAnyCraneAllocationRows.has(jobId)) {
+      if (jobsWithAnyCraneAllocationRows.has(jobId) || jobsWithPotentialCraneRows.has(jobId)) {
         return [];
       }
 
