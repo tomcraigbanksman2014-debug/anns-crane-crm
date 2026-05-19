@@ -350,7 +350,20 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
   const primary = getPrimaryCraneContext(job);
   const sections = getLiftPlanPackSections(job);
 
-  const specSheetProfile = buildSpecSheetEquipmentProfile(primary.crane);
+  const jobSpecDocuments = Array.isArray(job?.job_lift_plan_spec_documents) ? job.job_lift_plan_spec_documents : [];
+  const craneWithJobSpecs = primary.crane
+    ? {
+        ...primary.crane,
+        crane_documents: [
+          ...(Array.isArray(primary.crane?.crane_documents) ? primary.crane.crane_documents : []),
+          ...jobSpecDocuments,
+        ],
+      }
+    : jobSpecDocuments.length
+    ? { name: customCraneNameFromSections(sections) || cleanText(primary.allocation?.item_name) || "Job crane specification", crane_documents: jobSpecDocuments }
+    : primary.crane;
+
+  const specSheetProfile = buildSpecSheetEquipmentProfile(craneWithJobSpecs);
   if (specSheetProfile) return specSheetProfile;
 
   const text = joinBits([
