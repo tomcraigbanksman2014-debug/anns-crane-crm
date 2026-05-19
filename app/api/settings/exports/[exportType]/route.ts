@@ -35,6 +35,14 @@ function formatMoney(value: unknown) {
   return Number.isFinite(n) ? n.toFixed(2) : "0.00";
 }
 
+function paymentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "paye") return "PAYE";
+  if (raw === "cis_20") return "CIS 20%";
+  if (raw === "cis_30") return "CIS 30%";
+  return "";
+}
+
 function csvEscape(value: unknown) {
   const text = String(value ?? "");
   return text.includes('"') || text.includes(",") || text.includes("\n") || text.includes("\r")
@@ -340,7 +348,7 @@ async function loadOperators(request: NextRequest) {
 
   let query = admin
     .from("operators")
-    .select("id, full_name, email, phone, status, employment_type, company_name, notes, archived, created_at")
+    .select("id, full_name, email, phone, status, employment_type, company_name, subcontractor_payment_type, notes, archived, created_at")
     .order("full_name", { ascending: true })
     .limit(5000);
 
@@ -358,11 +366,12 @@ async function loadOperators(request: NextRequest) {
       status: operator.status ?? "",
       employment_type: operator.employment_type ?? "",
       company_name: operator.company_name ?? "",
+      subcontractor_payment_type: paymentTypeLabel(operator.subcontractor_payment_type),
       notes: operator.notes ?? "",
       archived: operator.archived ? "Yes" : "No",
       created_at: operator.created_at ?? "",
     }))
-    .filter((row) => withinText(row, q, ["full_name", "email", "phone", "status", "employment_type", "company_name", "notes"]));
+    .filter((row) => withinText(row, q, ["full_name", "email", "phone", "status", "employment_type", "company_name", "subcontractor_payment_type", "notes"]));
 }
 
 async function loadOperatorQualifications(request: NextRequest) {
@@ -573,7 +582,7 @@ const EXPORTS: Record<string, ExportDefinition> = {
   operators: {
     title: "Operators/staff",
     filename: "operators-staff",
-    headers: ["full_name", "email", "phone", "status", "employment_type", "company_name", "notes", "archived", "created_at"],
+    headers: ["full_name", "email", "phone", "status", "employment_type", "company_name", "subcontractor_payment_type", "notes", "archived", "created_at"],
     loadRows: loadOperators,
   },
   "operator-qualifications": {
