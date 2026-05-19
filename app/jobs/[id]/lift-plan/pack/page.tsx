@@ -178,6 +178,33 @@ function formatJibReference(profile: any) {
   return "—";
 }
 
+function parseWeightToKg(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const text = String(value).trim().toLowerCase();
+  if (!text || text === "—") return null;
+
+  const match = text.replace(/,/g, "").match(/([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return null;
+
+  const raw = Number(match[1]);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+
+  if (/\bkg\b|kilogram/.test(text)) return raw;
+  if (/tonne|ton|\bt\b/.test(text)) return raw * 1000;
+
+  // Crane capacities in the CRM are commonly entered as 35, 80 or 100 meaning tonnes.
+  if (raw <= 250) return raw * 1000;
+
+  return raw;
+}
+
+function formatKgAndTonnes(valueKg: number | null | undefined) {
+  const kg = Number(valueKg ?? 0);
+  if (!Number.isFinite(kg) || kg <= 0) return "—";
+  const tonnes = kg / 1000;
+  return `${kg.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg / ${tonnes.toLocaleString("en-GB", { maximumFractionDigits: 2 })} t`;
+}
+
 function PageShell({
   children,
   sectionTitle,
@@ -644,9 +671,6 @@ export default async function CraneLiftPlanPackPage({
           asset_type,
           source_type,
           item_name,
-          supplier_id,
-          supplier_reference,
-          notes,
           start_date,
           end_date,
           start_time,
@@ -664,11 +688,6 @@ export default async function CraneLiftPlanPackPage({
           operators:operator_id (
             id,
             full_name
-          ),
-          suppliers:supplier_id (
-            id,
-            company_name,
-            category
           )
         )
       `)
@@ -689,7 +708,6 @@ export default async function CraneLiftPlanPackPage({
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
     selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
-    pack_sections: (liftPlan as any)?.pack_sections ?? null,
   };
   const primary = getPrimaryCraneContext(selectedJob);
   const crane = primary?.crane ?? flatten((job as any)?.cranes)[0] ?? null;
@@ -747,6 +765,10 @@ export default async function CraneLiftPlanPackPage({
   );
   const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
   const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
+  const craneMaxWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(equipmentProfile?.maxCapacityKg) ?? parseWeightToKg(crane?.capacity);
+  const loadMaxWeightKg = parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
+  const combinedMaxWeightKg = craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg + loadMaxWeightKg : null;
+  const estimatedGroundBearingKg = combinedMaxWeightKg ? combinedMaxWeightKg * 0.75 : null;
   const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
   const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
   const methodStatementLines = splitLines(liftPlan?.method_statement);
@@ -1270,6 +1292,21 @@ export default async function CraneLiftPlanPackPage({
             [inputField("crane_label_utilisation", "Crane utilisation %"), inputField("crane_utilisation", utilisation)],
           ]}
         />
+
+        <BoxedParagraph title={inputField("ground_bearing_title", "Ground bearing load calculation")}>
+          <InfoTable
+            rows={[
+              [inputField("ground_bearing_label_crane_max", "Max weight / capacity of crane used"), inputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
+              [inputField("ground_bearing_label_load_max", "Max weight of load"), inputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
+              [inputField("ground_bearing_label_combined", "Combined max weight"), inputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
+              [inputField("ground_bearing_label_factor", "Calculation factor"), inputField("ground_bearing_factor", "0.75")],
+              [inputField("ground_bearing_label_result", "Estimated ground bearing / outrigger load"), inputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
+            ]}
+          />
+          <div style={{ marginTop: 8 }}>
+            {areaField("ground_bearing_notes", "Calculation used: (max weight / capacity of crane + max weight of load) × 0.75. This is for the lift plan calculation table only; final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.", 4, true)}
+          </div>
+        </BoxedParagraph>
 
         <BoxedParagraph title={inputField("crane_specifications_title", "Crane specifications")}>
           {<EditableTextarea name="crane_details" defaultValue={craneDetailsText} rows={8} />}
