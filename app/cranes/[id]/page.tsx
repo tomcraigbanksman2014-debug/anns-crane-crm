@@ -2,6 +2,8 @@ import type { CSSProperties } from "react";
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { getCraneDocumentsForManager } from "../../lib/assetDocuments";
+import { getAssetAvailabilityForAsset } from "../../lib/assetAvailability";
+import AssetAvailabilityManager from "../../components/AssetAvailabilityManager";
 
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -34,9 +36,10 @@ export default async function CranePage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: crane, error }, docs] = await Promise.all([
+  const [{ data: crane, error }, docs, availabilityEntries] = await Promise.all([
     supabase.from("cranes").select("*").eq("id", params.id).single(),
     getCraneDocumentsForManager(params.id),
+    getAssetAvailabilityForAsset(supabase, "crane", params.id),
   ]);
 
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -93,6 +96,15 @@ export default async function CranePage({
                 <Row label="MOT due" value={fmtDate(crane.mot_due_on)} />
                 <Row label="Registration expires" value={fmtDate(crane.registration_expires_on)} />
               </div>
+            </section>
+
+            <section style={{ ...cardStyle, gridColumn: "1 / -1" }}>
+              <AssetAvailabilityManager
+                assetType="crane"
+                assetId={crane.id}
+                assetName={crane.name ?? crane.reg_number ?? "this crane"}
+                initialEntries={availabilityEntries}
+              />
             </section>
 
             <section style={cardStyle}>
