@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
+import { attachCraneSpecDocumentsToJob } from "../../../lib/ai/craneSpecDocuments";
 import LiftPlanForm from "../LiftPlanForm";
 import DocumentUploadForm from "../DocumentUploadForm";
 
@@ -165,6 +166,8 @@ export default async function JobLiftPlanPage({
   const client = one((job as any)?.clients) as
     | { company_name?: string | null; contact_name?: string | null; phone?: string | null; email?: string | null }
     | null;
+
+  await attachCraneSpecDocumentsToJob(supabase, job as any);
 
   const selectedJob = {
     ...(job as any),
