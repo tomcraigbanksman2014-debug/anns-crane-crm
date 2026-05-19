@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase/server";
 import { createSupabaseAdminClient } from "../../../../../../lib/supabase/admin";
+import { buildExtractedCraneProfileJson } from "../../../../../../lib/ai/specSheetProfiles";
 
 type FinalizePreviewUpload = {
   page_number: number;
@@ -75,7 +76,7 @@ export async function POST(
 
     const { data: crane, error: craneError } = await admin
       .from("cranes")
-      .select("id")
+      .select("id, name, make, model, capacity")
       .eq("id", params.id)
       .maybeSingle();
 
@@ -102,6 +103,14 @@ export async function POST(
     const previewUploads = includeInPack
       ? normalisePreviewUploads(body?.preview_uploads, previewPageNumbers)
       : [];
+    const extractedText = cleanString(body?.extracted_text).slice(0, 60000);
+    const extractedProfile = extractedText
+      ? buildExtractedCraneProfileJson({
+          crane: crane as any,
+          text: extractedText,
+          title: title || fileName.replace(/\.pdf$/i, ""),
+        })
+      : null;
 
     if (!documentId || !storagePath || !fileName) {
       return NextResponse.json(
@@ -130,6 +139,8 @@ export async function POST(
         appendix_order: Number.isFinite(appendixOrder) ? appendixOrder : 10,
         preview_page_numbers: previewPageNumbers,
         uploaded_by: user.id,
+        extracted_text: extractedText || null,
+        extracted_profile: extractedProfile,
       })
       .select(
         "id, title, document_type, file_name, file_url, storage_path, uploaded_at, include_in_pack, appendix_order, preview_page_numbers"
