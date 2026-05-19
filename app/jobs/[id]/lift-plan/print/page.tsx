@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
+import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
 import PrintLiftPlanButton from "./PrintLiftPlanButton";
 
 function fmtDate(value: string | null | undefined) {
@@ -17,22 +18,8 @@ function fmtDateTime(value: string | null | undefined) {
   return d.toLocaleString("en-GB");
 }
 
-function removeInternalSystemReferences(value: string | null | undefined) {
-  const text = String(value ?? "");
-  return text
-    .replace(/recorded within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
-    .replace(/recorded in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
-    .replace(/within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "within the lifting documentation")
-    .replace(/in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "in the lifting documentation")
-    .replace(/internal crane hire (?:system|software|database|[A-Z]{3})/gi, "crane hire company")
-    .replace(/internal (?:system|software|database|[A-Z]{3})/gi, "company lifting documentation")
-    .replace(/[Cc][Rr][Mm]/g, "lifting documentation")
-    .trim();
-}
-
 function val(value: any) {
-  const cleanValue = removeInternalSystemReferences(value);
-  return cleanValue || "—";
+  return value || "—";
 }
 
 function yesNo(value: boolean | null | undefined) {
@@ -161,6 +148,8 @@ export default async function LiftPlanPrintPage({
   ]);
 
   const client = flatten((job as any)?.clients)[0] ?? null;
+  await attachCraneSpecDocumentsToJob(supabase, job as any);
+
   const selectedJob = {
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
