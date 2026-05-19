@@ -137,7 +137,7 @@ async function extractPdfText(file: File, maxPages = 30, maxChars = 45000) {
   return chunks.join("\n").slice(0, maxChars);
 }
 
-async function renderPreviewFiles(file: File, pageNumbers: number[], maxAutoPages = 80) {
+async function renderPreviewFiles(file: File, pageNumbers: number[], maxAutoPages = 120) {
   const { pdf, loadingTask } = await loadPdf(file);
 
   const validPages = pageNumbers.length
@@ -146,11 +146,6 @@ async function renderPreviewFiles(file: File, pageNumbers: number[], maxAutoPage
 
   if (!validPages.length) {
     throw new Error(`No valid PDF pages selected. This PDF has ${pdf.numPages} page(s).`);
-  }
-
-  if (!pageNumbers.length && pdf.numPages > maxAutoPages) {
-    // Keep very large manuals from freezing mobile browsers. Users can still type exact pages/ranges.
-    console.warn(`Only the first ${maxAutoPages} preview pages were generated from a ${pdf.numPages}-page PDF.`);
   }
 
   const rendered: RenderedPreview[] = [];
@@ -398,7 +393,7 @@ export default function AssetDocumentManager({
       setIncludeInPack(true);
       setAppendixOrder("10");
       setPageInput("all");
-      setMessage(`${assetLabel} PDF uploaded. Preview pages have been refreshed for lift plan selection.`);
+      setMessage(`${assetLabel} PDF uploaded. Specification text has been saved for lift plan use.`);
       router.refresh();
     } catch (error: any) {
       setMessage(error?.message || "Upload failed.");
@@ -453,7 +448,7 @@ export default function AssetDocumentManager({
         setDocuments((prev) => [...created.reverse(), ...prev]);
       }
 
-      setMessage(`${preset.label} default appendix bundles created. Preview pages have been refreshed for lift plan selection.`);
+      setMessage(`${preset.label} default appendix bundles created. Specification text has been saved for lift plan use.`);
       router.refresh();
     } catch (error: any) {
       setMessage(error?.message || "Automatic bundle upload failed.");
@@ -569,7 +564,7 @@ export default function AssetDocumentManager({
             value={pageInput}
             onChange={(e) => setPageInput(e.target.value)}
             style={inputStyle}
-            placeholder="all or 1-4,8"
+            placeholder="all, 1, 1-4, 1,3,5"
             disabled={!includeInPack}
           />
         </Field>
