@@ -22,16 +22,13 @@ function flatten<T>(value: T | T[] | null | undefined): T[] {
 function allocationLabel(row: any) {
   const crane = one(row?.cranes) as any;
   const operator = one(row?.operators) as any;
-  const supplier = one(row?.suppliers) as any;
   const base =
     [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") ||
     row?.item_name ||
     "Allocated crane";
-  const supplierText = supplier?.company_name ? `Supplier: ${supplier.company_name}` : "";
-  const sourceText = row?.source_type ? String(row.source_type).replace(/_/g, " ") : "";
   const dateText = [row?.start_date, row?.end_date].filter(Boolean).join(" to ");
   const operatorText = operator?.full_name ? `Operator: ${operator.full_name}` : "";
-  return [base, supplierText, sourceText, dateText, operatorText].filter(Boolean).join(" • ");
+  return [base, dateText, operatorText].filter(Boolean).join(" • ");
 }
 
 function documentTypeLabel(value: string | null | undefined) {
@@ -80,8 +77,12 @@ export default async function JobLiftPlanPage({
 }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }, { data: documents, error: documentsError }] =
-    await Promise.all([
+  const [
+    { data: job, error: jobError },
+    { data: liftPlan, error: liftPlanError },
+    { data: documents, error: documentsError },
+    { data: personnelRows, error: personnelError },
+  ] = await Promise.all([
       supabase
         .from("jobs")
         .select(`
@@ -126,9 +127,6 @@ export default async function JobLiftPlanPage({
             asset_type,
             source_type,
             item_name,
-            supplier_id,
-            supplier_reference,
-            notes,
             start_date,
             end_date,
             start_time,
@@ -146,11 +144,6 @@ export default async function JobLiftPlanPage({
             operators:operator_id (
               id,
               full_name
-            ),
-            suppliers:supplier_id (
-              id,
-              company_name,
-              category
             )
           )
         `)
@@ -162,6 +155,11 @@ export default async function JobLiftPlanPage({
         .select("id, file_name, file_type, document_type, created_at, share_with_operator")
         .eq("job_id", params.id)
         .order("created_at", { ascending: false }),
+      supabase
+        .from("operators")
+        .select("id, full_name, status, archived")
+        .or("archived.is.null,archived.eq.false")
+        .order("full_name", { ascending: true }),
     ]);
 
   const client = one((job as any)?.clients) as
@@ -172,7 +170,6 @@ export default async function JobLiftPlanPage({
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
     selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
-    pack_sections: (liftPlan as any)?.pack_sections ?? null,
   };
 
   const primary = getPrimaryCraneContext(selectedJob);
@@ -186,12 +183,19 @@ export default async function JobLiftPlanPage({
     (one((job as any)?.main_operator) as { full_name?: string | null } | null) ??
     (one((job as any)?.operators) as { full_name?: string | null } | null);
 
+  const personnelOptions = ((personnelRows as any[]) ?? [])
+    .filter((row) => String(row?.full_name ?? "").trim())
+    .map((row) => ({
+      value: String(row.full_name).trim(),
+      label: String(row.full_name).trim(),
+    }));
+
   const equipmentProfile = matchCraneJobEquipmentProfile({
     ...selectedJob,
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
     job_equipment: (job as any)?.job_equipment ?? [],
   });
-  const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || "";
+  const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || personnelError?.message || "";
 
   const deletedOk = String(searchParams?.deleted ?? "") === "1";
   const deleteError = String(searchParams?.delete_error ?? "").trim();
@@ -199,16 +203,8 @@ export default async function JobLiftPlanPage({
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
   const craneOptions = flatten((job as any)?.job_equipment)
     .filter((row) => {
-      const type = String(row?.asset_type ?? "").toLowerCase();
-      const source = String(row?.source_type ?? "").toLowerCase();
-      const itemName = String(row?.item_name ?? "").toLowerCase();
-      return (
-        type === "crane" ||
-        !!row?.crane_id ||
-        !!one(row?.cranes) ||
-        ((source.includes("cross") || source.includes("sub") || source.includes("hire")) &&
-          /crane|ak|gmk|ltm|ac|atf|hk|spx|mtk|demag|liebherr|grove|tadano|terex|kato|marchetti|bocker|böcker/i.test(itemName))
-      );
+      const type = String(row?.asset_type ?? row?.source_type ?? "").toLowerCase();
+      return type === "crane" || !!row?.crane_id || !!one(row?.cranes);
     })
     .map((row) => {
       const craneRow = one(row?.cranes) as any;
@@ -351,6 +347,7 @@ export default async function JobLiftPlanPage({
           initial={(liftPlan as any) ?? null}
           equipmentProfile={equipmentProfile ?? null}
           craneOptions={craneOptions}
+          personnelOptions={personnelOptions}
         />
       </div>
     </ClientShell>
