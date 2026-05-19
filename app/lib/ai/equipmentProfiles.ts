@@ -1,209 +1,401 @@
-export type EquipmentProfile = {
-  id: string;
-  title: string;
-  machineType: "crane" | "hiab" | "spider" | "truck_crane";
-  manufacturer?: string;
-  model?: string;
-  aliases: string[];
-  summary: string;
-  maxCapacityKg?: number | null;
-  maxCapacityTonnes?: number | null;
-  maxBoomLengthM?: number | null;
-  maxTipHeightM?: number | null;
-  maxHydraulicOutreachM?: number | null;
-  maxJibOutreachM?: number | null;
-  maxRadiusM?: number | null;
-  outriggersNote?: string | null;
-  configurationNote?: string | null;
-  weatherNote?: string | null;
-  capabilities: string[];
-  warnings: string[];
-  sourceLabel: string;
-};
+import { EQUIPMENT_PROFILES, type EquipmentProfile } from "./equipmentProfiles";
 
-export const EQUIPMENT_PROFILES: EquipmentProfile[] = [
-  {
-    id: "gmk4080-1",
-    title: "Grove GMK4080-1",
-    machineType: "crane",
-    manufacturer: "Grove / Manitowoc",
-    model: "GMK4080-1",
-    aliases: ["gmk4080", "gmk4080-1", "grove 80t", "grove gmk4080-1", "80t grove"],
-    summary: "80 t all-terrain crane with 11.0 m to 51.0 m six-section boom and 54.0 m maximum tip height.",
-    maxCapacityKg: 80000,
-    maxCapacityTonnes: 80,
-    maxBoomLengthM: 51,
-    maxTipHeightM: 54,
-    maxHydraulicOutreachM: 51,
-    capabilities: [
-      "All-terrain crane",
-      "6-section TWIN-LOCK boom",
-      "Optional swingaway and lattice extension",
-      "Hydraulic outriggers with levelling system",
-    ],
-    warnings: [
-      "Final lift must be checked against the correct load chart, boom length, counterweight and setup.",
-      "Outrigger extension, level condition, tyre / road mode and accessories can materially affect capacity.",
-      "Hook block, slings and accessories must be deducted from available capacity.",
-    ],
-    configurationNote: "Use the GMK4080-1 in the planned configuration only after confirming boom length, counterweight, duty and setup against the current chart. The product guide shows a 6-section 11.0 m to 51.0 m boom and a hydraulic levelling / outrigger system on the carrier.",
-    outriggersNote: "Deploy all outriggers on suitable pads / mats, level the crane and confirm the exact extension / setup before lifting. Automatic levelling assistance does not remove the need for a full ground and chart check.",
-    weatherNote: "Do not proceed in unsafe wind or weather. Final wind and duty limits must be checked against the current chart, boom / jib arrangement, counterweight and site conditions.",
-    sourceLabel: "GMK4080-1 lifting specs",
-  },
-  {
-    id: "mtk-35",
-    title: "Marchetti MTK 35",
-    machineType: "crane",
-    manufacturer: "Marchetti",
-    model: "MTK 35",
-    aliases: ["mtk35", "mtk 35", "marchetti mtk35", "marchetti mtk 35"],
-    summary: "35 t truck mounted telescopic crane with 10 m to 32 m main boom and charted jib options.",
-    maxCapacityKg: 35000,
-    maxCapacityTonnes: 35,
-    maxBoomLengthM: 32,
-    maxHydraulicOutreachM: 32,
-    capabilities: [
-      "Truck mounted telescopic crane",
-      "Boom telescopes 10 m to 32 m",
-      "Jib options shown at 8 m and 14.5 m",
-      "Fully extended outrigger chart basis",
-    ],
-    warnings: [
-      "Charted capacities shown in the sheet are based on fully extended outriggers.",
-      "Weight of hook blocks and slings forms part of the load and must be deducted.",
-      "Wind limits and boom / jib configuration must be checked before approving the lift.",
-    ],
-    configurationNote: "The MTK 35 sheet shows a 10 m to 32 m telescopic boom with jib options, and states the published capacities are with fully extended outriggers.",
-    outriggersNote: "Use fully extended outriggers unless a separately checked reduced-outrigger duty is available. Ground must be firm, level and suitable for outrigger loading.",
-    weatherNote: "The MTK 35 sheet notes operation permissible up to Beaufort 5 or 7 depending on boom length. Final wind limit must be checked against the actual boom / jib configuration before lifting.",
-    sourceLabel: "MTK35 specs",
-  },
-  {
-    id: "ak46-6000",
-    title: "Böcker AK 46/6000",
-    machineType: "truck_crane",
-    manufacturer: "Böcker",
-    model: "AK 46/6000",
-    aliases: ["ak46", "ak 46", "ak46/6000", "ak 46/6000", "bocker ak46", "böcker ak46"],
-    summary: "Truck crane rated to 6 t with 44.0 m max extension length and approx. 39 m radius at 250 kg.",
-    maxCapacityKg: 6000,
-    maxCapacityTonnes: 6,
-    maxBoomLengthM: 44,
-    maxRadiusM: 39,
-    capabilities: [
-      "Truck crane",
-      "Optional fly jib",
-      "Compact setup in tight spaces",
-      "Platform / basket operation shown on spec sheet",
-    ],
-    warnings: [
-      "Working range varies heavily with load and jib configuration.",
-      "Basket / MEWP mode is not the same as crane lifting mode and must not be mixed in planning.",
-      "Final radius, load and support setup must be checked against the current chart and site layout.",
-    ],
-    configurationNote: "Use the AK 46/6000 in the planned boom / jib arrangement only after checking the working range chart for the intended radius and load. The spec sheet shows up to 44.0 m extension length and approximately 39.0 m radius at 250 kg.",
-    outriggersNote: "Set up on suitable support with the truck crane level, using pads / mats as required by ground conditions and site layout, especially in tight spaces.",
-    weatherNote: "Do not proceed in wind, lightning or visibility conditions that make long-radius or light-load work unsafe. Final operating limit must be checked against the current chart and site conditions.",
-    sourceLabel: "AK46-6000 spec",
-  },
-  {
-    id: "spx532",
-    title: "Jekko SPX532",
-    machineType: "spider",
-    manufacturer: "Jekko",
-    model: "SPX532",
-    aliases: ["spx532", "jekko 532", "jekko spx532", "spx 532"],
-    summary: "Spider crane with 2.5 m to 10.8 m boom, 3.2 t max capacity and charted outriggers / stability positions.",
-    maxCapacityKg: 3200,
-    maxCapacityTonnes: 3.2,
-    maxBoomLengthM: 10.8,
-    maxRadiusM: 9.7,
-    capabilities: [
-      "Spider crane",
-      "Multiple outrigger positions",
-      "Main boom chart to 9.7 m radius",
-      "Compact access lifting",
-    ],
-    warnings: [
-      "Capacity depends on exact outrigger position and stability zone.",
-      "Close outrigger setups can reduce or eliminate lifting capacity in some zones.",
-      "Hook block, rope, jib and accessories form part of the load and must be accounted for.",
-    ],
-    configurationNote: "The SPX532 has multiple stability / outrigger positions and the effective duty changes with the chosen geometry. Use the correct stability zone and boom chart for the planned lift.",
-    outriggersNote: "Select and confirm the correct outrigger position before lifting. Reduced or asymmetric outrigger setups can significantly reduce capacity or remove lifting capacity in some zones.",
-    weatherNote: "Do not proceed in wind, lightning or poor visibility. Final duty must be checked against the selected outrigger position, boom chart, hook block and accessories.",
-    sourceLabel: "Jekko 532 specsheet",
-  },
-  {
-    id: "palfinger-pk65002-sh",
-    title: "Palfinger PK 65002 SH",
-    machineType: "hiab",
-    manufacturer: "Palfinger",
-    model: "PK 65002 SH",
-    aliases: [
-      "pk65002",
-      "pk 65002",
-      "pk65002 sh",
-      "pk 65002 sh",
-      "palfinger pk65002",
-      "palfinger pk 65002 sh",
-      "artic hiab",
-      "artic",
-    ],
-    summary: "HIAB / loader crane with up to 22,000 kg max lifting capacity, hydraulic outreach around 20.4 m and up to 32.6 m with fly-jib.",
-    maxCapacityKg: 22000,
-    maxCapacityTonnes: 22,
-    maxHydraulicOutreachM: 20.4,
-    maxJibOutreachM: 32.6,
-    capabilities: [
-      "Loader crane / HIAB",
-      "HPSC stabiliser control",
-      "Continuous slewing system",
-      "Assigned artic HIAB profile",
-    ],
-    warnings: [
-      "Use this profile for the artic HIAB unless a more specific vehicle / asset match is found.",
-      "Capacity changes with extension stage, fly-jib use, stabiliser position and setup.",
-      "Final lift must be checked against the exact Palfinger chart and configuration before approval.",
-    ],
-    configurationNote: "Use the PK 65002 SH only in the exact extension / fly-jib / stabiliser arrangement checked for the planned lift. The sheet shows HPSC stabiliser control, approximately 20.4 m hydraulic outreach and up to 32.6 m with fly-jib.",
-    outriggersNote: "Set stabilisers to the required HPSC-supported position on suitable pads / mats, keep the vehicle level and confirm the exact stabiliser arrangement before taking the load.",
-    weatherNote: "Do not proceed in wind, lightning or poor visibility. Final limits must be checked against the exact Palfinger duty chart, stabiliser position, extension stage and fly-jib configuration.",
-    sourceLabel: "Palfinger PK6",
-  },
-  {
-    id: "hiab-x-hipro-858",
-    title: "HIAB X-HIPRO 858",
-    machineType: "hiab",
-    manufacturer: "HIAB",
-    model: "X-HIPRO 858",
-    aliases: ["x-hipro 858", "x hipro 858", "858", "hiab 858", "x-hipro858", "rigid hiab", "rigid"],
-    summary: "HIAB / loader crane family with up to 18,000 kg at short radius and up to 34.8 m outreach depending on jib and extension setup.",
-    maxCapacityKg: 18000,
-    maxCapacityTonnes: 18,
-    maxHydraulicOutreachM: 24,
-    maxJibOutreachM: 34.8,
-    capabilities: [
-      "Loader crane / HIAB",
-      "Hydraulic outreach to 24 m on E-10 example",
-      "Jib outreach beyond 31 m",
-      "Endless slewing",
-    ],
-    warnings: [
-      "Use this profile for the rigid HIAB unless a more specific vehicle / asset match is found.",
-      "Capacity depends on exact EP / E / JIB variant and support position.",
-      "Hook, slings, jib and extension accessories must be deducted from available load.",
-    ],
-    configurationNote: "Use the X-HIPRO 858 only in the exact EP / E / jib arrangement checked for the lift. The sheet shows up to 24.0 m hydraulic outreach on the E-10 example and up to about 34.8 m with jib / manual extension depending on variant.",
-    outriggersNote: "Deploy supports / stabilisers to the required working position on suitable pads / mats and confirm the exact support arrangement before lifting. Variant, support position and jib setup materially affect duty.",
-    weatherNote: "Do not proceed in wind, lightning or poor visibility. Final limits must be checked against the exact HIAB variant, support position, outreach and accessories before lifting.",
-    sourceLabel: "HIAB X-HIPRO 858 spec",
-  },
-];
+function toText(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
 
-export function getEquipmentProfileById(id: string | null | undefined) {
-  const key = String(id ?? "").trim().toLowerCase();
-  if (!key) return null;
-  return EQUIPMENT_PROFILES.find((profile) => profile.id === key) ?? null;
+function cleanText(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function flatten(value: unknown): any[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function firstObject(value: unknown) {
+  return flatten(value)[0] ?? null;
+}
+
+function joinBits(bits: unknown[]) {
+  return bits
+    .flatMap((bit) => flatten(bit))
+    .map((bit) => {
+      if (!bit) return "";
+      if (typeof bit === "object") {
+        return Object.values(bit as Record<string, unknown>)
+          .map((v) => String(v ?? ""))
+          .join(" ");
+      }
+      return String(bit);
+    })
+    .join(" ")
+    .toLowerCase();
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseCapacityKg(...values: unknown[]) {
+  const text = values.map((value) => String(value ?? "")).join(" ").toLowerCase();
+  if (!text.trim()) return null;
+
+  const tonneMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:t|ton|tons|tonne|tonnes)\b/);
+  if (tonneMatch) {
+    const tonnes = Number(tonneMatch[1]);
+    if (Number.isFinite(tonnes) && tonnes > 0) return tonnes * 1000;
+  }
+
+  const kgMatch = text.match(/(\d{3,}(?:\.\d+)?)\s*(?:kg|kgs|kilogram|kilograms)\b/);
+  if (kgMatch) {
+    const kg = Number(kgMatch[1]);
+    if (Number.isFinite(kg) && kg > 0) return kg;
+  }
+
+  return null;
+}
+
+function textValue(obj: any, key: string) {
+  return cleanText(obj?.[key]);
+}
+
+export function getLiftPlanPackSections(source: any): Record<string, any> {
+  const direct = source?.pack_sections;
+  if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct as Record<string, any>;
+
+  const nested = source?.lift_plan?.pack_sections ?? source?.liftPlan?.pack_sections;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) return nested as Record<string, any>;
+
+  return {};
+}
+
+function customCraneNameFromSections(sections: Record<string, any>) {
+  return (
+    textValue(sections, "custom_crane_name") ||
+    textValue(sections, "external_crane_name") ||
+    textValue(sections, "selected_crane_override") ||
+    textValue(sections, "cover_cranes")
+  );
+}
+
+function selectedAllocationId(job: any) {
+  return cleanText(job?.selected_job_equipment_id);
+}
+
+function selectedCraneId(job: any) {
+  return cleanText(job?.selected_crane_id);
+}
+
+function isCraneAllocation(item: any) {
+  const type = toText(item?.asset_type || item?.source_type || "");
+  const source = toText(item?.source_type || "");
+  const itemName = toText(item?.item_name || item?.name || "");
+  const hasLinkedCrane = Boolean(item?.crane_id || firstObject(item?.cranes));
+
+  if (hasLinkedCrane) return true;
+  if (type === "crane") return true;
+
+  // Sub-hired cranes are often recorded as a supplier/cross-hire allocation with a free-text item name.
+  if ((source.includes("cross") || source.includes("sub") || source.includes("hire")) && itemName.includes("crane")) {
+    return true;
+  }
+
+  // Some real crane allocations are entered by model only, e.g. "LTM 1050", "AC 40", "MTK35".
+  if (source.includes("cross") || source.includes("sub") || source.includes("hire")) {
+    if (/\b(ak|gmk|ltm|ac|atf|hk|spx|mtk|demag|liebherr|grove|tadano|terex|kato|marchetti|bocker|böcker)\b/i.test(itemName)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function listMatchingCraneAllocations(job: any) {
+  return flatten(job?.job_equipment).filter(isCraneAllocation);
+}
+
+function scoreAllocation(item: any, job: any) {
+  let score = 0;
+  const itemId = cleanText(item?.id);
+  const selAllocationId = selectedAllocationId(job);
+  const selCraneId = selectedCraneId(job);
+  const crane = firstObject(item?.cranes);
+  const source = toText(item?.source_type || "");
+  const type = toText(item?.asset_type || "");
+
+  if (selAllocationId && itemId === selAllocationId) score += 1000;
+  if (selCraneId && (cleanText(item?.crane_id) === selCraneId || cleanText(crane?.id) === selCraneId)) score += 800;
+  if (type === "crane") score += 150;
+  if (item?.crane_id || crane) score += 120;
+  if (source.includes("cross") || source.includes("sub") || source.includes("hire")) score += 80;
+  if (cleanText(item?.item_name)) score += 30;
+  if (item?.operator_id || firstObject(item?.operators)) score -= 20;
+
+  return score;
+}
+
+function firstMatchingCraneAllocation(job: any) {
+  const allocations = listMatchingCraneAllocations(job);
+  if (allocations.length === 0) return null;
+
+  allocations.sort((a, b) => {
+    const scoreDiff = scoreAllocation(b, job) - scoreAllocation(a, job);
+    if (scoreDiff !== 0) return scoreDiff;
+    const aStart = String(a?.start_date ?? a?.created_at ?? "");
+    const bStart = String(b?.start_date ?? b?.created_at ?? "");
+    return aStart.localeCompare(bStart) || String(a?.id ?? "").localeCompare(String(b?.id ?? ""));
+  });
+
+  return allocations[0] ?? null;
+}
+
+function findSelectedCraneAllocation(job: any) {
+  const allocations = listMatchingCraneAllocations(job);
+  if (!allocations.length) return null;
+
+  const selAllocationId = selectedAllocationId(job);
+  if (selAllocationId) {
+    const exact = allocations.find((item) => cleanText(item?.id) === selAllocationId);
+    if (exact) return exact;
+  }
+
+  const selCraneId = selectedCraneId(job);
+  if (selCraneId) {
+    const byCrane = allocations.find((item) => {
+      const crane = firstObject(item?.cranes);
+      return cleanText(item?.crane_id) === selCraneId || cleanText(crane?.id) === selCraneId;
+    });
+    if (byCrane) return byCrane;
+  }
+
+  return null;
+}
+
+function supplierNameFromAllocation(allocation: any) {
+  const supplier = firstObject(allocation?.suppliers);
+  return cleanText(supplier?.company_name) || cleanText(allocation?.supplier_display_name);
+}
+
+function syntheticCraneFromAllocation(allocation: any, sections: Record<string, any>) {
+  if (!allocation) return null;
+
+  const linked = firstObject(allocation?.cranes);
+  if (linked) return linked;
+
+  const customName = customCraneNameFromSections(sections);
+  const itemName = cleanText(allocation?.item_name);
+  const name = customName || itemName;
+  if (!name) return null;
+
+  const make = textValue(sections, "custom_crane_make") || textValue(sections, "external_crane_make") || null;
+  const model = textValue(sections, "custom_crane_model") || textValue(sections, "external_crane_model") || null;
+  const capacity =
+    textValue(sections, "custom_crane_capacity") ||
+    textValue(sections, "external_crane_capacity") ||
+    cleanText(allocation?.capacity) ||
+    (parseCapacityKg(itemName, allocation?.notes) ? `${Number(parseCapacityKg(itemName, allocation?.notes)) / 1000} t` : null);
+
+  return {
+    id: null,
+    name,
+    make,
+    model,
+    capacity,
+    reg_number: null,
+    external: true,
+    source_type: allocation?.source_type ?? null,
+    supplier_name: supplierNameFromAllocation(allocation) || null,
+    notes: allocation?.notes ?? null,
+  };
+}
+
+function syntheticCraneFromSections(sections: Record<string, any>) {
+  const name = customCraneNameFromSections(sections);
+  if (!name) return null;
+
+  return {
+    id: null,
+    name,
+    make: textValue(sections, "custom_crane_make") || textValue(sections, "external_crane_make") || null,
+    model: textValue(sections, "custom_crane_model") || textValue(sections, "external_crane_model") || null,
+    capacity: textValue(sections, "custom_crane_capacity") || textValue(sections, "external_crane_capacity") || null,
+    reg_number: null,
+    external: true,
+    source_type: "manual_override",
+  };
+}
+
+function matchByAliases(text: string) {
+  let winner: EquipmentProfile | null = null;
+  let winnerScore = 0;
+
+  for (const profile of EQUIPMENT_PROFILES) {
+    let score = 0;
+    for (const alias of profile.aliases) {
+      const key = alias.toLowerCase();
+      if (!key) continue;
+      if (text.includes(key)) {
+        score = Math.max(score, key.length);
+      }
+    }
+    if (score > winnerScore) {
+      winner = profile;
+      winnerScore = score;
+    }
+  }
+
+  return winner;
+}
+
+function buildExternalProfile(job: any, crane: any, allocation: any): EquipmentProfile | null {
+  const sections = getLiftPlanPackSections(job);
+  const customName = customCraneNameFromSections(sections);
+  const title = customName || cleanText([crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ")) || cleanText(allocation?.item_name);
+  if (!title) return null;
+
+  const capacityKg =
+    numberOrNull(sections.custom_crane_capacity_kg) ??
+    numberOrNull(sections.external_crane_capacity_kg) ??
+    parseCapacityKg(sections.custom_crane_capacity, sections.external_crane_capacity, crane?.capacity, allocation?.item_name, allocation?.notes);
+  const boomLength = numberOrNull(sections.custom_crane_boom_length_m) ?? numberOrNull(sections.external_crane_boom_length_m);
+  const radius = numberOrNull(sections.custom_crane_max_radius_m) ?? numberOrNull(sections.external_crane_max_radius_m);
+  const summary =
+    textValue(sections, "custom_crane_summary") ||
+    textValue(sections, "external_crane_summary") ||
+    `${title} recorded for this job as a sub-hired / external crane. Final duty, capacity, radius, boom length and outrigger setup must be checked against the supplier's current manufacturer chart before approval.`;
+
+  return {
+    id: `external-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "crane"}`,
+    title,
+    machineType: "crane",
+    manufacturer: textValue(sections, "custom_crane_make") || textValue(sections, "external_crane_make") || undefined,
+    model: textValue(sections, "custom_crane_model") || textValue(sections, "external_crane_model") || undefined,
+    aliases: [title.toLowerCase()],
+    summary,
+    maxCapacityKg: capacityKg,
+    maxCapacityTonnes: capacityKg ? Number((capacityKg / 1000).toFixed(1)) : null,
+    maxBoomLengthM: boomLength,
+    maxRadiusM: radius,
+    outriggersNote:
+      textValue(sections, "custom_crane_outrigger_note") ||
+      textValue(sections, "external_crane_outrigger_note") ||
+      "Outrigger / stabiliser arrangement to be confirmed from the supplier's current chart and set up on suitable mats / pads for the actual ground conditions.",
+    configurationNote:
+      textValue(sections, "custom_crane_configuration_note") ||
+      textValue(sections, "external_crane_configuration_note") ||
+      "Selected sub-hired crane to be used only in the checked boom length, radius, counterweight / ballast and outrigger duty shown on the supplier/manufacturer chart.",
+    weatherNote:
+      textValue(sections, "custom_crane_weather_note") ||
+      textValue(sections, "external_crane_weather_note") ||
+      "Weather and wind limits must be confirmed against the current manufacturer chart and supplier guidance for the exact crane configuration.",
+    capabilities: [
+      "Sub-hired / external crane recorded against this job",
+      "Manual crane specification details can be entered on the lift plan page",
+      "Final lift to be checked against supplier/manufacturer chart",
+    ],
+    warnings: [
+      "This crane is not held as a full asset profile in the CRM unless matched above; verify all supplier/manufacturer information before approving the lift.",
+      "Final capacity must be checked against the exact current load chart, radius, boom length, counterweight / ballast, outrigger setup and accessories.",
+      "Hook block, slings and lifting accessories must be deducted from available chart capacity.",
+    ],
+    sourceLabel: textValue(sections, "custom_crane_chart_note") || textValue(sections, "external_crane_chart_note") || "External / sub-hired crane details",
+  };
+}
+
+export function getPrimaryCraneContext(job: any) {
+  const sections = getLiftPlanPackSections(job);
+  const allocation = findSelectedCraneAllocation(job) ?? firstMatchingCraneAllocation(job);
+
+  const selCraneId = selectedCraneId(job);
+  const craneFromAllocation = firstObject(allocation?.cranes);
+  const jobCraneList = flatten(job?.cranes);
+  const craneFromSelection = selCraneId
+    ? jobCraneList.find((item) => cleanText(item?.id) === selCraneId) ?? null
+    : null;
+  const manualCrane = syntheticCraneFromSections(sections);
+  const externalCrane = syntheticCraneFromAllocation(allocation, sections);
+
+  // Important: if a selected allocation is a free-text / sub-hired crane, do NOT fall back to jobs.crane_id.
+  // That was causing lift plans to pull AnnS-owned crane details for a supplier crane.
+  const crane = manualCrane ?? craneFromAllocation ?? externalCrane ?? craneFromSelection ?? jobCraneList[0] ?? job?.crane ?? null;
+
+  const operator =
+    firstObject(allocation?.operators) ??
+    firstObject(job?.main_operator) ??
+    firstObject(job?.operators) ??
+    null;
+
+  return {
+    allocation,
+    crane,
+    operator,
+  };
+}
+
+export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null {
+  const primary = getPrimaryCraneContext(job);
+  const sections = getLiftPlanPackSections(job);
+  const text = joinBits([
+    sections,
+    primary.allocation,
+    primary.crane,
+    primary.crane?.name,
+    primary.crane?.make,
+    primary.crane?.model,
+    primary.crane?.capacity,
+    job?.hire_type,
+    job?.lift_type,
+    job?.notes,
+    job?.site_name,
+  ]);
+
+  const matched = matchByAliases(text);
+  if (matched) return matched;
+
+  return buildExternalProfile(job, primary.crane, primary.allocation);
+}
+
+export function matchTransportJobEquipmentProfile(job: any, linkedJob?: any): EquipmentProfile | null {
+  const vehicle = firstObject(job?.vehicles) ?? job?.vehicle ?? null;
+  const text = joinBits([
+    vehicle,
+    vehicle?.name,
+    vehicle?.reg_number,
+    vehicle?.vehicle_type,
+    vehicle?.trailer_type,
+    vehicle?.capacity,
+    job?.job_type,
+    job?.load_description,
+    job?.notes,
+    linkedJob,
+  ]);
+
+  const matched = matchByAliases(text);
+  if (matched) return matched;
+
+  const hiabHints = [
+    toText(vehicle?.name),
+    toText(vehicle?.vehicle_type),
+    toText(vehicle?.trailer_type),
+    toText(job?.job_type),
+    toText(job?.load_description),
+    toText(job?.notes),
+  ].join(" ");
+
+  if (hiabHints.includes("rigid hiab") || hiabHints.includes("rigid")) {
+    return EQUIPMENT_PROFILES.find((profile) => profile.id === "hiab-x-hipro-858") ?? null;
+  }
+
+  if (hiabHints.includes("artic hiab") || hiabHints.includes("artic")) {
+    return EQUIPMENT_PROFILES.find((profile) => profile.id === "palfinger-pk65002-sh") ?? null;
+  }
+
+  if (hiabHints.includes("hiab") || hiabHints.includes("loader crane")) {
+    return EQUIPMENT_PROFILES.find((profile) => profile.id === "hiab-x-hipro-858") ?? null;
+  }
+
+  return null;
 }
