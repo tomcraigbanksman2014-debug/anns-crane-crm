@@ -12,6 +12,14 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
+function paymentTypeLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "paye") return "PAYE";
+  if (raw === "cis_20") return "CIS 20%";
+  if (raw === "cis_30") return "CIS 30%";
+  return "—";
+}
+
 function statusStyle(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
   if (s === "active") return { background: "rgba(0,180,120,0.12)", color: "#0b7a4b", border: "1px solid rgba(0,180,120,0.20)" };
@@ -80,6 +88,7 @@ export default async function SubcontractorDetailPage({
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Rates & payroll</h2>
                 <Row label="Pay basis" value={operator.pay_basis} />
+                <Row label="How paid" value={paymentTypeLabel(operator.subcontractor_payment_type)} />
                 <Row label="Standard day rate" value={fmtMoney(operator.standard_day_rate)} />
                 <Row label="Standard hourly rate" value={fmtMoney(operator.standard_hourly_rate)} />
                 <Block label="Payroll notes" value={operator.payroll_notes} />
