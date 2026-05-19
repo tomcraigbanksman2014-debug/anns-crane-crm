@@ -247,6 +247,8 @@ export default async function JobLiftPlanPage({
   const deleteError = String(searchParams?.delete_error ?? "").trim();
 
   const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
+  const allocationSource = String((primary?.allocation as any)?.source_type ?? "").toLowerCase();
+  const craneIsExternal = Boolean((crane as any)?.external) || allocationSource.includes("cross") || allocationSource.includes("sub") || allocationSource.includes("hire");
   const craneOptions = flatten((job as any)?.job_equipment)
     .filter((row) => {
       const type = String(row?.asset_type ?? row?.source_type ?? "").toLowerCase();
@@ -388,10 +390,13 @@ export default async function JobLiftPlanPage({
           </div>
         </div>
 
-        <div style={uploadCard}>
-          <div style={summaryTitle}>Cross-hired / job-specific crane spec sheets</div>
-          <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
-            Use this when the crane is sub-hired or the correct specification/load chart is not held against one of our crane records. Upload the supplier/manufacturer PDF and choose the pages to include in the lift plan pack.
+        <details style={uploadCard} open={craneIsExternal}>
+          <summary style={sectionSummary}>
+            <span>Cross-hired / job-specific crane spec sheets</span>
+            <span style={summaryHint}>{craneIsExternal ? "Open because this looks cross-hired / external" : "Optional – open only if needed"}</span>
+          </summary>
+          <div style={{ fontSize: 14, opacity: 0.8, margin: "10px 0 12px" }}>
+            Use this only when the crane is sub-hired, temporary, or the correct specification/load chart is not already held against one of our crane records. Upload the supplier/manufacturer PDF and choose the pages to include in the lift plan pack.
           </div>
           <AssetDocumentManager
             assetLabel="Lift plan crane"
@@ -411,7 +416,7 @@ export default async function JobLiftPlanPage({
               { value: "manual", label: "Manual / manufacturer document" },
             ]}
           />
-        </div>
+        </details>
 
         <LiftPlanAppendixSelector
           jobId={params.id}
@@ -454,6 +459,26 @@ const uploadCard: CSSProperties = {
   borderRadius: 14,
   border: "1px solid rgba(255,255,255,0.4)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const sectionSummary: CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  fontSize: 20,
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 12,
+  flexWrap: "wrap",
+};
+
+const summaryHint: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 800,
+  opacity: 0.72,
+  padding: "5px 8px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.65)",
 };
 
 const summaryTitle: CSSProperties = {
