@@ -18,6 +18,12 @@ function cleanNumber(value: FormDataEntryValue | null) {
   return Number.isFinite(n) ? n : null;
 }
 
+function normalisePaymentType(value: FormDataEntryValue | null) {
+  const raw = clean(value).toLowerCase();
+  if (raw === "paye" || raw === "cis_20" || raw === "cis_30") return raw;
+  return null;
+}
+
 async function updateSubcontractor(formData: FormData) {
   "use server";
 
@@ -53,6 +59,7 @@ async function updateSubcontractor(formData: FormData) {
     standard_day_rate: cleanNumber(formData.get("standard_day_rate")),
     standard_hourly_rate: cleanNumber(formData.get("standard_hourly_rate")),
     pay_basis: cleanNullable(formData.get("pay_basis")),
+    subcontractor_payment_type: normalisePaymentType(formData.get("subcontractor_payment_type")),
     payroll_notes: cleanNullable(formData.get("payroll_notes")),
     emergency_contact_name: cleanNullable(formData.get("emergency_contact_name")),
     emergency_contact_phone: cleanNullable(formData.get("emergency_contact_phone")),
