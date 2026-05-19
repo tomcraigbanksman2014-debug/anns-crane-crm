@@ -79,6 +79,19 @@ function percentageUtilisation(loadWeight: any, capacityKg: any) {
   return `${Math.round((load / cap) * 100)}%`;
 }
 
+function removeInternalSystemReferences(value: string | null | undefined) {
+  const text = String(value ?? "");
+  return text
+    .replace(/recorded within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
+    .replace(/recorded in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "recorded for the planned lifting operation")
+    .replace(/within the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "within the lifting documentation")
+    .replace(/in the (?:internal )?(?:system|software|database|[A-Z]{3})/gi, "in the lifting documentation")
+    .replace(/internal crane hire (?:system|software|database|[A-Z]{3})/gi, "crane hire company")
+    .replace(/internal (?:system|software|database|[A-Z]{3})/gi, "company lifting documentation")
+    .replace(/[Cc][Rr][Mm]/g, "lifting documentation")
+    .trim();
+}
+
 function splitLines(value: string | null | undefined) {
   if (!value) return [];
   return String(value)
@@ -88,7 +101,8 @@ function splitLines(value: string | null | undefined) {
 }
 
 function para(value: string | null | undefined, fallback: string) {
-  return value && String(value).trim() ? String(value) : fallback;
+  const cleanValue = removeInternalSystemReferences(value);
+  return cleanValue ? cleanValue : removeInternalSystemReferences(fallback);
 }
 
 function sentenceCase(value: string | null | undefined, fallback: string) {
@@ -96,7 +110,7 @@ function sentenceCase(value: string | null | undefined, fallback: string) {
 }
 
 function tidyWhitespace(value: string | null | undefined) {
-  return String(value ?? "")
+  return removeInternalSystemReferences(value)
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -192,7 +206,7 @@ function parseWeightToKg(value: unknown) {
   if (/\bkg\b|kilogram/.test(text)) return raw;
   if (/tonne|ton|\bt\b/.test(text)) return raw * 1000;
 
-  // Crane capacities in the CRM are commonly entered as 35, 80 or 100 meaning tonnes.
+  // Crane capacities are commonly entered as 35, 80 or 100 meaning tonnes.
   if (raw <= 250) return raw * 1000;
 
   return raw;
@@ -506,8 +520,8 @@ function defaultSectionText(
   key: keyof StringMap,
   fallback: string
 ) {
-  const value = sections[key];
-  return value && String(value).trim() ? String(value).trim() : fallback;
+  const value = removeInternalSystemReferences(sections[key]);
+  return value ? value : removeInternalSystemReferences(fallback);
 }
 
 function EditableInput({
@@ -795,7 +809,7 @@ export default async function CraneLiftPlanPackPage({
   const introductionText = defaultSectionText(
     sections,
     "introduction",
-    `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded within the CRM. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
+    `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information recorded for the planned operation. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
   );
   const clientResponsibilitiesText = defaultSectionText(
     sections,
