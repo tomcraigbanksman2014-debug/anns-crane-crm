@@ -2,6 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 import {
   detectAssetAppendixPreset,
@@ -59,11 +60,29 @@ function fmtDate(value: string | null | undefined) {
 }
 
 function parsePageNumbers(input: string) {
-  const values = input
-    .split(",")
-    .map((item) => Number(item.trim()))
-    .filter((item) => Number.isFinite(item) && item > 0)
-    .map((item) => Math.trunc(item));
+  const raw = String(input ?? "").trim().toLowerCase();
+  if (!raw || raw === "all" || raw === "every" || raw === "full") return [];
+
+  const values: number[] = [];
+  raw.split(",").forEach((part) => {
+    const item = part.trim();
+    if (!item) return;
+
+    const range = item.match(/^(\d+)\s*(?:-|–|to)\s*(\d+)$/i);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      if (Number.isFinite(start) && Number.isFinite(end)) {
+        const low = Math.max(1, Math.min(Math.trunc(start), Math.trunc(end)));
+        const high = Math.max(1, Math.max(Math.trunc(start), Math.trunc(end)));
+        for (let value = low; value <= high; value += 1) values.push(value);
+      }
+      return;
+    }
+
+    const number = Number(item);
+    if (Number.isFinite(number) && number > 0) values.push(Math.trunc(number));
+  });
 
   return Array.from(new Set(values)).sort((a, b) => a - b);
 }
@@ -118,15 +137,20 @@ async function extractPdfText(file: File, maxPages = 30, maxChars = 45000) {
   return chunks.join("\n").slice(0, maxChars);
 }
 
-async function renderPreviewFiles(file: File, pageNumbers: number[]) {
+async function renderPreviewFiles(file: File, pageNumbers: number[], maxAutoPages = 80) {
   const { pdf, loadingTask } = await loadPdf(file);
 
-  const validPages = pageNumbers.filter(
-    (pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages
-  );
+  const validPages = pageNumbers.length
+    ? pageNumbers.filter((pageNumber) => pageNumber >= 1 && pageNumber <= pdf.numPages)
+    : Array.from({ length: Math.min(pdf.numPages || 0, maxAutoPages) }, (_, index) => index + 1);
 
   if (!validPages.length) {
     throw new Error(`No valid PDF pages selected. This PDF has ${pdf.numPages} page(s).`);
+  }
+
+  if (!pageNumbers.length && pdf.numPages > maxAutoPages) {
+    // Keep very large manuals from freezing mobile browsers. Users can still type exact pages/ranges.
+    console.warn(`Only the first ${maxAutoPages} preview pages were generated from a ${pdf.numPages}-page PDF.`);
   }
 
   const rendered: RenderedPreview[] = [];
@@ -310,12 +334,13 @@ export default function AssetDocumentManager({
   initialDocuments: AssetDocumentItem[];
   documentTypeOptions: Option[];
 }) {
+  const router = useRouter();
   const [documents, setDocuments] = useState<AssetDocumentItem[]>(initialDocuments ?? []);
   const [title, setTitle] = useState("");
   const [documentType, setDocumentType] = useState(documentTypeOptions[0]?.value ?? "spec_sheet");
   const [includeInPack, setIncludeInPack] = useState(true);
   const [appendixOrder, setAppendixOrder] = useState("10");
-  const [pageInput, setPageInput] = useState("1");
+  const [pageInput, setPageInput] = useState("all");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -333,7 +358,7 @@ export default function AssetDocumentManager({
     if (!includeInPack) {
       return "This PDF will be stored on the asset record but not included in lift plan packs.";
     }
-    return "Enter the PDF pages to pull into lift plan packs. Text from specification/load-chart PDFs is also read so future lift plans can use the latest crane data.";
+    return "Enter all, a single page, or ranges such as 1-4,8. Preview pages are shown below so you can tick exactly which diagrams go into the pack.";
   }, [includeInPack]);
 
   async function handleUpload(file: File) {
@@ -345,12 +370,12 @@ export default function AssetDocumentManager({
         throw new Error("Only PDF files are allowed.");
       }
 
-      const selectedPages = includeInPack ? parsePageNumbers(pageInput || "1") : [];
+      const selectedPages = includeInPack ? parsePageNumbers(pageInput || "all") : [];
       setMessage("Reading PDF text…");
       const extractedText = await extractPdfText(file);
       setMessage("Building preview pages…");
       const previewFiles = includeInPack
-        ? await renderPreviewFiles(file, selectedPages.length ? selectedPages : [1])
+        ? await renderPreviewFiles(file, selectedPages)
         : [];
 
       const result = await createDocumentWithDirectUploads({
@@ -372,8 +397,9 @@ export default function AssetDocumentManager({
       setDocumentType(documentTypeOptions[0]?.value ?? "spec_sheet");
       setIncludeInPack(true);
       setAppendixOrder("10");
-      setPageInput("1");
-      setMessage(`${assetLabel} PDF uploaded. Specification text has been saved for lift plan use.`);
+      setPageInput("all");
+      setMessage(`${assetLabel} PDF uploaded. Preview pages have been refreshed for lift plan selection.`);
+      router.refresh();
     } catch (error: any) {
       setMessage(error?.message || "Upload failed.");
     } finally {
@@ -427,7 +453,8 @@ export default function AssetDocumentManager({
         setDocuments((prev) => [...created.reverse(), ...prev]);
       }
 
-      setMessage(`${preset.label} default appendix bundles created. Specification text has been saved for lift plan use.`);
+      setMessage(`${preset.label} default appendix bundles created. Preview pages have been refreshed for lift plan selection.`);
+      router.refresh();
     } catch (error: any) {
       setMessage(error?.message || "Automatic bundle upload failed.");
     } finally {
@@ -455,6 +482,7 @@ export default function AssetDocumentManager({
 
       setDocuments((prev) => prev.filter((doc) => doc.id !== id));
       setMessage("Document deleted.");
+      router.refresh();
     } catch (error: any) {
       setMessage(error?.message || "Delete failed.");
     } finally {
@@ -536,12 +564,12 @@ export default function AssetDocumentManager({
           />
         </Field>
 
-        <Field label="PDF pages to pull into the pack">
+        <Field label="PDF pages to preview / pull into the pack">
           <input
             value={pageInput}
             onChange={(e) => setPageInput(e.target.value)}
             style={inputStyle}
-            placeholder="1 or 2,5"
+            placeholder="all or 1-4,8"
             disabled={!includeInPack}
           />
         </Field>
