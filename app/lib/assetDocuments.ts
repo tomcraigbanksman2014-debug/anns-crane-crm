@@ -26,12 +26,15 @@ export type AssetDocumentManagerItem = {
 };
 
 export type PackAppendixAssetItem = {
+  key?: string;
   title: string;
   description: string | null;
   image_url: string;
   document_type: string;
   page_number: number;
   appendix_order: number;
+  source_type?: "crane" | "vehicle" | "job" | null;
+  source_document_id?: string | null;
 };
 
 type RuleRow = {
@@ -154,15 +157,21 @@ function buildAppendixItemsFromRows({
 
   return previews
     .map((preview: any) => {
-      const doc = docMap.get(String(preview.crane_document_id ?? preview.vehicle_document_id ?? ""));
+      const sourceDocumentId = String(preview.crane_document_id ?? preview.vehicle_document_id ?? preview.job_document_id ?? "");
+      const doc = docMap.get(sourceDocumentId);
       if (!doc) return null;
       const signed = storageMap.get(String(preview.preview_storage_path ?? ""));
       if (!signed) return null;
 
       const pageNumber = Number(preview.page_number ?? 0) || 1;
       const order = ruleOrder?.get(String(preview.id)) ?? Number(doc.appendix_order ?? 9999);
+      const sourceType = preview.job_document_id ? "job" : preview.crane_document_id ? "crane" : preview.vehicle_document_id ? "vehicle" : null;
+      const key = `${sourceType ?? "preview"}:${String(preview.id ?? `${sourceDocumentId}:${pageNumber}`)}`;
 
       return {
+        key,
+        source_type: sourceType,
+        source_document_id: sourceDocumentId,
         title:
           String(preview.title ?? "").trim() ||
           `${String(doc.title ?? "Document")}${pageNumber > 1 ? ` – page ${pageNumber}` : ""}`,
@@ -481,6 +490,95 @@ export async function getCraneAppendixAssetsForPack(
   );
 
   return buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
+}
+
+
+export async function getJobSpecDocumentsForManager(jobId: string) {
+  const admin = createSupabaseAdminClient();
+
+  const { data: docs, error } = await admin
+    .from("job_documents")
+    .select("id, title, document_type, file_name, file_path, file_type, created_at, include_in_lift_plan_pack, appendix_order, preview_page_numbers")
+    .eq("job_id", jobId)
+    .in("document_type", ["spec_sheet", "load_chart", "manual"])
+    .order("created_at", { ascending: false });
+
+  if (error || !docs) {
+    return [];
+  }
+
+  const docIds = docs.map((doc: any) => doc.id).filter(Boolean);
+  const previewCounts = new Map<string, number>();
+
+  if (docIds.length) {
+    const { data: previews } = await admin
+      .from("asset_document_previews")
+      .select("id, job_document_id")
+      .in("job_document_id", docIds);
+
+    (previews ?? []).forEach((row: any) => {
+      const key = String(row.job_document_id ?? "");
+      previewCounts.set(key, (previewCounts.get(key) ?? 0) + 1);
+    });
+  }
+
+  const storageMap = await signPaths(
+    "job-documents",
+    docs.map((doc: any) => String(doc.file_path ?? "")).filter(Boolean)
+  );
+
+  return docs.map((doc: any) => ({
+    id: String(doc.id),
+    title: String(doc.title ?? doc.file_name ?? "Document"),
+    document_type: String(doc.document_type ?? "other"),
+    file_name: doc.file_name ? String(doc.file_name) : null,
+    file_url: doc.file_path ? String(doc.file_path) : null,
+    storage_path: doc.file_path ? String(doc.file_path) : null,
+    uploaded_at: doc.created_at ? String(doc.created_at) : null,
+    include_in_pack: !!doc.include_in_lift_plan_pack,
+    appendix_order: doc.appendix_order == null ? null : Number(doc.appendix_order),
+    preview_page_numbers: normaliseNumberArray(doc.preview_page_numbers),
+    preview_count: previewCounts.get(String(doc.id)) ?? 0,
+    open_url:
+      doc.file_path && storageMap.get(String(doc.file_path))
+        ? storageMap.get(String(doc.file_path))!
+        : null,
+  })) satisfies AssetDocumentManagerItem[];
+}
+
+export async function getJobSpecAppendixAssetsForPack(jobId: string | null | undefined) {
+  if (!jobId) return [];
+  const admin = createSupabaseAdminClient();
+
+  const { data: docs, error } = await admin
+    .from("job_documents")
+    .select("id, title, document_type, appendix_order")
+    .eq("job_id", jobId)
+    .in("document_type", ["spec_sheet", "load_chart", "manual"])
+    .eq("include_in_lift_plan_pack", true)
+    .order("appendix_order", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error || !docs || !docs.length) {
+    return [];
+  }
+
+  const { data: previews } = await admin
+    .from("asset_document_previews")
+    .select("id, job_document_id, page_number, title, preview_storage_path")
+    .in("job_document_id", docs.map((doc: any) => doc.id))
+    .order("page_number", { ascending: true });
+
+  if (!previews || !previews.length) {
+    return [];
+  }
+
+  const storageMap = await signPaths(
+    "asset-doc-previews",
+    previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
+  );
+
+  return buildAppendixItemsFromRows({ previews, docs, storageMap });
 }
 
 export async function getVehicleAppendixAssetsForPack(
