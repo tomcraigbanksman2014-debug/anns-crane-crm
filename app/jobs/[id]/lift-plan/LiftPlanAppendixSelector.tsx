@@ -65,7 +65,7 @@ export default function LiftPlanAppendixSelector({
     return (
       <div style={card}>
         <div style={title}>Spec sheet / diagram selection</div>
-        <div style={empty}>No spec sheet preview pages are available yet. Upload crane spec sheets below or add spec sheets to the crane record.</div>
+        <div style={empty}>No spec sheet preview pages are available yet. For owned cranes, add the spec sheet/load chart to the crane record. For cross-hired cranes, use the job-specific upload section when it is shown.</div>
       </div>
     );
   }
