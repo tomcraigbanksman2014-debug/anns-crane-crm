@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../lib/audit";
 import { generateCraneLiftPlanDraft } from "../../../../../lib/ai/liftPlans";
+import { attachCraneSpecDocumentsToJob } from "../../../../../lib/ai/craneSpecDocuments";
 
 export async function POST(
   req: Request,
@@ -126,6 +127,8 @@ export async function POST(
     if (!job) {
       return NextResponse.json({ error: "Job not found." }, { status: 404 });
     }
+
+    await attachCraneSpecDocumentsToJob(supabase, job as any);
 
     const result = await generateCraneLiftPlanDraft({
       ...(job as any),
