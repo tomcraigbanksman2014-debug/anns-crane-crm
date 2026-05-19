@@ -40,10 +40,31 @@ function attachToCrane(crane: any, byCraneId: Map<string, any[]>) {
   return crane;
 }
 
+
+async function loadJobLiftPlanSpecDocuments(supabase: any, jobId: string) {
+  if (!jobId) return [];
+
+  const preferred = await supabase
+    .from("job_documents")
+    .select("id, title, document_type, extracted_text, extracted_profile, created_at")
+    .eq("job_id", jobId)
+    .in("document_type", ["spec_sheet", "load_chart", "manual"])
+    .order("created_at", { ascending: false });
+
+  if (!preferred.error && preferred.data) {
+    return preferred.data as any[];
+  }
+
+  return [];
+}
+
 export async function attachCraneSpecDocumentsToJob(_supabase: any, job: any) {
   if (!job) return job;
 
   const supabase = createSupabaseAdminClient();
+
+  const jobId = cleanId(job?.id);
+  job.job_lift_plan_spec_documents = jobId ? await loadJobLiftPlanSpecDocuments(supabase, jobId) : [];
 
   const craneIds = collectCraneIds(job);
   if (!craneIds.length) return job;
