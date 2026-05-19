@@ -5,6 +5,13 @@ import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../
 import { attachCraneSpecDocumentsToJob } from "../../../lib/ai/craneSpecDocuments";
 import LiftPlanForm from "../LiftPlanForm";
 import DocumentUploadForm from "../DocumentUploadForm";
+import AssetDocumentManager from "../../../components/AssetDocumentManager";
+import LiftPlanAppendixSelector from "./LiftPlanAppendixSelector";
+import {
+  getCraneAppendixAssetsForPack,
+  getJobSpecAppendixAssetsForPack,
+  getJobSpecDocumentsForManager,
+} from "../../../lib/assetDocuments";
 
 function line(label: string, value: string | null | undefined) {
   return { label, value: String(value ?? "—").trim() || "—" };
@@ -44,6 +51,12 @@ function documentTypeLabel(value: string | null | undefined) {
       return "RAMS";
     case "delivery_note":
       return "Delivery note";
+    case "spec_sheet":
+      return "Specification sheet";
+    case "load_chart":
+      return "Load chart";
+    case "manual":
+      return "Manual";
     default:
       return "Other";
   }
@@ -67,6 +80,19 @@ function fmtDateTime(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
   return date.toLocaleString("en-GB");
+}
+
+function parseSelectedAppendixKeys(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+  } catch {
+    return raw.split(",").map((item) => item.trim()).filter(Boolean);
+  }
 }
 
 export default async function JobLiftPlanPage({
@@ -198,6 +224,23 @@ export default async function JobLiftPlanPage({
     cranes: crane ? [crane] : flatten((job as any)?.cranes),
     job_equipment: (job as any)?.job_equipment ?? [],
   });
+
+  const packSections = ((liftPlan as any)?.pack_sections as Record<string, unknown> | null) ?? {};
+  const [jobSpecDocuments, craneSpecAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
+    getJobSpecDocumentsForManager(params.id),
+    getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null),
+    getJobSpecAppendixAssetsForPack(params.id),
+  ]);
+  const specAppendixItems = [...craneSpecAppendixAssets, ...jobSpecAppendixAssets]
+    .map((asset, index) => ({
+      key: asset.key || `${asset.source_type ?? "appendix"}:${asset.source_document_id ?? asset.title}:${asset.page_number}:${index}`,
+      title: asset.title,
+      description: asset.description,
+      image_url: asset.image_url,
+      source_type: asset.source_type ?? null,
+    }));
+  const savedAppendixSelection = parseSelectedAppendixKeys(packSections.selected_appendix_keys);
+
   const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || personnelError?.message || "";
 
   const deletedOk = String(searchParams?.deleted ?? "") === "1";
@@ -344,6 +387,38 @@ export default async function JobLiftPlanPage({
             ) : null}
           </div>
         </div>
+
+        <div style={uploadCard}>
+          <div style={summaryTitle}>Cross-hired / job-specific crane spec sheets</div>
+          <div style={{ fontSize: 14, opacity: 0.8, marginBottom: 12 }}>
+            Use this when the crane is sub-hired or the correct specification/load chart is not held against one of our crane records. Upload the supplier/manufacturer PDF and choose the pages to include in the lift plan pack.
+          </div>
+          <AssetDocumentManager
+            assetLabel="Lift plan crane"
+            assetType="crane"
+            assetProfile={{
+              name: craneLabel,
+              make: (crane as any)?.make ?? null,
+              model: (crane as any)?.model ?? null,
+              capacity: (crane as any)?.capacity ?? null,
+            }}
+            uploadUrl={`/api/jobs/${params.id}/lift-plan/spec-sheets/upload`}
+            deleteUrlPrefix={`/api/jobs/${params.id}/lift-plan/spec-sheets`}
+            initialDocuments={jobSpecDocuments}
+            documentTypeOptions={[
+              { value: "spec_sheet", label: "Specification sheet" },
+              { value: "load_chart", label: "Load chart" },
+              { value: "manual", label: "Manual / manufacturer document" },
+            ]}
+          />
+        </div>
+
+        <LiftPlanAppendixSelector
+          jobId={params.id}
+          items={specAppendixItems}
+          initialSelectedKeys={savedAppendixSelection ?? []}
+          hasSavedSelection={savedAppendixSelection !== null}
+        />
 
         <LiftPlanForm
           jobId={params.id}
