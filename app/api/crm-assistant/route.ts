@@ -761,6 +761,8 @@ function pageHref(name: string | null | undefined, parsed?: ParsedCommand) {
   if (n.includes("operator")) return "/operators";
   if (n.includes("crane")) return "/cranes";
   if (n.includes("vehicle") || n.includes("truck")) return "/vehicles";
+  if (n.includes("asset availability") || n.includes("downtime") || n.includes("maintenance") || n.includes("mot") || n.includes("service booking") || n.includes("breakdown")) return "/asset-availability";
+  if (n.includes("asset location")) return "/equipment/locations";
   if (n.includes("asset")) return "/equipment/locations";
   if (n.includes("system health")) return "/settings/system-health";
   if (n.includes("settings")) return "/settings";
