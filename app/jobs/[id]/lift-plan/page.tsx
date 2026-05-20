@@ -75,6 +75,31 @@ function isAppendixImageDoc(doc: any) {
   );
 }
 
+
+function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
+  const fromSelectedCrane = String(liftPlan?.selected_crane_id ?? "").trim();
+  if (fromSelectedCrane) return fromSelectedCrane;
+
+  const allocations = flatten((job as any)?.job_equipment);
+  const selectedAllocationId = String(liftPlan?.selected_job_equipment_id ?? "").trim();
+  if (selectedAllocationId) {
+    const selectedAllocation = allocations.find((row: any) => String(row?.id ?? "").trim() === selectedAllocationId);
+    const selectedAllocationCrane = one(selectedAllocation?.cranes) as any;
+    const selectedAllocationCraneId = String(selectedAllocation?.crane_id ?? selectedAllocationCrane?.id ?? "").trim();
+    if (selectedAllocationCraneId) return selectedAllocationCraneId;
+  }
+
+  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
+  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
+  if (fromPrimaryAllocation) return fromPrimaryAllocation;
+
+  const fromDisplayedCrane = String(crane?.id ?? "").trim();
+  if (fromDisplayedCrane) return fromDisplayedCrane;
+
+  const firstJobCrane = one((job as any)?.cranes) as any;
+  return String(firstJobCrane?.id ?? "").trim() || null;
+}
+
 function fmtDateTime(value: string | null | undefined) {
   if (!value) return "—";
   const date = new Date(value);
@@ -227,9 +252,10 @@ export default async function JobLiftPlanPage({
   });
 
   const packSections = ((liftPlan as any)?.pack_sections as Record<string, unknown> | null) ?? {};
+  const linkedCraneIdForAppendix = realLinkedCraneId(job, liftPlan, primary, crane);
   const [jobSpecDocuments, craneSpecAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
     getJobSpecDocumentsForManager(params.id),
-    getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null),
+    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix),
     getJobSpecAppendixAssetsForPack(params.id),
   ]);
   const specAppendixItems = [...craneSpecAppendixAssets, ...jobSpecAppendixAssets]
