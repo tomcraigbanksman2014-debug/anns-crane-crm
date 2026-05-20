@@ -15,6 +15,36 @@ function flatten<T>(value: T | T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+
+function one<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
+
+function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
+  const fromSelectedCrane = String(liftPlan?.selected_crane_id ?? "").trim();
+  if (fromSelectedCrane) return fromSelectedCrane;
+
+  const allocations = flatten((job as any)?.job_equipment);
+  const selectedAllocationId = String(liftPlan?.selected_job_equipment_id ?? "").trim();
+  if (selectedAllocationId) {
+    const selectedAllocation = allocations.find((row: any) => String(row?.id ?? "").trim() === selectedAllocationId);
+    const selectedAllocationCrane = one(selectedAllocation?.cranes) as any;
+    const selectedAllocationCraneId = String(selectedAllocation?.crane_id ?? selectedAllocationCrane?.id ?? "").trim();
+    if (selectedAllocationCraneId) return selectedAllocationCraneId;
+  }
+
+  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
+  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
+  if (fromPrimaryAllocation) return fromPrimaryAllocation;
+
+  const fromDisplayedCrane = String(crane?.id ?? "").trim();
+  if (fromDisplayedCrane) return fromDisplayedCrane;
+
+  const firstJobCrane = one((job as any)?.cranes) as any;
+  return String(firstJobCrane?.id ?? "").trim() || null;
+}
+
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -785,8 +815,9 @@ export default async function CraneLiftPlanPackPage({
     job_equipment: (job as any)?.job_equipment ?? [],
   });
 
+  const linkedCraneIdForAppendix = realLinkedCraneId(job, liftPlan, primary, crane);
   const [craneAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
-    getCraneAppendixAssetsForPack(primary?.crane?.id ?? crane?.id ?? null),
+    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix),
     getJobSpecAppendixAssetsForPack(params.id),
   ]);
   const appendixImageDocs = ((jobDocuments as any[]) ?? []).filter(isAppendixImageDocument);
