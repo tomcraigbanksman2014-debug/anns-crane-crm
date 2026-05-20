@@ -602,6 +602,16 @@ function formatRangeKg(value: number | null | undefined) {
   return `${Math.round(value).toLocaleString("en-GB")} kg`;
 }
 
+function formatRangeGap(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  return value >= 0 ? formatRangeNumber(value) : `${formatRangeNumber(Math.abs(value))} short`;
+}
+
+function formatRangeClearance(value: number) {
+  if (!Number.isFinite(value)) return "—";
+  return value >= 0 ? formatRangeNumber(value) : `${formatRangeNumber(Math.abs(value))} low`;
+}
+
 function rangeChartCalculated(sections: StringMap) {
   const radiusM = rangeNumber(sections, "range_chart_radius_m", 12);
   const tipHeightM = rangeNumber(sections, "range_chart_tip_height_m", 10);
@@ -713,6 +723,15 @@ function RangeChartPackPage({
   const objectY = y(calc.objectHeightM);
   const objectW = Math.max(10, x(calc.objectDistanceM + calc.objectWidthM) - objectX);
   const objectH = y(0) - objectY;
+  const groundY = y(0);
+  const horizontalGapM = calc.radiusM - calc.objectDistanceM;
+  const hasChartWarning = calc.clearanceM < 0 || horizontalGapM < 0 || Boolean(calc.utilisationPercent && calc.utilisationPercent > 100);
+  const chartWarningText = [
+    calc.clearanceM < 0 ? `Hook/tip point is ${formatRangeNumber(Math.abs(calc.clearanceM))} below the top of the object.` : "",
+    horizontalGapM < 0 ? `Hook/radius is ${formatRangeNumber(Math.abs(horizontalGapM))} short of the object face.` : "",
+    calc.utilisationPercent && calc.utilisationPercent > 100 ? `Entered load is over entered chart capacity by ${Number(calc.utilisationPercent - 100).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%.` : "",
+  ].filter(Boolean).join(" ");
+  const dangerStroke = hasChartWarning ? "#d12c2c" : "#ea5151";
 
   return (
     <PageShell
@@ -750,15 +769,23 @@ function RangeChartPackPage({
             <text key={`range-yl-${value}`} x={left - 8} y={y(value) + 3} fontSize="10" fill="#4f5d64" textAnchor="end">{value}</text>
           ))}
           <rect x={objectX} y={objectY} width={objectW} height={objectH} fill="#36a6c9" opacity="0.95" />
-          <line x1={objectX} y1={objectY} x2={hookX} y2={objectY} stroke="#ea5151" strokeWidth="2" />
-          <line x1={hookX} y1={objectY} x2={hookX} y2={hookY} stroke="#ea5151" strokeWidth="2" />
-          <line x1={pivotX} y1={y(0)} x2={hookX} y2={y(0)} stroke="#ea5151" strokeWidth="2" />
-          <text x={(objectX + hookX) / 2} y={objectY - 8} fontSize="11" fill="#ea5151" textAnchor="middle">{formatRangeNumber(Math.max(0, calc.radiusM - calc.objectDistanceM))}</text>
-          <text x={hookX + 10} y={(objectY + hookY) / 2} fontSize="11" fill="#ea5151">{formatRangeNumber(calc.clearanceM)}</text>
-          <text x={(pivotX + hookX) / 2} y={y(0) - 8} fontSize="11" fill="#ea5151" textAnchor="middle">{formatRangeNumber(calc.radiusM)}</text>
-          <rect x={x(-0.8)} y={y(0.55)} width={x(1.6) - x(-0.8)} height={Math.max(10, y(0) - y(0.55))} fill="#f6a31a" stroke="#8d6500" />
-          <circle cx={x(-0.35)} cy={y(0)} r="8" fill="#858585" />
-          <circle cx={x(0.65)} cy={y(0)} r="8" fill="#858585" />
+          <line x1={Math.min(objectX, hookX)} y1={objectY} x2={Math.max(objectX, hookX)} y2={objectY} stroke={dangerStroke} strokeWidth="2" />
+          <line x1={hookX} y1={Math.min(objectY, hookY)} x2={hookX} y2={Math.max(objectY, hookY)} stroke={dangerStroke} strokeWidth="2" />
+          <line x1={pivotX} y1={groundY} x2={hookX} y2={groundY} stroke="#ea5151" strokeWidth="2" />
+          <text x={(objectX + hookX) / 2} y={Math.min(objectY, hookY) - 8} fontSize="11" fontWeight="800" fill={dangerStroke} textAnchor="middle">{formatRangeGap(horizontalGapM)}</text>
+          <text x={hookX + 10} y={(objectY + hookY) / 2} fontSize="11" fontWeight="800" fill={dangerStroke}>{formatRangeClearance(calc.clearanceM)}</text>
+          <text x={(pivotX + hookX) / 2} y={groundY - 8} fontSize="11" fontWeight="800" fill="#ea5151" textAnchor="middle">{formatRangeNumber(calc.radiusM)}</text>
+          <g transform={`translate(${pivotX - 54} ${groundY - 25})`}>
+            <rect x="0" y="15" width="78" height="18" rx="4" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.2" />
+            <rect x="18" y="0" width="27" height="18" rx="3" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.2" />
+            <rect x="47" y="11" width="32" height="9" rx="2" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.2" />
+            <line x1="-8" y1="35" x2="92" y2="35" stroke="#6f6f6f" strokeWidth="6" strokeLinecap="round" />
+            <circle cx="16" cy="39" r="8" fill="#858585" stroke="#4f4f4f" />
+            <circle cx="51" cy="39" r="8" fill="#858585" stroke="#4f4f4f" />
+            <circle cx="76" cy="39" r="8" fill="#858585" stroke="#4f4f4f" />
+            <line x1="52" y1="14" x2="66" y2="-8" stroke="#f6a31a" strokeWidth="7" strokeLinecap="round" />
+            <line x1="52" y1="14" x2="66" y2="-8" stroke="#8d6500" strokeWidth="1.7" strokeLinecap="round" />
+          </g>
           <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#777" strokeWidth="8" strokeLinecap="round" />
           <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#4a4a4a" strokeWidth="2" strokeLinecap="round" />
           {calc.jibLengthM > 0 ? <line x1={boomEndX} y1={boomEndY} x2={hookX} y2={hookY} stroke="#777" strokeWidth="5" strokeLinecap="round" /> : null}
@@ -769,6 +796,12 @@ function RangeChartPackPage({
           <rect x={left} y={top} width="2" height={plotH} fill="#4f5d64" />
         </svg>
       </div>
+
+      {hasChartWarning ? (
+        <div style={rangeChartDangerBox}>
+          <strong>Chart warning:</strong> {chartWarningText}
+        </div>
+      ) : null}
 
       <div style={rangeMetricGrid}>
         <MetricBox label="Boom Length" value={formatRangeNumber(calc.boomLengthM)} />
@@ -2242,6 +2275,18 @@ const rangeChartFrame: CSSProperties = {
   borderRadius: 8,
   overflow: "hidden",
   background: "#fff",
+  marginBottom: 8,
+};
+
+const rangeChartDangerBox: CSSProperties = {
+  border: "1px solid #d99a9a",
+  background: "#fff1f1",
+  color: "#7a1515",
+  borderRadius: 8,
+  padding: 8,
+  fontSize: 11,
+  lineHeight: 1.35,
+  fontWeight: 800,
   marginBottom: 8,
 };
 
