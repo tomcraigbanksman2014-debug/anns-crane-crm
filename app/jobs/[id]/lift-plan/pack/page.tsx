@@ -737,6 +737,7 @@ function RangeChartPackPage({
   const craneName = rangeText(sections, "range_chart_crane_name", "—");
   const notes = rangeText(sections, "range_chart_notes", "Lift sketch");
   const selectedSetup = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", "—"));
+  const selectedJibOption = rangeText(sections, "range_chart_selected_jib_option_label", "");
   const sourceMode = rangeText(sections, "range_chart_crane_source_mode", "selected_crm_crane");
   const sourceLabel = sourceMode === "external_spec_sheet"
     ? rangeText(sections, "range_chart_external_spec_document_title", "External / job-specific crane spec sheet")
@@ -807,7 +808,8 @@ function RangeChartPackPage({
       <div style={rangeChartHeaderGrid}>
         <div><strong>Client:</strong> {clientName}</div>
         <div><strong>Crane:</strong> {craneName}</div>
-        <div><strong>Setup:</strong> {selectedSetup}</div>
+        <div><strong>Main boom/profile:</strong> {selectedSetup}</div>
+        <div><strong>Fly jib/extension:</strong> {selectedJibOption || (calc.jibLengthM > 0 ? `${formatRangeNumber(calc.jibLengthM)} physical jib` : "No jib / main boom only")}</div>
         <div><strong>Spec source:</strong> {sourceLabel}</div>
         <div style={{ gridColumn: "1 / -1" }}><strong>Notes:</strong> {notes}</div>
       </div>
