@@ -49,10 +49,10 @@ function parseCapacityKgFromText(...values: unknown[]) {
   const candidates: number[] = [];
 
   const nearCapacity = [
-    /(?:max(?:imum)?\s+)?(?:lifting\s+)?capacity[^0-9]{0,40}(\d+(?:\.\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
-    /(?:rated\s+)?capacity[^0-9]{0,40}(\d+(?:\.\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
-    /(?:load\s+moment|maximum\s+load)[^0-9]{0,40}(\d+(?:\.\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
-    /\b(\d+(?:\.\d+)?)\s*(?:t|tonnes?|tons?)\s+(?:capacity|crane|all[-\s]?terrain|truck[-\s]?mounted|mobile)\b/g,
+    /(?:max(?:imum)?\s+)?(?:lifting\s+)?capacity[^0-9]{0,40}(\d+(?:[.,]\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
+    /(?:rated\s+)?capacity[^0-9]{0,40}(\d+(?:[.,]\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
+    /(?:load\s+moment|maximum\s+load)[^0-9]{0,40}(\d+(?:[.,]\d+)?)\s*(?:t|tonnes?|tons?)\b/g,
+    /\b(\d+(?:[.,]\d+)?)\s*(?:t|tonnes?|tons?)\s+(?:capacity|crane|all[-\s]?terrain|truck[-\s]?mounted|mobile)\b/g,
   ];
 
   for (const re of nearCapacity) {
@@ -65,7 +65,7 @@ function parseCapacityKgFromText(...values: unknown[]) {
   }
 
   if (!candidates.length) {
-    for (const match of text.matchAll(/\b(\d+(?:\.\d+)?)\s*(?:t|tonnes?|tons?)\b/g)) {
+    for (const match of text.matchAll(/\b(\d+(?:[.,]\d+)?)\s*(?:t|tonnes?|tons?)\b/g)) {
       const tonnes = Number(match[1]);
       if (Number.isFinite(tonnes) && tonnes >= 1 && tonnes <= 1500) {
         candidates.push(tonnes * 1000);
@@ -90,7 +90,8 @@ function parseLargestMetres(regexes: RegExp[], text: string, min = 1, max = 150)
   const values: number[] = [];
   for (const re of regexes) {
     for (const match of text.matchAll(re)) {
-      const n = Number(match[1]);
+      const raw = String(match[1] ?? "").replace(",", ".");
+      const n = Number(raw);
       if (Number.isFinite(n) && n >= min && n <= max) values.push(n);
     }
   }
@@ -101,9 +102,9 @@ function parseLargestMetres(regexes: RegExp[], text: string, min = 1, max = 150)
 function parseBoomLengthM(text: string) {
   return parseLargestMetres(
     [
-      /(?:main\s+)?boom(?:\s+length)?[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
-      /(?:telescopic\s+)?boom[^0-9]{0,60}(?:from\s+)?\d+(?:\.\d+)?\s*m\s*(?:to|-|–)\s*(\d+(?:\.\d+)?)\s*m\b/g,
-      /\b(\d+(?:\.\d+)?)\s*m\s+(?:main\s+)?boom\b/g,
+      /(?:main\s+)?boom(?:\s+length)?[^0-9]{0,60}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /(?:telescopic\s+)?boom[^0-9]{0,60}(?:from\s+)?\d+(?:[.,]\d+)?\s*m\s*(?:to|-|–)\s*(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /\b(\d+(?:[.,]\d+)?)\s*m\s+(?:main\s+)?boom\b/g,
     ],
     text,
     3,
@@ -114,9 +115,9 @@ function parseBoomLengthM(text: string) {
 function parseRadiusM(text: string) {
   return parseLargestMetres(
     [
-      /(?:max(?:imum)?\s+)?(?:working\s+)?radius[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
-      /(?:max(?:imum)?\s+)?outreach[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
-      /\b(\d+(?:\.\d+)?)\s*m\s+(?:radius|outreach)\b/g,
+      /(?:max(?:imum)?\s+)?(?:working\s+)?radius[^0-9]{0,50}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /(?:max(?:imum)?\s+)?outreach[^0-9]{0,50}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /\b(\d+(?:[.,]\d+)?)\s*m\s+(?:radius|outreach)\b/g,
     ],
     text,
     2,
@@ -127,8 +128,8 @@ function parseRadiusM(text: string) {
 function parseTipHeightM(text: string) {
   return parseLargestMetres(
     [
-      /(?:max(?:imum)?\s+)?(?:tip\s+)?height[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
-      /\b(\d+(?:\.\d+)?)\s*m\s+(?:tip\s+)?height\b/g,
+      /(?:max(?:imum)?\s+)?(?:tip\s+)?height[^0-9]{0,50}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /\b(\d+(?:[.,]\d+)?)\s*m\s+(?:tip\s+)?height\b/g,
     ],
     text,
     3,
@@ -146,9 +147,9 @@ function slug(value: unknown) {
 function parseJibLengthM(text: string) {
   return parseLargestMetres(
     [
-      /(?:fly\s*)?jib(?:\s+length)?[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
-      /(?:swingaway|swing-away|extension)[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
-      /\b(\d+(?:\.\d+)?)\s*m\s+(?:fly\s*)?jib\b/g,
+      /(?:fly\s*)?jib(?:\s+length)?[^0-9]{0,60}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /(?:swingaway|swing-away|extension)[^0-9]{0,60}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /\b(\d+(?:[.,]\d+)?)\s*m\s+(?:fly\s*)?jib\b/g,
     ],
     text,
     1,
@@ -159,9 +160,9 @@ function parseJibLengthM(text: string) {
 function parseJibOutreachM(text: string) {
   return parseLargestMetres(
     [
-      /(?:fly\s*)?jib[^.\n\r]{0,120}(?:radius|outreach|reach|working\s+radius)[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
-      /(?:radius|outreach|reach|working\s+radius)[^.\n\r]{0,120}(?:fly\s*)?jib[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
-      /(?:max(?:imum)?\s+)?(?:jib\s+)?(?:outreach|radius|reach)[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
+      /(?:fly\s*)?jib[^.\n\r]{0,120}(?:radius|outreach|reach|working\s+radius)[^0-9]{0,50}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /(?:radius|outreach|reach|working\s+radius)[^.\n\r]{0,120}(?:fly\s*)?jib[^0-9]{0,50}(\d+(?:[.,]\d+)?)\s*m\b/g,
+      /(?:max(?:imum)?\s+)?(?:jib\s+)?(?:outreach|radius|reach)[^0-9]{0,60}(\d+(?:[.,]\d+)?)\s*m\b/g,
     ],
     text,
     2,
@@ -237,6 +238,107 @@ function setupOptionsFromStoredProfile(profile: Record<string, any> | null, docT
   return out;
 }
 
+function buildKnownModelSetupOptions({
+  title,
+  documentTitle,
+  text,
+}: {
+  title: string;
+  documentTitle: string;
+  text: string;
+}) {
+  const combined = lower([title, documentTitle, text].filter(Boolean).join(" "));
+  const isJekkoSpx532 =
+    /\bspx\s*532\b/.test(combined) ||
+    /\bspx532\b/.test(combined) ||
+    (combined.includes("jekko") && combined.includes("532"));
+
+  if (!isJekkoSpx532) return [] as CraneSetupOption[];
+
+  const sourceDocumentTitle = documentTitle || "Jekko SPX532 specification / load chart";
+  const options: CraneSetupOption[] = [
+    {
+      key: "jekko-spx532-main-boom",
+      label: "Main boom – 10.8 m boom – 9.7 m radius / outreach",
+      boomConfiguration: "Main boom",
+      boomLengthM: 10.8,
+      hydraulicOutreachM: 9.7,
+      jibOutreachM: null,
+      maxRadiusM: 9.7,
+      maxTipHeightM: 12.1,
+      sourceDocumentTitle,
+      sourcePage: 9,
+      sourceLabel: `${sourceDocumentTitle} – main boom chart page 9`,
+      chartNote:
+        "Jekko SPX532 main boom chart: maximum boom 10.8 m, Rmax 9.7 m and Hmax 12.1 m. Verify radius, outrigger/stability zone, hook block/accessory deductions and chart capacity before approval.",
+      configurationNote:
+        "Main boom setup selected from the Jekko SPX532 specification / load chart.",
+      outriggerNote:
+        "Select the correct SPX532 outrigger/stability position before lifting; reduced/asymmetric outrigger setups change the available duty.",
+    },
+    {
+      key: "jekko-spx532-jib1000-2h1mx",
+      label: "Main boom + JIB1000.2H1MX / fly jib – 14.8 m max outreach",
+      boomConfiguration: "Main boom + JIB1000.2H1MX / fly jib",
+      boomLengthM: 10.5,
+      hydraulicOutreachM: 9.7,
+      jibOutreachM: 14.8,
+      maxRadiusM: 14.8,
+      maxTipHeightM: 17.3,
+      sourceDocumentTitle,
+      sourcePage: 12,
+      sourceLabel: `${sourceDocumentTitle} – JIB1000.2H1MX chart pages 12-14`,
+      chartNote:
+        "Jekko SPX532 JIB1000.2H1MX chart: Rmax 14.8 m and Hmax 17.3 m. Verify the exact jib length/angle, duty chart, outrigger/stability zone, hook/winch configuration and all deductions before approval.",
+      configurationNote:
+        "Main boom with JIB1000.2H1MX / fly-jib setup selected from the Jekko SPX532 specification / load chart.",
+      outriggerNote:
+        "Use the correct SPX532 stability area and outrigger setup for the selected JIB1000.2H1MX chart before lifting.",
+    },
+    {
+      key: "jekko-spx532-jib1200gx",
+      label: "Main boom + JIB1200GX – 10.6 m max radius",
+      boomConfiguration: "Main boom + JIB1200GX",
+      boomLengthM: 10.3,
+      hydraulicOutreachM: 9.7,
+      jibOutreachM: 10.6,
+      maxRadiusM: 10.6,
+      maxTipHeightM: 13.1,
+      sourceDocumentTitle,
+      sourcePage: 15,
+      sourceLabel: `${sourceDocumentTitle} – JIB1200GX chart pages 15-17`,
+      chartNote:
+        "Jekko SPX532 JIB1200GX chart: Rmax 10.6 m and Hmax 13.1 m. Verify the exact chart, jib position/angle, outrigger/stability zone and lifting accessory deductions before approval.",
+      configurationNote:
+        "Main boom with JIB1200GX setup selected from the Jekko SPX532 specification / load chart.",
+      outriggerNote:
+        "Confirm the required SPX532 outrigger/stability position and ground support for the selected JIB1200GX chart before lifting.",
+    },
+    {
+      key: "jekko-spx532-jib500gr",
+      label: "Main boom + JIB500GR / grabber jib – 10.6 m max radius",
+      boomConfiguration: "Main boom + JIB500GR / grabber jib",
+      boomLengthM: 10.3,
+      hydraulicOutreachM: 9.7,
+      jibOutreachM: 10.6,
+      maxRadiusM: 10.6,
+      maxTipHeightM: 12.1,
+      sourceDocumentTitle,
+      sourcePage: 18,
+      sourceLabel: `${sourceDocumentTitle} – JIB500GR chart pages 18-20`,
+      chartNote:
+        "Jekko SPX532 JIB500GR chart: Rmax 10.6 m and Hmax 12.1 m. Verify the exact chart, attachment setup, outrigger/stability zone and all deductions before approval.",
+      configurationNote:
+        "Main boom with JIB500GR / grabber jib setup selected from the Jekko SPX532 specification / load chart.",
+      outriggerNote:
+        "Confirm SPX532 outrigger/stability zone and suitable mats/spreaders for the JIB500GR configuration before lifting.",
+    },
+  ];
+
+  return options;
+}
+
+
 function buildHeuristicSetupOptions({
   title,
   documentTitle,
@@ -259,7 +361,9 @@ function buildHeuristicSetupOptions({
   const estimatedJibOutreachM = parsedJibOutreachM ?? (maxBoomLengthM && jibLengthM ? Number((maxBoomLengthM + jibLengthM).toFixed(2)) : null);
   const mainHydraulicOutreachM = maxRadiusM ?? maxBoomLengthM ?? null;
 
-  const options: CraneSetupOption[] = [];
+  const options: CraneSetupOption[] = [
+    ...buildKnownModelSetupOptions({ title, documentTitle, text }),
+  ];
 
   if (maxBoomLengthM || maxRadiusM || maxTipHeightM) {
     options.push({
@@ -285,7 +389,7 @@ function buildHeuristicSetupOptions({
     });
   }
 
-  if (hasJibText || estimatedJibOutreachM) {
+  if ((hasJibText && (estimatedJibOutreachM || jibLengthM || maxRadiusM || maxBoomLengthM)) || estimatedJibOutreachM) {
     options.push({
       key: `${slug(title)}-main-boom-jib`,
       label: [
