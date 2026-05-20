@@ -3,7 +3,7 @@
 import type { CSSProperties, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 import type { CraneSetupOption } from "../../../lib/ai/equipmentProfiles";
-import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits } from "../../../lib/rangeChartSpecs";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null | undefined>;
 
@@ -23,6 +23,8 @@ type RangeChartState = {
   externalSpecDocumentTitle: string;
   selectedSetupKey: string;
   selectedSetupLabel: string;
+  selectedJibOptionKey: string;
+  selectedJibOptionLabel: string;
   boomLengthM: string;
   boomAngleDeg: string;
   radiusM: string;
@@ -97,7 +99,7 @@ function fmtKg(value: number | null | undefined) {
 }
 
 function fmtLimit(value: number | null | undefined, suffix = "m") {
-  return value && Number.isFinite(value) ? fmt(value, suffix) : "No structured limit";
+  return value !== null && value !== undefined && Number.isFinite(value) ? fmt(value, suffix) : "No structured limit";
 }
 
 function formatComputedSource(method: string, source: string) {
@@ -106,7 +108,7 @@ function formatComputedSource(method: string, source: string) {
 
 function clampNumberForInput(value: string, maxValue: number | null | undefined) {
   const parsed = numberOrNull(value);
-  if (parsed === null || !maxValue || parsed <= maxValue) return value;
+  if (parsed === null || maxValue === null || maxValue === undefined || !Number.isFinite(maxValue) || parsed <= maxValue) return value;
   return String(maxValue);
 }
 
@@ -195,6 +197,8 @@ function defaultRangeState({
     externalSpecDocumentTitle: firstText(sections.range_chart_external_spec_document_title),
     selectedSetupKey: firstText(sections.range_chart_selected_setup_key, sections.selected_crane_setup_key, firstSetup?.key),
     selectedSetupLabel: firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
+    selectedJibOptionKey: firstText(sections.range_chart_selected_jib_option_key),
+    selectedJibOptionLabel: firstText(sections.range_chart_selected_jib_option_label),
     boomLengthM: numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
     boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
     radiusM: numberForInput(radius, "12"),
@@ -279,6 +283,59 @@ function calculatedFrom(numbers: ChartNumbers) {
   };
 }
 
+
+function hookFromBoomGeometry({
+  boomLengthM,
+  boomAngleDeg,
+  jibLengthM,
+  jibAngleDeg,
+}: {
+  boomLengthM: number;
+  boomAngleDeg: number;
+  jibLengthM: number;
+  jibAngleDeg: number;
+}) {
+  const pivotHeight = 1.1;
+  const boomAngleRad = (boomAngleDeg * Math.PI) / 180;
+  const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
+  const boomEndX = Math.max(0.1, boomLengthM * Math.cos(boomAngleRad));
+  const boomEndY = Math.max(pivotHeight, pivotHeight + boomLengthM * Math.sin(boomAngleRad));
+  const hookX = boomEndX + Math.max(0, jibLengthM) * Math.cos(jibAngleRad);
+  const hookY = boomEndY + Math.max(0, jibLengthM) * Math.sin(jibAngleRad);
+  return {
+    radiusM: round(Math.max(0.5, hookX), 2),
+    tipHeightM: round(Math.max(0.5, hookY), 2),
+  };
+}
+
+function boomFromHookGeometry({
+  radiusM,
+  tipHeightM,
+  jibLengthM,
+  jibAngleDeg,
+}: {
+  radiusM: number;
+  tipHeightM: number;
+  jibLengthM: number;
+  jibAngleDeg: number;
+}) {
+  const pivotHeight = 1.1;
+  const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
+  const boomEndX = Math.max(0.1, radiusM - Math.max(0, jibLengthM) * Math.cos(jibAngleRad));
+  const boomEndY = Math.max(pivotHeight, tipHeightM - Math.max(0, jibLengthM) * Math.sin(jibAngleRad));
+  const boomLengthM = Math.sqrt(Math.pow(boomEndX, 2) + Math.pow(boomEndY - pivotHeight, 2));
+  const boomAngleDeg = (Math.atan2(boomEndY - pivotHeight, boomEndX) * 180) / Math.PI;
+  return {
+    boomLengthM: round(boomLengthM, 2),
+    boomAngleDeg: round(boomAngleDeg, 2),
+  };
+}
+
+function clampNumber(value: number, maxValue: number | null | undefined) {
+  if (!Number.isFinite(value)) return value;
+  return maxValue && value > maxValue ? maxValue : value;
+}
+
 function calcScale(numbers: ChartNumbers) {
   const maxX = Math.max(numbers.radiusM + 4, numbers.objectDistanceM + numbers.objectWidthM + 4, 12);
   const maxY = Math.max(numbers.tipHeightM + 4, numbers.objectHeightM + 4, 8);
@@ -336,17 +393,29 @@ export default function RangeChartBuilder({
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
+  const specOptions = getRangeChartSpecOptions({ craneName: chart.craneName, setupLabel: chart.selectedSetupLabel, sourceLabel: chart.externalSpecDocumentTitle });
+  const structuredProfileOptions = specOptions.profileOptions;
+  const structuredJibOptions = specOptions.jibOptions;
+  const activeStructuredProfile = structuredProfileOptions.find((item) => chart.selectedSetupKey === `profile:${item.key}` || chart.selectedSetupKey === item.key) ?? null;
+  const activeJibOption = structuredJibOptions.find((item) => item.key === chart.selectedJibOptionKey) ?? null;
   const numbers = chartNumbers(chart);
   const calc = calculatedFrom(numbers);
-  const inferredSetupJibLength = inferPhysicalJibLength(activeSetup) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel);
+  const inferredSetupJibLength = activeJibOption ? activeJibOption.lengthM : (inferPhysicalJibLength(activeSetup) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel));
+  const setupMaxBoom = activeStructuredProfile?.maxBoomLengthM ?? activeStructuredProfile?.defaultBoomLengthM ?? maybeNumber(activeSetup?.boomLengthM);
+  const setupMaxRadius = activeStructuredProfile?.maxRadiusM ?? activeJibOption?.maxRadiusM ?? maybeNumber(activeSetup?.maxRadiusM);
+  const setupMaxTipHeight = activeStructuredProfile?.maxTipHeightM ?? activeJibOption?.maxTipHeightM ?? maybeNumber(activeSetup?.maxTipHeightM);
+  const setupMaxJib = activeJibOption ? activeJibOption.lengthM : inferredSetupJibLength;
+  const setupSelectOptions = structuredProfileOptions.length
+    ? structuredProfileOptions.map((profile) => ({ value: `profile:${profile.key}`, label: profile.label }))
+    : normalisedSetups.map((setup) => ({ value: setup.key, label: setup.label }));
   const limits = getRangeChartLimits({
     craneName: chart.craneName,
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
-    setupMaxBoomLengthM: maybeNumber(activeSetup?.boomLengthM),
-    setupMaxRadiusM: maybeNumber(activeSetup?.maxRadiusM),
-    setupMaxTipHeightM: maybeNumber(activeSetup?.maxTipHeightM),
-    setupMaxPhysicalJibLengthM: inferredSetupJibLength,
+    setupMaxBoomLengthM: maybeNumber(setupMaxBoom),
+    setupMaxRadiusM: maybeNumber(setupMaxRadius),
+    setupMaxTipHeightM: maybeNumber(setupMaxTipHeight),
+    setupMaxPhysicalJibLengthM: maybeNumber(setupMaxJib),
   });
   const enteredBoomLength = numberOrNull(chart.boomLengthM);
   const enteredBoomAngle = numberOrNull(chart.boomAngleDeg);
@@ -399,18 +468,72 @@ export default function RangeChartBuilder({
     setChart((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateLimitedNumber(key: keyof RangeChartState, value: string) {
+  function limitedValueForKey(key: keyof RangeChartState, value: string) {
     let nextValue = value;
     if (key === "boomLengthM") nextValue = clampNumberForInput(value, limits.maxBoomLengthM);
     if (key === "jibLengthM") nextValue = clampNumberForInput(value, limits.maxPhysicalJibLengthM);
     if (key === "radiusM") nextValue = clampNumberForInput(value, limits.maxRadiusM);
     if (key === "tipHeightM") nextValue = clampNumberForInput(value, limits.maxTipHeightM);
-    update(key, nextValue);
+    return nextValue;
+  }
+
+  function syncHookFromBoom(next: RangeChartState) {
+    const boomLength = numberOrNull(next.boomLengthM);
+    const boomAngle = numberOrNull(next.boomAngleDeg);
+    if (boomLength === null || boomAngle === null) return next;
+    const hook = hookFromBoomGeometry({
+      boomLengthM: boomLength,
+      boomAngleDeg: boomAngle,
+      jibLengthM: numberOrNull(next.jibLengthM) ?? 0,
+      jibAngleDeg: numberOrNull(next.jibAngleDeg) ?? 0,
+    });
+    return { ...next, radiusM: String(hook.radiusM), tipHeightM: String(hook.tipHeightM) };
+  }
+
+  function syncBoomFromHook(next: RangeChartState) {
+    const radius = numberOrNull(next.radiusM);
+    const tipHeight = numberOrNull(next.tipHeightM);
+    if (radius === null || tipHeight === null) return next;
+    const derived = boomFromHookGeometry({
+      radiusM: radius,
+      tipHeightM: tipHeight,
+      jibLengthM: numberOrNull(next.jibLengthM) ?? 0,
+      jibAngleDeg: numberOrNull(next.jibAngleDeg) ?? 0,
+    });
+    const limitedBoomLength = clampNumber(derived.boomLengthM, limits.maxBoomLengthM);
+    const afterBoom = { ...next, boomLengthM: String(limitedBoomLength), boomAngleDeg: String(derived.boomAngleDeg) };
+    return limitedBoomLength !== derived.boomLengthM ? syncHookFromBoom(afterBoom) : afterBoom;
+  }
+
+  function updateLimitedNumber(key: keyof RangeChartState, value: string) {
+    const nextValue = limitedValueForKey(key, value);
+    setChart((prev) => {
+      const next = { ...prev, [key]: nextValue } as RangeChartState;
+      if (["boomLengthM", "boomAngleDeg", "jibLengthM", "jibAngleDeg"].includes(String(key))) return syncHookFromBoom(next);
+      if (["radiusM", "tipHeightM"].includes(String(key))) return syncBoomFromHook(next);
+      return next;
+    });
   }
 
   function applySetup(setupKey: string) {
+    const structuredKey = setupKey.startsWith("profile:") ? setupKey.slice("profile:".length) : setupKey;
+    const profile = structuredProfileOptions.find((item) => item.key === structuredKey) ?? null;
     const setup = normalisedSetups.find((item) => item.key === setupKey) ?? null;
     setChart((prev) => {
+      if (profile) {
+        const next = {
+          ...prev,
+          selectedSetupKey: `profile:${profile.key}`,
+          selectedSetupLabel: profile.label,
+          craneSourceMode: prev.craneSourceMode || "selected_crm_crane",
+          boomLengthM: profile.defaultBoomLengthM ? String(profile.defaultBoomLengthM) : prev.boomLengthM,
+          verificationNote:
+            profile.source ||
+            prev.verificationNote ||
+            "Planning sketch only. Appointed person must verify the exact manufacturer/supplier chart before approval.",
+        };
+        return syncHookFromBoom(next);
+      }
       if (!setup) {
         return { ...prev, selectedSetupKey: "", selectedSetupLabel: "" };
       }
@@ -419,7 +542,7 @@ export default function RangeChartBuilder({
         setup.maxRadiusM ? `max radius/outreach ${setup.maxRadiusM}m` : "",
         setup.maxTipHeightM ? `max tip height ${setup.maxTipHeightM}m` : "",
       ].filter(Boolean).join(", ");
-      return {
+      const next = {
         ...prev,
         selectedSetupKey: setup.key,
         selectedSetupLabel: setup.label,
@@ -432,6 +555,22 @@ export default function RangeChartBuilder({
           prev.verificationNote ||
           "Planning sketch only. Appointed person must verify the exact manufacturer/supplier chart before approval.",
       };
+      return syncHookFromBoom(next);
+    });
+  }
+
+  function applyJibOption(jibKey: string) {
+    const option = structuredJibOptions.find((item) => item.key === jibKey) ?? null;
+    setChart((prev) => {
+      if (!option) return { ...prev, selectedJibOptionKey: "", selectedJibOptionLabel: "" };
+      const next = {
+        ...prev,
+        selectedJibOptionKey: option.key,
+        selectedJibOptionLabel: option.label,
+        jibLengthM: String(option.lengthM),
+        verificationNote: option.source || prev.verificationNote,
+      };
+      return syncHookFromBoom(next);
     });
   }
 
@@ -470,7 +609,7 @@ export default function RangeChartBuilder({
     if (!point) return;
     event.preventDefault();
     if (dragging === "hook") {
-      setChart((prev) => ({ ...prev, radiusM: String(point.xM), tipHeightM: String(point.yM) }));
+      setChart((prev) => syncBoomFromHook({ ...prev, radiusM: String(point.xM), tipHeightM: String(point.yM) }));
     } else {
       setChart((prev) => ({ ...prev, objectDistanceM: String(point.xM), objectHeightM: String(point.yM) }));
     }
@@ -490,6 +629,8 @@ export default function RangeChartBuilder({
         range_chart_external_spec_document_title: chart.externalSpecDocumentTitle,
         range_chart_selected_setup_key: chart.selectedSetupKey,
         range_chart_selected_setup_label: chart.selectedSetupLabel,
+        range_chart_selected_jib_option_key: chart.selectedJibOptionKey,
+        range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
         range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
         range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
         range_chart_radius_m: chart.radiusM,
@@ -581,15 +722,26 @@ export default function RangeChartBuilder({
               />
             ) : null}
             <SelectField
-              label="Setup/profile"
+              label="Main boom / profile"
               value={chart.selectedSetupKey}
               onChange={applySetup}
               options={[
-                { value: "", label: normalisedSetups.length ? "Select setup from specs…" : "No setup options found yet" },
-                ...normalisedSetups.map((setup) => ({ value: setup.key, label: setup.label })),
+                { value: "", label: setupSelectOptions.length ? "Select main boom/profile…" : "No setup options found yet" },
+                ...setupSelectOptions,
               ]}
             />
-            <div style={miniHelpStyle}>Setup/profile gives the chart limits and boom/jib reference. Enter the actual planned radius, hook height and object dimensions for this lift.</div>
+            {structuredJibOptions.length ? (
+              <SelectField
+                label="Fly jib / extension option"
+                value={chart.selectedJibOptionKey}
+                onChange={applyJibOption}
+                options={[
+                  { value: "", label: "Select fly jib/extension…" },
+                  ...structuredJibOptions.map((option) => ({ value: option.key, label: option.label })),
+                ]}
+              />
+            ) : null}
+            <div style={miniHelpStyle}>Main boom/profile and fly jib/extension are selected separately. The diagram updates when boom length, boom angle, jib length or jib angle are changed.</div>
           </Section>
 
           <Section title="Chart dimensions">
@@ -597,9 +749,9 @@ export default function RangeChartBuilder({
               <Field label="Radius (m)" type="number" value={chart.radiusM} max={limits.maxRadiusM ?? undefined} helper={limits.maxRadiusM ? `Max ${fmt(limits.maxRadiusM)}` : undefined} onChange={(value) => updateLimitedNumber("radiusM", value)} />
               <Field label="Tip / hook height (m)" type="number" value={chart.tipHeightM} max={limits.maxTipHeightM ?? undefined} helper={limits.maxTipHeightM ? `Max ${fmt(limits.maxTipHeightM)}` : undefined} onChange={(value) => updateLimitedNumber("tipHeightM", value)} />
               <Field label="Boom length (m)" type="number" value={chart.boomLengthM} max={limits.maxBoomLengthM ?? undefined} helper={limits.maxBoomLengthM ? `Max ${fmt(limits.maxBoomLengthM)}` : undefined} onChange={(value) => updateLimitedNumber("boomLengthM", value)} />
-              <Field label="Boom angle (deg)" type="number" value={chart.boomAngleDeg} onChange={(value) => update("boomAngleDeg", value)} />
+              <Field label="Boom angle (deg)" type="number" value={chart.boomAngleDeg} onChange={(value) => updateLimitedNumber("boomAngleDeg", value)} />
               <Field label="Physical jib length (m)" type="number" value={chart.jibLengthM} max={limits.maxPhysicalJibLengthM ?? undefined} helper={limits.maxPhysicalJibLengthM ? `Max ${fmt(limits.maxPhysicalJibLengthM)}` : undefined} onChange={(value) => updateLimitedNumber("jibLengthM", value)} />
-              <Field label="Jib angle (deg)" type="number" value={chart.jibAngleDeg} onChange={(value) => update("jibAngleDeg", value)} />
+              <Field label="Jib angle (deg)" type="number" value={chart.jibAngleDeg} onChange={(value) => updateLimitedNumber("jibAngleDeg", value)} />
               <Field label="Object distance (m)" type="number" value={chart.objectDistanceM} onChange={(value) => update("objectDistanceM", value)} />
               <Field label="Object height (m)" type="number" value={chart.objectHeightM} onChange={(value) => update("objectHeightM", value)} />
               <Field label="Object width (m)" type="number" value={chart.objectWidthM} onChange={(value) => update("objectWidthM", value)} />
