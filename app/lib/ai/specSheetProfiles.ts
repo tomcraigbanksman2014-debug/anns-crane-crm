@@ -1,4 +1,4 @@
-import type { EquipmentProfile } from "./equipmentProfiles";
+import type { CraneSetupOption, EquipmentProfile } from "./equipmentProfiles";
 
 export type StoredCraneSpecDocument = {
   id?: string | null;
@@ -136,6 +136,207 @@ function parseTipHeightM(text: string) {
   );
 }
 
+function slug(value: unknown) {
+  return clean(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "setup";
+}
+
+function parseJibLengthM(text: string) {
+  return parseLargestMetres(
+    [
+      /(?:fly\s*)?jib(?:\s+length)?[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
+      /(?:swingaway|swing-away|extension)[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
+      /\b(\d+(?:\.\d+)?)\s*m\s+(?:fly\s*)?jib\b/g,
+    ],
+    text,
+    1,
+    80
+  );
+}
+
+function parseJibOutreachM(text: string) {
+  return parseLargestMetres(
+    [
+      /(?:fly\s*)?jib[^.\n\r]{0,120}(?:radius|outreach|reach|working\s+radius)[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
+      /(?:radius|outreach|reach|working\s+radius)[^.\n\r]{0,120}(?:fly\s*)?jib[^0-9]{0,50}(\d+(?:\.\d+)?)\s*m\b/g,
+      /(?:max(?:imum)?\s+)?(?:jib\s+)?(?:outreach|radius|reach)[^0-9]{0,60}(\d+(?:\.\d+)?)\s*m\b/g,
+    ],
+    text,
+    2,
+    160
+  );
+}
+
+function numberFromProfile(profile: Record<string, any> | null, keys: string[]) {
+  if (!profile) return null;
+  for (const key of keys) {
+    const value = numberOrNull(profile[key]);
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+function setupFromStoredItem(item: any, docTitle: string, index: number): CraneSetupOption | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+
+  const label = clean(item.label ?? item.name ?? item.title ?? item.configuration ?? item.boomConfiguration);
+  const boomLengthM = numberOrNull(item.boomLengthM ?? item.maxBoomLengthM ?? item.boom_length_m);
+  const hydraulicOutreachM = numberOrNull(item.hydraulicOutreachM ?? item.maxHydraulicOutreachM ?? item.hydraulic_outreach_m ?? item.outreachM ?? item.outreach_m);
+  const jibOutreachM = numberOrNull(item.jibOutreachM ?? item.maxJibOutreachM ?? item.jib_outreach_m ?? item.max_outreach_m);
+  const maxRadiusM = numberOrNull(item.maxRadiusM ?? item.radiusM ?? item.radius_m ?? item.max_radius_m);
+  const maxTipHeightM = numberOrNull(item.maxTipHeightM ?? item.tipHeightM ?? item.tip_height_m);
+
+  if (!label && !boomLengthM && !hydraulicOutreachM && !jibOutreachM && !maxRadiusM && !maxTipHeightM) return null;
+
+  return {
+    key: clean(item.key) || `${slug(docTitle)}-${index + 1}`,
+    label:
+      label ||
+      [
+        item.boomConfiguration || item.configuration || "Crane setup",
+        boomLengthM ? `${boomLengthM} m boom` : null,
+        jibOutreachM ? `${jibOutreachM} m jib / max outreach` : maxRadiusM ? `${maxRadiusM} m radius` : null,
+      ]
+        .filter(Boolean)
+        .join(" – "),
+    boomConfiguration: clean(item.boomConfiguration ?? item.configuration ?? item.boom_configuration) || null,
+    boomLengthM,
+    hydraulicOutreachM,
+    jibOutreachM,
+    maxRadiusM,
+    maxTipHeightM,
+    sourceDocumentTitle: docTitle || null,
+    sourcePage: numberOrNull(item.sourcePage ?? item.page ?? item.page_number),
+    sourceLabel: clean(item.sourceLabel ?? item.source_label) || docTitle || null,
+    chartNote: clean(item.chartNote ?? item.chart_note ?? item.note) || null,
+    configurationNote: clean(item.configurationNote ?? item.configuration_note) || null,
+    outriggerNote: clean(item.outriggerNote ?? item.outrigger_note) || null,
+  };
+}
+
+function setupOptionsFromStoredProfile(profile: Record<string, any> | null, docTitle: string) {
+  if (!profile) return [] as CraneSetupOption[];
+  const rawLists = [
+    profile.setupOptions,
+    profile.craneSetupOptions,
+    profile.setups,
+    profile.configurations,
+    profile.chartConfigurations,
+  ];
+
+  const out: CraneSetupOption[] = [];
+  for (const raw of rawLists) {
+    if (!Array.isArray(raw)) continue;
+    raw.forEach((item, index) => {
+      const option = setupFromStoredItem(item, docTitle, index);
+      if (option) out.push(option);
+    });
+  }
+  return out;
+}
+
+function buildHeuristicSetupOptions({
+  title,
+  documentTitle,
+  text,
+  maxBoomLengthM,
+  maxRadiusM,
+  maxTipHeightM,
+}: {
+  title: string;
+  documentTitle: string;
+  text: string;
+  maxBoomLengthM: number | null;
+  maxRadiusM: number | null;
+  maxTipHeightM: number | null;
+}) {
+  const low = lower(text);
+  const hasJibText = /\b(jib|fly\s*jib|flyjib|swingaway|swing-away|extension)\b/i.test(low);
+  const jibLengthM = parseJibLengthM(low);
+  const parsedJibOutreachM = parseJibOutreachM(low);
+  const estimatedJibOutreachM = parsedJibOutreachM ?? (maxBoomLengthM && jibLengthM ? Number((maxBoomLengthM + jibLengthM).toFixed(2)) : null);
+  const mainHydraulicOutreachM = maxRadiusM ?? maxBoomLengthM ?? null;
+
+  const options: CraneSetupOption[] = [];
+
+  if (maxBoomLengthM || maxRadiusM || maxTipHeightM) {
+    options.push({
+      key: `${slug(title)}-main-boom`,
+      label: [
+        "Main boom",
+        maxBoomLengthM ? `${maxBoomLengthM} m boom` : null,
+        maxRadiusM ? `${maxRadiusM} m radius / outreach` : null,
+      ]
+        .filter(Boolean)
+        .join(" – "),
+      boomConfiguration: "Main boom",
+      boomLengthM: maxBoomLengthM,
+      hydraulicOutreachM: mainHydraulicOutreachM,
+      jibOutreachM: null,
+      maxRadiusM,
+      maxTipHeightM,
+      sourceDocumentTitle: documentTitle || null,
+      sourceLabel: documentTitle || "Uploaded crane specification",
+      chartNote: `Setup values extracted from ${documentTitle || "the uploaded crane specification"}. The appointed person must verify the exact chart, radius, counterweight and outrigger setup before approval.`,
+      configurationNote: "Main boom configuration selected from uploaded crane specification / load chart.",
+      outriggerNote: "Confirm outrigger extension, mats/spreaders and ground conditions against the selected chart before lifting.",
+    });
+  }
+
+  if (hasJibText || estimatedJibOutreachM) {
+    options.push({
+      key: `${slug(title)}-main-boom-jib`,
+      label: [
+        "Main boom + jib / fly jib",
+        maxBoomLengthM ? `${maxBoomLengthM} m boom` : null,
+        jibLengthM ? `${jibLengthM} m jib` : null,
+        estimatedJibOutreachM ? `${estimatedJibOutreachM} m max outreach` : maxRadiusM ? `${maxRadiusM} m radius` : null,
+      ]
+        .filter(Boolean)
+        .join(" – "),
+      boomConfiguration: "Main boom + jib / fly jib",
+      boomLengthM: maxBoomLengthM,
+      hydraulicOutreachM: mainHydraulicOutreachM,
+      jibOutreachM: estimatedJibOutreachM,
+      maxRadiusM: estimatedJibOutreachM ?? maxRadiusM,
+      maxTipHeightM,
+      sourceDocumentTitle: documentTitle || null,
+      sourceLabel: documentTitle || "Uploaded crane specification",
+      chartNote: `Jib / fly-jib setup detected from ${documentTitle || "the uploaded crane specification"}. Verify the exact jib length, offset, duty chart, radius and deductions before approval.`,
+      configurationNote: "Main boom with jib / fly-jib configuration selected from uploaded crane specification / load chart.",
+      outriggerNote: "Confirm outrigger extension, mats/spreaders and ground conditions against the selected jib chart before lifting.",
+    });
+  }
+
+  return options;
+}
+
+function dedupeSetupOptions(options: CraneSetupOption[]) {
+  const seen = new Set<string>();
+  const out: CraneSetupOption[] = [];
+
+  for (const option of options) {
+    const key = option.key || slug(option.label);
+    const signature = [
+      key,
+      option.label,
+      option.boomLengthM ?? "",
+      option.hydraulicOutreachM ?? "",
+      option.jibOutreachM ?? "",
+      option.maxRadiusM ?? "",
+    ]
+      .join("|")
+      .toLowerCase();
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    out.push({ ...option, key });
+  }
+
+  return out.slice(0, 12);
+}
+
 function parseStoredProfile(value: unknown) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return value as Record<string, any>;
@@ -159,6 +360,7 @@ export function buildExtractedCraneProfileJson({
   const maxBoomLengthM = parseBoomLengthM(low);
   const maxRadiusM = parseRadiusM(low);
   const maxTipHeightM = parseTipHeightM(low);
+  const maxJibOutreachM = parseJibOutreachM(low);
   const manufacturer = clean(crane?.make) || null;
   const model = clean(crane?.model) || null;
   const titleText = unique([clean(crane?.name), [manufacturer, model].filter(Boolean).join(" "), clean(title)]).join(" / ") || "Uploaded crane specification";
@@ -172,6 +374,16 @@ export function buildExtractedCraneProfileJson({
     maxBoomLengthM,
     maxRadiusM,
     maxTipHeightM,
+    maxHydraulicOutreachM: maxRadiusM ?? maxBoomLengthM,
+    maxJibOutreachM,
+    setupOptions: buildHeuristicSetupOptions({
+      title: titleText,
+      documentTitle: title ? clean(title) : "Uploaded crane specification",
+      text: combined,
+      maxBoomLengthM,
+      maxRadiusM,
+      maxTipHeightM,
+    }),
     sourceLabel: title ? `Uploaded specification: ${clean(title)}` : "Uploaded crane specification",
     extractedAt: new Date().toISOString(),
   };
@@ -204,9 +416,30 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
   const maxBoomLengthM = numberOrNull(generated.maxBoomLengthM) ?? parseBoomLengthM(lower(allText));
   const maxRadiusM = numberOrNull(generated.maxRadiusM) ?? parseRadiusM(lower(allText));
   const maxTipHeightM = numberOrNull(generated.maxTipHeightM) ?? parseTipHeightM(lower(allText));
+  const maxHydraulicOutreachM =
+    numberOrNull(generated.maxHydraulicOutreachM) ??
+    numberOrNull((generated as any).hydraulicOutreachM) ??
+    maxRadiusM ??
+    maxBoomLengthM;
+  const maxJibOutreachM =
+    numberOrNull(generated.maxJibOutreachM) ??
+    numberOrNull((generated as any).jibOutreachM) ??
+    parseJibOutreachM(lower(allText));
   const manufacturer = clean(generated.manufacturer) || clean(crane.make) || undefined;
   const model = clean(generated.model) || clean(crane.model) || undefined;
   const sourceLabel = clean(generated.sourceLabel) || clean(usefulDocs[0]?.title) || "Uploaded crane specification";
+  const setupOptions = dedupeSetupOptions([
+    ...storedProfiles.flatMap((item) => setupOptionsFromStoredProfile(item.profile, clean(item.doc?.title) || sourceLabel)),
+    ...(Array.isArray((generated as any).setupOptions) ? ((generated as any).setupOptions as CraneSetupOption[]) : []),
+    ...buildHeuristicSetupOptions({
+      title,
+      documentTitle: sourceLabel,
+      text: allText || [title, crane.name, crane.make, crane.model].filter(Boolean).join(" "),
+      maxBoomLengthM: maxBoomLengthM ?? null,
+      maxRadiusM: maxRadiusM ?? null,
+      maxTipHeightM: maxTipHeightM ?? null,
+    }),
+  ]);
 
   const aliases = unique([
     title,
@@ -228,6 +461,7 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
       maxCapacityTonnes ? `max capacity ${maxCapacityTonnes} t` : null,
       maxBoomLengthM ? `boom ${maxBoomLengthM} m` : null,
       maxRadiusM ? `radius / outreach ${maxRadiusM} m` : null,
+      maxJibOutreachM ? `jib / max outreach ${maxJibOutreachM} m` : null,
     ]
       .filter(Boolean)
       .join(", ") || "Crane details taken from the uploaded specification / load chart.",
@@ -235,8 +469,8 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
     maxCapacityTonnes: maxCapacityTonnes ?? null,
     maxBoomLengthM: maxBoomLengthM ?? null,
     maxTipHeightM: maxTipHeightM ?? null,
-    maxHydraulicOutreachM: null,
-    maxJibOutreachM: null,
+    maxHydraulicOutreachM: maxHydraulicOutreachM ?? null,
+    maxJibOutreachM: maxJibOutreachM ?? null,
     maxRadiusM: maxRadiusM ?? null,
     outriggersNote:
       "Outrigger, support and mat arrangement must be checked against the uploaded specification / load chart and the actual ground conditions before lifting.",
@@ -255,5 +489,6 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
       "Hook block, slings and lifting accessories must be included in the total lifted weight and deducted from available chart capacity.",
     ],
     sourceLabel,
+    setupOptions,
   };
 }
