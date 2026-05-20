@@ -132,16 +132,99 @@ export const EQUIPMENT_PROFILES: EquipmentProfile[] = [
     manufacturer: "Jekko",
     model: "SPX532",
     aliases: ["spx532", "jekko 532", "jekko spx532", "spx 532"],
-    summary: "Spider crane with 2.5 m to 10.8 m boom, 3.2 t max capacity and charted outriggers / stability positions.",
+    summary: "Spider crane with 2.5 m to 10.8 m boom, 3.2 t max capacity, main boom chart to 9.7 m radius, and Jekko jib charts including JIB1000.2H1MX up to 14.8 m max outreach.",
     maxCapacityKg: 3200,
     maxCapacityTonnes: 3.2,
     maxBoomLengthM: 10.8,
     maxRadiusM: 9.7,
+    maxTipHeightM: 17.3,
+    maxHydraulicOutreachM: 9.7,
+    maxJibOutreachM: 14.8,
     capabilities: [
       "Spider crane",
       "Multiple outrigger positions",
       "Main boom chart to 9.7 m radius",
+      "JIB1000.2H1MX / fly-jib chart up to 14.8 m max outreach",
+      "JIB1200GX and JIB500GR attachment charts",
       "Compact access lifting",
+    ],
+    setupOptions: [
+      {
+        key: "jekko-spx532-main-boom",
+        label: "Main boom – 10.8 m boom – 9.7 m radius / outreach",
+        boomConfiguration: "Main boom",
+        boomLengthM: 10.8,
+        hydraulicOutreachM: 9.7,
+        jibOutreachM: null,
+        maxRadiusM: 9.7,
+        maxTipHeightM: 12.1,
+        sourceDocumentTitle: "Jekko SPX532 specsheet",
+        sourcePage: 9,
+        sourceLabel: "Jekko SPX532 specsheet – main boom chart page 9",
+        chartNote:
+          "Jekko SPX532 main boom chart: maximum boom 10.8 m, Rmax 9.7 m and Hmax 12.1 m. Verify radius, outrigger/stability zone, hook block/accessory deductions and chart capacity before approval.",
+        configurationNote:
+          "Main boom setup selected from the Jekko SPX532 specification / load chart.",
+        outriggerNote:
+          "Select the correct SPX532 outrigger/stability position before lifting; reduced/asymmetric outrigger setups change the available duty.",
+      },
+      {
+        key: "jekko-spx532-jib1000-2h1mx",
+        label: "Main boom + JIB1000.2H1MX / fly jib – 14.8 m max outreach",
+        boomConfiguration: "Main boom + JIB1000.2H1MX / fly jib",
+        boomLengthM: 10.5,
+        hydraulicOutreachM: 9.7,
+        jibOutreachM: 14.8,
+        maxRadiusM: 14.8,
+        maxTipHeightM: 17.3,
+        sourceDocumentTitle: "Jekko SPX532 specsheet",
+        sourcePage: 12,
+        sourceLabel: "Jekko SPX532 specsheet – JIB1000.2H1MX chart pages 12-14",
+        chartNote:
+          "Jekko SPX532 JIB1000.2H1MX chart: Rmax 14.8 m and Hmax 17.3 m. Verify the exact jib length/angle, duty chart, outrigger/stability zone, hook/winch configuration and all deductions before approval.",
+        configurationNote:
+          "Main boom with JIB1000.2H1MX / fly-jib setup selected from the Jekko SPX532 specification / load chart.",
+        outriggerNote:
+          "Use the correct SPX532 stability area and outrigger setup for the selected JIB1000.2H1MX chart before lifting.",
+      },
+      {
+        key: "jekko-spx532-jib1200gx",
+        label: "Main boom + JIB1200GX – 10.6 m max radius",
+        boomConfiguration: "Main boom + JIB1200GX",
+        boomLengthM: 10.3,
+        hydraulicOutreachM: 9.7,
+        jibOutreachM: 10.6,
+        maxRadiusM: 10.6,
+        maxTipHeightM: 13.1,
+        sourceDocumentTitle: "Jekko SPX532 specsheet",
+        sourcePage: 15,
+        sourceLabel: "Jekko SPX532 specsheet – JIB1200GX chart pages 15-17",
+        chartNote:
+          "Jekko SPX532 JIB1200GX chart: Rmax 10.6 m and Hmax 13.1 m. Verify the exact chart, jib position/angle, outrigger/stability zone and lifting accessory deductions before approval.",
+        configurationNote:
+          "Main boom with JIB1200GX setup selected from the Jekko SPX532 specification / load chart.",
+        outriggerNote:
+          "Confirm the required SPX532 outrigger/stability position and ground support for the selected JIB1200GX chart before lifting.",
+      },
+      {
+        key: "jekko-spx532-jib500gr",
+        label: "Main boom + JIB500GR / grabber jib – 10.6 m max radius",
+        boomConfiguration: "Main boom + JIB500GR / grabber jib",
+        boomLengthM: 10.3,
+        hydraulicOutreachM: 9.7,
+        jibOutreachM: 10.6,
+        maxRadiusM: 10.6,
+        maxTipHeightM: 12.1,
+        sourceDocumentTitle: "Jekko SPX532 specsheet",
+        sourcePage: 18,
+        sourceLabel: "Jekko SPX532 specsheet – JIB500GR chart pages 18-20",
+        chartNote:
+          "Jekko SPX532 JIB500GR chart: Rmax 10.6 m and Hmax 12.1 m. Verify the exact chart, attachment setup, outrigger/stability zone and all deductions before approval.",
+        configurationNote:
+          "Main boom with JIB500GR / grabber jib setup selected from the Jekko SPX532 specification / load chart.",
+        outriggerNote:
+          "Confirm SPX532 outrigger/stability zone and suitable mats/spreaders for the JIB500GR configuration before lifting.",
+      },
     ],
     warnings: [
       "Capacity depends on exact outrigger position and stability zone.",
