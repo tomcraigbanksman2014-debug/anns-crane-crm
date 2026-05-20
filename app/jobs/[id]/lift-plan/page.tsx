@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
 import { attachCraneSpecDocumentsToJob } from "../../../lib/ai/craneSpecDocuments";
 import LiftPlanForm from "../LiftPlanForm";
+import RangeChartBuilder from "./RangeChartBuilder";
 import DocumentUploadForm from "../DocumentUploadForm";
 import AssetDocumentManager from "../../../components/AssetDocumentManager";
 import LiftPlanAppendixSelector from "./LiftPlanAppendixSelector";
@@ -12,6 +13,7 @@ import {
   getJobSpecAppendixAssetsForPack,
   getJobSpecDocumentsForManager,
 } from "../../../lib/assetDocuments";
+import { rangeChartBuilderEnabled } from "../../../lib/features";
 
 function line(label: string, value: string | null | undefined) {
   return { label, value: String(value ?? "—").trim() || "—" };
@@ -128,6 +130,7 @@ export default async function JobLiftPlanPage({
   searchParams?: { deleted?: string; delete_error?: string };
 }) {
   const supabase = createSupabaseServerClient();
+  const rangeChartEnabled = rangeChartBuilderEnabled();
 
   const [
     { data: job, error: jobError },
@@ -308,6 +311,21 @@ export default async function JobLiftPlanPage({
     })
   );
 
+  const allRangeChartSetupOptions = Array.from(
+    new Map(
+      [
+        ...(equipmentProfile?.setupOptions ?? []),
+        ...Object.values(craneSetupOptionsByAllocation).flat(),
+      ].map((option: any) => [String(option?.key || option?.label || ""), option])
+    ).values()
+  ).filter((option: any) => String(option?.key || option?.label || "").trim());
+
+  const externalSpecOptions = jobSpecDocuments.map((doc: any) => ({
+    id: String(doc.id ?? ""),
+    title: String(doc.title || doc.file_name || "Uploaded job spec sheet"),
+    document_type: doc.document_type ?? null,
+  })).filter((doc) => doc.id);
+
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
 
@@ -431,39 +449,37 @@ export default async function JobLiftPlanPage({
           </div>
         </div>
 
-        {craneIsExternal || jobSpecDocuments.length > 0 ? (
-          <details style={uploadCard} open={craneIsExternal || jobSpecDocuments.length > 0}>
-            <summary style={sectionSummary}>
-              <span>Cross-hired / job-specific crane spec sheets</span>
-              <span style={summaryHint}>Only shown for cross-hired / external cranes</span>
-            </summary>
-            <div style={{ fontSize: 14, opacity: 0.8, margin: "10px 0 12px" }}>
-              Use this only when the crane is sub-hired, temporary, or the correct specification/load chart is not already stored against one of our crane records. For AnnS-owned cranes, upload and manage spec sheets on the crane record instead.
-            </div>
-            <AssetDocumentManager
-              assetLabel="Lift plan crane"
-              assetType="crane"
-              assetProfile={{
-                name: craneLabel,
-                make: (crane as any)?.make ?? null,
-                model: (crane as any)?.model ?? null,
-                capacity: (crane as any)?.capacity ?? null,
-              }}
-              uploadUrl={`/api/jobs/${params.id}/lift-plan/spec-sheets/upload`}
-              deleteUrlPrefix={`/api/jobs/${params.id}/lift-plan/spec-sheets`}
-              initialDocuments={jobSpecDocuments}
-              documentTypeOptions={[
-                { value: "spec_sheet", label: "Specification sheet" },
-                { value: "load_chart", label: "Load chart" },
-                { value: "manual", label: "Manual / manufacturer document" },
-              ]}
-            />
-          </details>
-        ) : (
-          <div style={ownedCraneSpecNotice}>
-            <strong>Spec sheets for this crane are managed on the crane record.</strong> This lift plan will use the stored crane spec/load-chart pages below. Use the selector to tick the pages that should go into the pack.
+        <details style={uploadCard} open={craneIsExternal || jobSpecDocuments.length > 0}>
+          <summary style={sectionSummary}>
+            <span>Alternative / external crane spec sheets</span>
+            <span style={summaryHint}>{craneIsExternal ? "External crane in use" : "Optional for cross-hire or crane comparison"}</span>
+          </summary>
+          <div style={{ fontSize: 14, opacity: 0.8, margin: "10px 0 12px" }}>
+            Upload a spec sheet or load chart here when the lift is being planned around a subcontracted crane, cross-hired crane, or another crane option that is not the selected CRM fleet crane. These job-specific spec sheets can be selected in the range chart builder and included in the pack, but still require appointed-person verification.
           </div>
-        )}
+          <AssetDocumentManager
+            assetLabel="Lift plan / alternative crane"
+            assetType="crane"
+            assetProfile={{
+              name: craneLabel,
+              make: (crane as any)?.make ?? null,
+              model: (crane as any)?.model ?? null,
+              capacity: (crane as any)?.capacity ?? null,
+            }}
+            uploadUrl={`/api/jobs/${params.id}/lift-plan/spec-sheets/upload`}
+            deleteUrlPrefix={`/api/jobs/${params.id}/lift-plan/spec-sheets`}
+            initialDocuments={jobSpecDocuments}
+            documentTypeOptions={[
+              { value: "spec_sheet", label: "Specification sheet" },
+              { value: "load_chart", label: "Load chart" },
+              { value: "manual", label: "Manual / manufacturer document" },
+            ]}
+          />
+        </details>
+
+        <div style={ownedCraneSpecNotice}>
+          <strong>Selected CRM crane spec sheets are still used where available.</strong> Use the selector below to tick the crane spec/load-chart pages that should go into the pack. For another crane, upload it above and select it in the range chart builder.
+        </div>
 
         <LiftPlanAppendixSelector
           jobId={params.id}
@@ -471,6 +487,25 @@ export default async function JobLiftPlanPage({
           initialSelectedKeys={savedAppendixSelection ?? []}
           hasSavedSelection={savedAppendixSelection !== null}
         />
+
+        {rangeChartEnabled ? (
+          <RangeChartBuilder
+            jobId={params.id}
+            initialSections={packSections as Record<string, string | null>}
+            defaultClientName={client?.company_name || ""}
+            defaultCraneName={craneLabel}
+            defaultNotes={(job as any)?.site_name || (job as any)?.notes || ""}
+            liftRadiusM={Number((liftPlan as any)?.lift_radius ?? 0) || null}
+            liftHeightM={Number((liftPlan as any)?.lift_height ?? 0) || null}
+            loadWeightKg={Number((liftPlan as any)?.load_weight ?? 0) || null}
+            setupOptions={allRangeChartSetupOptions as any}
+            externalSpecOptions={externalSpecOptions}
+          />
+        ) : (
+          <div style={ownedCraneSpecNotice}>
+            <strong>Range chart builder is currently disabled.</strong> Set RANGE_CHART_BUILDER_ENABLED=true in Vercel to show the AnnS range chart / lift sketch tool.
+          </div>
+        )}
 
         <LiftPlanForm
           jobId={params.id}
