@@ -572,6 +572,235 @@ function AppendixPage({
 
 
 
+function rangeChartIsEnabled(sections: StringMap) {
+  const enabled = String(sections.range_chart_enabled ?? "").trim().toLowerCase();
+  return ["1", "true", "yes", "on", "enabled"].includes(enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m);
+}
+
+function rangeText(sections: StringMap, key: string, fallback = "—") {
+  const value = String(sections[key] ?? "").trim();
+  return value || fallback;
+}
+
+function rangeNumber(sections: StringMap, key: string, fallback: number) {
+  const value = parseDecimal(sections[key]);
+  return value !== null && Number.isFinite(value) ? value : fallback;
+}
+
+function rangeKg(sections: StringMap, key: string) {
+  const value = parseDecimal(sections[key]) ?? parseWeightToKg(sections[key]);
+  return value !== null && Number.isFinite(value) ? value : null;
+}
+
+function formatRangeNumber(value: number | null | undefined, suffix = "m") {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${Number(value).toLocaleString("en-GB", { maximumFractionDigits: 2 })}${suffix ? ` ${suffix}` : ""}`;
+}
+
+function formatRangeKg(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${Math.round(value).toLocaleString("en-GB")} kg`;
+}
+
+function rangeChartCalculated(sections: StringMap) {
+  const radiusM = rangeNumber(sections, "range_chart_radius_m", 12);
+  const tipHeightM = rangeNumber(sections, "range_chart_tip_height_m", 10);
+  const objectDistanceM = rangeNumber(sections, "range_chart_object_distance_m", Math.max(0, radiusM - 4));
+  const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
+  const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
+  const jibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
+  const jibAngleDeg = rangeNumber(sections, "range_chart_jib_angle_deg", 0);
+  const pivotHeight = 1.1;
+  const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
+  const hookX = radiusM;
+  const hookY = tipHeightM;
+  const boomEndX = Math.max(0.1, hookX - (jibLengthM > 0 ? jibLengthM * Math.cos(jibAngleRad) : 0));
+  const boomEndY = Math.max(pivotHeight, hookY - (jibLengthM > 0 ? jibLengthM * Math.sin(jibAngleRad) : 0));
+  const calculatedBoomLength = Math.sqrt(Math.pow(boomEndX, 2) + Math.pow(boomEndY - pivotHeight, 2));
+  const calculatedBoomAngle = (Math.atan2(boomEndY - pivotHeight, boomEndX) * 180) / Math.PI;
+  const boomLengthM = rangeNumber(sections, "range_chart_boom_length_m", calculatedBoomLength);
+  const boomAngleDeg = rangeNumber(sections, "range_chart_boom_angle_deg", calculatedBoomAngle);
+  const clearanceM = rangeNumber(sections, "range_chart_clearance_m", hookY - objectHeightM);
+  const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
+  const accessoryWeightKg = rangeKg(sections, "range_chart_accessory_weight_kg");
+  const totalLiftedWeightKg = rangeKg(sections, "range_chart_total_lifted_weight_kg") ?? ((loadWeightKg ?? 0) + (accessoryWeightKg ?? 0) || null);
+  const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
+  const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
+  const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
+  const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
+  const matAreaM2 = parseDecimal(sections.range_chart_mat_area_m2) ?? (matLengthM && matWidthM ? matLengthM * matWidthM : null);
+  const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load);
+  const bearingPressure = rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
+
+  return {
+    radiusM,
+    tipHeightM,
+    objectDistanceM,
+    objectHeightM,
+    objectWidthM,
+    jibLengthM,
+    jibAngleDeg,
+    pivotHeight,
+    hookX,
+    hookY,
+    boomEndX,
+    boomEndY,
+    boomLengthM,
+    boomAngleDeg,
+    clearanceM,
+    loadWeightKg,
+    accessoryWeightKg,
+    totalLiftedWeightKg,
+    chartCapacityKg,
+    utilisationPercent,
+    matLengthM,
+    matWidthM,
+    matAreaM2,
+    bearingLoadKg,
+    bearingPressure,
+  };
+}
+
+function RangeChartPackPage({
+  sections,
+  headerMonth,
+  headerTitle,
+  headerSubtitle,
+  footerText,
+}: {
+  sections: StringMap;
+  headerMonth?: ReactNode;
+  headerTitle?: ReactNode;
+  headerSubtitle?: ReactNode;
+  footerText?: ReactNode;
+}) {
+  const calc = rangeChartCalculated(sections);
+  const clientName = rangeText(sections, "range_chart_client", "—");
+  const craneName = rangeText(sections, "range_chart_crane_name", "—");
+  const notes = rangeText(sections, "range_chart_notes", "Lift sketch");
+  const selectedSetup = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", "—"));
+  const sourceMode = rangeText(sections, "range_chart_crane_source_mode", "selected_crm_crane");
+  const sourceLabel = sourceMode === "external_spec_sheet"
+    ? rangeText(sections, "range_chart_external_spec_document_title", "External / job-specific crane spec sheet")
+    : sourceMode === "manual"
+    ? "Manual entry / not linked to a stored spec sheet"
+    : "Selected CRM crane spec sheets";
+  const maxX = Math.max(calc.radiusM + 4, calc.objectDistanceM + calc.objectWidthM + 4, 12);
+  const maxY = Math.max(calc.tipHeightM + 4, calc.objectHeightM + 4, 8);
+  const viewWidth = 900;
+  const viewHeight = 500;
+  const left = 68;
+  const right = 24;
+  const top = 24;
+  const bottom = 58;
+  const plotW = viewWidth - left - right;
+  const plotH = viewHeight - top - bottom;
+  const x = (metres: number) => left + (metres / maxX) * plotW;
+  const y = (metres: number) => viewHeight - bottom - (metres / maxY) * plotH;
+  const majorStep = maxX > 60 ? 10 : maxX > 30 ? 5 : 1;
+  const minorStep = majorStep === 1 ? 0.5 : majorStep / 5;
+  const verticalLines: number[] = [];
+  const horizontalLines: number[] = [];
+  for (let value = 0; value <= maxX + 0.001; value += minorStep) verticalLines.push(Number(value.toFixed(2)));
+  for (let value = 0; value <= maxY + 0.001; value += minorStep) horizontalLines.push(Number(value.toFixed(2)));
+  const pivotX = x(0);
+  const pivotY = y(calc.pivotHeight);
+  const hookX = x(calc.hookX);
+  const hookY = y(calc.hookY);
+  const boomEndX = x(calc.boomEndX);
+  const boomEndY = y(calc.boomEndY);
+  const objectX = x(calc.objectDistanceM);
+  const objectY = y(calc.objectHeightM);
+  const objectW = Math.max(10, x(calc.objectDistanceM + calc.objectWidthM) - objectX);
+  const objectH = y(0) - objectY;
+
+  return (
+    <PageShell
+      sectionTitle="Range Chart / Lift Sketch"
+      headerTitle={headerTitle}
+      headerSubtitle={headerSubtitle}
+      headerMonth={headerMonth}
+      footerText={footerText}
+    >
+      <SectionTitle>Range Chart / Lift Sketch</SectionTitle>
+      <div style={rangeChartHeaderGrid}>
+        <div><strong>Client:</strong> {clientName}</div>
+        <div><strong>Crane:</strong> {craneName}</div>
+        <div><strong>Setup:</strong> {selectedSetup}</div>
+        <div><strong>Spec source:</strong> {sourceLabel}</div>
+        <div style={{ gridColumn: "1 / -1" }}><strong>Notes:</strong> {notes}</div>
+      </div>
+
+      <div style={rangeChartFrame}>
+        <svg viewBox={`0 0 ${viewWidth} ${viewHeight}`} width="100%" role="img" aria-label="AnnS lift range chart">
+          <rect x="0" y="0" width={viewWidth} height={viewHeight} fill="#ffffff" />
+          <rect x={left} y={top} width={plotW} height={plotH} fill="#eef7fb" stroke="#d7e7ee" />
+          {verticalLines.map((value) => {
+            const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
+            return <line key={`range-x-${value}`} x1={x(value)} y1={top} x2={x(value)} y2={viewHeight - bottom} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.2 : 0.6} />;
+          })}
+          {horizontalLines.map((value) => {
+            const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
+            return <line key={`range-y-${value}`} x1={left} y1={y(value)} x2={viewWidth - right} y2={y(value)} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.2 : 0.6} />;
+          })}
+          {verticalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
+            <text key={`range-xl-${value}`} x={x(value)} y={viewHeight - bottom + 18} fontSize="10" fill="#4f5d64" textAnchor="middle">{value}</text>
+          ))}
+          {horizontalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
+            <text key={`range-yl-${value}`} x={left - 8} y={y(value) + 3} fontSize="10" fill="#4f5d64" textAnchor="end">{value}</text>
+          ))}
+          <rect x={objectX} y={objectY} width={objectW} height={objectH} fill="#36a6c9" opacity="0.95" />
+          <line x1={objectX} y1={objectY} x2={hookX} y2={objectY} stroke="#ea5151" strokeWidth="2" />
+          <line x1={hookX} y1={objectY} x2={hookX} y2={hookY} stroke="#ea5151" strokeWidth="2" />
+          <line x1={pivotX} y1={y(0)} x2={hookX} y2={y(0)} stroke="#ea5151" strokeWidth="2" />
+          <text x={(objectX + hookX) / 2} y={objectY - 8} fontSize="11" fill="#ea5151" textAnchor="middle">{formatRangeNumber(Math.max(0, calc.radiusM - calc.objectDistanceM))}</text>
+          <text x={hookX + 10} y={(objectY + hookY) / 2} fontSize="11" fill="#ea5151">{formatRangeNumber(calc.clearanceM)}</text>
+          <text x={(pivotX + hookX) / 2} y={y(0) - 8} fontSize="11" fill="#ea5151" textAnchor="middle">{formatRangeNumber(calc.radiusM)}</text>
+          <rect x={x(-0.8)} y={y(0.55)} width={x(1.6) - x(-0.8)} height={Math.max(10, y(0) - y(0.55))} fill="#f6a31a" stroke="#8d6500" />
+          <circle cx={x(-0.35)} cy={y(0)} r="8" fill="#858585" />
+          <circle cx={x(0.65)} cy={y(0)} r="8" fill="#858585" />
+          <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#777" strokeWidth="8" strokeLinecap="round" />
+          <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#4a4a4a" strokeWidth="2" strokeLinecap="round" />
+          {calc.jibLengthM > 0 ? <line x1={boomEndX} y1={boomEndY} x2={hookX} y2={hookY} stroke="#777" strokeWidth="5" strokeLinecap="round" /> : null}
+          {calc.jibLengthM > 0 ? <circle cx={boomEndX} cy={boomEndY} r="5" fill="#e11d1d" /> : null}
+          <circle cx={hookX} cy={hookY} r="8" fill="#e11d1d" stroke="#940c0c" strokeWidth="2" />
+          <line x1={hookX} y1={hookY} x2={hookX} y2={hookY + 24} stroke="#333" strokeWidth="2" />
+          <rect x={left} y={viewHeight - bottom} width={plotW} height="2" fill="#4f5d64" />
+          <rect x={left} y={top} width="2" height={plotH} fill="#4f5d64" />
+        </svg>
+      </div>
+
+      <div style={rangeMetricGrid}>
+        <MetricBox label="Boom Length" value={formatRangeNumber(calc.boomLengthM)} />
+        <MetricBox label="Boom Angle" value={formatRangeNumber(calc.boomAngleDeg, "°")} />
+        <MetricBox label="Radius" value={formatRangeNumber(calc.radiusM)} />
+        <MetricBox label="Tip Height" value={formatRangeNumber(calc.tipHeightM)} />
+        <MetricBox label="Jib Length" value={formatRangeNumber(calc.jibLengthM)} />
+        <MetricBox label="Jib Angle" value={formatRangeNumber(calc.jibAngleDeg, "°")} />
+        <MetricBox label="Object Distance" value={formatRangeNumber(calc.objectDistanceM)} />
+        <MetricBox label="Object Height" value={formatRangeNumber(calc.objectHeightM)} />
+        <MetricBox label="Clearance" value={formatRangeNumber(calc.clearanceM)} />
+        <MetricBox label="Load Weight" value={formatRangeKg(calc.loadWeightKg)} />
+        <MetricBox label="Accessory Weight" value={formatRangeKg(calc.accessoryWeightKg)} />
+        <MetricBox label="Total Lifted Weight" value={formatRangeKg(calc.totalLiftedWeightKg)} />
+        <MetricBox label="Chart Capacity" value={formatRangeKg(calc.chartCapacityKg)} />
+        <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "Manual check required"} />
+        <MetricBox label="Mat Area" value={formatAreaM2(calc.matAreaM2)} />
+        <MetricBox label="Bearing Pressure" value={calc.bearingPressure} />
+      </div>
+
+      <div style={rangeVerificationBox}>
+        {rangeText(sections, "range_chart_verification_note", "Planning sketch only. Appointed person must verify the manufacturer/supplier load chart, exact radius, boom/jib configuration, counterweight/ballast, outrigger setup, accessories and ground bearing before approval.")}
+      </div>
+    </PageShell>
+  );
+}
+
+function MetricBox({ label, value }: { label: string; value: ReactNode }) {
+  return <div style={rangeMetricBox}><div style={rangeMetricLabel}>{label}</div><div style={rangeMetricValue}>{value}</div></div>;
+}
+
+
 function defaultSectionText(
   sections: StringMap,
   key: keyof StringMap,
@@ -791,6 +1020,7 @@ export default async function CraneLiftPlanPackPage({
 
   const sections: StringMap =
     ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
+  const includeRangeChartPage = rangeChartIsEnabled(sections);
   const client = flatten((job as any)?.clients)[0] ?? null;
   await attachCraneSpecDocumentsToJob(supabase, job as any);
 
@@ -1246,6 +1476,9 @@ export default async function CraneLiftPlanPackPage({
               {inputField(String(key), String(item))}
             </div>
           ))}
+          {includeRangeChartPage ? (
+            <div style={tocItem}>{inputField("toc_item_range_chart", "Range Chart / Lift Sketch")}</div>
+          ) : null}
           {appendixAssets.length ? (
             <div style={tocItem}>{inputField("toc_item_appendix", "Appendix – Selected machine specification and chart pages")}</div>
           ) : null}
@@ -1634,6 +1867,16 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         <BlankTable headers={[inputField("wind_header_1", "Time"), inputField("wind_header_2", "Wind Speed"), inputField("wind_header_3", "OK To Work (Y / N)"), inputField("wind_header_4", "Notes")]} rows={12} namePrefix="wind_record" sections={sections} />
       </PageShell>
 
+      {includeRangeChartPage ? (
+        <RangeChartPackPage
+          sections={sections}
+          headerMonth={monthInputField("page_header_month", "right")}
+          headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+          headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+          footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+        />
+      ) : null}
+
       {appendixAssets.map((asset, index) => (
         <AppendixPage
           key={`${asset.title}-${asset.page_number}-${index}`}
@@ -1979,6 +2222,66 @@ const signatureBox: CSSProperties = {
   border: "1px solid #333",
   padding: 10,
   breakInside: "avoid",
+};
+
+const rangeChartHeaderGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  gap: "6px 14px",
+  fontSize: 12,
+  lineHeight: 1.35,
+  border: "1px solid #a9d5e4",
+  borderRadius: 8,
+  padding: 10,
+  background: "#f6fbff",
+  marginBottom: 8,
+};
+
+const rangeChartFrame: CSSProperties = {
+  border: "1px solid #a9d5e4",
+  borderRadius: 8,
+  overflow: "hidden",
+  background: "#fff",
+  marginBottom: 8,
+};
+
+const rangeMetricGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+  gap: 6,
+  marginTop: 8,
+};
+
+const rangeMetricBox: CSSProperties = {
+  border: "1px solid #cde4ec",
+  borderRadius: 7,
+  padding: "6px 8px",
+  background: "#fbfdff",
+};
+
+const rangeMetricLabel: CSSProperties = {
+  fontSize: 9,
+  fontWeight: 800,
+  color: "#4f6f78",
+  textTransform: "uppercase",
+  letterSpacing: 0.3,
+};
+
+const rangeMetricValue: CSSProperties = {
+  marginTop: 3,
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const rangeVerificationBox: CSSProperties = {
+  marginTop: 8,
+  border: "1px solid #f0cf84",
+  background: "#fff8e6",
+  borderRadius: 8,
+  padding: 8,
+  fontSize: 11,
+  lineHeight: 1.35,
+  fontWeight: 700,
 };
 
 const appendixPageStyle: CSSProperties = {
