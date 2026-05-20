@@ -1,3 +1,20 @@
+export type CraneSetupOption = {
+  key: string;
+  label: string;
+  boomConfiguration?: string | null;
+  boomLengthM?: number | null;
+  hydraulicOutreachM?: number | null;
+  jibOutreachM?: number | null;
+  maxRadiusM?: number | null;
+  maxTipHeightM?: number | null;
+  sourceDocumentTitle?: string | null;
+  sourcePage?: number | null;
+  sourceLabel?: string | null;
+  chartNote?: string | null;
+  configurationNote?: string | null;
+  outriggerNote?: string | null;
+};
+
 export type EquipmentProfile = {
   id: string;
   title: string;
@@ -19,6 +36,7 @@ export type EquipmentProfile = {
   capabilities: string[];
   warnings: string[];
   sourceLabel: string;
+  setupOptions?: CraneSetupOption[];
 };
 
 export const EQUIPMENT_PROFILES: EquipmentProfile[] = [
