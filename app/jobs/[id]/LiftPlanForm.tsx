@@ -2,7 +2,7 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import type { EquipmentProfile } from "../../lib/ai/equipmentProfiles";
+import type { CraneSetupOption, EquipmentProfile } from "../../lib/ai/equipmentProfiles";
 
 type CraneOption = {
   value: string;
@@ -48,6 +48,27 @@ type LiftPlanData = {
   office_signed_by?: string | null;
   finalised_at?: string | null;
   paperwork_locked?: boolean;
+  pack_sections?: Record<string, string | null> | null;
+  selected_crane_setup_key?: string | null;
+  selected_crane_setup_label?: string | null;
+  boom_configuration?: string | null;
+  boom_length?: string | null;
+  crane_outreach_reference?: string | null;
+  crane_jib_reference?: string | null;
+  crane_details?: string | null;
+  configuration_outrigger_note?: string | null;
+  load_chart_note?: string | null;
+  ground_bearing_mat_preset?: string | null;
+  ground_bearing_mat_length_m?: string | null;
+  ground_bearing_mat_width_m?: string | null;
+  ground_bearing_mat_area_m2?: string | null;
+  ground_bearing_bearing_load?: string | null;
+  ground_bearing_pressure?: string | null;
+  ground_bearing_notes?: string | null;
+  custom_crane_boom_length_m?: string | null;
+  custom_crane_hydraulic_outreach_m?: string | null;
+  custom_crane_jib_outreach_m?: string | null;
+  custom_crane_max_radius_m?: string | null;
 };
 
 function hasDraftValue(value: unknown) {
@@ -105,19 +126,143 @@ function toInputDateTime(value: string | null | undefined) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatMetres(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m`;
+}
+
+function setupBoomLengthText(setup: CraneSetupOption) {
+  return setup.boomLengthM ? `${formatMetres(setup.boomLengthM)} boom` : "";
+}
+
+function setupOutreachText(setup: CraneSetupOption) {
+  if (setup.hydraulicOutreachM && setup.maxRadiusM && setup.hydraulicOutreachM !== setup.maxRadiusM) {
+    return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach / ${formatMetres(setup.maxRadiusM)} radius`;
+  }
+  if (setup.hydraulicOutreachM) return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach`;
+  if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} radius`;
+  if (setup.boomLengthM) return `${formatMetres(setup.boomLengthM)} boom`;
+  return "";
+}
+
+function setupJibText(setup: CraneSetupOption) {
+  if (setup.jibOutreachM) return `${formatMetres(setup.jibOutreachM)} jib / max outreach`;
+  if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} max radius`;
+  return "";
+}
+
+function setupLoadChartNote(setup: CraneSetupOption) {
+  return (
+    setup.chartNote ||
+    [
+      setup.sourceDocumentTitle ? `Source: ${setup.sourceDocumentTitle}.` : null,
+      setup.sourcePage ? `Page ${setup.sourcePage}.` : null,
+      "The appointed person must verify the exact manufacturer/supplier chart, radius, boom length, counterweight, outrigger setup and accessory deductions before approval.",
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
+const MAT_OPTIONS = [
+  { value: "", label: "Select mat size…", lengthM: null, widthM: null },
+  { value: "1x3", label: "1m x 3m mat (3.00 m²)", lengthM: 1, widthM: 3 },
+  { value: "1x2", label: "1m x 2m mat (2.00 m²)", lengthM: 1, widthM: 2 },
+  { value: "1.2x2.4", label: "1.2m x 2.4m mat (2.88 m²)", lengthM: 1.2, widthM: 2.4 },
+  { value: "1.5x3", label: "1.5m x 3m mat (4.50 m²)", lengthM: 1.5, widthM: 3 },
+  { value: "2x3", label: "2m x 3m mat (6.00 m²)", lengthM: 2, widthM: 3 },
+  { value: "custom", label: "Custom mat / spreader size", lengthM: null, widthM: null },
+];
+
+function calcMatArea(lengthValue: unknown, widthValue: unknown) {
+  const length = numberOrNull(lengthValue);
+  const width = numberOrNull(widthValue);
+  if (!length || !width) return null;
+  return Number((length * width).toFixed(3));
+}
+
+function formatArea(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `${n.toLocaleString("en-GB", { maximumFractionDigits: 3 })} m²`;
+}
+
+function parseWeightToKg(value: unknown) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  const match = text.replace(/,/g, "").match(/([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return null;
+  const raw = Number(match[1]);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  if (/\bkg\b|kilogram/.test(text)) return raw;
+  if (/tonne|ton|\bt\b/.test(text)) return raw * 1000;
+  if (raw <= 250) return raw * 1000;
+  return raw;
+}
+
+function formatPressure(loadKg: number | null, areaM2: number | null) {
+  if (!loadKg || !areaM2) return "—";
+  const kgPerM2 = loadKg / areaM2;
+  const tonnesPerM2 = kgPerM2 / 1000;
+  return `${kgPerM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${tonnesPerM2.toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²`;
+}
+
+function buildDefaultSetupOptions(profile?: EquipmentProfile | null) {
+  if (!profile) return [] as CraneSetupOption[];
+  if (profile.setupOptions?.length) return profile.setupOptions;
+
+  return [
+    {
+      key: `${profile.id}-current-profile`,
+      label: [
+        "Current selected profile",
+        profile.maxBoomLengthM ? `${profile.maxBoomLengthM} m boom` : null,
+        profile.maxHydraulicOutreachM ? `${profile.maxHydraulicOutreachM} m outreach` : profile.maxRadiusM ? `${profile.maxRadiusM} m radius` : null,
+        profile.maxJibOutreachM ? `${profile.maxJibOutreachM} m jib / max outreach` : null,
+      ]
+        .filter(Boolean)
+        .join(" – "),
+      boomConfiguration: profile.maxJibOutreachM ? "Main boom + jib / fly jib" : "Main boom",
+      boomLengthM: profile.maxBoomLengthM ?? null,
+      hydraulicOutreachM: profile.maxHydraulicOutreachM ?? profile.maxRadiusM ?? profile.maxBoomLengthM ?? null,
+      jibOutreachM: profile.maxJibOutreachM ?? null,
+      maxRadiusM: profile.maxRadiusM ?? profile.maxHydraulicOutreachM ?? null,
+      maxTipHeightM: profile.maxTipHeightM ?? null,
+      sourceDocumentTitle: profile.sourceLabel,
+      sourceLabel: profile.sourceLabel,
+      chartNote: "Selected from the current crane profile. Verify the exact manufacturer/supplier chart before approval.",
+      configurationNote: profile.configurationNote ?? null,
+      outriggerNote: profile.outriggersNote ?? null,
+    },
+  ];
+}
+
 export default function LiftPlanForm({
   jobId,
   initial,
   equipmentProfile,
   craneOptions,
   personnelOptions,
+  craneSetupOptions,
+  craneSetupOptionsByAllocation,
 }: {
   jobId: string;
   initial: LiftPlanData | null;
   equipmentProfile?: EquipmentProfile | null;
   craneOptions: CraneOption[];
   personnelOptions?: PersonOption[];
+  craneSetupOptions?: CraneSetupOption[];
+  craneSetupOptionsByAllocation?: Record<string, CraneSetupOption[]>;
 }) {
+  const initialPackSections = (initial?.pack_sections ?? {}) as Record<string, string | null>;
+
   const [form, setForm] = useState<LiftPlanData>({
     selected_job_equipment_id: initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
     selected_crane_id: initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
@@ -151,6 +296,26 @@ export default function LiftPlanForm({
     office_signed_by: initial?.office_signed_by ?? "",
     finalised_at: initial?.finalised_at ?? "",
     paperwork_locked: initial?.paperwork_locked ?? false,
+    selected_crane_setup_key: initialPackSections.selected_crane_setup_key ?? "",
+    selected_crane_setup_label: initialPackSections.selected_crane_setup_label ?? "",
+    boom_configuration: initialPackSections.boom_configuration ?? "",
+    boom_length: initialPackSections.boom_length ?? "",
+    crane_outreach_reference: initialPackSections.crane_outreach_reference ?? "",
+    crane_jib_reference: initialPackSections.crane_jib_reference ?? "",
+    crane_details: initialPackSections.crane_details ?? "",
+    configuration_outrigger_note: initialPackSections.configuration_outrigger_note ?? "",
+    load_chart_note: initialPackSections.load_chart_note ?? "",
+    ground_bearing_mat_preset: initialPackSections.ground_bearing_mat_preset ?? "",
+    ground_bearing_mat_length_m: initialPackSections.ground_bearing_mat_length_m ?? "",
+    ground_bearing_mat_width_m: initialPackSections.ground_bearing_mat_width_m ?? "",
+    ground_bearing_mat_area_m2: initialPackSections.ground_bearing_mat_area_m2 ?? "",
+    ground_bearing_bearing_load: initialPackSections.ground_bearing_bearing_load ?? "",
+    ground_bearing_pressure: initialPackSections.ground_bearing_pressure ?? "",
+    ground_bearing_notes: initialPackSections.ground_bearing_notes ?? "",
+    custom_crane_boom_length_m: initialPackSections.custom_crane_boom_length_m ?? "",
+    custom_crane_hydraulic_outreach_m: initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
+    custom_crane_jib_outreach_m: initialPackSections.custom_crane_jib_outreach_m ?? "",
+    custom_crane_max_radius_m: initialPackSections.custom_crane_max_radius_m ?? "",
   });
 
   const [saving, setSaving] = useState(false);
@@ -163,6 +328,32 @@ export default function LiftPlanForm({
     const selected = craneOptions.find((option) => option.value === form.selected_job_equipment_id);
     return selected?.label || "No crane selected";
   }, [craneOptions, form.selected_job_equipment_id]);
+
+  const availableCraneSetupOptions = useMemo(() => {
+    const allocationKey = String(form.selected_job_equipment_id ?? "").trim();
+    const allocationSpecific = allocationKey ? craneSetupOptionsByAllocation?.[allocationKey] ?? [] : [];
+    const raw = allocationSpecific.length
+      ? allocationSpecific
+      : craneSetupOptions?.length
+      ? craneSetupOptions
+      : buildDefaultSetupOptions(equipmentProfile);
+    const seen = new Set<string>();
+    return raw.filter((option) => {
+      const key = String(option.key || option.label || "").trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [craneSetupOptions, craneSetupOptionsByAllocation, equipmentProfile, form.selected_job_equipment_id]);
+
+  const selectedSetup = useMemo(() => {
+    const selectedKey = String(form.selected_crane_setup_key ?? "").trim();
+    return availableCraneSetupOptions.find((option) => option.key === selectedKey) ?? null;
+  }, [availableCraneSetupOptions, form.selected_crane_setup_key]);
+
+  const matAreaM2 = numberOrNull(form.ground_bearing_mat_area_m2) ?? calcMatArea(form.ground_bearing_mat_length_m, form.ground_bearing_mat_width_m);
+  const matBearingLoadKg = parseWeightToKg(form.ground_bearing_bearing_load);
+  const matPressureText = formatPressure(matBearingLoadKg, matAreaM2);
 
   const personnelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -202,18 +393,106 @@ export default function LiftPlanForm({
         lift_supervisor: shouldClearSupervisor ? "" : prev.lift_supervisor,
         selected_job_equipment_id: allocationId || "",
         selected_crane_id: selected?.craneId || "",
+        selected_crane_setup_key: changed ? "" : prev.selected_crane_setup_key,
+        selected_crane_setup_label: changed ? "" : prev.selected_crane_setup_label,
       };
     });
     if (String(form.selected_job_equipment_id ?? "") !== String(allocationId ?? "")) {
-      setMsg("Selected crane changed. Generate AI draft to rebuild crane-specific wording, then save.");
+      setMsg("Selected crane changed. Select the crane setup/chart, then generate the AI draft if you need wording rebuilt.");
     }
   }
 
+  function applyCraneSetup(setupKey: string) {
+    if (locked) return;
+    const setup = availableCraneSetupOptions.find((option) => option.key === setupKey) ?? null;
+
+    setForm((prev) => {
+      if (!setup) {
+        return {
+          ...prev,
+          selected_crane_setup_key: "",
+          selected_crane_setup_label: "",
+          boom_configuration: "",
+          boom_length: "",
+          crane_outreach_reference: "",
+          crane_jib_reference: "",
+          crane_details: "",
+          configuration_outrigger_note: "",
+          load_chart_note: "",
+          custom_crane_boom_length_m: "",
+          custom_crane_hydraulic_outreach_m: "",
+          custom_crane_jib_outreach_m: "",
+          custom_crane_max_radius_m: "",
+        };
+      }
+
+      const boomConfiguration = setup.boomConfiguration || setup.label || "Selected crane setup";
+      const boomLengthText = setupBoomLengthText(setup);
+      const outreachText = setupOutreachText(setup);
+      const jibText = setupJibText(setup);
+      const chartNote = setupLoadChartNote(setup);
+      const configurationNote = [setup.configurationNote || boomConfiguration, setup.outriggerNote].filter(Boolean).join("\n\n");
+
+      return {
+        ...prev,
+        selected_crane_setup_key: setup.key,
+        selected_crane_setup_label: setup.label,
+        boom_configuration: boomConfiguration,
+        boom_length: boomLengthText,
+        crane_outreach_reference: outreachText,
+        crane_jib_reference: jibText,
+        crane_details: [equipmentProfile?.summary, `Selected setup: ${setup.label}`].filter(Boolean).join("\n"),
+        configuration_outrigger_note: configurationNote,
+        load_chart_note: chartNote,
+        crane_configuration: prev.crane_configuration || boomConfiguration,
+        outrigger_setup: prev.outrigger_setup || setup.outriggerNote || "Confirm outrigger setup and mats/spreaders against selected chart.",
+        custom_crane_boom_length_m: setup.boomLengthM ? String(setup.boomLengthM) : "",
+        custom_crane_hydraulic_outreach_m: setup.hydraulicOutreachM ? String(setup.hydraulicOutreachM) : "",
+        custom_crane_jib_outreach_m: setup.jibOutreachM ? String(setup.jibOutreachM) : "",
+        custom_crane_max_radius_m: setup.maxRadiusM ? String(setup.maxRadiusM) : "",
+      };
+    });
+    setMsg("Crane setup selected. Save draft to pull boom/outreach and jib/max outreach through into the lift plan pack.");
+  }
+
+  function updateMatPreset(preset: string) {
+    if (locked) return;
+    const option = MAT_OPTIONS.find((item) => item.value === preset) ?? null;
+    const lengthM = option?.lengthM ? String(option.lengthM) : preset === "custom" ? form.ground_bearing_mat_length_m ?? "" : "";
+    const widthM = option?.widthM ? String(option.widthM) : preset === "custom" ? form.ground_bearing_mat_width_m ?? "" : "";
+    const area = calcMatArea(lengthM, widthM);
+    setForm((prev) => ({
+      ...prev,
+      ground_bearing_mat_preset: preset,
+      ground_bearing_mat_length_m: lengthM,
+      ground_bearing_mat_width_m: widthM,
+      ground_bearing_mat_area_m2: area ? String(area) : "",
+      ground_bearing_notes: prev.ground_bearing_notes || "Ground bearing pressure calculation: bearing load / outrigger reaction divided by selected mat area in m². Final ground bearing and outrigger reactions must be verified against the actual crane chart and ground conditions.",
+    }));
+  }
+
+  function updateMatDimension(key: "ground_bearing_mat_length_m" | "ground_bearing_mat_width_m", value: string) {
+    if (locked) return;
+    setForm((prev) => {
+      const next = { ...prev, [key]: value, ground_bearing_mat_preset: prev.ground_bearing_mat_preset || "custom" };
+      const area = calcMatArea(next.ground_bearing_mat_length_m, next.ground_bearing_mat_width_m);
+      return { ...next, ground_bearing_mat_area_m2: area ? String(area) : "" };
+    });
+  }
+
   async function postForm(payload: LiftPlanData) {
+    const area = numberOrNull(payload.ground_bearing_mat_area_m2) ?? calcMatArea(payload.ground_bearing_mat_length_m, payload.ground_bearing_mat_width_m);
+    const pressure = formatPressure(parseWeightToKg(payload.ground_bearing_bearing_load), area);
+    const payloadWithCalculatedSections: LiftPlanData = {
+      ...payload,
+      ground_bearing_mat_area_m2: area ? String(area) : payload.ground_bearing_mat_area_m2 ?? "",
+      ground_bearing_pressure: pressure !== "—" ? pressure : payload.ground_bearing_pressure ?? "",
+    };
+
     const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payloadWithCalculatedSections),
     });
 
     const data = await res.json().catch(() => ({}));
@@ -359,7 +638,23 @@ export default function LiftPlanForm({
           />
           <ReadOnlyFact label="Current selection" value={selectedCraneLabel} />
         </div>
-        <div style={helperText}>This controls which allocated crane the AI draft, printable lift plan and full pack use.</div>
+        <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
+          <SelectField
+            label="Crane setup / chart configuration"
+            value={form.selected_crane_setup_key ?? ""}
+            onChange={applyCraneSetup}
+            disabled={locked || availableCraneSetupOptions.length === 0}
+            options={[
+              { value: "", label: availableCraneSetupOptions.length ? "Select setup from crane spec/load chart…" : "No setup options found on uploaded specs" },
+              ...availableCraneSetupOptions.map((option) => ({ value: option.key, label: option.label })),
+            ]}
+          />
+          <div style={grid2}>
+            <ReadOnlyFact label="Boom / outreach reference" value={form.crane_outreach_reference || (selectedSetup ? setupOutreachText(selectedSetup) : "—")} />
+            <ReadOnlyFact label="Jib / max outreach" value={form.crane_jib_reference || (selectedSetup ? setupJibText(selectedSetup) : "—")} />
+          </div>
+        </div>
+        <div style={helperText}>Select the setup/chart before saving. This writes the boom, outreach and jib references into the full pack while keeping the fields editable for appointed-person checking.</div>
       </Section>
 
       {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
@@ -383,6 +678,24 @@ export default function LiftPlanForm({
         <TextAreaField label="Ground conditions" value={form.ground_conditions ?? ""} onChange={(v) => update("ground_conditions", v)} disabled={locked} />
         <TextAreaField label="Exclusion zone details" value={form.exclusion_zone_details ?? ""} onChange={(v) => update("exclusion_zone_details", v)} disabled={locked} />
         <TextAreaField label="Weather limitations" value={form.weather_limitations ?? ""} onChange={(v) => update("weather_limitations", v)} disabled={locked} />
+      </Section>
+
+      <Section title="Mats & ground bearing calculation">
+        <div style={grid2}>
+          <SelectField
+            label="Mat / spreader size"
+            value={form.ground_bearing_mat_preset ?? ""}
+            onChange={updateMatPreset}
+            disabled={locked}
+            options={MAT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          />
+          <Field label="Mat length (m)" type="number" step="0.01" value={form.ground_bearing_mat_length_m ?? ""} onChange={(v) => updateMatDimension("ground_bearing_mat_length_m", v)} disabled={locked} />
+          <Field label="Mat width (m)" type="number" step="0.01" value={form.ground_bearing_mat_width_m ?? ""} onChange={(v) => updateMatDimension("ground_bearing_mat_width_m", v)} disabled={locked} />
+          <ReadOnlyFact label="Mat area" value={formatArea(matAreaM2)} />
+          <Field label="Bearing load / outrigger reaction (kg or t)" value={form.ground_bearing_bearing_load ?? ""} onChange={(v) => update("ground_bearing_bearing_load", v)} disabled={locked} />
+          <ReadOnlyFact label="Estimated bearing pressure" value={matPressureText} />
+        </div>
+        <div style={helperText}>Calculation used in the pack: bearing load ÷ mat area. Example: 1m x 3m mat = 3m², so 30t ÷ 3 = 10t/m². Use the worst outrigger reaction where available.</div>
       </Section>
 
       <Section title="RAMS wording">
