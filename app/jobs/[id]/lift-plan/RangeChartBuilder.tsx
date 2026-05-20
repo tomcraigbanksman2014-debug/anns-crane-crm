@@ -279,6 +279,12 @@ export default function RangeChartBuilder({
   const scale = calcScale(numbers);
   const totalWeightText = calc.totalLiftedWeight ? fmtKg(calc.totalLiftedWeight) : "—";
   const matPressureText = calc.pressureKgM2 ? `${Math.round(calc.pressureKgM2).toLocaleString("en-GB")} kg/m² / ${round(calc.pressureKgM2 / 1000, 2)} t/m²` : "—";
+  const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
+  const chartWarnings = [
+    calc.clearance < 0 ? `Hook/tip point is ${fmt(Math.abs(calc.clearance))} below the top of the object. Raise the hook point, lower the object height, or choose another crane/setup.` : "",
+    horizontalGapM < 0 ? `Hook/radius is ${fmt(Math.abs(horizontalGapM))} short of the object face. Increase radius/reposition the crane, or reduce the object distance.` : "",
+    calc.utilisation && calc.utilisation > 100 ? `Entered load is over the entered chart capacity by ${round(calc.utilisation - 100, 1)}%. Do not approve without selecting a valid setup/chart.` : "",
+  ].filter(Boolean);
 
   function update(key: keyof RangeChartState, value: string | boolean) {
     setChart((prev) => ({ ...prev, [key]: value }));
@@ -322,10 +328,10 @@ export default function RangeChartBuilder({
     if (!svg) return null;
     const rect = svg.getBoundingClientRect();
     const viewWidth = 900;
-    const viewHeight = 560;
-    const left = 72;
-    const right = 28;
-    const top = 28;
+    const viewHeight = 620;
+    const left = 74;
+    const right = 32;
+    const top = 132;
     const bottom = 72;
     const plotW = viewWidth - left - right;
     const plotH = viewHeight - top - bottom;
@@ -498,6 +504,11 @@ export default function RangeChartBuilder({
             onPointerUp={() => setDragging(null)}
             onStartDrag={(mode) => setDragging(mode)}
           />
+          {chartWarnings.length ? (
+            <div style={dangerBoxStyle}>
+              <strong>Chart warning:</strong> {chartWarnings.join(" ")}
+            </div>
+          ) : null}
           <div style={metricGridStyle}>
             <Metric label="Boom length" value={fmt(displayedBoomLength)} />
             <Metric label="Boom angle" value={fmt(displayedBoomAngle, "°")} />
@@ -507,9 +518,9 @@ export default function RangeChartBuilder({
             <Metric label="Jib angle" value={fmt(numbers.jibAngleDeg, "°")} />
             <Metric label="Object distance" value={fmt(numbers.objectDistanceM)} />
             <Metric label="Object height" value={fmt(numbers.objectHeightM)} />
-            <Metric label="Clearance" value={fmt(calc.clearance)} />
+            <Metric label="Clearance" value={fmt(calc.clearance)} tone={calc.clearance < 0 ? "danger" : "normal"} />
             <Metric label="Total lifted weight" value={totalWeightText} />
-            <Metric label="Chart utilisation" value={calc.utilisation ? `${round(calc.utilisation, 1)}%` : "Manual check"} />
+            <Metric label="Chart utilisation" value={calc.utilisation ? `${round(calc.utilisation, 1)}%` : "Manual check"} tone={calc.utilisation && calc.utilisation > 100 ? "danger" : "normal"} />
             <Metric label="Bearing pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
@@ -545,10 +556,10 @@ function RangeChartSvg({
   onStartDrag: (mode: "hook" | "object") => void;
 }) {
   const viewWidth = 900;
-  const viewHeight = 560;
-  const left = 72;
-  const right = 28;
-  const top = 28;
+  const viewHeight = 620;
+  const left = 74;
+  const right = 32;
+  const top = 132;
   const bottom = 72;
   const plotW = viewWidth - left - right;
   const plotH = viewHeight - top - bottom;
@@ -564,12 +575,23 @@ function RangeChartSvg({
   const objectY = y(numbers.objectHeightM);
   const objectW = Math.max(12, x(numbers.objectDistanceM + numbers.objectWidthM) - objectX);
   const objectH = y(0) - objectY;
+  const groundY = y(0);
   const majorStep = scale.maxX > 60 ? 10 : scale.maxX > 30 ? 5 : 1;
   const minorStep = majorStep === 1 ? 0.5 : majorStep / 5;
   const verticalLines: number[] = [];
   const horizontalLines: number[] = [];
+  const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
+  const clearanceM = calc.clearance;
   for (let value = 0; value <= scale.maxX + 0.001; value += minorStep) verticalLines.push(round(value, 2));
   for (let value = 0; value <= scale.maxY + 0.001; value += minorStep) horizontalLines.push(round(value, 2));
+
+  const clientLines = splitSvgText(chart.clientName || "—", 42, 1);
+  const craneLines = splitSvgText(chart.craneName || "—", 42, 2);
+  const noteLines = splitSvgText(chart.notes || chart.selectedSetupLabel || "Lift sketch", 58, 1);
+  const setupLines = splitSvgText(chart.selectedSetupLabel || "Manual check", 34, 2);
+  const gapLabel = horizontalGapM >= 0 ? fmt(horizontalGapM) : `${fmt(Math.abs(horizontalGapM))} short`;
+  const clearanceLabel = clearanceM >= 0 ? fmt(clearanceM) : `${fmt(Math.abs(clearanceM))} low`;
+  const dangerStroke = clearanceM < 0 || horizontalGapM < 0 ? "#d12c2c" : "#ea5151";
 
   return (
     <div style={svgFrameStyle}>
@@ -586,66 +608,105 @@ function RangeChartSvg({
       >
         <rect x="0" y="0" width={viewWidth} height={viewHeight} fill="#ffffff" />
         <rect x="16" y="16" width={viewWidth - 32} height={viewHeight - 32} fill="#f6fbff" stroke="#3aa6c8" strokeWidth="2" />
-        <text x="34" y="44" fontSize="20" fontWeight="700" fill="#3aa6c8">Client:</text>
-        <text x="34" y="70" fontSize="20" fontWeight="700" fill="#3aa6c8">Crane:</text>
-        <text x="34" y="96" fontSize="20" fontWeight="700" fill="#3aa6c8">Notes:</text>
-        <text x={viewWidth - 40} y="44" fontSize="20" fontWeight="700" fill="#3aa6c8" textAnchor="end">{chart.clientName || "—"}</text>
-        <text x={viewWidth - 40} y="70" fontSize="20" fontWeight="700" fill="#3aa6c8" textAnchor="end">{chart.craneName || "—"}</text>
-        <text x={viewWidth - 40} y="96" fontSize="18" fontWeight="700" fill="#3aa6c8" textAnchor="end">{chart.notes || chart.selectedSetupLabel || "Lift sketch"}</text>
-        <line x1="16" y1="118" x2={viewWidth - 16} y2="118" stroke="#3aa6c8" strokeWidth="2" />
 
-        <g transform="translate(0,96)">
-          <rect x={left} y={top} width={plotW} height={plotH} fill="#eef7fb" stroke="#d7e7ee" />
-          {verticalLines.map((value) => {
-            const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
-            return <line key={`x-${value}`} x1={x(value)} y1={top} x2={x(value)} y2={viewHeight - bottom} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.4 : 0.7} />;
-          })}
-          {horizontalLines.map((value) => {
-            const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
-            return <line key={`y-${value}`} x1={left} y1={y(value)} x2={viewWidth - right} y2={y(value)} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.4 : 0.7} />;
-          })}
-          {verticalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
-            <text key={`xl-${value}`} x={x(value)} y={viewHeight - bottom + 20} fontSize="12" fill="#4f5d64" textAnchor="middle">{value}</text>
-          ))}
-          {horizontalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
-            <text key={`yl-${value}`} x={left - 10} y={y(value) + 4} fontSize="12" fill="#4f5d64" textAnchor="end">{value}</text>
-          ))}
+        <text x="34" y="44" fontSize="18" fontWeight="800" fill="#3aa6c8">Client:</text>
+        {clientLines.map((line, index) => <text key={`client-${index}`} x="116" y={44 + index * 18} fontSize="18" fontWeight="800" fill="#237fa0">{line}</text>)}
+        <text x="34" y="70" fontSize="18" fontWeight="800" fill="#3aa6c8">Crane:</text>
+        {craneLines.map((line, index) => <text key={`crane-${index}`} x="116" y={70 + index * 18} fontSize="17" fontWeight="800" fill="#237fa0">{line}</text>)}
+        <text x="34" y="106" fontSize="18" fontWeight="800" fill="#3aa6c8">Notes:</text>
+        {noteLines.map((line, index) => <text key={`notes-${index}`} x="116" y={106 + index * 18} fontSize="17" fontWeight="800" fill="#237fa0">{line}</text>)}
+        <text x={viewWidth - 34} y="44" fontSize="14" fontWeight="800" fill="#3aa6c8" textAnchor="end">Setup / profile</text>
+        {setupLines.map((line, index) => <text key={`setup-${index}`} x={viewWidth - 34} y={66 + index * 17} fontSize="15" fontWeight="800" fill="#237fa0" textAnchor="end">{line}</text>)}
+        <line x1="16" y1="120" x2={viewWidth - 16} y2="120" stroke="#3aa6c8" strokeWidth="2" />
 
-          <rect x={objectX} y={objectY} width={objectW} height={objectH} fill="#36a6c9" opacity="0.95" onPointerDown={(event) => { event.preventDefault(); onStartDrag("object"); }} style={{ cursor: "grab" }} />
-          <line x1={objectX} y1={objectY} x2={hookX} y2={objectY} stroke="#ea5151" strokeWidth="2" />
-          <line x1={hookX} y1={objectY} x2={hookX} y2={hookY} stroke="#ea5151" strokeWidth="2" />
-          <line x1={pivotX} y1={y(0)} x2={hookX} y2={y(0)} stroke="#ea5151" strokeWidth="2" />
-          <text x={(objectX + hookX) / 2} y={objectY - 8} fontSize="12" fill="#ea5151" textAnchor="middle">{fmt(Math.max(0, numbers.radiusM - numbers.objectDistanceM))}</text>
-          <text x={hookX + 10} y={(objectY + hookY) / 2} fontSize="12" fill="#ea5151">{fmt(calc.clearance)}</text>
-          <text x={(pivotX + hookX) / 2} y={y(0) - 8} fontSize="12" fill="#ea5151" textAnchor="middle">{fmt(numbers.radiusM)}</text>
+        <rect x={left} y={top} width={plotW} height={plotH} fill="#eef7fb" stroke="#d7e7ee" />
+        {verticalLines.map((value) => {
+          const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
+          return <line key={`x-${value}`} x1={x(value)} y1={top} x2={x(value)} y2={viewHeight - bottom} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.4 : 0.7} />;
+        })}
+        {horizontalLines.map((value) => {
+          const isMajor = Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001;
+          return <line key={`y-${value}`} x1={left} y1={y(value)} x2={viewWidth - right} y2={y(value)} stroke={isMajor ? "#c3d3db" : "#e1edf2"} strokeWidth={isMajor ? 1.4 : 0.7} />;
+        })}
+        {verticalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
+          <text key={`xl-${value}`} x={x(value)} y={viewHeight - bottom + 20} fontSize="12" fill="#4f5d64" textAnchor="middle">{value}</text>
+        ))}
+        {horizontalLines.filter((value) => Math.abs(value / majorStep - Math.round(value / majorStep)) < 0.001).map((value) => (
+          <text key={`yl-${value}`} x={left - 10} y={y(value) + 4} fontSize="12" fill="#4f5d64" textAnchor="end">{value}</text>
+        ))}
 
-          <g>
-            <rect x={x(-0.8)} y={y(0.55)} width={x(1.6) - x(-0.8)} height={Math.max(12, y(0) - y(0.55))} fill="#f6a31a" stroke="#8d6500" />
-            <circle cx={x(-0.35)} cy={y(0)} r="9" fill="#858585" />
-            <circle cx={x(0.65)} cy={y(0)} r="9" fill="#858585" />
-            <line x1={x(-0.65)} y1={y(0)} x2={x(1.2)} y2={y(0)} stroke="#6f6f6f" strokeWidth="8" strokeLinecap="round" />
-          </g>
+        <rect
+          x={objectX}
+          y={objectY}
+          width={objectW}
+          height={objectH}
+          fill="#36a6c9"
+          opacity="0.95"
+          onPointerDown={(event) => { event.preventDefault(); onStartDrag("object"); }}
+          style={{ cursor: "grab" }}
+        />
+        <line x1={Math.min(objectX, hookX)} y1={objectY} x2={Math.max(objectX, hookX)} y2={objectY} stroke={dangerStroke} strokeWidth="2" />
+        <line x1={hookX} y1={Math.min(objectY, hookY)} x2={hookX} y2={Math.max(objectY, hookY)} stroke={dangerStroke} strokeWidth="2" />
+        <line x1={pivotX} y1={groundY} x2={hookX} y2={groundY} stroke="#ea5151" strokeWidth="2" />
+        <text x={(objectX + hookX) / 2} y={Math.min(objectY, hookY) - 8} fontSize="12" fontWeight="800" fill={dangerStroke} textAnchor="middle">{gapLabel}</text>
+        <text x={hookX + 10} y={(objectY + hookY) / 2} fontSize="12" fontWeight="800" fill={dangerStroke}>{clearanceLabel}</text>
+        <text x={(pivotX + hookX) / 2} y={groundY - 8} fontSize="12" fontWeight="800" fill="#ea5151" textAnchor="middle">{fmt(numbers.radiusM)}</text>
 
-          <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#777" strokeWidth="9" strokeLinecap="round" />
-          <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#4a4a4a" strokeWidth="2" strokeLinecap="round" />
-          {numbers.jibLengthM > 0 ? (
-            <>
-              <line x1={boomEndX} y1={boomEndY} x2={hookX} y2={hookY} stroke="#777" strokeWidth="5" strokeLinecap="round" />
-              <circle cx={boomEndX} cy={boomEndY} r="6" fill="#e11d1d" />
-            </>
-          ) : null}
-          <circle cx={hookX} cy={hookY} r="9" fill="#e11d1d" stroke="#940c0c" strokeWidth="2" onPointerDown={(event) => { event.preventDefault(); onStartDrag("hook"); }} style={{ cursor: "grab" }} />
-          <line x1={hookX} y1={hookY} x2={hookX} y2={hookY + 26} stroke="#333" strokeWidth="2" />
-          <path d={`M ${hookX - 7} ${hookY + 26} Q ${hookX} ${hookY + 38} ${hookX + 7} ${hookY + 26}`} stroke="#333" strokeWidth="2" fill="none" />
-
-          <rect x={left} y={viewHeight - bottom} width={plotW} height="2" fill="#4f5d64" />
-          <rect x={left} y={top} width="2" height={plotH} fill="#4f5d64" />
+        <g transform={`translate(${pivotX - 60} ${groundY - 28})`}>
+          <rect x="0" y="16" width="88" height="20" rx="4" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.5" />
+          <rect x="20" y="0" width="30" height="19" rx="3" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.5" />
+          <rect x="51" y="12" width="36" height="10" rx="2" fill="#f6a31a" stroke="#8d6500" strokeWidth="1.5" />
+          <line x1="-10" y1="38" x2="102" y2="38" stroke="#6f6f6f" strokeWidth="7" strokeLinecap="round" />
+          <circle cx="18" cy="42" r="9" fill="#858585" stroke="#4f4f4f" />
+          <circle cx="56" cy="42" r="9" fill="#858585" stroke="#4f4f4f" />
+          <circle cx="84" cy="42" r="9" fill="#858585" stroke="#4f4f4f" />
+          <line x1="58" y1="15" x2="72" y2="-10" stroke="#f6a31a" strokeWidth="8" strokeLinecap="round" />
+          <line x1="58" y1="15" x2="72" y2="-10" stroke="#8d6500" strokeWidth="2" strokeLinecap="round" />
         </g>
 
+        <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#777" strokeWidth="9" strokeLinecap="round" />
+        <line x1={pivotX} y1={pivotY} x2={boomEndX} y2={boomEndY} stroke="#4a4a4a" strokeWidth="2" strokeLinecap="round" />
+        {numbers.jibLengthM > 0 ? (
+          <>
+            <line x1={boomEndX} y1={boomEndY} x2={hookX} y2={hookY} stroke="#777" strokeWidth="5" strokeLinecap="round" />
+            <circle cx={boomEndX} cy={boomEndY} r="6" fill="#e11d1d" />
+          </>
+        ) : null}
+        <circle cx={hookX} cy={hookY} r="9" fill="#e11d1d" stroke="#940c0c" strokeWidth="2" onPointerDown={(event) => { event.preventDefault(); onStartDrag("hook"); }} style={{ cursor: "grab" }} />
+        <line x1={hookX} y1={hookY} x2={hookX} y2={hookY + 26} stroke="#333" strokeWidth="2" />
+        <path d={`M ${hookX - 7} ${hookY + 26} Q ${hookX} ${hookY + 38} ${hookX + 7} ${hookY + 26}`} stroke="#333" strokeWidth="2" fill="none" />
+
+        <rect x={left} y={viewHeight - bottom} width={plotW} height="2" fill="#4f5d64" />
+        <rect x={left} y={top} width="2" height={plotH} fill="#4f5d64" />
         <text x={viewWidth - 36} y={viewHeight - 20} fontSize="11" fill="#888" textAnchor="end">AnnS CRM range chart • planning aid only</text>
       </svg>
     </div>
   );
+}
+
+function splitSvgText(value: string, maxChars: number, maxLines: number) {
+  const text = clean(value) || "—";
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > maxChars && current) {
+      lines.push(current);
+      current = word;
+      if (lines.length >= maxLines) break;
+    } else {
+      current = next;
+    }
+  }
+  if (lines.length < maxLines && current) lines.push(current);
+  if (lines.length > maxLines) lines.length = maxLines;
+  const originalLineCount = words.join(" ").length;
+  const joined = lines.join(" ");
+  if (joined.length < originalLineCount && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, Math.max(0, maxChars - 1)).trim()}…`;
+  }
+  return lines.length ? lines : ["—"];
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -664,16 +725,17 @@ function TextArea({ label, value, onChange, rows = 3 }: { label: string; value: 
   return <label style={fieldWrapStyle}><span style={fieldLabelStyle}>{label}</span><textarea value={value} onChange={(event) => onChange(event.target.value)} rows={rows} style={textAreaStyle} /></label>;
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return <div style={metricStyle}><div style={metricLabelStyle}>{label}</div><div style={metricValueStyle}>{value}</div></div>;
+function Metric({ label, value, tone = "normal" }: { label: string; value: string; tone?: "normal" | "danger" }) {
+  const style = tone === "danger" ? dangerMetricStyle : metricStyle;
+  return <div style={style}><div style={metricLabelStyle}>{label}</div><div style={metricValueStyle}>{value}</div></div>;
 }
 
 const cardStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 16, display: "grid", gap: 14, boxShadow: "0 8px 30px rgba(0,0,0,0.08)" };
 const topRowStyle: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" };
 const buttonRowStyle: CSSProperties = { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" };
 const helperText: CSSProperties = { marginTop: 6, opacity: 0.74, fontSize: 13, lineHeight: 1.4 };
-const builderGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(280px, 380px) minmax(0, 1fr)", gap: 16, alignItems: "start" };
-const controlsStyle: CSSProperties = { display: "grid", gap: 12 };
+const builderGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" };
+const controlsStyle: CSSProperties = { display: "grid", gap: 12, maxHeight: "calc(100vh - 190px)", overflowY: "auto", paddingRight: 4 };
 const sectionStyle: CSSProperties = { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12, background: "rgba(255,255,255,0.75)" };
 const sectionTitleStyle: CSSProperties = { fontWeight: 900, marginBottom: 10 };
 const smallGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 };
@@ -681,6 +743,7 @@ const previewWrapStyle: CSSProperties = { display: "grid", gap: 12, minWidth: 0 
 const svgFrameStyle: CSSProperties = { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, overflow: "hidden", background: "#fff" };
 const metricGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 8 };
 const metricStyle: CSSProperties = { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 10, padding: 10, background: "rgba(255,255,255,0.8)" };
+const dangerMetricStyle: CSSProperties = { border: "1px solid rgba(209,44,44,0.28)", borderRadius: 10, padding: 10, background: "rgba(209,44,44,0.08)" };
 const metricLabelStyle: CSSProperties = { fontSize: 12, fontWeight: 800, opacity: 0.72 };
 const metricValueStyle: CSSProperties = { marginTop: 4, fontWeight: 900 };
 const fieldWrapStyle: CSSProperties = { display: "grid", gap: 5 };
@@ -691,3 +754,4 @@ const primaryBtnStyle: CSSProperties = { padding: "10px 14px", borderRadius: 10,
 const togglePillStyle: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "8px 12px", background: "#fff", fontWeight: 900 };
 const messageBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontWeight: 700 };
 const warningBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(255,168,0,0.14)", border: "1px solid rgba(255,168,0,0.22)", fontSize: 13, lineHeight: 1.45, fontWeight: 700 };
+const dangerBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(209,44,44,0.09)", border: "1px solid rgba(209,44,44,0.24)", color: "#7a1515", fontSize: 13, lineHeight: 1.45, fontWeight: 800 };
