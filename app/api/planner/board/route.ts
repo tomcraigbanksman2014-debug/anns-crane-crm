@@ -224,22 +224,32 @@ function isPlannerVisibleStatus(status: string | null | undefined) {
   return true;
 }
 
-function classifyUnassignedType(job: any) {
-  const siteName = String(job?.site_name ?? "").trim().toLowerCase();
-  const notes = String(job?.notes ?? "").trim().toLowerCase();
-  const hireType = String(job?.hire_type ?? "").trim().toLowerCase();
-  const liftType = String(job?.lift_type ?? "").trim().toLowerCase();
+function textLooksLikeLabourOnly(...values: unknown[]) {
+  const combined = values
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
 
-  const combined = `${siteName} ${notes} ${hireType} ${liftType}`;
+  if (!combined) return false;
 
-  if (
+  return (
     combined.includes("labour only") ||
     combined.includes("labour-only") ||
+    combined.includes("labour / other") ||
+    combined.includes("no lifting asset") ||
     combined.includes("slinger") ||
     combined.includes("lift supervisor") ||
     combined.includes("supervisor only") ||
-    combined.includes("operator only")
-  ) {
+    combined.includes("operator only") ||
+    combined.includes("subcontractor operator") ||
+    combined.includes("subcontractor labour") ||
+    combined.includes("appointed person only") ||
+    combined.includes("ap only")
+  );
+}
+
+function classifyUnassignedType(job: any) {
+  if (textLooksLikeLabourOnly(job?.site_name, job?.notes, job?.hire_type, job?.lift_type)) {
     return "labour_only";
   }
 
@@ -280,21 +290,10 @@ function looksLikeLabourAllocation(row: any) {
   if (looksLikeCraneAllocation(row)) return false;
 
   const assetType = String(row?.asset_type ?? "").trim().toLowerCase();
-  const itemName = String(row?.item_name ?? "").trim().toLowerCase();
-  const notes = String(row?.notes ?? "").trim().toLowerCase();
 
   if (assetType === "other") return true;
 
-  return (
-    itemName.includes("labour") ||
-    itemName.includes("slinger") ||
-    itemName.includes("supervisor") ||
-    itemName.includes("operator") ||
-    notes.includes("labour") ||
-    notes.includes("slinger") ||
-    notes.includes("supervisor") ||
-    notes.includes("operator")
-  );
+  return textLooksLikeLabourOnly(row?.item_name, row?.notes);
 }
 
 export async function GET(req: Request) {
@@ -613,6 +612,18 @@ export async function GET(req: Request) {
       return getSupplierLinksForJob(jobId).reduce((total: number, row: any) => total + num(row?.supplier_cost), 0);
     };
 
+    const jobHasLabourSupplierMeta = (jobId: string | null | undefined) => {
+      return getSupplierLinksForJob(jobId).some((row: any) =>
+        textLooksLikeLabourOnly(
+          row?.supplier_category,
+          row?.service_description,
+          row?.supplier_reference,
+          row?.notes,
+          row?.supplier_display_name
+        )
+      );
+    };
+
     const jobHasCrossHireMeta = (jobId: string | null | undefined, job?: any) => {
       const id = String(jobId ?? job?.id ?? "").trim();
       const linkedJob = job ?? (id ? jobs.find((row: any) => String(row?.id) === id) : null);
@@ -785,6 +796,18 @@ export async function GET(req: Request) {
 
     const jobsWithAnyCraneAllocationRows = new Set(
       craneLikeAllocationRows(normalisedAllocations).map((row: any) => String(row.job_id))
+    );
+
+    const jobsWithAnyLabourAllocationRows = new Set(
+      normalisedAllocations
+        .filter((row: any) => looksLikeLabourAllocation(row))
+        .map((row: any) => String(row.job_id))
+    );
+
+    const jobsWithActiveLabourAllocationRows = new Set(
+      activeAllocations
+        .filter((row: any) => looksLikeLabourAllocation(row))
+        .map((row: any) => String(row.job_id))
     );
 
     const jobsWithRealCraneAssignment = new Set<string>([
@@ -1114,7 +1137,19 @@ export async function GET(req: Request) {
         return [];
       }
 
-      const plannerGroup = isCrossHiredDirect ? "cross_hired" : classifyUnassignedType(job);
+      // Labour-only/subcontractor rows are intentional "no lifting asset" jobs. If an
+      // active labour row already exists for this week, that row is shown in the labour
+      // lane, so do not duplicate the same job in the unassigned crane lane.
+      if (jobsWithActiveLabourAllocationRows.has(jobId)) {
+        return [];
+      }
+
+      const isLabourOnlyDirect =
+        jobsWithAnyLabourAllocationRows.has(jobId) ||
+        jobHasLabourSupplierMeta(jobId) ||
+        classifyUnassignedType(job) === "labour_only";
+
+      const plannerGroup = isLabourOnlyDirect ? "labour_only" : isCrossHiredDirect ? "cross_hired" : "unassigned_crane";
 
       return [
         {
