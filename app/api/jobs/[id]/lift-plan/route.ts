@@ -23,24 +23,44 @@ function cleanSectionText(value: unknown) {
   return s.length ? s : null;
 }
 
-const CUSTOM_CRANE_SECTION_KEYS = [
+const PACK_SECTION_KEYS = [
+  "selected_crane_setup_key",
+  "selected_crane_setup_label",
+  "boom_configuration",
+  "boom_length",
+  "crane_outreach_reference",
+  "crane_jib_reference",
+  "crane_details",
+  "configuration_outrigger_note",
+  "load_chart_note",
+  "ground_bearing_mat_preset",
+  "ground_bearing_mat_length_m",
+  "ground_bearing_mat_width_m",
+  "ground_bearing_mat_area_m2",
+  "ground_bearing_bearing_load",
+  "ground_bearing_pressure",
+  "ground_bearing_notes",
   "custom_crane_name",
   "custom_crane_make",
   "custom_crane_model",
   "custom_crane_capacity",
   "custom_crane_capacity_kg",
   "custom_crane_boom_length_m",
+  "custom_crane_hydraulic_outreach_m",
+  "custom_crane_jib_outreach_m",
   "custom_crane_max_radius_m",
   "custom_crane_summary",
   "custom_crane_configuration_note",
   "custom_crane_outrigger_note",
   "custom_crane_weather_note",
   "custom_crane_chart_note",
+  "external_crane_hydraulic_outreach_m",
+  "external_crane_jib_outreach_m",
 ];
 
-function customCraneSectionsFromBody(body: Record<string, unknown>) {
+function packSectionsFromBody(body: Record<string, unknown>) {
   const out: Record<string, string | null> = {};
-  for (const key of CUSTOM_CRANE_SECTION_KEYS) {
+  for (const key of PACK_SECTION_KEYS) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       out[key] = cleanSectionText(body[key]);
     }
@@ -116,7 +136,7 @@ export async function POST(
       );
     }
 
-    const customCraneSections = customCraneSectionsFromBody(body);
+    const packSectionsFromPayload = packSectionsFromBody(body);
 
     const payload = {
       job_id: params.id,
@@ -158,7 +178,7 @@ export async function POST(
     if (existing?.id) {
       const mergedPackSections = {
         ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
-        ...customCraneSections,
+        ...packSectionsFromPayload,
       };
 
       const { error: updateError } = await supabase
@@ -186,7 +206,7 @@ export async function POST(
         .from("lift_plans")
         .insert({
           ...payload,
-          pack_sections: customCraneSections,
+          pack_sections: packSectionsFromPayload,
           created_at: new Date().toISOString(),
         })
         .select("id")
