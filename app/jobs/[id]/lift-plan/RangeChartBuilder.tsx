@@ -3,6 +3,7 @@
 import type { CSSProperties, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { useMemo, useRef, useState } from "react";
 import type { CraneSetupOption } from "../../../lib/ai/equipmentProfiles";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits } from "../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null | undefined>;
 
@@ -95,6 +96,61 @@ function fmtKg(value: number | null | undefined) {
   return `${Math.round(value).toLocaleString("en-GB")} kg`;
 }
 
+function fmtLimit(value: number | null | undefined, suffix = "m") {
+  return value && Number.isFinite(value) ? fmt(value, suffix) : "No structured limit";
+}
+
+function formatComputedSource(method: string, source: string) {
+  return `${method === "automatic" ? "Auto" : "Manual check"}: ${source}`;
+}
+
+function clampNumberForInput(value: string, maxValue: number | null | undefined) {
+  const parsed = numberOrNull(value);
+  if (parsed === null || !maxValue || parsed <= maxValue) return value;
+  return String(maxValue);
+}
+
+function maybeNumber(value: number | null | undefined) {
+  return value === null || value === undefined || !Number.isFinite(value) ? null : value;
+}
+
+
+function inferPhysicalJibLengthFromText(value: unknown) {
+  const text = clean(value).toLowerCase();
+  if (!text) return null;
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*m\s*(?:jib|fly\s*jib|fly-jib|swingaway|swing-away|extension)/i,
+    /(?:jib|fly\s*jib|fly-jib|swingaway|swing-away|extension)\s*(?:-|–|—|:)?\s*(\d+(?:\.\d+)?)\s*m/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const parsed = numberOrNull(match[1]);
+      if (parsed && parsed > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+function inferPhysicalJibLength(setup?: CraneSetupOption | null) {
+  if (!setup) return null;
+  return inferPhysicalJibLengthFromText([setup.label, setup.boomConfiguration, setup.configurationNote, setup.chartNote].filter(Boolean).join(" "));
+}
+
+function normalisePhysicalJibLength(rawValue: number | null, radiusM: number | null, boomLengthM: number | null, inferredValue: number | null) {
+  const raw = rawValue && rawValue > 0 ? rawValue : null;
+  const inferred = inferredValue && inferredValue > 0 ? inferredValue : null;
+  if (!raw) return inferred ?? 0;
+
+  // Some extracted spec data stores max jib outreach / max radius in the jib field.
+  // That makes the drawing fold back on itself. Prefer a physical jib length parsed from the setup label when available.
+  const tooLargeForBoom = boomLengthM && raw > boomLengthM * 1.05;
+  const tooLargeForRadius = radiusM && raw > radiusM * 1.35;
+  if ((tooLargeForBoom || tooLargeForRadius) && inferred && inferred < raw) return inferred;
+
+  return raw;
+}
+
 function parseBool(value: unknown) {
   const text = clean(value).toLowerCase();
   return ["1", "true", "yes", "on", "enabled"].includes(text);
@@ -119,15 +175,13 @@ function defaultRangeState({
   loadWeightKg?: number | null;
   setupOptions: CraneSetupOption[];
 }): RangeChartState {
-  const selectedSetupFromPack = clean(sections.selected_crane_setup_key);
+  const selectedSetupFromPack = clean(sections.range_chart_selected_setup_key || sections.selected_crane_setup_key);
   const firstSetup = setupOptions.find((setup) => setup.key === selectedSetupFromPack) ?? setupOptions[0] ?? null;
-  const setupRadius = numberOrNull(firstSetup?.maxRadiusM ?? firstSetup?.hydraulicOutreachM ?? firstSetup?.boomLengthM);
-  const setupTipHeight = numberOrNull(firstSetup?.maxTipHeightM);
   const setupBoomLength = numberOrNull(firstSetup?.boomLengthM);
-  const setupJibOutreach = numberOrNull(firstSetup?.jibOutreachM);
+  const setupJibLength = inferPhysicalJibLength(firstSetup);
 
-  const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? setupRadius ?? 12;
-  const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? setupTipHeight ?? Math.max(6, radius * 0.75);
+  const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12;
+  const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75);
   const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6));
   const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4);
 
@@ -145,7 +199,10 @@ function defaultRangeState({
     boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
     radiusM: numberForInput(radius, "12"),
     tipHeightM: numberForInput(tipHeight, "10"),
-    jibLengthM: numberForInput(sections.range_chart_jib_length_m, setupJibOutreach ? String(setupJibOutreach) : "0"),
+    jibLengthM: numberForInput(
+      normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
+      setupJibLength ? String(setupJibLength) : "0"
+    ),
     jibAngleDeg: numberForInput(sections.range_chart_jib_angle_deg, "20"),
     objectDistanceM: numberForInput(objectDistance, "8"),
     objectHeightM: numberForInput(objectHeight, "4"),
@@ -170,7 +227,15 @@ function chartNumbers(chart: RangeChartState): ChartNumbers {
     objectDistanceM: Math.max(0, numberOrNull(chart.objectDistanceM) ?? 8),
     objectHeightM: Math.max(0.1, numberOrNull(chart.objectHeightM) ?? 4),
     objectWidthM: Math.max(0.5, numberOrNull(chart.objectWidthM) ?? 8),
-    jibLengthM: Math.max(0, numberOrNull(chart.jibLengthM) ?? 0),
+    jibLengthM: Math.max(
+      0,
+      normalisePhysicalJibLength(
+        numberOrNull(chart.jibLengthM),
+        Math.max(0.5, numberOrNull(chart.radiusM) ?? 12),
+        numberOrNull(chart.boomLengthM),
+        inferPhysicalJibLengthFromText(chart.selectedSetupLabel)
+      )
+    ),
     jibAngleDeg: numberOrNull(chart.jibAngleDeg) ?? 20,
     loadWeightKg: numberOrNull(chart.loadWeightKg),
     accessoryWeightKg: numberOrNull(chart.accessoryWeightKg),
@@ -270,24 +335,77 @@ export default function RangeChartBuilder({
   const [dragging, setDragging] = useState<"hook" | "object" | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
   const numbers = chartNumbers(chart);
   const calc = calculatedFrom(numbers);
+  const inferredSetupJibLength = inferPhysicalJibLength(activeSetup) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel);
+  const limits = getRangeChartLimits({
+    craneName: chart.craneName,
+    setupLabel: chart.selectedSetupLabel,
+    sourceLabel: chart.externalSpecDocumentTitle,
+    setupMaxBoomLengthM: maybeNumber(activeSetup?.boomLengthM),
+    setupMaxRadiusM: maybeNumber(activeSetup?.maxRadiusM),
+    setupMaxTipHeightM: maybeNumber(activeSetup?.maxTipHeightM),
+    setupMaxPhysicalJibLengthM: inferredSetupJibLength,
+  });
   const enteredBoomLength = numberOrNull(chart.boomLengthM);
   const enteredBoomAngle = numberOrNull(chart.boomAngleDeg);
   const displayedBoomLength = enteredBoomLength ?? calc.boomLength;
   const displayedBoomAngle = enteredBoomAngle ?? calc.boomAngle;
+  const capacityResult = calculateRangeChartCapacity({
+    craneName: chart.craneName,
+    setupLabel: chart.selectedSetupLabel,
+    sourceLabel: chart.externalSpecDocumentTitle,
+    radiusM: numbers.radiusM,
+  });
+  const bearingResult = calculateRangeChartBearingLoad({
+    craneName: chart.craneName,
+    setupLabel: chart.selectedSetupLabel,
+    sourceLabel: chart.externalSpecDocumentTitle,
+  });
+  const effectiveChartCapacityKg = capacityResult.capacityKg ?? numberOrNull(chart.chartCapacityKg);
+  const effectiveBearingLoadKg = bearingResult.bearingLoadKg ?? numberOrNull(chart.bearingLoadKg);
+  const effectiveUtilisation = calc.totalLiftedWeight && effectiveChartCapacityKg ? (calc.totalLiftedWeight / effectiveChartCapacityKg) * 100 : null;
+  const effectivePressureKgM2 = effectiveBearingLoadKg && calc.matArea ? effectiveBearingLoadKg / calc.matArea : null;
   const scale = calcScale(numbers);
   const totalWeightText = calc.totalLiftedWeight ? fmtKg(calc.totalLiftedWeight) : "—";
-  const matPressureText = calc.pressureKgM2 ? `${Math.round(calc.pressureKgM2).toLocaleString("en-GB")} kg/m² / ${round(calc.pressureKgM2 / 1000, 2)} t/m²` : "—";
+  const chartCapacityText = effectiveChartCapacityKg ? fmtKg(effectiveChartCapacityKg) : "Manual chart check";
+  const bearingLoadText = effectiveBearingLoadKg ? fmtKg(effectiveBearingLoadKg) : "Manual reaction check";
+  const rawJibLength = numberOrNull(chart.jibLengthM);
+  const correctedJibLength = rawJibLength !== null && Math.abs(rawJibLength - numbers.jibLengthM) > 0.1;
+  const matPressureText = effectivePressureKgM2 ? `${Math.round(effectivePressureKgM2).toLocaleString("en-GB")} kg/m² / ${round(effectivePressureKgM2 / 1000, 2)} t/m²` : "—";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
+  const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
+  const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
+  const maxJibExceeded = limits.maxPhysicalJibLengthM ? numbers.jibLengthM > limits.maxPhysicalJibLengthM + 0.01 : false;
+  const maxRadiusExceeded = limits.maxRadiusM ? numbers.radiusM > limits.maxRadiusM + 0.01 : false;
+  const maxTipHeightExceeded = limits.maxTipHeightM ? numbers.tipHeightM > limits.maxTipHeightM + 0.01 : false;
   const chartWarnings = [
     calc.clearance < 0 ? `Hook/tip point is ${fmt(Math.abs(calc.clearance))} below the top of the object. Raise the hook point, lower the object height, or choose another crane/setup.` : "",
     horizontalGapM < 0 ? `Hook/radius is ${fmt(Math.abs(horizontalGapM))} short of the object face. Increase radius/reposition the crane, or reduce the object distance.` : "",
-    calc.utilisation && calc.utilisation > 100 ? `Entered load is over the entered chart capacity by ${round(calc.utilisation - 100, 1)}%. Do not approve without selecting a valid setup/chart.` : "",
+    requiredBoomExceeded ? `Required boom length is ${fmt(calc.boomLength)}, which is over the ${fmt(limits.maxBoomLengthM)} maximum for this crane/setup.` : "",
+    maxBoomExceeded ? `Entered boom length is over the ${fmt(limits.maxBoomLengthM)} maximum for this crane/setup.` : "",
+    maxJibExceeded ? `Entered physical jib length is over the ${fmt(limits.maxPhysicalJibLengthM)} maximum for this crane/setup.` : "",
+    maxRadiusExceeded ? `Radius is over the ${fmt(limits.maxRadiusM)} structured maximum for this crane/setup.` : "",
+    maxTipHeightExceeded ? `Tip/hook height is over the ${fmt(limits.maxTipHeightM)} structured maximum for this crane/setup.` : "",
+    capacityResult.warning || "",
+    bearingResult.warning || "",
+    effectiveUtilisation && effectiveUtilisation > 100 ? `Total lifted weight is over the calculated/entered chart capacity by ${round(effectiveUtilisation - 100, 1)}%. Do not approve without selecting a valid setup/chart.` : "",
+    calc.totalLiftedWeight && !effectiveChartCapacityKg ? "Total lifted weight is entered, but chart capacity at radius is not available automatically for this setup. Check the exact load chart before approval." : "",
+    correctedJibLength ? `Jib value looked like a max outreach/radius, so the sketch is using ${fmt(numbers.jibLengthM)} as the physical jib length. Enter the actual jib length if different.` : "",
   ].filter(Boolean);
 
   function update(key: keyof RangeChartState, value: string | boolean) {
     setChart((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateLimitedNumber(key: keyof RangeChartState, value: string) {
+    let nextValue = value;
+    if (key === "boomLengthM") nextValue = clampNumberForInput(value, limits.maxBoomLengthM);
+    if (key === "jibLengthM") nextValue = clampNumberForInput(value, limits.maxPhysicalJibLengthM);
+    if (key === "radiusM") nextValue = clampNumberForInput(value, limits.maxRadiusM);
+    if (key === "tipHeightM") nextValue = clampNumberForInput(value, limits.maxTipHeightM);
+    update(key, nextValue);
   }
 
   function applySetup(setupKey: string) {
@@ -296,17 +414,21 @@ export default function RangeChartBuilder({
       if (!setup) {
         return { ...prev, selectedSetupKey: "", selectedSetupLabel: "" };
       }
+      const inferredJibLength = inferPhysicalJibLength(setup);
+      const setupLimits = [
+        setup.maxRadiusM ? `max radius/outreach ${setup.maxRadiusM}m` : "",
+        setup.maxTipHeightM ? `max tip height ${setup.maxTipHeightM}m` : "",
+      ].filter(Boolean).join(", ");
       return {
         ...prev,
         selectedSetupKey: setup.key,
         selectedSetupLabel: setup.label,
         craneSourceMode: prev.craneSourceMode || "selected_crm_crane",
         boomLengthM: setup.boomLengthM ? String(setup.boomLengthM) : prev.boomLengthM,
-        radiusM: setup.maxRadiusM ? String(setup.maxRadiusM) : setup.hydraulicOutreachM ? String(setup.hydraulicOutreachM) : prev.radiusM,
-        tipHeightM: setup.maxTipHeightM ? String(setup.maxTipHeightM) : prev.tipHeightM,
-        jibLengthM: setup.jibOutreachM ? String(setup.jibOutreachM) : prev.jibLengthM,
+        jibLengthM: inferredJibLength ? String(inferredJibLength) : prev.jibLengthM,
         verificationNote:
           setup.chartNote ||
+          (setupLimits ? `Selected setup/profile limits: ${setupLimits}. Enter the actual planned radius and hook height for this lift, then verify against the manufacturer/supplier chart.` : "") ||
           prev.verificationNote ||
           "Planning sketch only. Appointed person must verify the exact manufacturer/supplier chart before approval.",
       };
@@ -372,7 +494,7 @@ export default function RangeChartBuilder({
         range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
         range_chart_radius_m: chart.radiusM,
         range_chart_tip_height_m: chart.tipHeightM,
-        range_chart_jib_length_m: chart.jibLengthM,
+        range_chart_jib_length_m: String(round(numbers.jibLengthM, 2)),
         range_chart_jib_angle_deg: chart.jibAngleDeg,
         range_chart_object_distance_m: chart.objectDistanceM,
         range_chart_object_height_m: chart.objectHeightM,
@@ -381,13 +503,18 @@ export default function RangeChartBuilder({
         range_chart_load_weight_kg: chart.loadWeightKg,
         range_chart_accessory_weight_kg: chart.accessoryWeightKg,
         range_chart_total_lifted_weight_kg: calc.totalLiftedWeight ? String(round(calc.totalLiftedWeight, 2)) : "",
-        range_chart_chart_capacity_kg: chart.chartCapacityKg,
-        range_chart_utilisation_percent: calc.utilisation ? String(round(calc.utilisation, 1)) : "",
+        range_chart_chart_capacity_kg: effectiveChartCapacityKg ? String(round(effectiveChartCapacityKg, 2)) : "",
+        range_chart_capacity_method: capacityResult.method,
+        range_chart_capacity_source: capacityResult.source,
+        range_chart_utilisation_percent: effectiveUtilisation ? String(round(effectiveUtilisation, 1)) : "",
         range_chart_mat_length_m: chart.matLengthM,
         range_chart_mat_width_m: chart.matWidthM,
         range_chart_mat_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
-        range_chart_bearing_load_kg: chart.bearingLoadKg,
+        range_chart_bearing_load_kg: effectiveBearingLoadKg ? String(round(effectiveBearingLoadKg, 2)) : "",
+        range_chart_bearing_method: bearingResult.method,
+        range_chart_bearing_source: bearingResult.source,
         range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
+        range_chart_limit_warning: chartWarnings.join(" "),
         range_chart_verification_note: chart.verificationNote,
         range_chart_saved_at: new Date().toISOString(),
       };
@@ -462,15 +589,16 @@ export default function RangeChartBuilder({
                 ...normalisedSetups.map((setup) => ({ value: setup.key, label: setup.label })),
               ]}
             />
+            <div style={miniHelpStyle}>Setup/profile gives the chart limits and boom/jib reference. Enter the actual planned radius, hook height and object dimensions for this lift.</div>
           </Section>
 
           <Section title="Chart dimensions">
             <div style={smallGridStyle}>
-              <Field label="Radius (m)" type="number" value={chart.radiusM} onChange={(value) => update("radiusM", value)} />
-              <Field label="Tip / hook height (m)" type="number" value={chart.tipHeightM} onChange={(value) => update("tipHeightM", value)} />
-              <Field label="Boom length (m)" type="number" value={chart.boomLengthM} onChange={(value) => update("boomLengthM", value)} />
+              <Field label="Radius (m)" type="number" value={chart.radiusM} max={limits.maxRadiusM ?? undefined} helper={limits.maxRadiusM ? `Max ${fmt(limits.maxRadiusM)}` : undefined} onChange={(value) => updateLimitedNumber("radiusM", value)} />
+              <Field label="Tip / hook height (m)" type="number" value={chart.tipHeightM} max={limits.maxTipHeightM ?? undefined} helper={limits.maxTipHeightM ? `Max ${fmt(limits.maxTipHeightM)}` : undefined} onChange={(value) => updateLimitedNumber("tipHeightM", value)} />
+              <Field label="Boom length (m)" type="number" value={chart.boomLengthM} max={limits.maxBoomLengthM ?? undefined} helper={limits.maxBoomLengthM ? `Max ${fmt(limits.maxBoomLengthM)}` : undefined} onChange={(value) => updateLimitedNumber("boomLengthM", value)} />
               <Field label="Boom angle (deg)" type="number" value={chart.boomAngleDeg} onChange={(value) => update("boomAngleDeg", value)} />
-              <Field label="Jib length (m)" type="number" value={chart.jibLengthM} onChange={(value) => update("jibLengthM", value)} />
+              <Field label="Physical jib length (m)" type="number" value={chart.jibLengthM} max={limits.maxPhysicalJibLengthM ?? undefined} helper={limits.maxPhysicalJibLengthM ? `Max ${fmt(limits.maxPhysicalJibLengthM)}` : undefined} onChange={(value) => updateLimitedNumber("jibLengthM", value)} />
               <Field label="Jib angle (deg)" type="number" value={chart.jibAngleDeg} onChange={(value) => update("jibAngleDeg", value)} />
               <Field label="Object distance (m)" type="number" value={chart.objectDistanceM} onChange={(value) => update("objectDistanceM", value)} />
               <Field label="Object height (m)" type="number" value={chart.objectHeightM} onChange={(value) => update("objectHeightM", value)} />
@@ -482,10 +610,10 @@ export default function RangeChartBuilder({
             <div style={smallGridStyle}>
               <Field label="Load weight (kg)" type="number" value={chart.loadWeightKg} onChange={(value) => update("loadWeightKg", value)} />
               <Field label="Accessory weight (kg)" type="number" value={chart.accessoryWeightKg} onChange={(value) => update("accessoryWeightKg", value)} />
-              <Field label="Chart capacity at radius (kg)" type="number" value={chart.chartCapacityKg} onChange={(value) => update("chartCapacityKg", value)} />
+              <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
               <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
-              <Field label="Bearing load / reaction (kg)" type="number" value={chart.bearingLoadKg} onChange={(value) => update("bearingLoadKg", value)} />
+              <ReadOnlyInfo label="Bearing load / reaction" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
             </div>
             <TextArea label="Verification note" value={chart.verificationNote} onChange={(value) => update("verificationNote", value)} rows={3} />
           </Section>
@@ -514,13 +642,15 @@ export default function RangeChartBuilder({
             <Metric label="Boom angle" value={fmt(displayedBoomAngle, "°")} />
             <Metric label="Radius" value={fmt(numbers.radiusM)} />
             <Metric label="Tip height" value={fmt(numbers.tipHeightM)} />
-            <Metric label="Jib length" value={fmt(numbers.jibLengthM)} />
+            <Metric label="Physical jib length" value={fmt(numbers.jibLengthM)} />
             <Metric label="Jib angle" value={fmt(numbers.jibAngleDeg, "°")} />
             <Metric label="Object distance" value={fmt(numbers.objectDistanceM)} />
             <Metric label="Object height" value={fmt(numbers.objectHeightM)} />
             <Metric label="Clearance" value={fmt(calc.clearance)} tone={calc.clearance < 0 ? "danger" : "normal"} />
             <Metric label="Total lifted weight" value={totalWeightText} />
-            <Metric label="Chart utilisation" value={calc.utilisation ? `${round(calc.utilisation, 1)}%` : "Manual check"} tone={calc.utilisation && calc.utilisation > 100 ? "danger" : "normal"} />
+            <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
+            <Metric label="Bearing load / reaction" value={bearingLoadText} />
+            <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
             <Metric label="Bearing pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
@@ -713,8 +843,24 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   return <div style={sectionStyle}><div style={sectionTitleStyle}>{title}</div><div style={{ display: "grid", gap: 10 }}>{children}</div></div>;
 }
 
-function Field({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: string }) {
-  return <label style={fieldWrapStyle}><span style={fieldLabelStyle}>{label}</span><input type={type} step="0.01" value={value} onChange={(event) => onChange(event.target.value)} style={inputStyle} /></label>;
+function Field({ label, value, onChange, type = "text", max, helper }: { label: string; value: string; onChange: (value: string) => void; type?: string; max?: number; helper?: string }) {
+  return (
+    <label style={fieldWrapStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <input type={type} step="0.01" max={max} value={value} onChange={(event) => onChange(event.target.value)} style={inputStyle} />
+      {helper ? <span style={fieldHelperStyle}>{helper}</span> : null}
+    </label>
+  );
+}
+
+function ReadOnlyInfo({ label, value, helper }: { label: string; value: string; helper?: string }) {
+  return (
+    <div style={fieldWrapStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      <div style={readOnlyInfoStyle}>{value}</div>
+      {helper ? <span style={fieldHelperStyle}>{helper}</span> : null}
+    </div>
+  );
 }
 
 function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
@@ -734,6 +880,7 @@ const cardStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border:
 const topRowStyle: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" };
 const buttonRowStyle: CSSProperties = { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" };
 const helperText: CSSProperties = { marginTop: 6, opacity: 0.74, fontSize: 13, lineHeight: 1.4 };
+const miniHelpStyle: CSSProperties = { fontSize: 12, lineHeight: 1.35, opacity: 0.72, background: "rgba(58,166,200,0.08)", border: "1px solid rgba(58,166,200,0.16)", borderRadius: 8, padding: "8px 9px" };
 const builderGridStyle: CSSProperties = { display: "grid", gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)", gap: 16, alignItems: "start" };
 const controlsStyle: CSSProperties = { display: "grid", gap: 12, maxHeight: "calc(100vh - 190px)", overflowY: "auto", paddingRight: 4 };
 const sectionStyle: CSSProperties = { border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12, background: "rgba(255,255,255,0.75)" };
@@ -748,6 +895,8 @@ const metricLabelStyle: CSSProperties = { fontSize: 12, fontWeight: 800, opacity
 const metricValueStyle: CSSProperties = { marginTop: 4, fontWeight: 900 };
 const fieldWrapStyle: CSSProperties = { display: "grid", gap: 5 };
 const fieldLabelStyle: CSSProperties = { fontSize: 12, fontWeight: 900, opacity: 0.78 };
+const fieldHelperStyle: CSSProperties = { fontSize: 11, lineHeight: 1.25, opacity: 0.68 };
+const readOnlyInfoStyle: CSSProperties = { minHeight: 38, border: "1px solid rgba(0,0,0,0.10)", borderRadius: 9, padding: "9px 10px", fontSize: 14, boxSizing: "border-box", background: "rgba(0,0,0,0.035)", fontWeight: 900 };
 const inputStyle: CSSProperties = { width: "100%", minHeight: 38, border: "1px solid rgba(0,0,0,0.14)", borderRadius: 9, padding: "0 10px", fontSize: 14, boxSizing: "border-box", background: "#fff" };
 const textAreaStyle: CSSProperties = { width: "100%", border: "1px solid rgba(0,0,0,0.14)", borderRadius: 9, padding: 10, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
 const primaryBtnStyle: CSSProperties = { padding: "10px 14px", borderRadius: 10, border: 0, background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
