@@ -41,6 +41,46 @@ function first<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function textLooksLikeLabourOnly(...values: unknown[]) {
+  const combined = values
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+
+  if (!combined) return false;
+
+  return (
+    combined.includes("labour only") ||
+    combined.includes("labour-only") ||
+    combined.includes("labour / other") ||
+    combined.includes("no lifting asset") ||
+    combined.includes("slinger") ||
+    combined.includes("lift supervisor") ||
+    combined.includes("supervisor only") ||
+    combined.includes("operator only") ||
+    combined.includes("subcontractor operator") ||
+    combined.includes("subcontractor labour") ||
+    combined.includes("appointed person only") ||
+    combined.includes("ap only")
+  );
+}
+
+function allocationLooksLikeLabourOnly(item: any) {
+  const assetType = String(item?.asset_type ?? "").trim().toLowerCase();
+  if (assetType === "other") return true;
+  return textLooksLikeLabourOnly(item?.item_name, item?.notes);
+}
+
+function supplierLinkLooksLikeLabourOnly(link: any) {
+  return textLooksLikeLabourOnly(
+    link?.supplier_category,
+    link?.service_description,
+    link?.supplier_reference,
+    link?.notes,
+    link?.supplier_display_name
+  );
+}
+
 
 type CommercialBreakdownLine = {
   id: string;
@@ -719,6 +759,19 @@ export default async function JobDetailPage({
     })
   );
 
+  const labourOnlyOrNoLiftingAssetJob = Boolean(
+    otherAllocated.length > 0 ||
+      allocationList.some(allocationLooksLikeLabourOnly) ||
+      supplierLinks.some(supplierLinkLooksLikeLabourOnly) ||
+      textLooksLikeLabourOnly((job as any)?.site_name, (job as any)?.notes, (job as any)?.hire_type, (job as any)?.lift_type)
+  );
+
+  const externalLabourCoverage = Boolean(
+    labourOnlyOrNoLiftingAssetJob &&
+      (supplierLinks.length > 0 ||
+        allocationList.some((allocation) => allocation?.supplier_id || String(allocation?.source_type ?? "").toLowerCase() === "cross_hire"))
+  );
+
   const allocatedSellSubtotal = allocationList.reduce(
     (sum, item) => sum + Number(item?.agreed_sell_rate ?? 0),
     0
@@ -784,8 +837,8 @@ export default async function JobDetailPage({
     !(job as any)?.invoice_status || String((job as any)?.invoice_status).toLowerCase() === "not invoiced" ? "Not invoiced" : null,
     commercialLines.length === 0 ? "Commercial breakdown missing" : null,
     supplierCostExpected && !supplierCostRecorded ? "Supplier/cost amount missing for linked supplier" : null,
-    cranesAllocated.length === 0 ? "No crane allocated" : null,
-    !noOperatorRequired && !operatorAllocated ? "No operator allocated" : null,
+    !labourOnlyOrNoLiftingAssetJob && cranesAllocated.length === 0 ? "No crane allocated" : null,
+    !noOperatorRequired && !externalLabourCoverage && !operatorAllocated ? "No operator allocated" : null,
   ].filter(Boolean) as string[];
 
   return (
