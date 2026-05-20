@@ -15,6 +15,51 @@ function lower(value: any) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function textLooksLikeLabourOnly(...values: unknown[]) {
+  const combined = values
+    .map((value) => String(value ?? "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+
+  if (!combined) return false;
+
+  return (
+    combined.includes("labour only") ||
+    combined.includes("labour-only") ||
+    combined.includes("labour / other") ||
+    combined.includes("no lifting asset") ||
+    combined.includes("slinger") ||
+    combined.includes("lift supervisor") ||
+    combined.includes("supervisor only") ||
+    combined.includes("operator only") ||
+    combined.includes("subcontractor operator") ||
+    combined.includes("subcontractor labour") ||
+    combined.includes("appointed person only") ||
+    combined.includes("ap only")
+  );
+}
+
+function looksLikeLabourAllocation(row: any) {
+  const assetType = lower(row?.asset_type);
+  if (assetType === "other") return true;
+  return textLooksLikeLabourOnly(row?.item_name, row?.notes);
+}
+
+function looksLikeCraneAllocation(row: any) {
+  const assetType = lower(row?.asset_type);
+  return Boolean(row?.crane_id || assetType === "crane");
+}
+
+function looksLikeLabourSupplierLink(row: any) {
+  return textLooksLikeLabourOnly(
+    row?.supplier_category,
+    row?.service_description,
+    row?.supplier_reference,
+    row?.notes,
+    row?.supplier_display_name
+  );
+}
+
 function addDays(base: Date, days: number) {
   const d = new Date(base);
   d.setDate(d.getDate() + days);
@@ -118,6 +163,7 @@ export async function GET() {
       jobEquipmentRes,
       jobAllocationsRes,
       transportJobsRes,
+      jobSupplierLinksRes,
       cranesRes,
       vehiclesRes,
       equipmentRes,
@@ -145,9 +191,15 @@ export async function GET() {
           invoice_subtotal,
           invoice_amount,
           amount_paid,
+          crane_id,
           equipment_id,
           operator_id,
           main_operator_id,
+          hire_type,
+          lift_type,
+          notes,
+          supplier_id,
+          cross_hire_cost_total,
           archived,
           clients:client_id (
             company_name
@@ -159,13 +211,23 @@ export async function GET() {
         .select(`
           id,
           job_id,
+          asset_type,
+          item_name,
+          crane_id,
+          equipment_id,
+          operator_id,
+          source_type,
+          supplier_id,
+          supplier_reference,
+          supplier_cost,
           agreed_sell_rate,
-          agreed_cost
+          agreed_cost,
+          notes
         `),
 
       supabase
         .from("job_allocations")
-        .select("id, job_id, crane_id, equipment_id, operator_id"),
+        .select("id, job_id, asset_type, crane_id, equipment_id, operator_id, notes"),
 
       supabase
         .from("transport_jobs")
@@ -190,6 +252,10 @@ export async function GET() {
             company_name
           )
         `),
+
+      supabase
+        .from("job_supplier_links")
+        .select("id, job_id, supplier_id, supplier_display_name, supplier_category, supplier_reference, service_description, supplier_cost, notes, is_primary, sort_order"),
 
       supabase
         .from("cranes")
@@ -263,6 +329,9 @@ export async function GET() {
     }
     if (jobAllocationsRes.error) {
       return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
+    }
+    if (jobSupplierLinksRes.error) {
+      return NextResponse.json({ error: jobSupplierLinksRes.error.message }, { status: 400 });
     }
     if (transportJobsRes.error) {
       return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
@@ -526,22 +595,44 @@ export async function GET() {
       0
     );
 
-    const allocationMap = new Map<string, { hasCrane: boolean; hasOperator: boolean }>();
-    (jobAllocations ?? []).forEach((row: any) => {
+    const allocationMap = new Map<string, { hasCrane: boolean; hasOperator: boolean; hasLabourOnly: boolean }>();
+    const recordAllocation = (row: any) => {
       const jobId = String(row?.job_id ?? "").trim();
       if (!jobId) return;
-      const current = allocationMap.get(jobId) ?? { hasCrane: false, hasOperator: false };
-      if (row?.crane_id || row?.equipment_id) current.hasCrane = true;
+      const current = allocationMap.get(jobId) ?? { hasCrane: false, hasOperator: false, hasLabourOnly: false };
+      if (looksLikeCraneAllocation(row)) current.hasCrane = true;
       if (row?.operator_id) current.hasOperator = true;
+      if (looksLikeLabourAllocation(row)) current.hasLabourOnly = true;
       allocationMap.set(jobId, current);
+    };
+
+    (jobAllocations ?? []).forEach(recordAllocation);
+    (jobEquipment ?? []).forEach(recordAllocation);
+
+    const supplierLinksByJob = new Map<string, any[]>();
+    (jobSupplierLinksRes.data ?? []).forEach((row: any) => {
+      const jobId = String(row?.job_id ?? "").trim();
+      if (!jobId) return;
+      const rows = supplierLinksByJob.get(jobId) ?? [];
+      rows.push(row);
+      supplierLinksByJob.set(jobId, rows);
     });
+
+    const jobIsLabourOnlyOrSupplierCovered = (row: any) => {
+      const jobId = String(row?.id ?? "").trim();
+      const allocationMeta = allocationMap.get(jobId);
+      if (allocationMeta?.hasLabourOnly) return true;
+      if (textLooksLikeLabourOnly(row?.site_name, row?.notes, row?.hire_type, row?.lift_type)) return true;
+      return (supplierLinksByJob.get(jobId) ?? []).some(looksLikeLabourSupplierLink);
+    };
 
     const unassignedCraneJobs = activeJobs.filter((j: any) => {
       if (!endsTodayOrLater(j.start_date ?? j.job_date, j.end_date ?? j.job_date, today)) {
         return false;
       }
+      if (jobIsLabourOnlyOrSupplierCovered(j)) return false;
       const allocationsForJob = allocationMap.get(String(j.id));
-      const hasCrane = !!j.equipment_id || !!allocationsForJob?.hasCrane;
+      const hasCrane = !!j.crane_id || !!j.equipment_id || !!allocationsForJob?.hasCrane;
       const hasOperator = !!j.operator_id || !!j.main_operator_id || !!allocationsForJob?.hasOperator;
       return !hasCrane || !hasOperator;
     }).length;
