@@ -7,6 +7,7 @@ import {
 import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
 import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits } from "../../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null>;
 
@@ -612,13 +613,52 @@ function formatRangeClearance(value: number) {
   return value >= 0 ? formatRangeNumber(value) : `${formatRangeNumber(Math.abs(value))} low`;
 }
 
+
+function inferRangePhysicalJibLengthFromText(value: unknown) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!text) return null;
+  const patterns = [
+    /(\d+(?:\.\d+)?)\s*m\s*(?:jib|fly\s*jib|fly-jib|swingaway|swing-away|extension)/i,
+    /(?:jib|fly\s*jib|fly-jib|swingaway|swing-away|extension)\s*(?:-|–|—|:)?\s*(\d+(?:\.\d+)?)\s*m/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const parsed = parseDecimal(match[1]);
+      if (parsed && parsed > 0) return parsed;
+    }
+  }
+  return null;
+}
+
+function normaliseRangePhysicalJibLength(rawValue: number | null, radiusM: number | null, boomLengthM: number | null, inferredValue: number | null) {
+  const raw = rawValue && rawValue > 0 ? rawValue : null;
+  const inferred = inferredValue && inferredValue > 0 ? inferredValue : null;
+  if (!raw) return inferred ?? 0;
+
+  const tooLargeForBoom = Boolean(boomLengthM && raw > boomLengthM * 1.05);
+  const tooLargeForRadius = Boolean(radiusM && raw > radiusM * 1.35);
+  if ((tooLargeForBoom || tooLargeForRadius) && inferred && inferred < raw) return inferred;
+
+  return raw;
+}
+
 function rangeChartCalculated(sections: StringMap) {
   const radiusM = rangeNumber(sections, "range_chart_radius_m", 12);
   const tipHeightM = rangeNumber(sections, "range_chart_tip_height_m", 10);
   const objectDistanceM = rangeNumber(sections, "range_chart_object_distance_m", Math.max(0, radiusM - 4));
   const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
   const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
-  const jibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
+  const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
+  const craneName = rangeText(sections, "range_chart_crane_name", "");
+  const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
+  const capacityResult = calculateRangeChartCapacity({ craneName, setupLabel: selectedSetupLabel, sourceLabel, radiusM });
+  const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
+  const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
+  const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
+  const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedSetupLabel);
+  const rawJibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
+  const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, radiusM, storedBoomLengthM, inferredJibLengthM);
   const jibAngleDeg = rangeNumber(sections, "range_chart_jib_angle_deg", 0);
   const pivotHeight = 1.1;
   const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
@@ -634,12 +674,12 @@ function rangeChartCalculated(sections: StringMap) {
   const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
   const accessoryWeightKg = rangeKg(sections, "range_chart_accessory_weight_kg");
   const totalLiftedWeightKg = rangeKg(sections, "range_chart_total_lifted_weight_kg") ?? ((loadWeightKg ?? 0) + (accessoryWeightKg ?? 0) || null);
-  const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
+  const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg") ?? capacityResult.capacityKg;
   const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matAreaM2 = parseDecimal(sections.range_chart_mat_area_m2) ?? (matLengthM && matWidthM ? matLengthM * matWidthM : null);
-  const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load);
+  const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? bearingResult.bearingLoadKg;
   const bearingPressure = rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
 
   return {
@@ -668,6 +708,14 @@ function rangeChartCalculated(sections: StringMap) {
     matAreaM2,
     bearingLoadKg,
     bearingPressure,
+    capacityMethod: rangeText(sections, "range_chart_capacity_method", capacityResult.method),
+    capacitySource: rangeText(sections, "range_chart_capacity_source", capacityResult.source),
+    bearingMethod: rangeText(sections, "range_chart_bearing_method", bearingResult.method),
+    bearingSource: rangeText(sections, "range_chart_bearing_source", bearingResult.source),
+    limitWarning: rangeText(sections, "range_chart_limit_warning", ""),
+    capacityWarning: capacityResult.warning || "",
+    bearingWarning: bearingResult.warning || "",
+    limits,
   };
 }
 
@@ -725,11 +773,25 @@ function RangeChartPackPage({
   const objectH = y(0) - objectY;
   const groundY = y(0);
   const horizontalGapM = calc.radiusM - calc.objectDistanceM;
-  const hasChartWarning = calc.clearanceM < 0 || horizontalGapM < 0 || Boolean(calc.utilisationPercent && calc.utilisationPercent > 100);
+  const rawPackJibLength = rangeNumber(sections, "range_chart_jib_length_m", 0);
+  const correctedPackJibLength = Math.abs(rawPackJibLength - calc.jibLengthM) > 0.1;
+  const requiredBoomExceeded = calc.limits.maxBoomLengthM ? calc.boomLengthM > calc.limits.maxBoomLengthM + 0.01 : false;
+  const maxJibExceeded = calc.limits.maxPhysicalJibLengthM ? calc.jibLengthM > calc.limits.maxPhysicalJibLengthM + 0.01 : false;
+  const maxRadiusExceeded = calc.limits.maxRadiusM ? calc.radiusM > calc.limits.maxRadiusM + 0.01 : false;
+  const maxTipHeightExceeded = calc.limits.maxTipHeightM ? calc.tipHeightM > calc.limits.maxTipHeightM + 0.01 : false;
+  const hasChartWarning = calc.clearanceM < 0 || horizontalGapM < 0 || Boolean(calc.utilisationPercent && calc.utilisationPercent > 100) || correctedPackJibLength || requiredBoomExceeded || maxJibExceeded || maxRadiusExceeded || maxTipHeightExceeded || Boolean(calc.limitWarning || calc.capacityWarning || calc.bearingWarning);
   const chartWarningText = [
+    calc.limitWarning || "",
     calc.clearanceM < 0 ? `Hook/tip point is ${formatRangeNumber(Math.abs(calc.clearanceM))} below the top of the object.` : "",
     horizontalGapM < 0 ? `Hook/radius is ${formatRangeNumber(Math.abs(horizontalGapM))} short of the object face.` : "",
-    calc.utilisationPercent && calc.utilisationPercent > 100 ? `Entered load is over entered chart capacity by ${Number(calc.utilisationPercent - 100).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%.` : "",
+    requiredBoomExceeded ? `Required boom length is over the structured maximum for this crane/setup.` : "",
+    maxJibExceeded ? `Physical jib length is over the structured maximum for this crane/setup.` : "",
+    maxRadiusExceeded ? `Radius is over the structured maximum for this crane/setup.` : "",
+    maxTipHeightExceeded ? `Tip/hook height is over the structured maximum for this crane/setup.` : "",
+    calc.capacityWarning || "",
+    calc.bearingWarning || "",
+    calc.utilisationPercent && calc.utilisationPercent > 100 ? `Entered load is over entered/calculated chart capacity by ${Number(calc.utilisationPercent - 100).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%.` : "",
+    correctedPackJibLength ? `Jib value appeared to be max outreach/radius; sketch uses ${formatRangeNumber(calc.jibLengthM)} as the physical jib length. Verify manually.` : "",
   ].filter(Boolean).join(" ");
   const dangerStroke = hasChartWarning ? "#d12c2c" : "#ea5151";
 
@@ -808,7 +870,7 @@ function RangeChartPackPage({
         <MetricBox label="Boom Angle" value={formatRangeNumber(calc.boomAngleDeg, "°")} />
         <MetricBox label="Radius" value={formatRangeNumber(calc.radiusM)} />
         <MetricBox label="Tip Height" value={formatRangeNumber(calc.tipHeightM)} />
-        <MetricBox label="Jib Length" value={formatRangeNumber(calc.jibLengthM)} />
+        <MetricBox label="Physical Jib Length" value={formatRangeNumber(calc.jibLengthM)} />
         <MetricBox label="Jib Angle" value={formatRangeNumber(calc.jibAngleDeg, "°")} />
         <MetricBox label="Object Distance" value={formatRangeNumber(calc.objectDistanceM)} />
         <MetricBox label="Object Height" value={formatRangeNumber(calc.objectHeightM)} />
@@ -817,8 +879,10 @@ function RangeChartPackPage({
         <MetricBox label="Accessory Weight" value={formatRangeKg(calc.accessoryWeightKg)} />
         <MetricBox label="Total Lifted Weight" value={formatRangeKg(calc.totalLiftedWeightKg)} />
         <MetricBox label="Chart Capacity" value={formatRangeKg(calc.chartCapacityKg)} />
+        <MetricBox label="Capacity Source" value={`${calc.capacityMethod === "automatic" ? "Auto" : "Manual"} check`} />
         <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "Manual check required"} />
         <MetricBox label="Mat Area" value={formatAreaM2(calc.matAreaM2)} />
+        <MetricBox label="Bearing Load / Reaction" value={formatRangeKg(calc.bearingLoadKg)} />
         <MetricBox label="Bearing Pressure" value={calc.bearingPressure} />
       </div>
 
