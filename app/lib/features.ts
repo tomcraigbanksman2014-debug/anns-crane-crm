@@ -9,3 +9,7 @@ function envFlag(name: string, defaultValue: boolean) {
 export function timesheetsEnabled() {
   return envFlag("TIMESHEETS_ENABLED", false);
 }
+
+export function rangeChartBuilderEnabled() {
+  return envFlag("RANGE_CHART_BUILDER_ENABLED", true);
+}
