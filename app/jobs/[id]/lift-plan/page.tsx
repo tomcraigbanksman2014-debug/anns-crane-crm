@@ -199,6 +199,7 @@ export default async function JobLiftPlanPage({
     ...(job as any),
     selected_job_equipment_id: (liftPlan as any)?.selected_job_equipment_id ?? null,
     selected_crane_id: (liftPlan as any)?.selected_crane_id ?? null,
+    pack_sections: (liftPlan as any)?.pack_sections ?? null,
   };
 
   const primary = getPrimaryCraneContext(selectedJob);
@@ -266,6 +267,20 @@ export default async function JobLiftPlanPage({
   if (craneOptions.length === 0 && crane?.id) {
     craneOptions.push({ value: `fallback:${crane.id}`, craneId: String(crane.id), label: craneLabel });
   }
+
+  const craneSetupOptionsByAllocation = Object.fromEntries(
+    craneOptions.map((option) => {
+      const optionProfile = matchCraneJobEquipmentProfile({
+        ...(job as any),
+        selected_job_equipment_id: option.value,
+        selected_crane_id: option.craneId || null,
+        pack_sections: (liftPlan as any)?.pack_sections ?? null,
+        cranes: flatten((job as any)?.cranes),
+        job_equipment: (job as any)?.job_equipment ?? [],
+      });
+      return [option.value, optionProfile?.setupOptions ?? []];
+    })
+  );
 
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
@@ -437,6 +452,8 @@ export default async function JobLiftPlanPage({
           equipmentProfile={equipmentProfile ?? null}
           craneOptions={craneOptions}
           personnelOptions={personnelOptions}
+          craneSetupOptions={equipmentProfile?.setupOptions ?? []}
+          craneSetupOptionsByAllocation={craneSetupOptionsByAllocation}
         />
       </div>
     </ClientShell>
