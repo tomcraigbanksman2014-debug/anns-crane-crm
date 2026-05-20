@@ -266,7 +266,14 @@ function buildExternalProfile(job: any, crane: any, allocation: any): EquipmentP
     parseCapacityKg(sections.custom_crane_capacity, sections.external_crane_capacity, crane?.capacity, allocation?.capacity, allocation?.notes, title);
   const capacityTonnes = capacityKg ? Number((capacityKg / 1000).toFixed(2)) : null;
   const boomLength = numberOrNull(sections.custom_crane_boom_length_m) ?? numberOrNull(sections.external_crane_boom_length_m);
-  const maxRadius = numberOrNull(sections.custom_crane_max_radius_m) ?? numberOrNull(sections.external_crane_max_radius_m);
+  const hydraulicOutreach =
+    numberOrNull(sections.custom_crane_hydraulic_outreach_m) ??
+    numberOrNull(sections.external_crane_hydraulic_outreach_m) ??
+    numberOrNull(sections.custom_crane_max_radius_m) ??
+    numberOrNull(sections.external_crane_max_radius_m) ??
+    boomLength;
+  const jibOutreach = numberOrNull(sections.custom_crane_jib_outreach_m) ?? numberOrNull(sections.external_crane_jib_outreach_m);
+  const maxRadius = numberOrNull(sections.custom_crane_max_radius_m) ?? numberOrNull(sections.external_crane_max_radius_m) ?? jibOutreach ?? hydraulicOutreach;
   const make = textValue(sections, "custom_crane_make") || textValue(sections, "external_crane_make") || cleanText(crane?.make) || undefined;
   const model = textValue(sections, "custom_crane_model") || textValue(sections, "external_crane_model") || cleanText(crane?.model) || undefined;
   const supplier = cleanText(crane?.supplier_name) || supplierNameFromAllocation(allocation);
@@ -289,8 +296,8 @@ function buildExternalProfile(job: any, crane: any, allocation: any): EquipmentP
     maxCapacityTonnes: capacityTonnes,
     maxBoomLengthM: boomLength,
     maxTipHeightM: null,
-    maxHydraulicOutreachM: boomLength,
-    maxJibOutreachM: null,
+    maxHydraulicOutreachM: hydraulicOutreach,
+    maxJibOutreachM: jibOutreach,
     maxRadiusM: maxRadius,
     outriggersNote:
       textValue(sections, "custom_crane_outrigger_note") ||
@@ -315,6 +322,77 @@ function buildExternalProfile(job: any, crane: any, allocation: any): EquipmentP
       "Hook block, slings and lifting accessories must be deducted from available chart capacity.",
     ],
     sourceLabel: textValue(sections, "custom_crane_chart_note") || textValue(sections, "external_crane_chart_note") || "External / sub-hired crane details",
+  };
+}
+
+
+function applyPackSectionProfileOverrides(profile: EquipmentProfile, sections: Record<string, any>): EquipmentProfile {
+  const selectedSetupKey = cleanText(sections.selected_crane_setup_key);
+  const selectedSetup = selectedSetupKey
+    ? (profile.setupOptions ?? []).find((option) => cleanText(option.key) === selectedSetupKey)
+    : null;
+  const hasSelectedSetup = !!selectedSetup;
+
+  const boomLength =
+    numberOrNull(sections.custom_crane_boom_length_m) ??
+    numberOrNull(sections.external_crane_boom_length_m) ??
+    selectedSetup?.boomLengthM ??
+    profile.maxBoomLengthM ??
+    null;
+
+  const hydraulicOutreach =
+    numberOrNull(sections.custom_crane_hydraulic_outreach_m) ??
+    numberOrNull(sections.external_crane_hydraulic_outreach_m) ??
+    selectedSetup?.hydraulicOutreachM ??
+    selectedSetup?.maxRadiusM ??
+    profile.maxHydraulicOutreachM ??
+    profile.maxRadiusM ??
+    profile.maxBoomLengthM ??
+    null;
+
+  const jibOutreach =
+    numberOrNull(sections.custom_crane_jib_outreach_m) ??
+    numberOrNull(sections.external_crane_jib_outreach_m) ??
+    (hasSelectedSetup ? selectedSetup?.jibOutreachM ?? null : profile.maxJibOutreachM ?? null);
+
+  const maxRadius =
+    numberOrNull(sections.custom_crane_max_radius_m) ??
+    numberOrNull(sections.external_crane_max_radius_m) ??
+    selectedSetup?.maxRadiusM ??
+    jibOutreach ??
+    profile.maxRadiusM ??
+    hydraulicOutreach ??
+    null;
+
+  const selectedLabel = textValue(sections, "selected_crane_setup_label") || selectedSetup?.label || "";
+  const selectedChartNote = textValue(sections, "load_chart_note") || selectedSetup?.chartNote || "";
+  const selectedConfigurationNote =
+    textValue(sections, "custom_crane_configuration_note") ||
+    textValue(sections, "external_crane_configuration_note") ||
+    textValue(sections, "configuration_outrigger_note") ||
+    selectedSetup?.configurationNote ||
+    profile.configurationNote ||
+    null;
+  const selectedOutriggerNote =
+    textValue(sections, "custom_crane_outrigger_note") ||
+    textValue(sections, "external_crane_outrigger_note") ||
+    selectedSetup?.outriggerNote ||
+    profile.outriggersNote ||
+    null;
+
+  return {
+    ...profile,
+    summary: selectedLabel ? `${profile.summary} Selected setup: ${selectedLabel}.` : profile.summary,
+    maxBoomLengthM: boomLength,
+    maxHydraulicOutreachM: hydraulicOutreach,
+    maxJibOutreachM: jibOutreach,
+    maxRadiusM: maxRadius,
+    maxTipHeightM: selectedSetup?.maxTipHeightM ?? profile.maxTipHeightM ?? null,
+    configurationNote: selectedChartNote
+      ? [selectedConfigurationNote, selectedChartNote].filter(Boolean).join(" ")
+      : selectedConfigurationNote,
+    outriggersNote: selectedOutriggerNote,
+    sourceLabel: selectedSetup?.sourceLabel || selectedSetup?.sourceDocumentTitle || profile.sourceLabel,
   };
 }
 
@@ -364,7 +442,7 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
     : primary.crane;
 
   const specSheetProfile = buildSpecSheetEquipmentProfile(craneWithJobSpecs);
-  if (specSheetProfile) return specSheetProfile;
+  if (specSheetProfile) return applyPackSectionProfileOverrides(specSheetProfile, sections);
 
   const text = joinBits([
     sections,
@@ -381,9 +459,10 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
   ]);
 
   const matched = matchByAliases(text);
-  if (matched) return matched;
+  if (matched) return applyPackSectionProfileOverrides(matched, sections);
 
-  return buildExternalProfile(job, primary.crane, primary.allocation);
+  const externalProfile = buildExternalProfile(job, primary.crane, primary.allocation);
+  return externalProfile ? applyPackSectionProfileOverrides(externalProfile, sections) : null;
 }
 
 export function matchTransportJobEquipmentProfile(job: any, linkedJob?: any): EquipmentProfile | null {
