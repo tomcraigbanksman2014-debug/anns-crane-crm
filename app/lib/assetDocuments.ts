@@ -448,9 +448,6 @@ export async function getCraneAppendixAssetsForPack(
 ) {
   if (!craneId) return [];
 
-  const ruleAssets = await getCraneRuleAppendixAssets(craneId, context);
-  if (ruleAssets.length) return ruleAssets;
-
   const admin = createSupabaseAdminClient();
 
   const { data: docs, error } = await admin
@@ -465,9 +462,10 @@ export async function getCraneAppendixAssetsForPack(
     return [];
   }
 
-  // Show all included crane spec/load-chart preview pages here. The lift-plan page has
-  // a manual tick-box selector, so filtering by detected presets at this point can hide
-  // pages the appointed person may need to choose from.
+  // Important: this function feeds the manual lift-plan tick-box selector as well as the
+  // printable pack. Do not return only automatic/rule-matched pages here. If a full crane
+  // spec sheet has been uploaded, the appointed person must be able to see and choose any
+  // generated preview page, including fly-jib/load-chart pages.
   const chosenDocs = docs;
 
   const { data: previews } = await admin
@@ -485,7 +483,25 @@ export async function getCraneAppendixAssetsForPack(
     previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
   );
 
-  return buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
+  const allAssets = buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
+
+  // Keep rule-selected pages first if rules exist, but append the remaining generated pages
+  // so the selector never hides pages such as JIB1000/JIB1200/JIB500 charts.
+  const ruleAssets = await getCraneRuleAppendixAssets(craneId, context);
+  if (!ruleAssets.length) return allAssets;
+
+  const usedKeys = new Set(ruleAssets.map((asset) => asset.key).filter(Boolean));
+  const merged = [
+    ...ruleAssets,
+    ...allAssets.filter((asset) => !usedKeys.has(asset.key ?? "")),
+  ];
+
+  return merged.sort(
+    (a, b) =>
+      a.appendix_order - b.appendix_order ||
+      a.page_number - b.page_number ||
+      String(a.title).localeCompare(String(b.title))
+  );
 }
 
 
