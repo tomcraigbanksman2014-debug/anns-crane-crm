@@ -180,15 +180,6 @@ function effectiveJobPrice(job: any) {
   return gross;
 }
 
-
-function normaliseInvoiceStatus(value: unknown) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (raw === "paid") return "Paid";
-  if (raw === "part paid" || raw === "part_paid") return "Part Paid";
-  if (raw === "invoiced") return "Invoiced";
-  return "Not Invoiced";
-}
-
 function liftPlanStatusLabel(liftPlan: any) {
   if (!liftPlan) return "LP required";
 
@@ -592,68 +583,8 @@ export async function GET(req: Request) {
       visitInvoicesByJobId.set(jobId, existing);
     });
 
-    const getVisitInvoicesForJob = (item: any) => {
-      const jobId = String(item?.job_id ?? item?.id ?? "").trim();
-      if (!jobId) return {};
-
-      const existing = { ...(visitInvoicesByJobId.get(jobId) ?? {}) };
-      const parentStatus = normaliseInvoiceStatus(item?.invoice_status);
-      const mode = String(item?.price_mode ?? "full_job").trim().toLowerCase();
-      const visibleDates = activeWorkingDates(
-        item?.start_date ?? item?.job_date,
-        item?.end_date ?? item?.start_date ?? item?.job_date,
-        Boolean(item?.exclude_weekends)
-      ).filter((day) => day >= weekStart && day <= weekEnd);
-
-      // Full-job pricing should follow the job invoice status. This prevents old
-      // per-visit rows making the planner say "Visit invoiced" while the job page
-      // says "Not Invoiced".
-      if (mode !== "per_day") {
-        visibleDates.forEach((visitDate) => {
-          existing[visitDate] = {
-            ...(existing[visitDate] ?? {}),
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: parentStatus,
-            invoice_number: parentStatus === "Not Invoiced" ? null : existing[visitDate]?.invoice_number ?? null,
-            invoice_date: parentStatus === "Not Invoiced" ? null : existing[visitDate]?.invoice_date ?? null,
-          };
-        });
-        return existing;
-      }
-
-      // Per-day pricing can keep individual visit statuses, but if the job itself
-      // has explicitly been reset to Not Invoiced we do not allow stale visit rows
-      // to keep showing as invoiced on the planner.
-      if (parentStatus === "Not Invoiced") {
-        visibleDates.forEach((visitDate) => {
-          existing[visitDate] = {
-            ...(existing[visitDate] ?? {}),
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: "Not Invoiced",
-            invoice_number: null,
-            invoice_date: null,
-          };
-        });
-        return existing;
-      }
-
-      // If the job has been marked invoiced from the job page/outstanding invoices
-      // and no visit row exists yet, show that status on the planner too.
-      visibleDates.forEach((visitDate) => {
-        if (!existing[visitDate]) {
-          existing[visitDate] = {
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: parentStatus,
-            invoice_number: null,
-            invoice_date: null,
-          };
-        }
-      });
-
-      return existing;
+    const getVisitInvoicesForJob = (jobId: string | null | undefined) => {
+      return visitInvoicesByJobId.get(String(jobId ?? "").trim()) ?? {};
     };
 
     const supplierLinksByJobId = new Map<string, any[]>();
@@ -989,7 +920,7 @@ export async function GET(req: Request) {
         start_time: row.start_time ?? job?.start_time ?? null,
         end_time: row.end_time ?? job?.end_time ?? null,
         status: job?.status ?? null,
-        invoice_status: normaliseInvoiceStatus(job?.invoice_status),
+        invoice_status: job?.invoice_status ?? "Not Invoiced",
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
@@ -1045,7 +976,7 @@ export async function GET(req: Request) {
         start_time: row.start_time ?? job?.start_time ?? null,
         end_time: row.end_time ?? job?.end_time ?? null,
         status: job?.status ?? null,
-        invoice_status: normaliseInvoiceStatus(job?.invoice_status),
+        invoice_status: job?.invoice_status ?? "Not Invoiced",
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
@@ -1108,7 +1039,7 @@ export async function GET(req: Request) {
         start_time: row.start_time ?? job?.start_time ?? null,
         end_time: row.end_time ?? job?.end_time ?? null,
         status: job?.status ?? null,
-        invoice_status: normaliseInvoiceStatus(job?.invoice_status),
+        invoice_status: job?.invoice_status ?? "Not Invoiced",
         site_name: job?.site_name ?? null,
         site_address: job?.site_address ?? null,
         operator_id: row.operator_id ?? job?.operator_id ?? null,
@@ -1180,7 +1111,7 @@ export async function GET(req: Request) {
             start_time: job.start_time ?? fallbackCraneAllocation?.start_time ?? null,
             end_time: job.end_time ?? fallbackCraneAllocation?.end_time ?? null,
             status: job.status ?? null,
-            invoice_status: normaliseInvoiceStatus(job.invoice_status),
+            invoice_status: job.invoice_status ?? "Not Invoiced",
             site_name: job.site_name ?? null,
             site_address: job.site_address ?? null,
             operator_id: job.operator_id ?? fallbackCraneAllocation?.operator_id ?? null,
@@ -1240,7 +1171,7 @@ export async function GET(req: Request) {
           start_time: job.start_time ?? null,
           end_time: job.end_time ?? null,
           status: job.status ?? null,
-          invoice_status: normaliseInvoiceStatus(job.invoice_status),
+          invoice_status: job.invoice_status ?? "Not Invoiced",
           site_name: job.site_name ?? null,
           site_address: job.site_address ?? null,
           operator_id: job.operator_id ?? null,
@@ -1276,7 +1207,7 @@ export async function GET(req: Request) {
 
     const items = [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems].map((item: any) => ({
       ...item,
-      visit_invoices: getVisitInvoicesForJob(item),
+      visit_invoices: getVisitInvoicesForJob(item.job_id),
     }));
 
     const days = Array.from({ length: 7 }).map((_, index) => {
