@@ -85,8 +85,12 @@ function calcDuration(start: string | null | undefined, end: string | null | und
 }
 
 function craneLabel(crane: any, allocation: any) {
-  const parts = [crane?.name, crane?.make, crane?.model].filter(Boolean);
-  return parts.join(" ").trim() || crane?.name || allocation?.item_name || "—";
+  const name = tidyWhitespace(crane?.name);
+  const make = tidyWhitespace(crane?.make);
+  const model = tidyWhitespace(crane?.model);
+  const capacity = tidyWhitespace(crane?.capacity);
+  const base = tidyDisplayLabel([name, make, model].filter(Boolean).join(" ")) || tidyWhitespace(allocation?.item_name);
+  return [base, capacity && !base.toLowerCase().includes(capacity.toLowerCase()) ? capacity : ""].filter(Boolean).join(" ").trim() || "—";
 }
 
 function formatCapacity(profile: any, crane: any) {
@@ -131,6 +135,61 @@ function tidyWhitespace(value: string | null | undefined) {
   return String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function tidyDisplayLabel(value: unknown) {
+  const text = tidyWhitespace(String(value ?? ""));
+  if (!text) return "";
+  const words = text.split(" ").filter(Boolean);
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    const key = word.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(word);
+  }
+  return result.join(" ").trim();
+}
+
+function normaliseDuplicateKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9.%/()'" -]/g, "")
+    .trim();
+}
+
+function tidyRepeatedTextBlock(value: unknown) {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  if (!text) return "";
+  const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
+  const seenParagraphs = new Set<string>();
+  const uniqueParagraphs: string[] = [];
+
+  for (const paragraph of paragraphs.length ? paragraphs : [text]) {
+    const sentenceParts = paragraph
+      .replace(/([.!?])\s+(?=[A-Z0-9])/g, "$1\n")
+      .split(/\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    const seenSentences = new Set<string>();
+    const uniqueSentences: string[] = [];
+    for (const sentence of sentenceParts.length ? sentenceParts : [paragraph]) {
+      const key = normaliseDuplicateKey(sentence);
+      if (!key || seenSentences.has(key)) continue;
+      seenSentences.add(key);
+      uniqueSentences.push(sentence);
+    }
+    const cleanedParagraph = uniqueSentences.join(" ").trim();
+    const paragraphKey = normaliseDuplicateKey(cleanedParagraph);
+    if (!paragraphKey || seenParagraphs.has(paragraphKey)) continue;
+    seenParagraphs.add(paragraphKey);
+    uniqueParagraphs.push(cleanedParagraph);
+  }
+  return uniqueParagraphs.join("\n\n").trim();
 }
 
 function shortBoomConfiguration(
@@ -650,7 +709,7 @@ function rangeChartCalculated(sections: StringMap) {
   const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
   const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
   const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
-  const craneName = rangeText(sections, "range_chart_crane_name", "");
+  const craneName = tidyDisplayLabel(rangeText(sections, "range_chart_crane_name", ""));
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
@@ -750,7 +809,7 @@ function RangeChartPackPage({
 }) {
   const calc = rangeChartCalculated(sections);
   const clientName = rangeText(sections, "range_chart_client", "—");
-  const craneName = rangeText(sections, "range_chart_crane_name", "—");
+  const craneName = tidyDisplayLabel(rangeText(sections, "range_chart_crane_name", "—"));
   const notes = rangeText(sections, "range_chart_notes", "Lift sketch");
   const selectedSetup = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", "—"));
   const selectedJibOption = rangeText(sections, "range_chart_selected_jib_option_label", "");
@@ -902,7 +961,8 @@ function defaultSectionText(
   fallback: string
 ) {
   const value = sections[key];
-  return value && String(value).trim() ? String(value).trim() : fallback;
+  const selected = value && String(value).trim() ? String(value).trim() : fallback;
+  return tidyRepeatedTextBlock(selected);
 }
 
 function EditableInput({
