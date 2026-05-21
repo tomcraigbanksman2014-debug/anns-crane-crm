@@ -121,20 +121,20 @@ export async function POST(req: Request) {
     if (jobError) return NextResponse.json({ error: jobError.message }, { status: 400 });
     if (!transportJob) return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
 
-    const isPerDayPrice = lower(transportJob.price_mode) === "per_day";
+    const priceMode = lower(transportJob.price_mode || "full_job");
+    const isFullJobPrice = priceMode !== "per_day";
 
-    const { data: existingRowsForJob, error: existingError } = await supabase
+    const { data: allExistingRows, error: existingError } = await supabase
       .from("job_daily_visit_rates")
-      .select("id, visit_date, charge, repeat_group_id, repeat_occurrence_number, weekday, notes, invoice_status")
+      .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
       .eq("job_type", "transport")
       .eq("job_id", transportJobId);
 
     if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
 
-    const existingRows = (existingRowsForJob ?? []).filter(
-      (row: any) => cleanDate(row?.visit_date) === visitDate
-    );
-    const targetRows = isPerDayPrice ? existingRows : existingRowsForJob ?? [];
+    const targetRows = isFullJobPrice
+      ? allExistingRows ?? []
+      : (allExistingRows ?? []).filter((row: any) => cleanDate(row?.visit_date) === visitDate);
 
     const payload = {
       invoice_status: invoiceStatus,
@@ -144,24 +144,20 @@ export async function POST(req: Request) {
           ? null
           : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
       notes,
-      updated_at: new Date().toISOString(),
     };
 
     let savedVisitInvoice: any = null;
 
-    if ((targetRows ?? []).length > 0) {
-      const ids = (targetRows ?? []).map((row: any) => row.id).filter(Boolean);
+    if (targetRows.length > 0) {
+      const ids = targetRows.map((row: any) => row.id).filter(Boolean);
       const { data, error } = await supabase
         .from("job_daily_visit_rates")
         .update(payload)
         .in("id", ids)
-        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .single();
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes");
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      savedVisitInvoice = data;
+      savedVisitInvoice = Array.isArray(data) ? data[0] ?? null : data;
     } else {
       const { data, error } = await supabase
         .from("job_daily_visit_rates")
@@ -175,7 +171,6 @@ export async function POST(req: Request) {
           invoice_number: payload.invoice_number,
           invoice_date: payload.invoice_date,
           notes: payload.notes,
-          updated_at: payload.updated_at,
         })
         .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
         .single();
@@ -184,29 +179,32 @@ export async function POST(req: Request) {
       savedVisitInvoice = data;
     }
 
-    const { data: allVisitRows, error: visitRowsError } = await supabase
-      .from("job_daily_visit_rates")
-      .select("id, job_id, visit_date, invoice_status")
-      .eq("job_type", "transport")
-      .eq("job_id", transportJobId);
+    let parentInvoiceStatus = invoiceStatus;
 
-    if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
+    if (!isFullJobPrice) {
+      const { data: allVisitRows, error: visitRowsError } = await supabase
+        .from("job_daily_visit_rates")
+        .select("id, job_id, visit_date, invoice_status")
+        .eq("job_type", "transport")
+        .eq("job_id", transportJobId);
 
-    const requiredDates = dateRangeInclusive(
-      transportJob.transport_date ?? visitDate,
-      transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
-    );
-    const parentInvoiceStatus = isPerDayPrice
-      ? deriveParentInvoiceStatus({
-          rows: allVisitRows ?? [],
-          requiredDates,
-          priceMode: transportJob.price_mode,
-        })
-      : invoiceStatus;
+      if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
+
+      const requiredDates = dateRangeInclusive(
+        transportJob.transport_date ?? visitDate,
+        transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
+      );
+
+      parentInvoiceStatus = deriveParentInvoiceStatus({
+        rows: allVisitRows ?? [],
+        requiredDates,
+        priceMode: transportJob.price_mode,
+      });
+    }
 
     const { error: parentUpdateError } = await supabase
       .from("transport_jobs")
-      .update({ invoice_status: parentInvoiceStatus, updated_at: new Date().toISOString() })
+      .update({ invoice_status: parentInvoiceStatus })
       .eq("id", transportJobId);
 
     if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
