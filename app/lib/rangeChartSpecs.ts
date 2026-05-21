@@ -3,6 +3,19 @@ export type RangeChartCapacityPoint = {
   capacityKg: number;
 };
 
+export type RangeChartCapacityCurve = {
+  key: string;
+  label: string;
+  jibLengthM?: number | null;
+  boomLengthM?: number | null;
+  jibAngleMinDeg?: number | null;
+  jibAngleMaxDeg?: number | null;
+  counterweightT?: number | null;
+  points: RangeChartCapacityPoint[];
+  source: string;
+  setupAdvice?: string;
+};
+
 export type RangeChartProfileOption = {
   key: string;
   label: string;
@@ -35,6 +48,7 @@ export type RangeChartSpecRule = {
   bearingLoadSource?: string;
   capacitySource?: string;
   capacityPoints?: RangeChartCapacityPoint[];
+  capacityCurves?: RangeChartCapacityCurve[];
   profileOptions?: RangeChartProfileOption[];
   jibOptions?: RangeChartJibOption[];
   notes?: string;
@@ -45,6 +59,7 @@ export type RangeChartCapacityResult = {
   method: "automatic" | "manual";
   source: string;
   warning?: string;
+  setupAdvice?: string;
 };
 
 export type RangeChartBearingResult = {
@@ -64,6 +79,14 @@ function lower(value: unknown) {
 
 function point(radiusM: number, capacityKg: number): RangeChartCapacityPoint {
   return { radiusM, capacityKg };
+}
+
+function pointT(radiusM: number, capacityT: number): RangeChartCapacityPoint {
+  return { radiusM, capacityKg: Math.round(capacityT * 1000) };
+}
+
+function pointsT(items: Array<[number, number]>): RangeChartCapacityPoint[] {
+  return items.map(([radiusM, capacityT]) => pointT(radiusM, capacityT));
 }
 
 function profile(
@@ -89,11 +112,120 @@ function jib(
   return { key, label, lengthM, maxRadiusM, maxTipHeightM, source };
 }
 
+function curve(
+  key: string,
+  label: string,
+  points: RangeChartCapacityPoint[],
+  options: Omit<RangeChartCapacityCurve, "key" | "label" | "points">,
+): RangeChartCapacityCurve {
+  return { key, label, points, ...options };
+}
+
+// All curves below are deliberately used as planning aids only. They are structured from the uploaded spec-sheet charts
+// so the CRM can give useful setup advice and catch obvious out-of-capacity cases. The appointed person must still
+// verify the exact manufacturer/supplier chart, counterweight, outrigger setting, hook block and LMI before approval.
+
+const AK46_MAIN = [
+  point(8, 6000), point(11, 4000), point(17.7, 2000), point(26, 1000), point(34.5, 500), point(39, 250),
+];
+
+const GMK_4080_MAIN_BOOM_51_193T = pointsT([
+  [2.5, 80], [3, 68], [4, 53.5], [5, 46], [6, 40], [7, 34.5], [8, 28.5], [10, 7.2], [11, 7.2], [12, 7.2],
+  [13, 7.2], [14, 7.2], [15, 7.2], [16, 7.2], [18, 7.2], [20, 6.7], [22, 6.3], [24, 5.4], [26, 4.6],
+  [28, 4.0], [30, 3.4], [32, 2.9], [34, 2.5], [36, 2.1], [38, 1.8], [40, 1.5], [42, 1.3], [44, 1.0], [46, 0.8],
+]);
+
+const GMK_4080_SWINGAWAY_8_7_51_020_193T = pointsT([
+  [12, 4.2], [13, 4.1], [14, 4.0], [15, 4.0], [16, 3.9], [18, 3.8], [20, 3.6], [22, 3.5], [24, 3.4],
+  [26, 3.3], [28, 3.3], [30, 3.2], [32, 3.1], [34, 3.0], [36, 2.8], [38, 2.5], [40, 2.1], [42, 1.7], [44, 1.2],
+]);
+
+const GMK_4080_SWINGAWAY_15_51_020_193T = pointsT([
+  [15, 2.3], [16, 2.2], [18, 2.1], [20, 2.0], [22, 2.0], [24, 1.9], [26, 1.8], [28, 1.8], [30, 1.7],
+  [32, 1.7], [34, 1.7], [36, 1.6], [38, 1.5], [40, 1.2], [42, 1.0], [44, 0.7],
+]);
+
+const GMK_4080_EXTENSION_21_51_020_193T = pointsT([
+  [18, 2.1], [20, 2.0], [22, 2.0], [24, 1.9], [26, 1.8], [28, 1.8], [30, 1.7], [32, 1.7], [34, 1.7],
+  [36, 1.6], [38, 1.6], [40, 1.5], [42, 1.5], [44, 1.5], [46, 1.3], [48, 1.1], [50, 0.9], [52, 0.8], [54, 0.6],
+]);
+
+const JEKKO_SPX532_MAIN_J7_LONG_BOOM = pointsT([
+  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.90], [7, 0.80], [8, 0.64], [9, 0.52], [9.45, 0.47],
+]);
+const JEKKO_SPX532_MAIN_J6_LONG_BOOM = pointsT([
+  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40], [9.45, 0.32],
+]);
+const JEKKO_SPX532_MAIN_J5 = pointsT([
+  [1, 0.40], [2, 0.40], [3, 0.30], [4, 0.28], [5, 0.20],
+]);
+const JEKKO_SPX532_JIB1000_J5_51 = pointsT([
+  [1, 0.22], [2, 0.21], [3, 0.20], [4, 0.19], [5, 0.18],
+]);
+const JEKKO_SPX532_JIB500GR = [point(4, 500), point(8, 400), point(10, 300), point(12, 200)];
+
+const HK40_35_2_85T = pointsT([
+  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.6], [16, 5.0],
+  [18, 4.5], [20, 4.0], [22, 3.6], [24, 3.1], [26, 2.7], [28, 2.3], [30, 2.0], [32, 1.8],
+]);
+const HK40_35_2_45T = pointsT([
+  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.6], [16, 4.9],
+  [18, 4.0], [20, 3.3], [22, 2.7], [24, 2.2], [26, 1.9], [28, 1.6], [30, 1.3], [32, 1.1],
+]);
+const HK40_35_2_21T = pointsT([
+  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.1], [16, 4.0],
+  [18, 3.2], [20, 2.6], [22, 2.1], [24, 1.7], [26, 1.4], [28, 1.1], [30, 0.9], [32, 0.7],
+]);
+const HK40_35_2_14T = pointsT([
+  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.1], [14, 4.8], [16, 3.7],
+  [18, 2.9], [20, 2.4], [22, 1.9], [24, 1.5], [26, 1.2], [28, 0.9], [30, 0.7], [32, 0.6],
+]);
+const HK40_35_2_0T = pointsT([
+  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 6.9], [11, 6.1], [12, 5.4], [14, 4.2], [16, 3.4],
+  [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7], [30, 0.5],
+]);
+
+const MTK35_MAIN_32 = pointsT([
+  [6, 7.0], [7, 7.0], [8, 7.0], [9, 6.8], [10, 6.5], [12, 5.4], [14, 4.0], [16, 3.1], [18, 2.3],
+  [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7], [28, 0.5],
+]);
+const MTK35_MAIN_26_5 = pointsT([
+  [4, 10.8], [5, 10.8], [6, 10.6], [7, 10.4], [8, 10.2], [9, 7.7], [10, 7.5], [12, 5.4],
+  [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7],
+]);
+const MTK35_MAIN_19_9 = pointsT([
+  [3, 16.5], [3.5, 16.5], [4, 16.5], [5, 16.4], [6, 16.0], [7, 14.2], [8, 11.3], [9, 9.0], [10, 7.4],
+  [12, 5.3], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8],
+]);
+const MTK35_EXTENSION_8_0 = pointsT([
+  [8, 2.7], [10, 2.7], [12, 2.7], [14, 2.7], [16, 2.6], [18, 2.4], [20, 1.9], [22, 1.4], [24, 1.1],
+  [26, 0.8], [28, 0.6], [30, 0.4], [32, 0.3], [34, 0.3],
+]);
+const MTK35_EXTENSION_8_20 = pointsT([
+  [10, 2.5], [12, 2.5], [14, 2.5], [16, 2.5], [18, 2.4], [20, 2.1], [22, 1.6], [24, 1.2], [26, 0.9],
+  [28, 0.7], [30, 0.4],
+]);
+const MTK35_EXTENSION_8_40 = pointsT([
+  [12, 2.3], [14, 2.3], [16, 2.2], [18, 2.1], [20, 2.0], [22, 1.7], [24, 1.3], [26, 1.0], [28, 0.7],
+  [30, 0.5], [32, 0.5], [34, 0.4],
+]);
+const MTK35_EXTENSION_14_5_0 = pointsT([
+  [10, 1.4], [12, 1.4], [14, 1.3], [16, 1.3], [18, 1.2], [20, 1.2], [22, 1.1], [24, 1.0], [26, 0.9],
+  [28, 0.7], [30, 0.5], [32, 0.5],
+]);
+const MTK35_EXTENSION_14_5_20 = pointsT([
+  [12, 1.2], [14, 1.2], [16, 1.1], [18, 1.1], [20, 1.0], [22, 0.9], [24, 0.8], [26, 0.8], [28, 0.7],
+  [30, 0.7], [32, 0.6],
+]);
+const MTK35_EXTENSION_14_5_40 = pointsT([
+  [16, 0.8], [18, 0.8], [20, 0.8], [22, 0.8], [24, 0.7], [26, 0.7], [28, 0.7], [30, 0.7],
+]);
+
 export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
   {
     id: "ak46-6000",
     title: "Böcker AK 46/6000",
-    match: [/\bak\s*46(?:\/6000)?\b/i, /\bbocker\b.*\bak\s*46/i, /\bböcker\b.*\bak\s*46/i],
+    match: [/\bak\s*46(?:\/6000)?\b/i, /\bbocker\b.*\bak\s*46/i, /\bböcker\b.*\bak\s*46/i, /\bak46\b/i],
     maxCapacityKg: 6000,
     maxBoomLengthM: 46,
     maxPhysicalJibLengthM: 11,
@@ -110,40 +242,57 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
       jib("ak46-jib-11", "11.0 m hydraulic jib", 11, 39, 46, "AK 46/6000: jib extendable 5.3 / 8.1 / 11.0 m"),
     ],
     capacitySource: "AK 46/6000 spec: crane-operation range/load table",
-    // Conservative step curve from the AK 46/6000 technical information.
-    // For values between two published radii, the next lower published capacity is used.
-    capacityPoints: [
-      point(8, 6000),
-      point(11, 4000),
-      point(17.7, 2000),
-      point(26, 1000),
-      point(34.5, 500),
-      point(39, 250),
+    capacityPoints: AK46_MAIN,
+    capacityCurves: [
+      curve("ak46-main", "AK46 crane-operation range table", AK46_MAIN, {
+        jibLengthM: null,
+        boomLengthM: 46,
+        source: "AK 46/6000 spec: 6t at 8m, 4t at 11m, 2t at 17.7m, 1t at 26m, 500kg at 34.5m, 250kg at 39m",
+        setupAdvice: "AK46 preliminary check: use the normal crane-operation range/load table. Confirm single/two-fall operation, jib extension, payload mode and exact LMI before approval.",
+      }),
     ],
-    notes:
-      "Uses the published AK 46/6000 range/load points as a conservative step curve. Final duty must still be checked on the supplier/manufacturer chart.",
+    notes: "Uses the published AK 46/6000 range/load points as a conservative planning curve. Final duty must still be checked on the supplier/manufacturer chart.",
   },
   {
     id: "gmk4080-1",
     title: "Grove GMK4080-1",
-    match: [/\bgmk\s*4080\s*-?\s*1\b/i, /\bgrove\b.*\b4080\s*-?\s*1\b/i],
+    match: [/\bgmk\s*4080\s*-?\s*1\b/i, /\bgrove\b.*\b4080\s*-?\s*1\b/i, /\bmanitowoc\b.*\b4080\b/i],
     maxCapacityKg: 80000,
     maxBoomLengthM: 51,
     maxPhysicalJibLengthM: 21,
     maxRadiusM: 75,
     maxTipHeightM: 75,
-    profileOptions: [
-      profile("gmk4080-main-51", "Main boom up to 51 m", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom"),
-    ],
+    profileOptions: [profile("gmk4080-main-51", "Main boom up to 51 m", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom")],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
-      jib("gmk4080-swingaway-8-7", "8.7 m bi-fold swingaway", 8.7, null, null, "GMK4080-1 optional bi-fold swingaway 8.7 / 15 m"),
-      jib("gmk4080-swingaway-15", "15 m bi-fold swingaway", 15, null, null, "GMK4080-1 optional bi-fold swingaway 8.7 / 15 m"),
-      jib("gmk4080-lattice-21", "21 m lattice extension", 21, 75, 75, "GMK4080-1 optional 21 m lattice extension"),
+      jib("gmk4080-swingaway-8-7", "8.7 m bi-fold swingaway", 8.7, 46, 63, "GMK4080-1 optional bi-fold swingaway 8.7 m"),
+      jib("gmk4080-swingaway-15", "15 m bi-fold swingaway", 15, 50, 69, "GMK4080-1 optional bi-fold swingaway 15 m"),
+      jib("gmk4080-lattice-21", "21 m lattice extension", 21, 54, 75, "GMK4080-1 optional 21 m lattice extension"),
     ],
-    capacitySource: "GMK4080-1 spec: use exact load chart/LMI for capacity at selected boom, radius and counterweight",
-    notes:
-      "The GMK4080-1 product guide includes many duty tables by boom, counterweight and extension. This guard checks geometry limits but does not guess a radius capacity unless a structured table is added.",
+    capacitySource: "GMK4080-1 product guide load charts. Exact table/counterweight must still be verified before lifting.",
+    capacityCurves: [
+      curve("gmk-main-51-193t", "51 m main boom, 19.3 t counterweight", GMK_4080_MAIN_BOOM_51_193T, {
+        boomLengthM: 51, jibLengthM: 0, counterweightT: 19.3,
+        source: "GMK4080-1 load chart: 11.0-51.0 m telescopic boom, 360°, 19.3 t counterweight",
+        setupAdvice: "Main boom only may be the stronger setup if height/reach is possible. Verify exact counterweight, boom length and LMI.",
+      }),
+      curve("gmk-8-7-51-020-193t", "51 m boom + 8.7 m swingaway, 0°-20°, 19.3 t", GMK_4080_SWINGAWAY_8_7_51_020_193T, {
+        boomLengthM: 51, jibLengthM: 8.7, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
+        source: "GMK4080-1 swingaway load chart: 51.0 m boom + 8.7 m swingaway, 0°-20°, 360°, 19.3 t counterweight",
+        setupAdvice: "Use 8.7 m swingaway only where the extra height/reach is needed; main boom only may give more capacity.",
+      }),
+      curve("gmk-15-51-020-193t", "51 m boom + 15 m swingaway, 0°-20°, 19.3 t", GMK_4080_SWINGAWAY_15_51_020_193T, {
+        boomLengthM: 51, jibLengthM: 15, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
+        source: "GMK4080-1 swingaway load chart: 51.0 m boom + 15.0 m swingaway, 0°-20°, 360°, 19.3 t counterweight",
+        setupAdvice: "Use 15 m swingaway only where required. If capacity is tight, check 8.7 m swingaway or main boom only.",
+      }),
+      curve("gmk-21-51-020-193t", "51 m boom + 21 m extension, 0°-20°, 19.3 t", GMK_4080_EXTENSION_21_51_020_193T, {
+        boomLengthM: 51, jibLengthM: 21, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
+        source: "GMK4080-1 boom-extension load chart: 51.0 m boom + 21.0 m extension, 0°-20°, 360°, 19.3 t counterweight",
+        setupAdvice: "Use the 21 m extension only for the extra height/reach. If capacity is tight, try shorter fly jib or main boom only.",
+      }),
+    ],
+    notes: "Structured preliminary curves cover common long-boom and extension options. Final manufacturer chart/LMI verification is mandatory.",
   },
   {
     id: "spx532",
@@ -155,18 +304,36 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxRadiusM: 14.8,
     maxTipHeightM: 17.3,
     profileOptions: [
-      profile("spx532-main-10-8", "Main telescopic boom up to 10.8 m", 10.8, 10.8, 9.7, 12.1, "SPX532 technical data: boom telescoping 2.5 - 10.8 m"),
+      profile("spx532-main-j7", "Main boom — J7/full-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J7 chart"),
+      profile("spx532-main-j6", "Main boom — J6 reduced-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J6 chart"),
+      profile("spx532-main-j5", "Main boom — J5 reduced-stability planning chart", 5.7, 10.8, 5, 12.1, "SPX532 main boom J5 chart"),
     ],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
-      jib("spx532-jib-small", "JIB1200GX / short jib option", 1.2, null, null, "SPX532 jib option - verify exact chart"),
-      jib("spx532-jib-long", "JIB1000.2H1MX / long jib option", 5.1, 14.8, 17.3, "SPX532 jib option - verify exact chart"),
+      jib("spx532-jib500gr", "JIB500GR grabber jib", 0.5, 12, 14.8, "SPX532 JIB500GR planning chart"),
+      jib("spx532-jib1000", "JIB1000.2H1MX long jib", 5.1, 5, 17.3, "SPX532 JIB1000.2H1MX chart"),
     ],
     defaultBearingLoadKg: 3000,
     bearingLoadSource: "Jekko SPX532 spec: static outrigger load 3000 kg",
-    capacitySource: "Jekko SPX532 spec: use exact selected J-rating/outrigger load chart for capacity",
-    notes:
-      "SPX532 duties depend on outrigger/stability zone and selected J-rating. The guard checks known maximum limits and auto-fills the published static outrigger load, but capacity must use the exact selected chart unless structured J-chart data is saved.",
+    capacitySource: "Jekko SPX532 spec: structured J-rating/load charts; exact outrigger/stability rating must be verified.",
+    capacityCurves: [
+      curve("spx532-main-j7", "SPX532 main boom J7/full stability", JEKKO_SPX532_MAIN_J7_LONG_BOOM, {
+        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J7 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J7 crane performance.",
+      }),
+      curve("spx532-main-j6", "SPX532 main boom J6", JEKKO_SPX532_MAIN_J6_LONG_BOOM, {
+        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J6 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J6 crane performance.",
+      }),
+      curve("spx532-main-j5", "SPX532 main boom J5", JEKKO_SPX532_MAIN_J5, {
+        boomLengthM: 5.7, jibLengthM: 0, source: "SPX532 page 11: main boom J5 chart", setupAdvice: "Use only if the outrigger/stability area gives J5 crane performance.",
+      }),
+      curve("spx532-jib1000-j5", "SPX532 JIB1000.2H1MX J5", JEKKO_SPX532_JIB1000_J5_51, {
+        jibLengthM: 5.1, boomLengthM: 10.8, source: "SPX532 page 14: JIB1000.2H1MX J5 chart, LJ 5.1 m", setupAdvice: "Use only if the selected outrigger/stability area gives J5 crane performance.",
+      }),
+      curve("spx532-jib500gr", "SPX532 JIB500GR planning curve", JEKKO_SPX532_JIB500GR, {
+        jibLengthM: 0.5, boomLengthM: 10.8, source: "SPX532 page 18: JIB500GR working-range chart", setupAdvice: "Verify the exact JIB500GR chart before approval.",
+      }),
+    ],
+    notes: "SPX532 duties depend heavily on the outrigger/stability J-rating. The CRM can advise from structured J7/J6/J5 curves, but the selected stability rating must be confirmed before approval.",
   },
   {
     id: "hk40",
@@ -178,36 +345,55 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxRadiusM: 35.2,
     maxTipHeightM: 44.2,
     profileOptions: [
-      profile("hk40-main-35-2", "Main boom up to 35.2 m", 35.2, 35.2, 32, 35.2, "HK 40 spec: 10.5 m - 35.2 m telescopic boom"),
+      profile("hk40-main-35-2-85", "Main boom 35.2 m — 8.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 8.5 t counterweight"),
+      profile("hk40-main-35-2-45", "Main boom 35.2 m — 4.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 4.5 t counterweight"),
+      profile("hk40-main-35-2-21", "Main boom 35.2 m — 2.1 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 2.1 t counterweight"),
+      profile("hk40-main-35-2-14", "Main boom 35.2 m — 1.4 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 1.4 t counterweight"),
+      profile("hk40-main-35-2-0", "Main boom 35.2 m — 0 t counterweight chart", 35.2, 35.2, 30, 35.2, "HK 40 load chart 360°, 0 t counterweight"),
     ],
-    jibOptions: [
-      jib("none", "No jib / main boom only", 0),
-      jib("hk40-extension-9", "9 m boom extension", 9, null, 44.2, "HK 40 spec: 9 m boom extension"),
+    jibOptions: [jib("none", "No jib / main boom only", 0), jib("hk40-extension-9", "9 m boom extension", 9, null, 44.2, "HK 40 spec: 9 m boom extension")],
+    capacitySource: "HK 40 uploaded load charts. Select the correct counterweight chart and verify exact boom length/radius before approval.",
+    capacityCurves: [
+      curve("hk40-35-2-85", "HK40 35.2 m main boom, 8.5 t counterweight", HK40_35_2_85T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 8.5, source: "HK 40 chart page 4: 35.2 m main boom, 360°, 8.5 t counterweight", setupAdvice: "If capacity is tight, confirm the crane can be rigged with 8.5 t counterweight or use a shorter boom chart." }),
+      curve("hk40-35-2-45", "HK40 35.2 m main boom, 4.5 t counterweight", HK40_35_2_45T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 4.5, source: "HK 40 chart page 6: 35.2 m main boom, 360°, 4.5 t counterweight", setupAdvice: "If capacity is tight, select/rig the 8.5 t chart or reduce radius." }),
+      curve("hk40-35-2-21", "HK40 35.2 m main boom, 2.1 t counterweight", HK40_35_2_21T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 2.1, source: "HK 40 chart page 8: 35.2 m main boom, 360°, 2.1 t counterweight", setupAdvice: "If capacity is tight, select/rig a heavier counterweight chart or reduce radius." }),
+      curve("hk40-35-2-14", "HK40 35.2 m main boom, 1.4 t counterweight", HK40_35_2_14T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 1.4, source: "HK 40 chart page 10: 35.2 m main boom, 360°, 1.4 t counterweight", setupAdvice: "If capacity is tight, select/rig a heavier counterweight chart or reduce radius." }),
+      curve("hk40-35-2-0", "HK40 35.2 m main boom, 0 t counterweight", HK40_35_2_0T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 0, source: "HK 40 chart page 12: 35.2 m main boom, 360°, 0 t counterweight", setupAdvice: "If capacity is tight, select/rig a counterweight chart or reduce radius." }),
     ],
-    capacitySource: "HK 40 spec: use exact load chart for selected counterweight, boom and radius",
-    notes:
-      "The HK 40 tables vary by counterweight and boom length. This guard checks the published maximum geometry and flags manual chart verification for capacity.",
+    notes: "HK40 capacity varies by counterweight and boom length. The structured curves cover the conservative 35.2 m boom lines for each uploaded counterweight chart.",
   },
   {
     id: "mtk35",
     title: "Marchetti MTK 35",
-    match: [/\bmtk\s*35\b/i, /\bmarchetti\b.*\b35\b/i],
+    match: [/\bmtk\s*35\b/i, /\bmarchetti\b.*\b35\b/i, /\bmkt\s*35\b/i],
     maxCapacityKg: 35000,
     maxBoomLengthM: 32,
     maxPhysicalJibLengthM: 14.5,
     maxRadiusM: 40,
     maxTipHeightM: 52,
     profileOptions: [
-      profile("mtk35-main-32", "Main boom up to 32 m", 32, 32, 40, 40, "MTK35 specs: main boom height diagram"),
+      profile("mtk35-main-32", "Main boom up to 32 m", 32, 32, 28, 40, "MTK35 main boom 10-32 m chart"),
+      profile("mtk35-main-26-5", "Main boom 26.5 m", 26.5, 32, 26, 40, "MTK35 main boom chart"),
+      profile("mtk35-main-19-9", "Main boom 19.9 m", 19.9, 32, 20, 40, "MTK35 main boom chart"),
     ],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
-      jib("mtk35-extension-8", "8 m extension", 8, null, null, "MTK35 specs: 32 + 8 m lifting heights"),
-      jib("mtk35-extension-14-5", "14.5 m extension", 14.5, 40, 52, "MTK35 specs: 32 + 14.5 m lifting heights"),
+      jib("mtk35-extension-8", "8 m lattice extension", 8, 34, 45, "MTK35: 8 m extension, offsets 0°/20°/40°"),
+      jib("mtk35-extension-14-5", "14.5 m lattice extension", 14.5, 32, 52, "MTK35: 14.5 m extension, offsets 0°/20°/40°"),
     ],
-    capacitySource: "MTK 35 spec: use exact EN13000 load chart for selected boom/jib/radius",
-    notes:
-      "The MTK 35 sheet shows boom and jib ranges and states hook/slings are part of the load. Capacity must be checked against the exact chart unless structured capacity data is saved.",
+    capacitySource: "MTK35 uploaded load chart: main boom 10-32 m and 32 m + 8/14.5 m extensions.",
+    capacityCurves: [
+      curve("mtk35-main-32", "MTK35 32 m main boom", MTK35_MAIN_32, { boomLengthM: 32, jibLengthM: 0, source: "MTK35 load chart: main boom 32.0 m column", setupAdvice: "If capacity is tight, use a shorter main boom chart if the height/radius allows." }),
+      curve("mtk35-main-26-5", "MTK35 26.5 m main boom", MTK35_MAIN_26_5, { boomLengthM: 26.5, jibLengthM: 0, source: "MTK35 load chart: main boom 26.5 m column", setupAdvice: "If this covers the height/radius, the shorter boom gives more capacity than the 32 m boom." }),
+      curve("mtk35-main-19-9", "MTK35 19.9 m main boom", MTK35_MAIN_19_9, { boomLengthM: 19.9, jibLengthM: 0, source: "MTK35 load chart: main boom 19.9 m column", setupAdvice: "Use this only if the height/radius can be achieved with 19.9 m boom." }),
+      curve("mtk35-ext8-0", "MTK35 32 m + 8 m extension at 0°", MTK35_EXTENSION_8_0, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 0, jibAngleMaxDeg: 5, source: "MTK35 extension chart: 8 m extension, 0°", setupAdvice: "Use 8 m extension only where the main boom does not achieve the required height/reach." }),
+      curve("mtk35-ext8-20", "MTK35 32 m + 8 m extension at 20°", MTK35_EXTENSION_8_20, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 8 m extension, 20°", setupAdvice: "Use 20° offset only if needed for clearance/reach; check chart before approval." }),
+      curve("mtk35-ext8-40", "MTK35 32 m + 8 m extension at 40°", MTK35_EXTENSION_8_40, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 8 m extension, 40°", setupAdvice: "Use 40° offset only if needed for clearance/reach; check chart before approval." }),
+      curve("mtk35-ext145-0", "MTK35 32 m + 14.5 m extension at 0°", MTK35_EXTENSION_14_5_0, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 0, jibAngleMaxDeg: 5, source: "MTK35 extension chart: 14.5 m extension, 0°", setupAdvice: "Use 14.5 m extension only where required; capacity is much lower than main boom." }),
+      curve("mtk35-ext145-20", "MTK35 32 m + 14.5 m extension at 20°", MTK35_EXTENSION_14_5_20, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 14.5 m extension, 20°", setupAdvice: "Use 20° offset only if needed; check chart before approval." }),
+      curve("mtk35-ext145-40", "MTK35 32 m + 14.5 m extension at 40°", MTK35_EXTENSION_14_5_40, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 14.5 m extension, 40°", setupAdvice: "Use 40° offset only if needed; check chart before approval." }),
+    ],
+    notes: "MTK35 structured data now covers main-boom planning curves and 8 m / 14.5 m extension offsets. Final chart verification is still required.",
   },
 ];
 
@@ -226,16 +412,85 @@ export function conservativeCapacityFromCurve(points: RangeChartCapacityPoint[] 
   return null;
 }
 
+function closeTo(value: number | null | undefined, target: number | null | undefined, tolerance: number) {
+  if (value === null || value === undefined || target === null || target === undefined) return true;
+  if (!Number.isFinite(value) || !Number.isFinite(target)) return true;
+  return Math.abs(value - target) <= tolerance;
+}
+
+function jibMatches(curve: RangeChartCapacityCurve, jibLengthM?: number | null, jibAngleDeg?: number | null) {
+  const effectiveJib = Math.max(0, jibLengthM ?? 0);
+  if (curve.jibLengthM !== null && curve.jibLengthM !== undefined && !closeTo(effectiveJib, curve.jibLengthM, curve.jibLengthM === 0 ? 0.25 : 0.85)) return false;
+  if (curve.jibAngleMinDeg !== null && curve.jibAngleMinDeg !== undefined && jibAngleDeg !== null && jibAngleDeg !== undefined && Number.isFinite(jibAngleDeg)) {
+    if (jibAngleDeg < curve.jibAngleMinDeg - 0.01) return false;
+  }
+  if (curve.jibAngleMaxDeg !== null && curve.jibAngleMaxDeg !== undefined && jibAngleDeg !== null && jibAngleDeg !== undefined && Number.isFinite(jibAngleDeg)) {
+    if (jibAngleDeg > curve.jibAngleMaxDeg + 0.01) return false;
+  }
+  return true;
+}
+
+function boomCurveScore(curve: RangeChartCapacityCurve, boomLengthM?: number | null) {
+  if (curve.boomLengthM === null || curve.boomLengthM === undefined || boomLengthM === null || boomLengthM === undefined || !Number.isFinite(boomLengthM)) return 0;
+  const diff = curve.boomLengthM - boomLengthM;
+  if (Math.abs(diff) <= 0.75) return Math.abs(diff);
+  // Prefer a longer chart line where available as a conservative planning check for intermediate boom lengths.
+  if (diff > 0) return diff + 2;
+  return Math.abs(diff) + 20;
+}
+
+function curveMatches({ curve, boomLengthM, jibLengthM, jibAngleDeg }: { curve: RangeChartCapacityCurve; boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null }) {
+  if (!jibMatches(curve, jibLengthM, jibAngleDeg)) return false;
+  if (curve.boomLengthM !== null && curve.boomLengthM !== undefined && boomLengthM !== null && boomLengthM !== undefined && Number.isFinite(boomLengthM)) {
+    if (boomLengthM > curve.boomLengthM + 0.75) return false;
+    // Allow a shorter entered boom length to use the next longer structured curve as a conservative preliminary chart line.
+    if (boomLengthM < curve.boomLengthM - 18) return false;
+  }
+  return true;
+}
+
+function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number }) {
+  const curves = rule.capacityCurves ?? [];
+  const matches = curves
+    .filter((item) => curveMatches({ curve: item, boomLengthM: args.boomLengthM, jibLengthM: args.jibLengthM, jibAngleDeg: args.jibAngleDeg }))
+    .filter((item) => conservativeCapacityFromCurve(item.points, args.radiusM) !== null)
+    .sort((a, b) => boomCurveScore(a, args.boomLengthM) - boomCurveScore(b, args.boomLengthM));
+  return matches[0] ?? null;
+}
+
+function viableSetupAdvice(rule: RangeChartSpecRule, radiusM: number, totalLiftedWeightKg: number | null | undefined, selectedCurve?: RangeChartCapacityCurve | null) {
+  if (!totalLiftedWeightKg || !(rule.capacityCurves?.length)) return "";
+  const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
+  if (selectedCurve && selectedCapacity !== null && selectedCapacity >= totalLiftedWeightKg) {
+    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+  }
+  const viable = rule.capacityCurves
+    .map((item) => ({ curve: item, capacityKg: conservativeCapacityFromCurve(item.points, radiusM) }))
+    .filter((item) => item.capacityKg !== null && item.capacityKg >= totalLiftedWeightKg)
+    .sort((a, b) => (a.capacityKg ?? 0) - (b.capacityKg ?? 0));
+  if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m. Reduce radius, reduce load, select a different duty/counterweight table, or choose another crane.`;
+  const first = viable[0];
+  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+}
+
 export function calculateRangeChartCapacity({
   craneName,
   setupLabel,
   sourceLabel,
   radiusM,
+  boomLengthM,
+  jibLengthM,
+  jibAngleDeg,
+  totalLiftedWeightKg,
 }: {
   craneName?: string | null;
   setupLabel?: string | null;
   sourceLabel?: string | null;
   radiusM: number;
+  boomLengthM?: number | null;
+  jibLengthM?: number | null;
+  jibAngleDeg?: number | null;
+  totalLiftedWeightKg?: number | null;
 }): RangeChartCapacityResult {
   const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
   if (!rule) {
@@ -247,21 +502,31 @@ export function calculateRangeChartCapacity({
     };
   }
 
+  const selectedCurve = bestMatchingCapacityCurve(rule, { radiusM, boomLengthM, jibLengthM, jibAngleDeg });
+  if (selectedCurve) {
+    const capacityKg = conservativeCapacityFromCurve(selectedCurve.points, radiusM);
+    const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve) || selectedCurve.setupAdvice;
+    return {
+      capacityKg,
+      method: "automatic",
+      source: selectedCurve.source,
+      setupAdvice: advice,
+      warning: capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
+        ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
+        : undefined,
+    };
+  }
+
   const capacityKg = conservativeCapacityFromCurve(rule.capacityPoints, radiusM);
   if (capacityKg !== null) {
     return {
       capacityKg,
       method: "automatic",
       source: rule.capacitySource || `${rule.title} structured capacity rule`,
-    };
-  }
-
-  if (rule.capacityPoints?.length) {
-    return {
-      capacityKg: null,
-      method: "manual",
-      source: rule.capacitySource || `${rule.title} structured capacity rule`,
-      warning: `Radius is outside the structured ${rule.title} capacity curve. Check the exact chart manually.`,
+      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg),
+      warning: capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
+        ? `${rule.title} selected setup is over the structured chart capacity at this radius.`
+        : undefined,
     };
   }
 
@@ -269,7 +534,8 @@ export function calculateRangeChartCapacity({
     capacityKg: null,
     method: "manual",
     source: rule.capacitySource || `${rule.title} load chart`,
-    warning: `${rule.title} needs the exact manufacturer/supplier chart for capacity at this radius, boom, counterweight/outrigger setup and accessories.`,
+    warning: `${rule.title} has geometry limits loaded, but this exact boom/jib/counterweight/outrigger setup is not covered by a structured CRM curve. Check the exact manufacturer/supplier chart before approval.`,
+    setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg),
   };
 }
 
@@ -300,8 +566,6 @@ export function calculateRangeChartBearingLoad({
     warning: "Bearing load/reaction cannot be safely auto-calculated from geometry alone. Enter/check the exact outrigger reaction before relying on ground bearing pressure.",
   };
 }
-
-
 
 export function getRangeChartSpecOptions({
   craneName,
