@@ -71,6 +71,22 @@ function firstText(...values: unknown[]) {
   return "";
 }
 
+function tidyDisplayLabel(value: unknown) {
+  const text = clean(value).replace(/\s+/g, " ");
+  if (!text) return "";
+  const words = text.split(" ").filter(Boolean);
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    const key = word.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key) continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(word);
+  }
+  return result.join(" ").trim();
+}
+
 function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(String(value).replace(/,/g, ""));
@@ -200,7 +216,7 @@ function defaultRangeState({
   return {
     enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
     clientName: firstText(sections.range_chart_client, defaultClientName),
-    craneName: firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName),
+    craneName: tidyDisplayLabel(firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
     craneSourceMode: firstText(sections.range_chart_crane_source_mode, "selected_crm_crane"),
     externalSpecDocumentId: firstText(sections.range_chart_external_spec_document_id),
@@ -403,7 +419,8 @@ export default function RangeChartBuilder({
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
-  const specOptions = getRangeChartSpecOptions({ craneName: chart.craneName, setupLabel: chart.selectedSetupLabel, sourceLabel: chart.externalSpecDocumentTitle });
+  const cleanCraneName = tidyDisplayLabel(chart.craneName);
+  const specOptions = getRangeChartSpecOptions({ craneName: cleanCraneName, setupLabel: chart.selectedSetupLabel, sourceLabel: chart.externalSpecDocumentTitle });
   const structuredProfileOptions = specOptions.profileOptions;
   const structuredJibOptions = specOptions.jibOptions;
   const activeStructuredProfile = structuredProfileOptions.find((item) => chart.selectedSetupKey === `profile:${item.key}` || chart.selectedSetupKey === item.key) ?? null;
@@ -419,7 +436,7 @@ export default function RangeChartBuilder({
     ? structuredProfileOptions.map((profile) => ({ value: `profile:${profile.key}`, label: profile.label }))
     : normalisedSetups.map((setup) => ({ value: setup.key, label: setup.label }));
   const limits = getRangeChartLimits({
-    craneName: chart.craneName,
+    craneName: cleanCraneName,
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
     setupMaxBoomLengthM: maybeNumber(setupMaxBoom),
@@ -432,7 +449,7 @@ export default function RangeChartBuilder({
   const displayedBoomLength = enteredBoomLength ?? calc.boomLength;
   const displayedBoomAngle = enteredBoomAngle ?? calc.boomAngle;
   const capacityResult = calculateRangeChartCapacity({
-    craneName: chart.craneName,
+    craneName: cleanCraneName,
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
     radiusM: numbers.radiusM,
@@ -442,7 +459,7 @@ export default function RangeChartBuilder({
     totalLiftedWeightKg: calc.totalLiftedWeight,
   });
   const bearingResult = calculateRangeChartBearingLoad({
-    craneName: chart.craneName,
+    craneName: cleanCraneName,
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
     totalLiftedWeightKg: calc.totalLiftedWeight,
@@ -491,7 +508,8 @@ export default function RangeChartBuilder({
   const chartWarnings = [...chartDangerWarnings, ...chartAdvisories];
 
   function update(key: keyof RangeChartState, value: string | boolean) {
-    setChart((prev) => ({ ...prev, [key]: value }));
+    const nextValue = key === "craneName" ? tidyDisplayLabel(value) : value;
+    setChart((prev) => ({ ...prev, [key]: nextValue }));
   }
 
   function limitedValueForKey(key: keyof RangeChartState, value: string) {
@@ -656,7 +674,7 @@ export default function RangeChartBuilder({
       const payload: Record<string, string> = {
         range_chart_enabled: chart.enabled ? "true" : "false",
         range_chart_client: chart.clientName,
-        range_chart_crane_name: chart.craneName,
+        range_chart_crane_name: cleanCraneName,
         range_chart_notes: chart.notes,
         range_chart_crane_source_mode: chart.craneSourceMode,
         range_chart_external_spec_document_id: chart.externalSpecDocumentId,
@@ -913,7 +931,7 @@ function RangeChartSvg({
   for (let value = 0; value <= scale.maxY + 0.001; value += minorStep) horizontalLines.push(round(value, 2));
 
   const clientLines = splitSvgText(chart.clientName || "—", 42, 1);
-  const craneLines = splitSvgText(chart.craneName || "—", 42, 2);
+  const craneLines = splitSvgText(cleanCraneName || "—", 42, 2);
   const noteLines = splitSvgText(chart.notes || chart.selectedSetupLabel || "Lift sketch", 58, 1);
   const setupLines = splitSvgText(chart.selectedSetupLabel || "Manual check", 34, 2);
   const gapLabel = horizontalGapM >= 0 ? fmt(horizontalGapM) : `${fmt(Math.abs(horizontalGapM))} short`;
