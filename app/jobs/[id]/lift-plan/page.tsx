@@ -8,6 +8,7 @@ import RangeChartBuilder from "./RangeChartBuilder";
 import DocumentUploadForm from "../DocumentUploadForm";
 import AssetDocumentManager from "../../../components/AssetDocumentManager";
 import LiftPlanAppendixSelector from "./LiftPlanAppendixSelector";
+import LiftPlanArchiveManager from "./LiftPlanArchiveManager";
 import {
   getCraneAppendixAssetsForPack,
   getJobSpecAppendixAssetsForPack,
@@ -145,6 +146,63 @@ function parseSelectedAppendixKeys(value: unknown): string[] | null {
   } catch {
     return raw.split(",").map((item) => item.trim()).filter(Boolean);
   }
+}
+
+function archiveStatusLabel(value: unknown) {
+  switch (String(value ?? "").trim()) {
+    case "approved_copy":
+      return "Approved copy";
+    case "superseded":
+      return "Superseded";
+    case "client_copy":
+      return "Client copy";
+    case "other":
+      return "Other";
+    case "previous_draft":
+    default:
+      return "Previous draft";
+  }
+}
+
+async function loadLiftPlanPdfArchives(supabase: ReturnType<typeof createSupabaseServerClient>, jobId: string) {
+  const { data, error } = await supabase
+    .from("lift_plan_pdf_archives")
+    .select("id, title, archive_status, notes, file_name, file_path, file_type, file_size_bytes, uploaded_by_email, created_at")
+    .eq("job_id", jobId)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    return { archives: [] as any[], error: error.message };
+  }
+
+  const rows = (data as any[]) ?? [];
+  const paths = rows.map((row) => String(row?.file_path ?? "").trim()).filter(Boolean);
+  const signedMap = new Map<string, string>();
+
+  if (paths.length) {
+    const { data: signed } = await supabase.storage.from("job-documents").createSignedUrls(paths, 60 * 60);
+    for (const item of signed ?? []) {
+      if (item?.path && item?.signedUrl) signedMap.set(String(item.path), String(item.signedUrl));
+    }
+  }
+
+  return {
+    archives: rows.map((row) => {
+      const path = String(row?.file_path ?? "").trim();
+      return {
+        id: String(row?.id ?? ""),
+        title: row?.title ? String(row.title) : archiveStatusLabel(row?.archive_status),
+        archive_status: row?.archive_status ? String(row.archive_status) : "previous_draft",
+        notes: row?.notes ? String(row.notes) : null,
+        file_name: row?.file_name ? String(row.file_name) : null,
+        file_size_bytes: Number(row?.file_size_bytes ?? 0) || null,
+        uploaded_by_email: row?.uploaded_by_email ? String(row.uploaded_by_email) : null,
+        created_at: row?.created_at ? String(row.created_at) : null,
+        signed_url: path ? signedMap.get(path) ?? null : null,
+      };
+    }),
+    error: "",
+  };
 }
 
 export default async function JobLiftPlanPage({
@@ -301,7 +359,7 @@ export default async function JobLiftPlanPage({
     }));
   const savedAppendixSelection = parseSelectedAppendixKeys(packSections.selected_appendix_keys);
 
-  const errorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || personnelError?.message || "";
+  const baseErrorMessage = jobError?.message || liftPlanError?.message || documentsError?.message || personnelError?.message || "";
 
   const deletedOk = String(searchParams?.deleted ?? "") === "1";
   const deleteError = String(searchParams?.delete_error ?? "").trim();
@@ -373,6 +431,8 @@ export default async function JobLiftPlanPage({
 
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
+  const { archives: liftPlanPdfArchives, error: archiveError } = await loadLiftPlanPdfArchives(supabase, params.id);
+  const errorMessage = baseErrorMessage || archiveError || "";
 
   return (
     <ClientShell>
@@ -493,6 +553,11 @@ export default async function JobLiftPlanPage({
             ) : null}
           </div>
         </div>
+
+        <LiftPlanArchiveManager
+          jobId={params.id}
+          initialArchives={liftPlanPdfArchives}
+        />
 
         <details style={uploadCard} open={craneIsExternal || jobSpecDocuments.length > 0}>
           <summary style={sectionSummary}>
