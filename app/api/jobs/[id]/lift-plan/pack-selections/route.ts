@@ -93,6 +93,10 @@ function sanitiseSections(input: Record<string, unknown>) {
   return next;
 }
 
+function containsRangeChartData(sections: DynamicPackSectionsPayload) {
+  return Object.keys(sections).some((key) => key.startsWith("range_chart_"));
+}
+
 function liftPlanColumnPatchFromRangeChart(sections: DynamicPackSectionsPayload) {
   const patch: Record<string, number | string> = {};
   const loadWeight = cleanNumber(sections.range_chart_load_weight_kg);
@@ -107,7 +111,7 @@ function liftPlanColumnPatchFromRangeChart(sections: DynamicPackSectionsPayload)
 }
 
 function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
-  if (!Object.prototype.hasOwnProperty.call(sections, "range_chart_enabled")) return sections;
+  if (!containsRangeChartData(sections)) return sections;
 
   const next: DynamicPackSectionsPayload = { ...sections };
   const boomLength = cleanNumber(sections.range_chart_boom_length_m);
