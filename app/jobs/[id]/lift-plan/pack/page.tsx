@@ -652,7 +652,6 @@ function rangeChartCalculated(sections: StringMap) {
   const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
   const craneName = rangeText(sections, "range_chart_crane_name", "");
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
-  const capacityResult = calculateRangeChartCapacity({ craneName, setupLabel: selectedSetupLabel, sourceLabel, radiusM });
   const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
@@ -674,6 +673,16 @@ function rangeChartCalculated(sections: StringMap) {
   const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
   const accessoryWeightKg = rangeKg(sections, "range_chart_accessory_weight_kg");
   const totalLiftedWeightKg = rangeKg(sections, "range_chart_total_lifted_weight_kg") ?? ((loadWeightKg ?? 0) + (accessoryWeightKg ?? 0) || null);
+  const capacityResult = calculateRangeChartCapacity({
+    craneName,
+    setupLabel: selectedSetupLabel,
+    sourceLabel,
+    radiusM,
+    boomLengthM,
+    jibLengthM,
+    jibAngleDeg,
+    totalLiftedWeightKg,
+  });
   const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg") ?? capacityResult.capacityKg;
   const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
