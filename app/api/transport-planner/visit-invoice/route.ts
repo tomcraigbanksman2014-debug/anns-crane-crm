@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 
 const VALID_STATUSES = new Set(["Not Invoiced", "Invoiced", "Part Paid", "Paid"]);
+const POSITIVE_STATUSES = new Set(["invoiced", "part paid", "paid"]);
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 function clean(value: unknown) {
@@ -20,63 +21,75 @@ function lower(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function normaliseInvoiceStatus(value: unknown) {
-  const raw = lower(value);
-  if (raw === "paid") return "Paid";
-  if (raw === "part paid" || raw === "part_paid") return "Part Paid";
-  if (raw === "invoiced") return "Invoiced";
-  return "Not Invoiced";
-}
-
 function weekdayFromDate(dateOnly: string) {
   const parsed = new Date(`${dateOnly}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return "";
   return WEEKDAYS[parsed.getDay()] ?? "";
 }
 
-function aggregateVisitInvoiceStatus(rows: any[]) {
-  const statuses = rows.map((row) => normaliseInvoiceStatus(row?.invoice_status));
-  const billableStatuses = statuses.filter((status) => status !== "Not Invoiced");
-
-  if (billableStatuses.length === 0) return "Not Invoiced";
-  if (billableStatuses.length === statuses.length && billableStatuses.every((status) => status === "Paid")) return "Paid";
-  if (billableStatuses.some((status) => status === "Part Paid")) return "Part Paid";
-  return "Invoiced";
+function parseDateOnly(value: unknown) {
+  const dateOnly = cleanDate(value);
+  if (!dateOnly) return null;
+  const parsed = new Date(`${dateOnly}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-async function syncTransportJobInvoiceStatus(supabase: any, transportJobId: string, requestedStatus: string) {
-  const { data: job, error: jobError } = await supabase
-    .from("transport_jobs")
-    .select("id, price_mode, invoice_status")
-    .eq("id", transportJobId)
-    .single();
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
 
-  if (jobError) throw new Error(jobError.message);
+function dateRangeInclusive(startDate: unknown, endDate: unknown) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate ?? startDate);
+  if (!start || !end) return [];
 
-  let nextJobStatus = normaliseInvoiceStatus(requestedStatus);
+  const from = end < start ? end : start;
+  const to = end < start ? start : end;
+  const dates: string[] = [];
+  const cursor = new Date(from);
 
-  // Per-day priced jobs can have mixed visit statuses. Recalculate the parent
-  // job status from all transport visit rows. Full-job priced jobs should follow
-  // the clicked planner status directly so the job page and planner stay aligned.
-  if (lower(job?.price_mode) === "per_day") {
-    const { data: visitRows, error: visitError } = await supabase
-      .from("job_daily_visit_rates")
-      .select("invoice_status")
-      .eq("job_type", "transport")
-      .eq("job_id", transportJobId);
-
-    if (visitError) throw new Error(visitError.message);
-    nextJobStatus = aggregateVisitInvoiceStatus(visitRows ?? []);
+  while (cursor <= to) {
+    dates.push(isoDate(cursor));
+    cursor.setDate(cursor.getDate() + 1);
   }
 
-  const { error: updateError } = await supabase
-    .from("transport_jobs")
-    .update({ invoice_status: nextJobStatus, updated_at: new Date().toISOString() })
-    .eq("id", transportJobId);
+  return dates;
+}
 
-  if (updateError) throw new Error(updateError.message);
+function deriveParentInvoiceStatus(params: {
+  rows: any[];
+  requiredDates: string[];
+  priceMode: string | null | undefined;
+}) {
+  const priceMode = lower(params.priceMode || "full_job");
+  const rows = params.rows ?? [];
+  const byDate = new Map<string, string>();
 
-  return nextJobStatus;
+  for (const row of rows) {
+    const visitDate = cleanDate(row?.visit_date);
+    if (!visitDate) continue;
+    byDate.set(visitDate, String(row?.invoice_status ?? "Not Invoiced"));
+  }
+
+  const statuses =
+    priceMode === "per_day" && params.requiredDates.length > 0
+      ? params.requiredDates.map((date) => byDate.get(date) ?? "Not Invoiced")
+      : rows.map((row) => String(row?.invoice_status ?? "Not Invoiced"));
+
+  const normalised = statuses.map(lower);
+  const anyPositive = normalised.some((status) => POSITIVE_STATUSES.has(status));
+  if (!anyPositive) return "Not Invoiced";
+
+  const anyPartPaid = normalised.includes("part paid");
+  const anyPaid = normalised.includes("paid");
+  const anyNotInvoiced = normalised.some((status) => !POSITIVE_STATUSES.has(status));
+  const allPaid = normalised.length > 0 && normalised.every((status) => status === "paid");
+  const allPositive = normalised.length > 0 && normalised.every((status) => POSITIVE_STATUSES.has(status));
+
+  if (allPaid) return "Paid";
+  if (priceMode === "per_day" && (!allPositive || anyPartPaid || (anyPaid && !allPaid))) return "Part Paid";
+  if (anyPartPaid || anyNotInvoiced) return "Part Paid";
+  return "Invoiced";
 }
 
 export async function POST(req: Request) {
@@ -89,7 +102,7 @@ export async function POST(req: Request) {
 
     const transportJobId = clean(body.transport_job_id ?? body.job_id);
     const visitDate = cleanDate(body.visit_date);
-    const invoiceStatus = normaliseInvoiceStatus(body.invoice_status ?? "Invoiced");
+    const invoiceStatus = clean(body.invoice_status) ?? "Invoiced";
     const invoiceNumber = clean(body.invoice_number);
     const notes = clean(body.notes);
 
@@ -98,6 +111,15 @@ export async function POST(req: Request) {
     if (!VALID_STATUSES.has(invoiceStatus)) {
       return NextResponse.json({ error: "Invalid visit invoice status." }, { status: 400 });
     }
+
+    const { data: transportJob, error: jobError } = await supabase
+      .from("transport_jobs")
+      .select("id, invoice_status, price_mode, transport_date, delivery_date")
+      .eq("id", transportJobId)
+      .maybeSingle();
+
+    if (jobError) return NextResponse.json({ error: jobError.message }, { status: 400 });
+    if (!transportJob) return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
 
     const { data: existingRows, error: existingError } = await supabase
       .from("job_daily_visit_rates")
@@ -110,7 +132,7 @@ export async function POST(req: Request) {
 
     const payload = {
       invoice_status: invoiceStatus,
-      invoice_number: invoiceStatus === "Not Invoiced" ? null : invoiceNumber,
+      invoice_number: invoiceNumber,
       invoice_date:
         invoiceStatus === "Not Invoiced"
           ? null
@@ -119,7 +141,7 @@ export async function POST(req: Request) {
       updated_at: new Date().toISOString(),
     };
 
-    let visitInvoice: any = null;
+    let savedVisitInvoice: any = null;
 
     if ((existingRows ?? []).length > 0) {
       const ids = (existingRows ?? []).map((row: any) => row.id).filter(Boolean);
@@ -133,7 +155,7 @@ export async function POST(req: Request) {
         .single();
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      visitInvoice = data;
+      savedVisitInvoice = data;
     } else {
       const { data, error } = await supabase
         .from("job_daily_visit_rates")
@@ -153,12 +175,35 @@ export async function POST(req: Request) {
         .single();
 
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      visitInvoice = data;
+      savedVisitInvoice = data;
     }
 
-    const jobInvoiceStatus = await syncTransportJobInvoiceStatus(supabase, transportJobId, invoiceStatus);
+    const { data: allVisitRows, error: visitRowsError } = await supabase
+      .from("job_daily_visit_rates")
+      .select("id, job_id, visit_date, invoice_status")
+      .eq("job_type", "transport")
+      .eq("job_id", transportJobId);
 
-    return NextResponse.json({ ok: true, visit_invoice: visitInvoice, job_invoice_status: jobInvoiceStatus });
+    if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
+
+    const requiredDates = dateRangeInclusive(
+      transportJob.transport_date ?? visitDate,
+      transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
+    );
+    const parentInvoiceStatus = deriveParentInvoiceStatus({
+      rows: allVisitRows ?? [],
+      requiredDates,
+      priceMode: transportJob.price_mode,
+    });
+
+    const { error: parentUpdateError } = await supabase
+      .from("transport_jobs")
+      .update({ invoice_status: parentInvoiceStatus, updated_at: new Date().toISOString() })
+      .eq("id", transportJobId);
+
+    if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, visit_invoice: savedVisitInvoice, job_invoice_status: parentInvoiceStatus });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Could not update transport visit invoice status." }, { status: 400 });
   }
