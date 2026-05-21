@@ -153,13 +153,22 @@ function normaliseEquipmentAssignment(allocation: any, relatedJob: any, startDat
 }
 
 function normaliseTransportJob(job: any) {
+  const client = first(job?.clients);
+  const vehicle = first(job?.vehicles);
   return {
     id: job.id,
     transport_number: job.transport_number,
+    customer_name: clean(client?.company_name),
+    vehicle_name: clean(vehicle?.name),
+    vehicle_reg_number: clean(vehicle?.reg_number),
+    job_type: clean(job.job_type),
+    load_description: clean(job.load_description),
     collection_address: job.collection_address,
     delivery_address: job.delivery_address,
     transport_date: clean(job.transport_date),
+    collection_time: clean(job.collection_time),
     delivery_date: clean(job.delivery_date) ?? clean(job.transport_date),
+    delivery_time: clean(job.delivery_time),
     status: job.status,
     allocation_source: "transport_jobs",
   };
@@ -277,7 +286,25 @@ export async function GET(req: Request) {
 
       supabase
         .from("transport_jobs")
-        .select("id, operator_id, transport_number, collection_address, delivery_address, transport_date, delivery_date, status, archived")
+        .select(`
+          id,
+          operator_id,
+          transport_number,
+          client_id,
+          vehicle_id,
+          job_type,
+          collection_address,
+          delivery_address,
+          transport_date,
+          collection_time,
+          delivery_date,
+          delivery_time,
+          load_description,
+          status,
+          archived,
+          clients:client_id (id, company_name),
+          vehicles:vehicle_id (id, name, reg_number)
+        `)
         .eq("archived", false)
         .not("operator_id", "is", null)
         .lte("transport_date", weekEnd)
