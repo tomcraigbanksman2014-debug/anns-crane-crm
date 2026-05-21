@@ -98,6 +98,16 @@ function fmtKg(value: number | null | undefined) {
   return `${Math.round(value).toLocaleString("en-GB")} kg`;
 }
 
+function fmtArea(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return "—";
+  return `${round(value, 3).toLocaleString("en-GB", { maximumFractionDigits: 3 })} m²`;
+}
+
+function fmtPressure(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return "—";
+  return `${Math.round(value).toLocaleString("en-GB")} kg/m² / ${round(value / 1000, 2)} t/m²`;
+}
+
 function fmtLimit(value: number | null | undefined, suffix = "m") {
   return value !== null && value !== undefined && Number.isFinite(value) ? fmt(value, suffix) : "No structured limit";
 }
@@ -435,6 +445,7 @@ export default function RangeChartBuilder({
     craneName: chart.craneName,
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
+    totalLiftedWeightKg: calc.totalLiftedWeight,
   });
   const effectiveChartCapacityKg = capacityResult.capacityKg ?? numberOrNull(chart.chartCapacityKg);
   const effectiveBearingLoadKg = bearingResult.bearingLoadKg ?? numberOrNull(chart.bearingLoadKg);
@@ -446,7 +457,11 @@ export default function RangeChartBuilder({
   const bearingLoadText = effectiveBearingLoadKg ? fmtKg(effectiveBearingLoadKg) : "Manual reaction check";
   const rawJibLength = numberOrNull(chart.jibLengthM);
   const correctedJibLength = rawJibLength !== null && Math.abs(rawJibLength - numbers.jibLengthM) > 0.1;
-  const matPressureText = effectivePressureKgM2 ? `${Math.round(effectivePressureKgM2).toLocaleString("en-GB")} kg/m² / ${round(effectivePressureKgM2 / 1000, 2)} t/m²` : "—";
+  const matPressureText = fmtPressure(effectivePressureKgM2);
+  const matAreaText = fmtArea(calc.matArea);
+  const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
+    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
+    : "Enter mat length and width to calculate bearing pressure from bearing load ÷ mat area.";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -673,7 +688,10 @@ export default function RangeChartBuilder({
         range_chart_bearing_load_kg: effectiveBearingLoadKg ? String(round(effectiveBearingLoadKg, 2)) : "",
         range_chart_bearing_method: bearingResult.method,
         range_chart_bearing_source: bearingResult.source,
+        range_chart_bearing_pressure_kg_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2, 2)) : "",
+        range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
         range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
+        range_chart_bearing_pressure_formula: effectivePressureKgM2 ? matPressureFormulaText : "",
         range_chart_limit_warning: chartWarnings.join(" "),
         range_chart_verification_note: chart.verificationNote,
         range_chart_saved_at: new Date().toISOString(),
@@ -784,7 +802,9 @@ export default function RangeChartBuilder({
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
               <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
+              <ReadOnlyInfo label="Mat area" value={matAreaText} helper="Mat area = length × width. Example: 3m × 1m = 3m²." />
               <ReadOnlyInfo label="Bearing load / reaction" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
+              <ReadOnlyInfo label="Bearing pressure" value={matPressureText} helper={matPressureFormulaText} />
             </div>
             <TextArea label="Verification note" value={chart.verificationNote} onChange={(value) => update("verificationNote", value)} rows={3} />
           </Section>
@@ -826,11 +846,12 @@ export default function RangeChartBuilder({
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
             <Metric label="Bearing load / reaction" value={bearingLoadText} />
+            <Metric label="Mat area" value={matAreaText} />
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
             <Metric label="Bearing pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. The final lift must be checked against the correct manufacturer/supplier load chart, counterweight/ballast, outrigger setup, accessories, ground conditions and appointed-person approval before lifting.
+            Planning sketch only. Bearing pressure is calculated as bearing load/reaction divided by mat area. The final lift must be checked against the correct manufacturer/supplier load chart, counterweight/ballast, outrigger setup, accessories, ground conditions and appointed-person approval before lifting.
           </div>
         </div>
       </div>
