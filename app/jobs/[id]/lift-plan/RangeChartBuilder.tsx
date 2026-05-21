@@ -389,7 +389,7 @@ export default function RangeChartBuilder({
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
-  const [dragging, setDragging] = useState<"hook" | "object" | null>(null);
+  const [dragging, setDragging] = useState<"hook" | "boom" | "object" | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
   const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
@@ -426,6 +426,10 @@ export default function RangeChartBuilder({
     setupLabel: chart.selectedSetupLabel,
     sourceLabel: chart.externalSpecDocumentTitle,
     radiusM: numbers.radiusM,
+    boomLengthM: displayedBoomLength,
+    jibLengthM: numbers.jibLengthM,
+    jibAngleDeg: numbers.jibAngleDeg,
+    totalLiftedWeightKg: calc.totalLiftedWeight,
   });
   const bearingResult = calculateRangeChartBearingLoad({
     craneName: chart.craneName,
@@ -449,7 +453,7 @@ export default function RangeChartBuilder({
   const maxJibExceeded = limits.maxPhysicalJibLengthM ? numbers.jibLengthM > limits.maxPhysicalJibLengthM + 0.01 : false;
   const maxRadiusExceeded = limits.maxRadiusM ? numbers.radiusM > limits.maxRadiusM + 0.01 : false;
   const maxTipHeightExceeded = limits.maxTipHeightM ? numbers.tipHeightM > limits.maxTipHeightM + 0.01 : false;
-  const chartWarnings = [
+  const chartDangerWarnings = [
     calc.clearance < 0 ? `Hook/tip point is ${fmt(Math.abs(calc.clearance))} below the top of the object. Raise the hook point, lower the object height, or choose another crane/setup.` : "",
     horizontalGapM < 0 ? `Hook/radius is ${fmt(Math.abs(horizontalGapM))} short of the object face. Increase radius/reposition the crane, or reduce the object distance.` : "",
     requiredBoomExceeded ? `Required boom length is ${fmt(calc.boomLength)}, which is over the ${fmt(limits.maxBoomLengthM)} maximum for this crane/setup.` : "",
@@ -457,12 +461,19 @@ export default function RangeChartBuilder({
     maxJibExceeded ? `Entered physical jib length is over the ${fmt(limits.maxPhysicalJibLengthM)} maximum for this crane/setup.` : "",
     maxRadiusExceeded ? `Radius is over the ${fmt(limits.maxRadiusM)} structured maximum for this crane/setup.` : "",
     maxTipHeightExceeded ? `Tip/hook height is over the ${fmt(limits.maxTipHeightM)} structured maximum for this crane/setup.` : "",
-    capacityResult.warning || "",
-    bearingResult.warning || "",
     effectiveUtilisation && effectiveUtilisation > 100 ? `Total lifted weight is over the calculated/entered chart capacity by ${round(effectiveUtilisation - 100, 1)}%. Do not approve without selecting a valid setup/chart.` : "",
-    calc.totalLiftedWeight && !effectiveChartCapacityKg ? "Total lifted weight is entered, but chart capacity at radius is not available automatically for this setup. Check the exact load chart before approval." : "",
+    capacityResult.warning && effectiveUtilisation && effectiveUtilisation > 100 ? capacityResult.warning : "",
     correctedJibLength ? `Jib value looked like a max outreach/radius, so the sketch is using ${fmt(numbers.jibLengthM)} as the physical jib length. Enter the actual jib length if different.` : "",
   ].filter(Boolean);
+
+  const chartAdvisories = [
+    capacityResult.setupAdvice || "",
+    capacityResult.warning && !(effectiveUtilisation && effectiveUtilisation > 100) ? capacityResult.warning : "",
+    bearingResult.warning || "",
+    calc.totalLiftedWeight && !effectiveChartCapacityKg ? "Total lifted weight is entered, but chart capacity at radius is not available automatically for this setup. Check the exact load chart before approval." : "",
+  ].filter(Boolean);
+
+  const chartWarnings = [...chartDangerWarnings, ...chartAdvisories];
 
   function update(key: keyof RangeChartState, value: string | boolean) {
     setChart((prev) => ({ ...prev, [key]: value }));
@@ -610,6 +621,14 @@ export default function RangeChartBuilder({
     event.preventDefault();
     if (dragging === "hook") {
       setChart((prev) => syncBoomFromHook({ ...prev, radiusM: String(point.xM), tipHeightM: String(point.yM) }));
+    } else if (dragging === "boom") {
+      setChart((prev) => {
+        const pivotHeight = 1.1;
+        const boomLength = Math.sqrt(Math.pow(point.xM, 2) + Math.pow(point.yM - pivotHeight, 2));
+        const boomAngle = (Math.atan2(point.yM - pivotHeight, point.xM) * 180) / Math.PI;
+        const limitedBoomLength = clampNumber(round(boomLength, 2), limits.maxBoomLengthM);
+        return syncHookFromBoom({ ...prev, boomLengthM: String(limitedBoomLength), boomAngleDeg: String(round(boomAngle, 2)) });
+      });
     } else {
       setChart((prev) => ({ ...prev, objectDistanceM: String(point.xM), objectHeightM: String(point.yM) }));
     }
@@ -681,7 +700,7 @@ export default function RangeChartBuilder({
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Range chart / lift sketch builder</h2>
           <div style={helperText}>
-            Build an AnnS side-on planning sketch for the lift plan pack. Drag the red hook point or blue object on the chart, then save.
+            Build an AnnS side-on planning sketch for the lift plan pack. Drag the boom-head red dot, hook red dot or blue object on the chart, then save.
           </div>
         </div>
         <div style={buttonRowStyle}>
@@ -741,7 +760,7 @@ export default function RangeChartBuilder({
                 ]}
               />
             ) : null}
-            <div style={miniHelpStyle}>Main boom/profile and fly jib/extension are selected separately. The diagram updates when boom length, boom angle, jib length or jib angle are changed.</div>
+            <div style={miniHelpStyle}>Main boom/profile and fly jib/extension are selected separately. Drag the boom-head red dot to set boom length/angle, or drag the hook red dot to set the final hook/radius point.</div>
           </Section>
 
           <Section title="Chart dimensions">
@@ -784,9 +803,14 @@ export default function RangeChartBuilder({
             onPointerUp={() => setDragging(null)}
             onStartDrag={(mode) => setDragging(mode)}
           />
-          {chartWarnings.length ? (
+          {chartDangerWarnings.length ? (
             <div style={dangerBoxStyle}>
-              <strong>Chart warning:</strong> {chartWarnings.join(" ")}
+              <strong>Chart warning:</strong> {chartDangerWarnings.join(" ")}
+            </div>
+          ) : null}
+          {chartAdvisories.length ? (
+            <div style={adviceBoxStyle}>
+              <strong>Setup / chart advice:</strong> {chartAdvisories.join(" ")}
             </div>
           ) : null}
           <div style={metricGridStyle}>
@@ -835,7 +859,7 @@ function RangeChartSvg({
   scale: { maxX: number; maxY: number };
   onPointerMove: (event: PointerEvent<SVGSVGElement>) => void;
   onPointerUp: () => void;
-  onStartDrag: (mode: "hook" | "object") => void;
+  onStartDrag: (mode: "hook" | "boom" | "object") => void;
 }) {
   const viewWidth = 900;
   const viewHeight = 620;
@@ -951,7 +975,7 @@ function RangeChartSvg({
         {numbers.jibLengthM > 0 ? (
           <>
             <line x1={boomEndX} y1={boomEndY} x2={hookX} y2={hookY} stroke="#777" strokeWidth="5" strokeLinecap="round" />
-            <circle cx={boomEndX} cy={boomEndY} r="6" fill="#e11d1d" />
+            <circle cx={boomEndX} cy={boomEndY} r="7" fill="#e11d1d" stroke="#940c0c" strokeWidth="2" onPointerDown={(event) => { event.preventDefault(); onStartDrag("boom"); }} style={{ cursor: "grab" }} />
           </>
         ) : null}
         <circle cx={hookX} cy={hookY} r="9" fill="#e11d1d" stroke="#940c0c" strokeWidth="2" onPointerDown={(event) => { event.preventDefault(); onStartDrag("hook"); }} style={{ cursor: "grab" }} />
@@ -1055,4 +1079,5 @@ const primaryBtnStyle: CSSProperties = { padding: "10px 14px", borderRadius: 10,
 const togglePillStyle: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "8px 12px", background: "#fff", fontWeight: 900 };
 const messageBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontWeight: 700 };
 const warningBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(255,168,0,0.14)", border: "1px solid rgba(255,168,0,0.22)", fontSize: 13, lineHeight: 1.45, fontWeight: 700 };
+const adviceBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(58,166,200,0.10)", border: "1px solid rgba(58,166,200,0.24)", color: "#14536b", fontSize: 13, lineHeight: 1.45, fontWeight: 800 };
 const dangerBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(209,44,44,0.09)", border: "1px solid rgba(209,44,44,0.24)", color: "#7a1515", fontSize: 13, lineHeight: 1.45, fontWeight: 800 };
