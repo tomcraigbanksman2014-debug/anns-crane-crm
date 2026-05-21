@@ -806,6 +806,86 @@ function rangeChartCalculated(sections: StringMap) {
   };
 }
 
+
+type PackAdditionalCraneEntry = {
+  id?: string;
+  crane_name?: string;
+  crane_role?: string;
+  setup_profile?: string;
+  boom_length_m?: string;
+  radius_m?: string;
+  hook_height_m?: string;
+  crane_gross_weight_kg?: string;
+  load_share_kg?: string;
+  accessory_weight_kg?: string;
+  chart_capacity_kg?: string;
+  mat_length_m?: string;
+  mat_width_m?: string;
+  spec_sheet_reference?: string;
+  verification_notes?: string;
+};
+
+function parseAdditionalCraneEntries(value: unknown): PackAdditionalCraneEntry[] {
+  if (!value) return [];
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        id: String(item?.id ?? ""),
+        crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
+        crane_role: String(item?.crane_role ?? item?.craneRole ?? ""),
+        setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
+        boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
+        radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
+        hook_height_m: String(item?.hook_height_m ?? item?.hookHeightM ?? ""),
+        crane_gross_weight_kg: String(item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? ""),
+        load_share_kg: String(item?.load_share_kg ?? item?.loadShareKg ?? ""),
+        accessory_weight_kg: String(item?.accessory_weight_kg ?? item?.accessoryWeightKg ?? ""),
+        chart_capacity_kg: String(item?.chart_capacity_kg ?? item?.chartCapacityKg ?? ""),
+        mat_length_m: String(item?.mat_length_m ?? item?.matLengthM ?? ""),
+        mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
+        spec_sheet_reference: String(item?.spec_sheet_reference ?? item?.specSheetReference ?? ""),
+        verification_notes: String(item?.verification_notes ?? item?.verificationNotes ?? ""),
+      }))
+      .filter((item) => Object.values(item).some((value) => String(value ?? "").trim().length > 0));
+  } catch {
+    return [];
+  }
+}
+
+function additionalCraneNumber(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function additionalCraneCalc(crane: PackAdditionalCraneEntry) {
+  const grossKg = additionalCraneNumber(crane.crane_gross_weight_kg);
+  const loadKg = additionalCraneNumber(crane.load_share_kg) ?? 0;
+  const accessoryKg = additionalCraneNumber(crane.accessory_weight_kg) ?? 0;
+  const totalLiftedKg = loadKg + accessoryKg;
+  const chartCapacityKg = additionalCraneNumber(crane.chart_capacity_kg);
+  const matLengthM = additionalCraneNumber(crane.mat_length_m);
+  const matWidthM = additionalCraneNumber(crane.mat_width_m);
+  const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
+  const bearingLoadKg = grossKg ? (grossKg + totalLiftedKg) * 0.75 : null;
+  const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
+  const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
+  return { grossKg, loadKg, accessoryKg, totalLiftedKg, chartCapacityKg, matLengthM, matWidthM, matAreaM2, bearingLoadKg, bearingPressureKgM2, utilisationPercent };
+}
+
+function formatAdditionalCraneValue(value: unknown, suffix = "") {
+  const text = String(value ?? "").trim();
+  if (!text) return "—";
+  return suffix && /^-?\d+(\.\d+)?$/.test(text) ? `${text}${suffix}` : text;
+}
+
+function formatAdditionalPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: value < 10 ? 1 : 0 })}%`;
+}
+
 function RangeChartPackPage({
   sections,
   headerMonth,
@@ -1188,6 +1268,8 @@ export default async function CraneLiftPlanPackPage({
   const sections: StringMap =
     ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
   const includeRangeChartPage = rangeChartIsEnabled(sections);
+  const additionalCraneEntries = parseAdditionalCraneEntries(sections.additional_cranes_json);
+  const multiCraneEnabled = sections.multi_crane_enabled === "true" || additionalCraneEntries.length > 0;
   const client = flatten((job as any)?.clients)[0] ?? null;
   await attachCraneSpecDocumentsToJob(supabase, job as any);
 
@@ -1853,6 +1935,49 @@ export default async function CraneLiftPlanPackPage({
             {areaField("ground_bearing_notes", rangeGroundCalc?.bearingPressureFormula || `Calculation used: bearing load / outrigger reaction ÷ selected mat area in m². Bearing load is estimated as (crane planning/gross weight + total lifted load) × 0.75 unless an exact published outrigger reaction is available. Example: a 1m x 3m mat has an area of 3m², so a 30t bearing load gives 10t/m². Final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.`, 5, true)}
           </div>
         </BoxedParagraph>
+
+        {multiCraneEnabled ? (
+          <BoxedParagraph title={inputField("multi_crane_title", "Multi-crane / additional crane details")}>
+            <div style={{ display: "grid", gap: 12 }}>
+              <InfoTable
+                rows={[
+                  [inputField("multi_crane_label_lift_type", "Lift type / arrangement"), calculatedInputField("multi_crane_lift_type", sections.multi_crane_lift_type || "Assisted / multiple crane lift")],
+                  [inputField("multi_crane_label_notes", "AP / lift sequence notes"), areaField("multi_crane_notes", sections.multi_crane_notes || "Additional crane details must be verified by the appointed person. No tandem or shared-load lift is to take place unless the lift sequence, load share, crane duties, ground bearing and communications have been planned and authorised.", 4, true)],
+                ]}
+              />
+              {additionalCraneEntries.length ? additionalCraneEntries.map((additionalCrane, index) => {
+                const calc = additionalCraneCalc(additionalCrane);
+                return (
+                  <div key={additionalCrane.id || index} style={{ border: "1px solid #111", padding: 10 }}>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>Additional crane {index + 1}</div>
+                    <InfoTable
+                      rows={[
+                        ["Crane", calculatedInputField(`additional_crane_${index}_name`, additionalCrane.crane_name || "—")],
+                        ["Role", calculatedInputField(`additional_crane_${index}_role`, additionalCrane.crane_role || "—")],
+                        ["Setup / profile / chart", calculatedInputField(`additional_crane_${index}_setup`, additionalCrane.setup_profile || "—")],
+                        ["Spec sheet / chart reference", calculatedInputField(`additional_crane_${index}_spec`, additionalCrane.spec_sheet_reference || "—")],
+                        ["Boom length", calculatedInputField(`additional_crane_${index}_boom`, formatAdditionalCraneValue(additionalCrane.boom_length_m, " m"))],
+                        ["Radius", calculatedInputField(`additional_crane_${index}_radius`, formatAdditionalCraneValue(additionalCrane.radius_m, " m"))],
+                        ["Hook / lift height", calculatedInputField(`additional_crane_${index}_height`, formatAdditionalCraneValue(additionalCrane.hook_height_m, " m"))],
+                        ["Chart capacity at radius", calculatedInputField(`additional_crane_${index}_capacity`, formatKgAndTonnes(calc.chartCapacityKg))],
+                        ["Crane planning / gross weight", calculatedInputField(`additional_crane_${index}_gross`, formatKgAndTonnes(calc.grossKg))],
+                        ["Load share / load on this crane", calculatedInputField(`additional_crane_${index}_load_share`, formatKgAndTonnes(calc.loadKg))],
+                        ["Accessories on this crane", calculatedInputField(`additional_crane_${index}_accessories`, formatKgAndTonnes(calc.accessoryKg))],
+                        ["Total lifted on this crane", calculatedInputField(`additional_crane_${index}_total`, formatKgAndTonnes(calc.totalLiftedKg))],
+                        ["Utilisation", calculatedInputField(`additional_crane_${index}_utilisation`, formatAdditionalPercent(calc.utilisationPercent))],
+                        ["Selected mat / spreader", calculatedInputField(`additional_crane_${index}_mat`, calc.matLengthM && calc.matWidthM ? `${calc.matLengthM}m x ${calc.matWidthM}m` : "—")],
+                        ["Mat bearing area", calculatedInputField(`additional_crane_${index}_mat_area`, formatAreaM2(calc.matAreaM2))],
+                        ["Estimated bearing load / outrigger reaction", calculatedInputField(`additional_crane_${index}_bearing`, formatKgAndTonnes(calc.bearingLoadKg))],
+                        ["Estimated bearing pressure", calculatedInputField(`additional_crane_${index}_pressure`, calc.bearingPressureKgM2 ? `${calc.bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(calc.bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—")],
+                        ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Verify exact manufacturer/supplier chart, radius, boom/jib setup, load share, hook block/accessories, outrigger setup, ground conditions and communication method before lifting.", 4, true)],
+                      ]}
+                    />
+                  </div>
+                );
+              }) : <div>No additional crane details entered.</div>}
+            </div>
+          </BoxedParagraph>
+        ) : null}
 
         <BoxedParagraph title={inputField("crane_specifications_title", "Crane specifications")}>
           {<EditableTextarea name="crane_details" defaultValue={craneDetailsText} rows={8} />}
