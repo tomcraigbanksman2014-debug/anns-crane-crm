@@ -3,6 +3,12 @@
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import type { CraneSetupOption, EquipmentProfile } from "../../lib/ai/equipmentProfiles";
+import {
+  calculateRangeChartBearingLoad,
+  calculateRangeChartCapacity,
+  getRangeChartLimits,
+  getRangeChartSpecOptions,
+} from "../../lib/rangeChartSpecs";
 
 type CraneOption = {
   value: string;
@@ -77,8 +83,12 @@ type LiftPlanData = {
 
 type AdditionalCraneEntry = {
   id: string;
+  selected_crane_option_value: string;
+  selected_profile_key: string;
+  selected_jib_key: string;
   crane_name: string;
   crane_role: string;
+  planned_use: string;
   setup_profile: string;
   boom_length_m: string;
   radius_m: string;
@@ -243,8 +253,12 @@ function newAdditionalCraneEntry(): AdditionalCraneEntry {
   const id = `crane-${Date.now()}-${Math.round(Math.random() * 100000)}`;
   return {
     id,
+    selected_crane_option_value: "",
+    selected_profile_key: "",
+    selected_jib_key: "",
     crane_name: "",
-    crane_role: "Assisting crane",
+    crane_role: "Alternative crane for same work",
+    planned_use: "",
     setup_profile: "",
     boom_length_m: "",
     radius_m: "",
@@ -265,8 +279,12 @@ function normaliseAdditionalCrane(item: any, index = 0): AdditionalCraneEntry {
   return {
     ...fallback,
     id: String(item?.id || `crane-${index + 1}`),
+    selected_crane_option_value: String(item?.selected_crane_option_value ?? item?.selectedCraneOptionValue ?? ""),
+    selected_profile_key: String(item?.selected_profile_key ?? item?.selectedProfileKey ?? ""),
+    selected_jib_key: String(item?.selected_jib_key ?? item?.selectedJibKey ?? ""),
     crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
-    crane_role: String(item?.crane_role ?? item?.craneRole ?? "Assisting crane"),
+    crane_role: String(item?.crane_role ?? item?.craneRole ?? "Alternative crane for same work"),
+    planned_use: String(item?.planned_use ?? item?.plannedUse ?? ""),
     setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
     boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
     radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
@@ -299,6 +317,20 @@ function additionalCraneTotals(crane: AdditionalCraneEntry) {
   const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
   const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
   return { grossKg, loadKg, accessoryKg, totalLiftedKg, chartCapacityKg, matAreaM2, bearingLoadKg, bearingPressureKgM2, utilisationPercent };
+}
+
+function formatAutoKgInput(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "";
+  return String(Math.round(value));
+}
+
+function formatAutoMInput(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "";
+  return String(Number(value.toFixed(2)));
+}
+
+function buildAdditionalCraneSetupLabel(profileLabel: string, jibLabel: string) {
+  return [profileLabel, jibLabel && !/^no jib/i.test(jibLabel) ? jibLabel : ""].filter(Boolean).join(" / ");
 }
 
 function formatKg(value: number | null | undefined) {
@@ -446,6 +478,7 @@ export default function LiftPlanForm({
   personnelOptions,
   craneSetupOptions,
   craneSetupOptionsByAllocation,
+  alternativeCraneOptions,
 }: {
   jobId: string;
   initial: LiftPlanData | null;
@@ -454,6 +487,7 @@ export default function LiftPlanForm({
   personnelOptions?: PersonOption[];
   craneSetupOptions?: CraneSetupOption[];
   craneSetupOptionsByAllocation?: Record<string, CraneSetupOption[]>;
+  alternativeCraneOptions?: CraneOption[];
 }) {
   const initialPackSections = (initial?.pack_sections ?? {}) as Record<string, string | null>;
 
@@ -511,7 +545,7 @@ export default function LiftPlanForm({
     custom_crane_jib_outreach_m: initialPackSections.custom_crane_jib_outreach_m ?? "",
     custom_crane_max_radius_m: initialPackSections.custom_crane_max_radius_m ?? "",
     multi_crane_enabled: initialPackSections.multi_crane_enabled === "true" || Boolean(initialPackSections.additional_cranes_json),
-    multi_crane_lift_type: initialPackSections.multi_crane_lift_type ?? "Assisted / multiple crane lift",
+    multi_crane_lift_type: initialPackSections.multi_crane_lift_type ?? "Alternative crane options for same lift / multi-day job",
     multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
     additional_cranes_json: initialPackSections.additional_cranes_json ?? "[]",
   }));
@@ -553,6 +587,23 @@ export default function LiftPlanForm({
   const matBearingLoadKg = parseWeightToKg(form.ground_bearing_bearing_load);
   const matPressureText = formatPressure(matBearingLoadKg, matAreaM2);
   const additionalCranes = useMemo(() => safeJsonParseArray(form.additional_cranes_json), [form.additional_cranes_json]);
+
+  const additionalCraneSelectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const source = (alternativeCraneOptions?.length ? alternativeCraneOptions : craneOptions) ?? [];
+    return source.filter((option) => {
+      const key = String(option.craneId || option.label || option.value || "").toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [alternativeCraneOptions, craneOptions]);
+
+  const multiCraneArrangementOptions = useMemo(() => [
+    { value: "Alternative crane options for same lift / multi-day job", label: "Alternative crane options for same lift / multi-day job" },
+    { value: "Assisting crane - separate task", label: "Assisting crane - separate task" },
+    { value: "Tandem / shared-load lift", label: "Tandem / shared-load lift" },
+  ], []);
 
   const personnelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -680,23 +731,111 @@ export default function LiftPlanForm({
   }
 
 
+  function autoPopulateAdditionalCrane(crane: AdditionalCraneEntry): AdditionalCraneEntry {
+    const selectedCrane = additionalCraneSelectOptions.find((option) => option.value === crane.selected_crane_option_value) ?? null;
+    const craneName = String(crane.crane_name || selectedCrane?.label || "").trim();
+    const specOptions = getRangeChartSpecOptions({ craneName, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
+    const selectedProfile = specOptions.profileOptions.find((option) => option.key === crane.selected_profile_key) ?? specOptions.profileOptions[0] ?? null;
+    const selectedJib = specOptions.jibOptions.find((option) => option.key === crane.selected_jib_key) ?? specOptions.jibOptions[0] ?? null;
+    const setupLabel = buildAdditionalCraneSetupLabel(selectedProfile?.label ?? crane.setup_profile, selectedJib?.label ?? "");
+    const limits = getRangeChartLimits({
+      craneName,
+      setupLabel,
+      sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+      setupMaxBoomLengthM: selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? null,
+      setupMaxRadiusM: selectedJib?.maxRadiusM ?? selectedProfile?.maxRadiusM ?? null,
+      setupMaxTipHeightM: selectedJib?.maxTipHeightM ?? selectedProfile?.maxTipHeightM ?? null,
+      setupMaxPhysicalJibLengthM: selectedJib?.lengthM ?? null,
+    });
+
+    const loadKg = numberOrNull(crane.load_share_kg) ?? 0;
+    const accessoryKg = numberOrNull(crane.accessory_weight_kg) ?? 0;
+    const totalLiftedWeightKg = loadKg + accessoryKg;
+    const boomLengthM = numberOrNull(crane.boom_length_m) ?? selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
+    const radiusM = numberOrNull(crane.radius_m);
+    const jibLengthM = selectedJib?.lengthM ?? numberOrNull(crane.selected_jib_key ? crane.boom_length_m : null) ?? null;
+
+    const capacity = radiusM
+      ? calculateRangeChartCapacity({
+          craneName,
+          setupLabel,
+          sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+          radiusM,
+          boomLengthM,
+          jibLengthM,
+          totalLiftedWeightKg,
+        })
+      : null;
+    const bearing = calculateRangeChartBearingLoad({
+      craneName,
+      setupLabel,
+      sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+      totalLiftedWeightKg,
+    });
+
+    const next: AdditionalCraneEntry = {
+      ...crane,
+      crane_name: craneName,
+      setup_profile: setupLabel || crane.setup_profile,
+      spec_sheet_reference: selectedProfile?.source || selectedJib?.source || specOptions.rule?.capacitySource || crane.spec_sheet_reference,
+      boom_length_m: crane.boom_length_m || formatAutoMInput(boomLengthM),
+      crane_gross_weight_kg: limits.planningWeightKg ? formatAutoKgInput(limits.planningWeightKg) : crane.crane_gross_weight_kg,
+      chart_capacity_kg: capacity?.capacityKg ? formatAutoKgInput(capacity.capacityKg) : crane.chart_capacity_kg,
+    };
+
+    if (!next.verification_notes && (capacity?.setupAdvice || capacity?.source || bearing?.source)) {
+      next.verification_notes = [
+        capacity?.setupAdvice || capacity?.source,
+        bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
+        "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
+      ].filter(Boolean).join("\n");
+    }
+
+    return next;
+  }
+
   function setAdditionalCranes(nextCranes: AdditionalCraneEntry[]) {
+    const normalised = nextCranes.map((crane) => autoPopulateAdditionalCrane(crane));
     setForm((prev) => ({
       ...prev,
-      multi_crane_enabled: nextCranes.length > 0 ? true : prev.multi_crane_enabled,
-      additional_cranes_json: stringifyAdditionalCranes(nextCranes),
+      multi_crane_enabled: normalised.length > 0 ? true : prev.multi_crane_enabled,
+      additional_cranes_json: stringifyAdditionalCranes(normalised),
     }));
   }
 
   function addAdditionalCrane() {
     if (locked) return;
-    const next = [...additionalCranes, newAdditionalCraneEntry()];
+    const first = additionalCraneSelectOptions[0] ?? null;
+    const entry = newAdditionalCraneEntry();
+    if (first) {
+      entry.selected_crane_option_value = first.value;
+      entry.crane_name = first.label;
+    }
+    const next = [...additionalCranes, entry];
     setAdditionalCranes(next);
   }
 
   function updateAdditionalCrane(id: string, key: keyof AdditionalCraneEntry, value: string) {
     if (locked) return;
-    const next = additionalCranes.map((item) => item.id === id ? { ...item, [key]: value } : item);
+    const next = additionalCranes.map((item) => {
+      if (item.id !== id) return item;
+      const changed = { ...item, [key]: value };
+      if (key === "selected_crane_option_value") {
+        const selected = additionalCraneSelectOptions.find((option) => option.value === value) ?? null;
+        changed.crane_name = selected?.label || "";
+        changed.selected_profile_key = "";
+        changed.selected_jib_key = "";
+        changed.setup_profile = "";
+        changed.spec_sheet_reference = "";
+        changed.chart_capacity_kg = "";
+        changed.crane_gross_weight_kg = "";
+        changed.verification_notes = "";
+      }
+      if (key === "selected_profile_key" || key === "selected_jib_key" || key === "radius_m" || key === "load_share_kg" || key === "accessory_weight_kg") {
+        changed.chart_capacity_kg = key === "radius_m" || key === "selected_profile_key" || key === "selected_jib_key" ? "" : changed.chart_capacity_kg;
+      }
+      return changed;
+    });
     setAdditionalCranes(next);
   }
 
@@ -712,6 +851,7 @@ export default function LiftPlanForm({
     const pressure = formatPressure(parseWeightToKg(cleanedPayload.ground_bearing_bearing_load), area);
     const payloadWithCalculatedSections: LiftPlanData = {
       ...cleanedPayload,
+      additional_cranes_json: stringifyAdditionalCranes(safeJsonParseArray(cleanedPayload.additional_cranes_json).map((crane) => autoPopulateAdditionalCrane(crane))),
       ground_bearing_mat_area_m2: area ? String(area) : cleanedPayload.ground_bearing_mat_area_m2 ?? "",
       ground_bearing_pressure: pressure !== "—" ? pressure : cleanedPayload.ground_bearing_pressure ?? "",
     };
@@ -864,7 +1004,7 @@ export default function LiftPlanForm({
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
 
-      <Section title="Multi-crane / additional crane section">
+      <Section title="Alternative cranes / multi-day crane options">
         <div style={tickRow}>
           <label style={tickLabel}>
             <input
@@ -873,16 +1013,16 @@ export default function LiftPlanForm({
               onChange={(e) => update("multi_crane_enabled", e.target.checked)}
               disabled={locked}
             />
-            Enable multi-crane / assisting crane details
+            Enable alternative / additional crane details
           </label>
           <button type="button" onClick={addAdditionalCrane} disabled={locked} style={secondaryBtn}>+ Add another crane</button>
         </div>
         <div style={grid2}>
-          <Field label="Lift type / arrangement" value={form.multi_crane_lift_type ?? ""} onChange={(v) => update("multi_crane_lift_type", v)} disabled={locked} />
+          <SelectField label="Lift type / arrangement" value={form.multi_crane_lift_type ?? "Alternative crane options for same lift / multi-day job"} onChange={(v) => update("multi_crane_lift_type", v)} disabled={locked} options={multiCraneArrangementOptions} />
         </div>
-        <TextAreaField label="Multi-crane notes / AP instructions" value={form.multi_crane_notes ?? ""} onChange={(v) => update("multi_crane_notes", v)} disabled={locked} rows={3} />
+        <TextAreaField label="Alternative crane notes / AP instructions" value={form.multi_crane_notes ?? ""} onChange={(v) => update("multi_crane_notes", v)} disabled={locked} rows={3} />
         {additionalCranes.length === 0 ? (
-          <div style={helperText}>Add a second crane here if the lift plan needs an assisting crane, tailing crane, support crane or tandem/shared lift details. The main selected crane remains controlled by the range chart above.</div>
+          <div style={helperText}>Add another crane here when the same planned work may be carried out with a different crane on a different day. The main selected crane remains controlled by the range chart above. Use the tandem/shared-load option only where two cranes lift the same load at the same time.</div>
         ) : null}
         {additionalCranes.map((crane, index) => {
           const totals = additionalCraneTotals(crane);
@@ -890,37 +1030,75 @@ export default function LiftPlanForm({
           return (
             <div key={crane.id} style={multiCraneCard}>
               <div style={multiCraneHeader}>
-                <strong>Additional crane {index + 1}</strong>
+                <strong>Crane option {index + 1}</strong>
                 <button type="button" onClick={() => removeAdditionalCrane(crane.id)} disabled={locked} style={smallDangerBtn}>Remove</button>
               </div>
-              <div style={grid2}>
-                <Field label="Crane name / model" value={crane.crane_name} onChange={(v) => updateAdditionalCrane(crane.id, "crane_name", v)} disabled={locked} />
-                <Field label="Role in lift" value={crane.crane_role} onChange={(v) => updateAdditionalCrane(crane.id, "crane_role", v)} disabled={locked} />
-                <Field label="Setup / profile / chart used" value={crane.setup_profile} onChange={(v) => updateAdditionalCrane(crane.id, "setup_profile", v)} disabled={locked} />
-                <Field label="Spec sheet / chart reference" value={crane.spec_sheet_reference} onChange={(v) => updateAdditionalCrane(crane.id, "spec_sheet_reference", v)} disabled={locked} />
-                <Field label="Boom length (m)" type="number" step="0.01" value={crane.boom_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "boom_length_m", v)} disabled={locked} />
-                <Field label="Radius (m)" type="number" step="0.01" value={crane.radius_m} onChange={(v) => updateAdditionalCrane(crane.id, "radius_m", v)} disabled={locked} />
-                <Field label="Hook / lift height (m)" type="number" step="0.01" value={crane.hook_height_m} onChange={(v) => updateAdditionalCrane(crane.id, "hook_height_m", v)} disabled={locked} />
-                <Field label="Chart capacity at radius (kg)" type="number" step="1" value={crane.chart_capacity_kg} onChange={(v) => updateAdditionalCrane(crane.id, "chart_capacity_kg", v)} disabled={locked} />
-                <Field label="Crane planning / gross weight (kg)" type="number" step="1" value={crane.crane_gross_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "crane_gross_weight_kg", v)} disabled={locked} />
-                <Field label="Load share / load on this crane (kg)" type="number" step="1" value={crane.load_share_kg} onChange={(v) => updateAdditionalCrane(crane.id, "load_share_kg", v)} disabled={locked} />
-                <Field label="Accessories on this crane (kg)" type="number" step="1" value={crane.accessory_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "accessory_weight_kg", v)} disabled={locked} />
-                <Field label="Mat length (m)" type="number" step="0.01" value={crane.mat_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_length_m", v)} disabled={locked} />
-                <Field label="Mat width (m)" type="number" step="0.01" value={crane.mat_width_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_width_m", v)} disabled={locked} />
-              </div>
+              {(() => {
+                const selectedCrane = additionalCraneSelectOptions.find((option) => option.value === crane.selected_crane_option_value) ?? null;
+                const craneNameForSpecs = crane.crane_name || selectedCrane?.label || "";
+                const specOptions = getRangeChartSpecOptions({ craneName: craneNameForSpecs, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
+                const profileOptions = specOptions.profileOptions;
+                const jibOptions = specOptions.jibOptions;
+                return (
+                  <div style={grid2}>
+                    <SelectField
+                      label="Crane option from CRM/spec library"
+                      value={crane.selected_crane_option_value}
+                      onChange={(v) => updateAdditionalCrane(crane.id, "selected_crane_option_value", v)}
+                      disabled={locked}
+                      options={[{ value: "", label: "Select crane…" }, ...additionalCraneSelectOptions.map((option) => ({ value: option.value, label: option.label }))]}
+                    />
+                    {!crane.selected_crane_option_value ? (
+                      <Field label="Manual crane name / model" value={crane.crane_name} onChange={(v) => updateAdditionalCrane(crane.id, "crane_name", v)} disabled={locked} />
+                    ) : null}
+                    <Field label="Use / role for this crane" value={crane.crane_role} onChange={(v) => updateAdditionalCrane(crane.id, "crane_role", v)} disabled={locked} />
+                    <Field label="Planned day / visit / when used" value={crane.planned_use} onChange={(v) => updateAdditionalCrane(crane.id, "planned_use", v)} disabled={locked} />
+                    {profileOptions.length ? (
+                      <SelectField
+                        label="Main boom / profile"
+                        value={crane.selected_profile_key}
+                        onChange={(v) => updateAdditionalCrane(crane.id, "selected_profile_key", v)}
+                        disabled={locked}
+                        options={[{ value: "", label: "Select profile from spec…" }, ...profileOptions.map((option) => ({ value: option.key, label: option.label }))]}
+                      />
+                    ) : (
+                      <Field label="Setup / profile / chart used" value={crane.setup_profile} onChange={(v) => updateAdditionalCrane(crane.id, "setup_profile", v)} disabled={locked} />
+                    )}
+                    {jibOptions.length ? (
+                      <SelectField
+                        label="Fly jib / extension option"
+                        value={crane.selected_jib_key}
+                        onChange={(v) => updateAdditionalCrane(crane.id, "selected_jib_key", v)}
+                        disabled={locked}
+                        options={[{ value: "", label: "Select jib/extension…" }, ...jibOptions.map((option) => ({ value: option.key, label: option.label }))]}
+                      />
+                    ) : null}
+                    <Field label="Spec sheet / chart reference" value={crane.spec_sheet_reference} onChange={(v) => updateAdditionalCrane(crane.id, "spec_sheet_reference", v)} disabled={locked} />
+                    <Field label="Boom length (m)" type="number" step="0.01" value={crane.boom_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "boom_length_m", v)} disabled={locked} />
+                    <Field label="Radius (m)" type="number" step="0.01" value={crane.radius_m} onChange={(v) => updateAdditionalCrane(crane.id, "radius_m", v)} disabled={locked} />
+                    <Field label="Hook / lift height (m)" type="number" step="0.01" value={crane.hook_height_m} onChange={(v) => updateAdditionalCrane(crane.id, "hook_height_m", v)} disabled={locked} />
+                    <Field label="Chart capacity at radius (kg)" type="number" step="1" value={crane.chart_capacity_kg} onChange={(v) => updateAdditionalCrane(crane.id, "chart_capacity_kg", v)} disabled={locked} />
+                    <Field label="Crane planning / gross weight (kg)" type="number" step="1" value={crane.crane_gross_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "crane_gross_weight_kg", v)} disabled={locked} />
+                    <Field label="Planned load on this crane (kg)" type="number" step="1" value={crane.load_share_kg} onChange={(v) => updateAdditionalCrane(crane.id, "load_share_kg", v)} disabled={locked} />
+                    <Field label="Accessories for this crane (kg)" type="number" step="1" value={crane.accessory_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "accessory_weight_kg", v)} disabled={locked} />
+                    <Field label="Mat length (m)" type="number" step="0.01" value={crane.mat_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_length_m", v)} disabled={locked} />
+                    <Field label="Mat width (m)" type="number" step="0.01" value={crane.mat_width_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_width_m", v)} disabled={locked} />
+                  </div>
+                );
+              })()}
               <div style={summaryGrid}>
-                <ReadOnlyFact label="Total lifted on this crane" value={formatKgAndT(totals.totalLiftedKg)} />
+                <ReadOnlyFact label="Total lifted / planned load" value={formatKgAndT(totals.totalLiftedKg)} />
                 <ReadOnlyFact label="Utilisation" value={totals.utilisationPercent !== null ? `${totals.utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "—"} />
                 <ReadOnlyFact label="Mat area" value={formatM2(totals.matAreaM2)} />
                 <ReadOnlyFact label="Est. bearing load" value={formatKgAndT(totals.bearingLoadKg)} />
                 <ReadOnlyFact label="Est. bearing pressure" value={formatPressureKgM2(totals.bearingPressureKgM2)} />
               </div>
               {overCapacity ? <div style={capacityWarningBox}>Warning: this crane is over 100% of entered chart capacity. Change crane/setup/load share before approval.</div> : null}
-              <TextAreaField label="Verification notes for this crane" value={crane.verification_notes} onChange={(v) => updateAdditionalCrane(crane.id, "verification_notes", v)} disabled={locked} rows={3} />
+              <TextAreaField label="Verification notes / day-use notes for this crane" value={crane.verification_notes} onChange={(v) => updateAdditionalCrane(crane.id, "verification_notes", v)} disabled={locked} rows={3} />
             </div>
           );
         })}
-        <div style={helperText}>For tandem or shared-load lifts, enter the planned load share on each crane. The pack will show each crane separately and still require appointed-person verification against the correct manufacturer/supplier charts.</div>
+        <div style={helperText}>For ongoing or multi-day work, list each acceptable crane option separately. This does not mean the lift is tandem unless the lift type above states tandem/shared-load. The pack will show each crane option separately so the appointed person can verify the actual crane used on the day against the correct manufacturer/supplier chart.</div>
       </Section>
 
       <Section title="Lift details / accessories">
