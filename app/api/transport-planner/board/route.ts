@@ -29,29 +29,6 @@ function lower(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function visitInvoiceUpdatedAtMs(row: any) {
-  const raw = String(row?.updated_at ?? row?.invoice_date ?? "").trim();
-  if (!raw) return 0;
-  const parsed = Date.parse(raw);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function pickVisitInvoiceEntry(existing: any, next: any) {
-  if (!existing) return next;
-  if (!next) return existing;
-
-  const existingTime = visitInvoiceUpdatedAtMs(existing);
-  const nextTime = visitInvoiceUpdatedAtMs(next);
-  if (existingTime !== nextTime) return nextTime > existingTime ? next : existing;
-
-  const nextStatus = String(next?.invoice_status ?? "").trim().toLowerCase();
-  const existingStatus = String(existing?.invoice_status ?? "").trim().toLowerCase();
-  if (nextStatus === "not invoiced" && existingStatus !== "not invoiced") return next;
-  if (existingStatus === "not invoiced" && nextStatus !== "not invoiced") return existing;
-
-  return next;
-}
-
 function hasTransportSubcontractMeta(row: any) {
   const supplierId = String(row?.supplier_id ?? "").trim();
   const supplierReference = String(row?.supplier_reference ?? "").trim();
@@ -237,7 +214,7 @@ export async function GET(req: Request) {
     if (activeJobIds.length > 0) {
       const { data: visitInvoiceData, error: visitInvoiceError } = await supabase
         .from("job_daily_visit_rates")
-        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at")
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
         .eq("job_type", "transport")
         .in("job_id", activeJobIds)
         .gte("visit_date", rangeStart)
@@ -256,7 +233,7 @@ export async function GET(req: Request) {
       const visitDate = String(row?.visit_date ?? "").slice(0, 10);
       if (!jobId || !visitDate) return;
       const existing = visitInvoicesByJobId.get(jobId) ?? {};
-      existing[visitDate] = pickVisitInvoiceEntry(existing[visitDate], row);
+      existing[visitDate] = row;
       visitInvoicesByJobId.set(jobId, existing);
     });
 
@@ -308,7 +285,7 @@ export async function GET(req: Request) {
         approval_status: row.approval_status ?? null,
         approval_reference: row.approval_reference ?? null,
         authorised_to_move: Boolean(row.authorised_to_move),
-        visit_invoices: getVisitInvoicesForJob(row.id),
+        visit_invoices: lower(row.price_mode ?? "full_job") === "per_day" ? getVisitInvoicesForJob(row.id) : {},
       };
     };
 
