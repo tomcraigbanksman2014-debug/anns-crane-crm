@@ -162,6 +162,7 @@ export default async function JobLiftPlanPage({
     { data: liftPlan, error: liftPlanError },
     { data: documents, error: documentsError },
     { data: personnelRows, error: personnelError },
+    { data: allCraneRows, error: allCranesError },
   ] = await Promise.all([
       supabase
         .from("jobs")
@@ -240,6 +241,10 @@ export default async function JobLiftPlanPage({
         .select("id, full_name, status, archived")
         .or("archived.is.null,archived.eq.false")
         .order("full_name", { ascending: true }),
+      supabase
+        .from("cranes")
+        .select("id, name, make, model, capacity, reg_number")
+        .order("name", { ascending: true }),
     ]);
 
   const client = one((job as any)?.clients) as
@@ -321,6 +326,21 @@ export default async function JobLiftPlanPage({
   if (craneOptions.length === 0 && crane?.id) {
     craneOptions.push({ value: `fallback:${crane.id}`, craneId: String(crane.id), label: craneLabel });
   }
+
+  const alternativeCraneOptions = Array.from(
+    new Map(
+      [
+        ...craneOptions,
+        ...(((allCraneRows as any[]) ?? []).map((row) => ({
+          value: `fleet:${String(row?.id ?? "")}`,
+          craneId: String(row?.id ?? ""),
+          label: craneDisplayLabel(row) || String(row?.name || row?.model || "Crane"),
+        }))),
+      ]
+        .filter((option) => String(option.craneId || option.label || "").trim())
+        .map((option) => [String(option.craneId || option.label).toLowerCase(), option])
+    ).values()
+  );
 
   const craneSetupOptionsByAllocation = Object.fromEntries(
     craneOptions.map((option) => {
@@ -537,6 +557,7 @@ export default async function JobLiftPlanPage({
           initial={(liftPlan as any) ?? null}
           equipmentProfile={equipmentProfile ?? null}
           craneOptions={craneOptions}
+          alternativeCraneOptions={alternativeCraneOptions}
           personnelOptions={personnelOptions}
           craneSetupOptions={equipmentProfile?.setupOptions ?? []}
           craneSetupOptionsByAllocation={craneSetupOptionsByAllocation}
