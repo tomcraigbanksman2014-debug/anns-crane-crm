@@ -797,19 +797,6 @@ function RangeChartPackPage({
   const maxRadiusExceeded = calc.limits.maxRadiusM ? calc.radiusM > calc.limits.maxRadiusM + 0.01 : false;
   const maxTipHeightExceeded = calc.limits.maxTipHeightM ? calc.tipHeightM > calc.limits.maxTipHeightM + 0.01 : false;
   const hasChartWarning = calc.clearanceM < 0 || horizontalGapM < 0 || Boolean(calc.utilisationPercent && calc.utilisationPercent > 100) || correctedPackJibLength || requiredBoomExceeded || maxJibExceeded || maxRadiusExceeded || maxTipHeightExceeded || Boolean(calc.limitWarning || calc.capacityWarning || calc.bearingWarning);
-  const chartWarningText = [
-    calc.limitWarning || "",
-    calc.clearanceM < 0 ? `Hook/tip point is ${formatRangeNumber(Math.abs(calc.clearanceM))} below the top of the object.` : "",
-    horizontalGapM < 0 ? `Hook/radius is ${formatRangeNumber(Math.abs(horizontalGapM))} short of the object face.` : "",
-    requiredBoomExceeded ? `Required boom length is over the structured maximum for this crane/setup.` : "",
-    maxJibExceeded ? `Physical jib length is over the structured maximum for this crane/setup.` : "",
-    maxRadiusExceeded ? `Radius is over the structured maximum for this crane/setup.` : "",
-    maxTipHeightExceeded ? `Tip/hook height is over the structured maximum for this crane/setup.` : "",
-    calc.capacityWarning || "",
-    calc.bearingWarning || "",
-    calc.utilisationPercent && calc.utilisationPercent > 100 ? `Entered load is over entered/calculated chart capacity by ${Number(calc.utilisationPercent - 100).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%.` : "",
-    correctedPackJibLength ? `Jib value appeared to be max outreach/radius; sketch uses ${formatRangeNumber(calc.jibLengthM)} as the physical jib length. Verify manually.` : "",
-  ].filter(Boolean).join(" ");
   const dangerStroke = hasChartWarning ? "#d12c2c" : "#ea5151";
 
   return (
@@ -877,11 +864,6 @@ function RangeChartPackPage({
         </svg>
       </div>
 
-      {hasChartWarning ? (
-        <div style={rangeChartDangerBox}>
-          <strong>Chart warning:</strong> {chartWarningText}
-        </div>
-      ) : null}
 
       <div style={rangeMetricGrid}>
         <MetricBox label="Boom Length" value={formatRangeNumber(calc.boomLengthM)} />
@@ -905,9 +887,6 @@ function RangeChartPackPage({
         <MetricBox label="Bearing Formula" value={calc.bearingPressureFormula} />
       </div>
 
-      <div style={rangeVerificationBox}>
-        {rangeText(sections, "range_chart_verification_note", "Planning sketch only. Appointed person must verify the manufacturer/supplier load chart, exact radius, boom/jib configuration, counterweight/ballast, outrigger setup, accessories and ground bearing before approval.")}
-      </div>
     </PageShell>
   );
 }
