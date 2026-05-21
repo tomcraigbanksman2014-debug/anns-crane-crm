@@ -61,29 +61,32 @@ export default function LiftPlanAppendixSelector({
     }
   }
 
+  const selectedCount = selected.size;
+  const summaryText = items.length
+    ? `${selectedCount} of ${items.length} page${items.length === 1 ? "" : "s"} selected`
+    : "No preview pages available";
+
   if (!items.length) {
     return (
-      <div style={card}>
-        <div style={title}>Spec sheet / diagram selection</div>
+      <details style={card}>
+        <summary style={summaryStyle}>
+          <span>Spec sheet / diagram selection</span>
+          <span style={summaryPill}>{summaryText}</span>
+        </summary>
         <div style={empty}>No spec sheet preview pages are available yet. For owned cranes, add the spec sheet/load chart to the crane record. For cross-hired cranes, use the job-specific upload section when it is shown.</div>
-      </div>
+      </details>
     );
   }
 
   return (
-    <div style={card}>
-      <div style={topRow}>
-        <div>
-          <div style={title}>Spec sheet / diagram selection</div>
-          <div style={hint}>
-            Tick only the specification/load-chart pages that should be pulled into the full lift plan pack. This helps stop the wrong diagrams being included.
-          </div>
-        </div>
-        <div style={actions}>
-          <button type="button" onClick={() => setSelected(new Set(defaultKeys))} disabled={saving} style={secondaryBtn}>Select all</button>
-          <button type="button" onClick={() => setSelected(new Set())} disabled={saving} style={secondaryBtn}>Clear</button>
-          <button type="button" onClick={saveSelection} disabled={saving} style={primaryBtn}>{saving ? "Saving…" : "Save selection"}</button>
-        </div>
+    <details style={card}>
+      <summary style={summaryStyle}>
+        <span>Spec sheet / diagram selection</span>
+        <span style={summaryPill}>{summaryText}</span>
+      </summary>
+
+      <div style={hint}>
+        Tick only the specification/load-chart pages that should be pulled into the full lift plan pack. This helps stop the wrong diagrams being included.
       </div>
 
       {message ? <div style={messageBox}>{message}</div> : null}
@@ -107,7 +110,13 @@ export default function LiftPlanAppendixSelector({
           );
         })}
       </div>
-    </div>
+
+      <div style={actionsBottom}>
+        <button type="button" onClick={() => setSelected(new Set(defaultKeys))} disabled={saving} style={secondaryBtn}>Select all</button>
+        <button type="button" onClick={() => setSelected(new Set())} disabled={saving} style={secondaryBtn}>Clear</button>
+        <button type="button" onClick={saveSelection} disabled={saving} style={primaryBtn}>{saving ? "Saving…" : "Save selection"}</button>
+      </div>
+    </details>
   );
 }
 
@@ -119,18 +128,30 @@ const card: CSSProperties = {
   boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
 };
 
-const topRow: CSSProperties = {
+const summaryStyle: CSSProperties = {
+  cursor: "pointer",
+  fontWeight: 900,
+  fontSize: 18,
   display: "flex",
   justifyContent: "space-between",
+  alignItems: "center",
   gap: 12,
-  alignItems: "flex-start",
   flexWrap: "wrap",
-  marginBottom: 14,
+  listStyle: "none",
 };
 
-const title: CSSProperties = { fontWeight: 900, fontSize: 18 };
-const hint: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.78, maxWidth: 760, lineHeight: 1.45 };
-const actions: CSSProperties = { display: "flex", gap: 8, flexWrap: "wrap" };
+const summaryPill: CSSProperties = {
+  fontSize: 12,
+  fontWeight: 900,
+  opacity: 0.76,
+  padding: "5px 9px",
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.75)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const hint: CSSProperties = { marginTop: 12, marginBottom: 12, fontSize: 13, opacity: 0.78, maxWidth: 860, lineHeight: 1.45 };
+const actionsBottom: CSSProperties = { display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end", marginTop: 14 };
 const grid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 };
 const itemCard: CSSProperties = { display: "grid", gap: 8, padding: 10, border: "1px solid rgba(0,0,0,0.10)", borderRadius: 12, background: "rgba(255,255,255,0.75)", cursor: "pointer" };
 const checkRow: CSSProperties = { display: "flex", gap: 8, alignItems: "center", fontSize: 13 };
@@ -139,7 +160,7 @@ const thumb: CSSProperties = { width: "100%", height: "100%", objectFit: "contai
 const itemTitle: CSSProperties = { fontWeight: 900, fontSize: 13, lineHeight: 1.25 };
 const itemDesc: CSSProperties = { fontSize: 12, opacity: 0.74 };
 const pill: CSSProperties = { justifySelf: "start", fontSize: 11, fontWeight: 900, padding: "4px 7px", borderRadius: 999, background: "rgba(0,0,0,0.08)" };
-const empty: CSSProperties = { marginTop: 8, padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.7)", opacity: 0.82 };
+const empty: CSSProperties = { marginTop: 12, padding: 12, borderRadius: 10, background: "rgba(255,255,255,0.7)", opacity: 0.82 };
 const messageBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", marginBottom: 12 };
 const primaryBtn: CSSProperties = { padding: "10px 14px", borderRadius: 10, border: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const secondaryBtn: CSSProperties = { padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.12)", background: "rgba(255,255,255,0.9)", color: "#111", fontWeight: 900, cursor: "pointer" };
