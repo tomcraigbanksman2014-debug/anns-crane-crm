@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, MutableRefObject, PointerEvent, ReactNode } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CraneSetupOption } from "../../../lib/ai/equipmentProfiles";
 import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../lib/rangeChartSpecs";
 
@@ -415,8 +415,12 @@ export default function RangeChartBuilder({
   );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [autoSyncMessage, setAutoSyncMessage] = useState("");
   const [dragging, setDragging] = useState<"hook" | "boom" | "object" | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoSyncStartedRef = useRef(false);
+  const lastAutoSyncPayloadRef = useRef("");
 
   const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
   const cleanCraneName = tidyDisplayLabel(chart.craneName);
@@ -667,62 +671,129 @@ export default function RangeChartBuilder({
     }
   }
 
+  function buildRangeChartPayload(includePackFlag: boolean) {
+    const payload: Record<string, string> = {
+      range_chart_client: chart.clientName,
+      range_chart_crane_name: cleanCraneName,
+      range_chart_notes: chart.notes,
+      range_chart_crane_source_mode: chart.craneSourceMode,
+      range_chart_external_spec_document_id: chart.externalSpecDocumentId,
+      range_chart_external_spec_document_title: chart.externalSpecDocumentTitle,
+      range_chart_selected_setup_key: chart.selectedSetupKey,
+      range_chart_selected_setup_label: chart.selectedSetupLabel,
+      range_chart_selected_jib_option_key: chart.selectedJibOptionKey,
+      range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
+      range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
+      range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
+      range_chart_radius_m: chart.radiusM,
+      range_chart_tip_height_m: chart.tipHeightM,
+      range_chart_jib_length_m: String(round(numbers.jibLengthM, 2)),
+      range_chart_jib_angle_deg: chart.jibAngleDeg,
+      range_chart_object_distance_m: chart.objectDistanceM,
+      range_chart_object_height_m: chart.objectHeightM,
+      range_chart_object_width_m: chart.objectWidthM,
+      range_chart_clearance_m: String(round(calc.clearance, 2)),
+      range_chart_load_weight_kg: chart.loadWeightKg,
+      range_chart_accessory_weight_kg: chart.accessoryWeightKg,
+      range_chart_total_lifted_weight_kg: calc.totalLiftedWeight ? String(round(calc.totalLiftedWeight, 2)) : "",
+      range_chart_chart_capacity_kg: effectiveChartCapacityKg ? String(round(effectiveChartCapacityKg, 2)) : "",
+      range_chart_capacity_method: capacityResult.method,
+      range_chart_capacity_source: capacityResult.source,
+      range_chart_utilisation_percent: effectiveUtilisation ? String(round(effectiveUtilisation, 1)) : "",
+      range_chart_mat_length_m: chart.matLengthM,
+      range_chart_mat_width_m: chart.matWidthM,
+      range_chart_mat_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
+      range_chart_bearing_load_kg: effectiveBearingLoadKg ? String(round(effectiveBearingLoadKg, 2)) : "",
+      range_chart_bearing_method: bearingResult.method,
+      range_chart_bearing_source: bearingResult.source,
+      range_chart_bearing_pressure_kg_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2, 2)) : "",
+      range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
+      range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
+      range_chart_bearing_pressure_formula: effectivePressureKgM2 ? matPressureFormulaText : "",
+      range_chart_limit_warning: chartWarnings.join(" "),
+      range_chart_verification_note: chart.verificationNote,
+    };
+
+    if (includePackFlag) payload.range_chart_saved_at = new Date().toISOString();
+
+    // The include flag is deliberately saved only by the explicit chart save button.
+    // All core lift-plan data above is auto-synced separately so the lift plan pack fields stay up to date
+    // even when the sketch page itself is not included in the pack.
+    if (includePackFlag) payload.range_chart_enabled = chart.enabled ? "true" : "false";
+
+    return payload;
+  }
+
+  async function postRangeChartPayload(payload: Record<string, string>) {
+    const res = await fetch(`/api/jobs/${jobId}/lift-plan/pack-selections`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || "Could not save range chart data.");
+    return data;
+  }
+
+  useEffect(() => {
+    const payload = buildRangeChartPayload(false);
+    const payloadKey = JSON.stringify(payload);
+
+    if (!autoSyncStartedRef.current) {
+      autoSyncStartedRef.current = true;
+      lastAutoSyncPayloadRef.current = payloadKey;
+      return;
+    }
+
+    if (lastAutoSyncPayloadRef.current === payloadKey) return;
+
+    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    setAutoSyncMessage("Lift plan data syncing…");
+
+    autoSyncTimerRef.current = setTimeout(() => {
+      postRangeChartPayload(payload)
+        .then(() => {
+          lastAutoSyncPayloadRef.current = payloadKey;
+          setAutoSyncMessage("Lift plan data auto-saved");
+        })
+        .catch((error: any) => {
+          setAutoSyncMessage(error?.message || "Could not auto-save lift plan data");
+        });
+    }, 900);
+
+    return () => {
+      if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    };
+  }, [
+    jobId,
+    chart,
+    cleanCraneName,
+    displayedBoomLength,
+    displayedBoomAngle,
+    numbers.jibLengthM,
+    calc.clearance,
+    calc.totalLiftedWeight,
+    calc.matArea,
+    effectiveChartCapacityKg,
+    capacityResult.method,
+    capacityResult.source,
+    effectiveUtilisation,
+    effectiveBearingLoadKg,
+    bearingResult.method,
+    bearingResult.source,
+    effectivePressureKgM2,
+    matPressureText,
+    matPressureFormulaText,
+    chartWarnings,
+  ]);
+
   async function saveRangeChart() {
     setSaving(true);
     setMessage("");
     try {
-      const payload: Record<string, string> = {
-        range_chart_enabled: chart.enabled ? "true" : "false",
-        range_chart_client: chart.clientName,
-        range_chart_crane_name: cleanCraneName,
-        range_chart_notes: chart.notes,
-        range_chart_crane_source_mode: chart.craneSourceMode,
-        range_chart_external_spec_document_id: chart.externalSpecDocumentId,
-        range_chart_external_spec_document_title: chart.externalSpecDocumentTitle,
-        range_chart_selected_setup_key: chart.selectedSetupKey,
-        range_chart_selected_setup_label: chart.selectedSetupLabel,
-        range_chart_selected_jib_option_key: chart.selectedJibOptionKey,
-        range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
-        range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
-        range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
-        range_chart_radius_m: chart.radiusM,
-        range_chart_tip_height_m: chart.tipHeightM,
-        range_chart_jib_length_m: String(round(numbers.jibLengthM, 2)),
-        range_chart_jib_angle_deg: chart.jibAngleDeg,
-        range_chart_object_distance_m: chart.objectDistanceM,
-        range_chart_object_height_m: chart.objectHeightM,
-        range_chart_object_width_m: chart.objectWidthM,
-        range_chart_clearance_m: String(round(calc.clearance, 2)),
-        range_chart_load_weight_kg: chart.loadWeightKg,
-        range_chart_accessory_weight_kg: chart.accessoryWeightKg,
-        range_chart_total_lifted_weight_kg: calc.totalLiftedWeight ? String(round(calc.totalLiftedWeight, 2)) : "",
-        range_chart_chart_capacity_kg: effectiveChartCapacityKg ? String(round(effectiveChartCapacityKg, 2)) : "",
-        range_chart_capacity_method: capacityResult.method,
-        range_chart_capacity_source: capacityResult.source,
-        range_chart_utilisation_percent: effectiveUtilisation ? String(round(effectiveUtilisation, 1)) : "",
-        range_chart_mat_length_m: chart.matLengthM,
-        range_chart_mat_width_m: chart.matWidthM,
-        range_chart_mat_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
-        range_chart_bearing_load_kg: effectiveBearingLoadKg ? String(round(effectiveBearingLoadKg, 2)) : "",
-        range_chart_bearing_method: bearingResult.method,
-        range_chart_bearing_source: bearingResult.source,
-        range_chart_bearing_pressure_kg_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2, 2)) : "",
-        range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
-        range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
-        range_chart_bearing_pressure_formula: effectivePressureKgM2 ? matPressureFormulaText : "",
-        range_chart_limit_warning: chartWarnings.join(" "),
-        range_chart_verification_note: chart.verificationNote,
-        range_chart_saved_at: new Date().toISOString(),
-      };
-
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan/pack-selections`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Could not save range chart.");
-      setMessage("Range chart saved. It will appear as a page in the full lift plan pack.");
+      await postRangeChartPayload(buildRangeChartPayload(true));
+      lastAutoSyncPayloadRef.current = JSON.stringify(buildRangeChartPayload(false));
+      setMessage(chart.enabled ? "Range chart saved and will appear as a page in the full lift plan pack." : "Range chart data saved. The sketch page will stay out of the pack until Include in pack is ticked and saved.");
     } catch (e: any) {
       setMessage(e?.message || "Could not save range chart.");
     } finally {
@@ -736,7 +807,7 @@ export default function RangeChartBuilder({
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Range chart / lift sketch builder</h2>
           <div style={helperText}>
-            Build an AnnS side-on planning sketch for the lift plan pack. Drag the boom-head red dot, hook red dot or blue object on the chart, then save.
+            Build an AnnS side-on planning sketch. Core lift details auto-save into the lift plan; use Include in pack + Save range chart only when you want the sketch page included in the pack.
           </div>
         </div>
         <div style={buttonRowStyle}>
@@ -748,6 +819,7 @@ export default function RangeChartBuilder({
       </div>
 
       {message ? <div style={messageBoxStyle}>{message}</div> : null}
+      {autoSyncMessage ? <div style={autoSyncBoxStyle}>{autoSyncMessage}</div> : null}
 
       <div style={builderGridStyle}>
         <div style={controlsStyle}>
@@ -1118,6 +1190,7 @@ const textAreaStyle: CSSProperties = { width: "100%", border: "1px solid rgba(0,
 const primaryBtnStyle: CSSProperties = { padding: "10px 14px", borderRadius: 10, border: 0, background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const togglePillStyle: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "8px 12px", background: "#fff", fontWeight: 900 };
 const messageBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontWeight: 700 };
+const autoSyncBoxStyle: CSSProperties = { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.62)", border: "1px solid rgba(0,0,0,0.08)", fontSize: 12, fontWeight: 800, color: "#24536a" };
 const warningBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(255,168,0,0.14)", border: "1px solid rgba(255,168,0,0.22)", fontSize: 13, lineHeight: 1.45, fontWeight: 700 };
 const adviceBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(58,166,200,0.10)", border: "1px solid rgba(58,166,200,0.24)", color: "#14536b", fontSize: 13, lineHeight: 1.45, fontWeight: 800 };
 const dangerBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(209,44,44,0.09)", border: "1px solid rgba(209,44,44,0.24)", color: "#7a1515", fontSize: 13, lineHeight: 1.45, fontWeight: 800 };
