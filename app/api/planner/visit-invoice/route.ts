@@ -54,7 +54,6 @@ function dateRangeInclusive(startDate: unknown, endDate: unknown, excludeWeekend
   return dates;
 }
 
-
 function deriveParentInvoiceStatus(params: {
   rows: any[];
   requiredDates: string[];
@@ -120,67 +119,82 @@ export async function POST(req: Request) {
     if (jobError) return NextResponse.json({ error: jobError.message }, { status: 400 });
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
-    const isPerDayPrice = lower(job.price_mode) === "per_day";
-    const now = new Date().toISOString();
+    const priceMode = lower(job.price_mode || "full_job");
+    const isFullJobPrice = priceMode !== "per_day";
+
+    let savedVisitInvoice: any = null;
+
+    if (isFullJobPrice) {
+      const { data: existingRows, error: existingError } = await supabase
+        .from("job_visit_invoices")
+        .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
+        .eq("job_id", jobId);
+
+      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
+
+      const payload = {
+        invoice_status: invoiceStatus,
+        invoice_number: invoiceNumber,
+        invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
+        notes,
+      };
+
+      if ((existingRows ?? []).length > 0) {
+        const ids = (existingRows ?? []).map((row: any) => row.id).filter(Boolean);
+        const { data, error } = await supabase
+          .from("job_visit_invoices")
+          .update(payload)
+          .in("id", ids)
+          .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes");
+
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        savedVisitInvoice = Array.isArray(data) ? data[0] ?? null : data;
+      } else {
+        const { data, error } = await supabase
+          .from("job_visit_invoices")
+          .insert({
+            job_id: jobId,
+            visit_date: visitDate,
+            invoice_status: invoiceStatus,
+            invoice_number: invoiceNumber,
+            invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
+            notes,
+            created_by: user?.id ?? null,
+          })
+          .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
+          .single();
+
+        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+        savedVisitInvoice = data;
+      }
+
+      const { error: parentUpdateError } = await supabase
+        .from("jobs")
+        .update({ invoice_status: invoiceStatus })
+        .eq("id", jobId);
+
+      if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
+
+      return NextResponse.json({ ok: true, visit_invoice: savedVisitInvoice, job_invoice_status: invoiceStatus });
+    }
+
     const payload = {
       job_id: jobId,
       visit_date: visitDate,
       invoice_status: invoiceStatus,
       invoice_number: invoiceNumber,
-      invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? now.slice(0, 10),
+      invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
       notes,
-      updated_at: now,
       created_by: user?.id ?? null,
     };
 
-    let data: any = null;
+    const { data, error } = await supabase
+      .from("job_visit_invoices")
+      .upsert(payload, { onConflict: "job_id,visit_date" })
+      .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
+      .single();
 
-    if (isPerDayPrice) {
-      const { data: savedRow, error } = await supabase
-        .from("job_visit_invoices")
-        .upsert(payload, { onConflict: "job_id,visit_date" })
-        .select("*")
-        .single();
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      data = savedRow;
-    } else {
-      const { data: existingRows, error: existingError } = await supabase
-        .from("job_visit_invoices")
-        .select("id, job_id, visit_date, invoice_status")
-        .eq("job_id", jobId);
-
-      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
-
-      if ((existingRows ?? []).length > 0) {
-        const ids = (existingRows ?? []).map((row: any) => row.id).filter(Boolean);
-        const { data: savedRows, error } = await supabase
-          .from("job_visit_invoices")
-          .update({
-            invoice_status: invoiceStatus,
-            invoice_number: invoiceNumber,
-            invoice_date: payload.invoice_date,
-            notes,
-            updated_at: now,
-          })
-          .in("id", ids)
-          .select("*")
-          .order("updated_at", { ascending: false })
-          .limit(1);
-
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        data = savedRows?.[0] ?? null;
-      } else {
-        const { data: savedRow, error } = await supabase
-          .from("job_visit_invoices")
-          .insert(payload)
-          .select("*")
-          .single();
-
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        data = savedRow;
-      }
-    }
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
     const { data: allVisitRows, error: visitRowsError } = await supabase
       .from("job_visit_invoices")
@@ -194,17 +208,15 @@ export async function POST(req: Request) {
       job.end_date ?? job.start_date ?? job.job_date ?? visitDate,
       Boolean(job.exclude_weekends)
     );
-    const parentInvoiceStatus = isPerDayPrice
-      ? deriveParentInvoiceStatus({
-          rows: allVisitRows ?? [],
-          requiredDates,
-          priceMode: job.price_mode,
-        })
-      : invoiceStatus;
+    const parentInvoiceStatus = deriveParentInvoiceStatus({
+      rows: allVisitRows ?? [],
+      requiredDates,
+      priceMode: job.price_mode,
+    });
 
     const { error: parentUpdateError } = await supabase
       .from("jobs")
-      .update({ invoice_status: parentInvoiceStatus, updated_at: new Date().toISOString() })
+      .update({ invoice_status: parentInvoiceStatus })
       .eq("id", jobId);
 
     if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
