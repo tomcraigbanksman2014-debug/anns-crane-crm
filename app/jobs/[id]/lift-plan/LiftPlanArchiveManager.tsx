@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type ArchiveRow = {
   id: string;
@@ -45,6 +45,7 @@ export default function LiftPlanArchiveManager({
   initialArchives: ArchiveRow[];
 }) {
   const router = useRouter();
+  const [archives, setArchives] = useState<ArchiveRow[]>(initialArchives ?? []);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("Previous lift plan pack");
   const [archiveStatus, setArchiveStatus] = useState("previous_draft");
@@ -52,6 +53,10 @@ export default function LiftPlanArchiveManager({
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setArchives(initialArchives ?? []);
+  }, [initialArchives]);
 
   async function uploadArchive(e: React.FormEvent) {
     e.preventDefault();
@@ -93,6 +98,9 @@ export default function LiftPlanArchiveManager({
       setNotes("");
       const input = document.getElementById("lift-plan-pdf-archive-file") as HTMLInputElement | null;
       if (input) input.value = "";
+      if (data?.archive?.id) {
+        setArchives((prev) => [data.archive as ArchiveRow, ...prev.filter((item) => item.id !== data.archive.id)]);
+      }
       setMessage("Previous lift plan PDF archived.");
       router.refresh();
     } catch {
@@ -115,6 +123,7 @@ export default function LiftPlanArchiveManager({
         setMessage(data?.error || "Could not remove archived PDF.");
         return;
       }
+      setArchives((prev) => prev.filter((item) => item.id !== id));
       setMessage("Archived PDF removed.");
       router.refresh();
     } catch {
@@ -171,8 +180,8 @@ export default function LiftPlanArchiveManager({
       </form>
 
       <div style={{ display: "grid", gap: 10, marginTop: 16 }}>
-        {initialArchives.length ? (
-          initialArchives.map((archive) => {
+        {archives.length ? (
+          archives.map((archive) => {
             const status = String(archive.archive_status ?? "previous_draft");
             return (
               <div key={archive.id} style={archiveCard}>
