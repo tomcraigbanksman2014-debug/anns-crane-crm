@@ -79,6 +79,17 @@ type LiftPlanData = {
   multi_crane_lift_type?: string | null;
   multi_crane_notes?: string | null;
   additional_cranes_json?: string | null;
+  range_chart_radius_m?: string | null;
+  range_chart_tip_height_m?: string | null;
+  range_chart_load_weight_kg?: string | null;
+  range_chart_accessory_weight_kg?: string | null;
+};
+
+type LiftPlanVersionSummary = {
+  id: string;
+  created_at: string | null;
+  created_by_email?: string | null;
+  reason?: string | null;
 };
 
 type AdditionalCraneEntry = {
@@ -548,13 +559,66 @@ export default function LiftPlanForm({
     multi_crane_lift_type: initialPackSections.multi_crane_lift_type ?? "Alternative crane options for same lift / multi-day job",
     multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
     additional_cranes_json: initialPackSections.additional_cranes_json ?? "[]",
+    range_chart_radius_m: initialPackSections.range_chart_radius_m ?? "",
+    range_chart_tip_height_m: initialPackSections.range_chart_tip_height_m ?? "",
+    range_chart_load_weight_kg: initialPackSections.range_chart_load_weight_kg ?? "",
+    range_chart_accessory_weight_kg: initialPackSections.range_chart_accessory_weight_kg ?? "",
   }));
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [unlocking, setUnlocking] = useState(false);
   const [msg, setMsg] = useState("");
+  const [versions, setVersions] = useState<LiftPlanVersionSummary[]>([]);
+  const [versionsLoaded, setVersionsLoaded] = useState(false);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState("");
   const locked = !!form.paperwork_locked;
+
+  async function loadPreviousVersions() {
+    setLoadingVersions(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, { cache: "no-store" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not load previous lift plan drafts.");
+      const items = Array.isArray(data?.versions) ? data.versions : [];
+      setVersions(items);
+      setVersionsLoaded(true);
+      if (!selectedVersionId && items[0]?.id) setSelectedVersionId(items[0].id);
+    } catch (error: any) {
+      setMsg(error?.message || "Could not load previous lift plan drafts.");
+    } finally {
+      setLoadingVersions(false);
+    }
+  }
+
+  async function restorePreviousVersion() {
+    if (!selectedVersionId || locked) return;
+    const selected = versions.find((item) => item.id === selectedVersionId);
+    const label = selected?.created_at ? new Date(selected.created_at).toLocaleString("en-GB") : "the selected previous draft";
+    const ok = window.confirm(`Restore lift plan version from ${label}? This will replace the current draft, but the current draft will also be kept as a previous version.`);
+    if (!ok) return;
+
+    setRestoringVersion(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: selectedVersionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not restore previous lift plan draft.");
+      setMsg("Previous lift plan draft restored. Reloading the page so all pack fields are refreshed…");
+      window.location.reload();
+    } catch (error: any) {
+      setMsg(error?.message || "Could not restore previous lift plan draft.");
+    } finally {
+      setRestoringVersion(false);
+    }
+  }
 
   const selectedCraneLabel = useMemo(() => {
     const selected = craneOptions.find((option) => option.value === form.selected_job_equipment_id);
@@ -736,7 +800,9 @@ export default function LiftPlanForm({
     const craneName = String(crane.crane_name || selectedCrane?.label || "").trim();
     const specOptions = getRangeChartSpecOptions({ craneName, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
     const selectedProfile = specOptions.profileOptions.find((option) => option.key === crane.selected_profile_key) ?? specOptions.profileOptions[0] ?? null;
-    const selectedJib = specOptions.jibOptions.find((option) => option.key === crane.selected_jib_key) ?? specOptions.jibOptions[0] ?? null;
+    const selectedJib = crane.selected_jib_key
+      ? specOptions.jibOptions.find((option) => option.key === crane.selected_jib_key) ?? null
+      : null;
     const setupLabel = buildAdditionalCraneSetupLabel(selectedProfile?.label ?? crane.setup_profile, selectedJib?.label ?? "");
     const limits = getRangeChartLimits({
       craneName,
@@ -748,12 +814,23 @@ export default function LiftPlanForm({
       setupMaxPhysicalJibLengthM: selectedJib?.lengthM ?? null,
     });
 
-    const loadKg = numberOrNull(crane.load_share_kg) ?? 0;
-    const accessoryKg = numberOrNull(crane.accessory_weight_kg) ?? 0;
+    const loadKg = numberOrNull(crane.load_share_kg)
+      ?? numberOrNull(form.range_chart_load_weight_kg)
+      ?? numberOrNull(form.load_weight)
+      ?? 0;
+    const accessoryKg = numberOrNull(crane.accessory_weight_kg)
+      ?? numberOrNull(form.range_chart_accessory_weight_kg)
+      ?? parseWeightToKg(form.lifting_accessories)
+      ?? 0;
     const totalLiftedWeightKg = loadKg + accessoryKg;
-    const boomLengthM = numberOrNull(crane.boom_length_m) ?? selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
-    const radiusM = numberOrNull(crane.radius_m);
-    const jibLengthM = selectedJib?.lengthM ?? numberOrNull(crane.selected_jib_key ? crane.boom_length_m : null) ?? null;
+    const maxBoomLengthM = selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? limits.maxBoomLengthM ?? null;
+    const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
+    const boomLengthM = enteredBoomLengthM && maxBoomLengthM
+      ? Math.min(enteredBoomLengthM, maxBoomLengthM)
+      : enteredBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
+    const radiusM = numberOrNull(crane.radius_m) ?? numberOrNull(form.range_chart_radius_m) ?? numberOrNull(form.lift_radius);
+    const hookHeightM = numberOrNull(crane.hook_height_m) ?? numberOrNull(form.range_chart_tip_height_m) ?? numberOrNull(form.lift_height);
+    const jibLengthM = selectedJib?.lengthM ?? 0;
 
     const capacity = radiusM
       ? calculateRangeChartCapacity({
@@ -778,7 +855,11 @@ export default function LiftPlanForm({
       crane_name: craneName,
       setup_profile: setupLabel || crane.setup_profile,
       spec_sheet_reference: selectedProfile?.source || selectedJib?.source || specOptions.rule?.capacitySource || crane.spec_sheet_reference,
-      boom_length_m: crane.boom_length_m || formatAutoMInput(boomLengthM),
+      boom_length_m: formatAutoMInput(boomLengthM) || crane.boom_length_m,
+      radius_m: crane.radius_m || formatAutoMInput(radiusM),
+      hook_height_m: crane.hook_height_m || formatAutoMInput(hookHeightM),
+      load_share_kg: crane.load_share_kg || formatAutoKgInput(loadKg),
+      accessory_weight_kg: crane.accessory_weight_kg || formatAutoKgInput(accessoryKg),
       crane_gross_weight_kg: limits.planningWeightKg ? formatAutoKgInput(limits.planningWeightKg) : crane.crane_gross_weight_kg,
       chart_capacity_kg: capacity?.capacityKg ? formatAutoKgInput(capacity.capacityKg) : crane.chart_capacity_kg,
     };
@@ -1003,6 +1084,31 @@ export default function LiftPlanForm({
       {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
+      <div style={versionBox}>
+        <div>
+          <strong>Previous lift plan drafts</strong>
+          <div style={helperText}>Every future Save draft / Generate AI draft keeps a snapshot of the previous draft so it can be restored later.</div>
+        </div>
+        <div style={versionActions}>
+          <button type="button" onClick={loadPreviousVersions} disabled={loadingVersions || saving || generating || restoringVersion} style={secondaryBtn}>
+            {loadingVersions ? "Loading…" : versionsLoaded ? "Refresh versions" : "Load previous versions"}
+          </button>
+          {versionsLoaded ? (
+            <>
+              <select value={selectedVersionId} onChange={(e) => setSelectedVersionId(e.target.value)} disabled={!versions.length || restoringVersion || locked} style={versionSelect}>
+                {versions.length ? versions.map((version) => (
+                  <option key={version.id} value={version.id}>
+                    {version.created_at ? new Date(version.created_at).toLocaleString("en-GB") : "Saved version"}{version.reason ? ` - ${version.reason}` : ""}
+                  </option>
+                )) : <option value="">No previous versions saved yet</option>}
+              </select>
+              <button type="button" onClick={restorePreviousVersion} disabled={!selectedVersionId || restoringVersion || locked} style={warningBtn}>
+                {restoringVersion ? "Restoring…" : "Restore selected"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
 
       <Section title="Alternative cranes / multi-day crane options">
         <div style={tickRow}>
@@ -1192,6 +1298,10 @@ const fieldWrap: CSSProperties = { display: "grid", gap: 6 };
 const fieldLabel: CSSProperties = { fontSize: 13, fontWeight: 800, opacity: 0.82 };
 const inputStyle: CSSProperties = { width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff" };
 const textAreaStyle: CSSProperties = { width: "100%", borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: 12, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
+const versionBox: CSSProperties = { background: "rgba(255,255,255,0.78)", border: "1px solid rgba(0,0,0,0.10)", borderRadius: 14, padding: 14, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", marginBottom: 14 };
+const versionActions: CSSProperties = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
+const versionSelect: CSSProperties = { minWidth: 260, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.18)", background: "#fff", fontWeight: 800 };
+
 const msgBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)" };
 const lockedBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", fontWeight: 800 };
 const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" };
