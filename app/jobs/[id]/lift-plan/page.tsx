@@ -29,13 +29,38 @@ function flatten<T>(value: T | T[] | null | undefined): T[] {
   return Array.isArray(value) ? value : [value];
 }
 
+function clean(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function tidyDisplayLabel(value: unknown) {
+  const text = clean(value).replace(/\s+/g, " ");
+  if (!text) return "";
+  const words = text.split(" ").filter(Boolean);
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const word of words) {
+    const key = word.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(word);
+  }
+  return result.join(" ").trim();
+}
+
+function craneDisplayLabel(crane: any, fallback?: unknown) {
+  const name = clean(crane?.name);
+  const make = clean(crane?.make);
+  const model = clean(crane?.model);
+  const capacity = clean(crane?.capacity);
+  const base = tidyDisplayLabel([name, make, model].filter(Boolean).join(" ")) || clean(fallback);
+  return [base, capacity && !base.toLowerCase().includes(capacity.toLowerCase()) ? capacity : ""].filter(Boolean).join(" ").trim();
+}
+
 function allocationLabel(row: any) {
   const crane = one(row?.cranes) as any;
   const operator = one(row?.operators) as any;
-  const base =
-    [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") ||
-    row?.item_name ||
-    "Allocated crane";
+  const base = craneDisplayLabel(crane, row?.item_name) || "Allocated crane";
   const dateText = [row?.start_date, row?.end_date].filter(Boolean).join(" to ");
   const operatorText = operator?.full_name ? `Operator: ${operator.full_name}` : "";
   return [base, dateText, operatorText].filter(Boolean).join(" • ");
@@ -276,7 +301,7 @@ export default async function JobLiftPlanPage({
   const deletedOk = String(searchParams?.deleted ?? "") === "1";
   const deleteError = String(searchParams?.delete_error ?? "").trim();
 
-  const craneLabel = [crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ") || crane?.name || "—";
+  const craneLabel = craneDisplayLabel(crane) || "—";
   const allocationSource = String((primary?.allocation as any)?.source_type ?? "").toLowerCase();
   const craneIsExternal = Boolean((crane as any)?.external) || allocationSource.includes("cross") || allocationSource.includes("sub") || allocationSource.includes("hire");
   const craneOptions = flatten((job as any)?.job_equipment)
