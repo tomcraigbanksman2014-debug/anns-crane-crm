@@ -16,6 +16,22 @@ function roundForStorage(value: number | null, decimals = 3) {
   return String(Math.round(value * factor) / factor);
 }
 
+function formatKgOnly(valueKg: number | null) {
+  if (valueKg === null || valueKg === undefined || !Number.isFinite(valueKg) || valueKg <= 0) return null;
+  return `${valueKg.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg`;
+}
+
+function formatKgAndTonnes(valueKg: number | null) {
+  if (valueKg === null || valueKg === undefined || !Number.isFinite(valueKg) || valueKg <= 0) return null;
+  const tonnes = valueKg / 1000;
+  return `${valueKg.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg / ${tonnes.toLocaleString("en-GB", { maximumFractionDigits: 2 })} t`;
+}
+
+function formatPercent(value: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value) || value < 0) return null;
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: value < 10 ? 1 : 0 })}%`;
+}
+
 function inferredRangeTotalLiftedWeight(sections: DynamicPackSectionsPayload) {
   const storedTotal = cleanNumber(sections.range_chart_total_lifted_weight_kg);
   if (storedTotal !== null) return storedTotal;
@@ -148,8 +164,12 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   const next: DynamicPackSectionsPayload = { ...sections };
   const boomLength = cleanNumber(sections.range_chart_boom_length_m);
   const jibLength = cleanNumber(sections.range_chart_jib_length_m);
+  const loadWeight = cleanNumber(sections.range_chart_load_weight_kg);
+  const accessoryWeight = cleanNumber(sections.range_chart_accessory_weight_kg);
   const totalLiftedWeight = inferredRangeTotalLiftedWeight(sections);
   const planningGrossWeight = inferredPlanningGrossWeightFromRangeChart(sections);
+  const chartCapacity = cleanNumber(sections.range_chart_chart_capacity_kg);
+  const utilisationPercent = cleanNumber(sections.range_chart_utilisation_percent);
   const bearingLoad = cleanNumber(sections.range_chart_bearing_load_kg);
   const matArea = cleanNumber(sections.range_chart_mat_area_m2);
   const bearingPressureKgM2 = cleanNumber(sections.range_chart_bearing_pressure_kg_m2);
@@ -158,18 +178,23 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   if (sections.range_chart_selected_setup_label) next.selected_crane_setup_label = sections.range_chart_selected_setup_label;
   if (boomLength !== null) next.boom_length = `${boomLength} m boom`;
   if (jibLength !== null && jibLength > 0) next.crane_jib_reference = `${jibLength} m physical jib / extension`;
+  if (loadWeight !== null) next.crane_load_weight = formatKgOnly(loadWeight);
+  if (accessoryWeight !== null) next.crane_lifting_accessories_weight_text = formatKgOnly(accessoryWeight);
+  if (chartCapacity !== null) next.crane_max_capacity = formatKgAndTonnes(chartCapacity);
+  if (utilisationPercent !== null) next.crane_utilisation = formatPercent(utilisationPercent);
+  if (planningGrossWeight !== null) next.crane_gross_weight = formatKgAndTonnes(planningGrossWeight);
 
   // Keep the older pack table fields in step with the range-chart calculation so stale/manual
   // values cannot carry through to the printed ground-bearing table.
-  if (planningGrossWeight !== null) next.ground_bearing_crane_max_weight = roundForStorage(planningGrossWeight, 2);
-  if (totalLiftedWeight !== null) next.ground_bearing_load_max_weight = roundForStorage(totalLiftedWeight, 2);
-  if (planningGrossWeight !== null && totalLiftedWeight !== null) next.ground_bearing_combined_weight = roundForStorage(planningGrossWeight + totalLiftedWeight, 2);
-  if (bearingLoad !== null) next.ground_bearing_result = roundForStorage(bearingLoad, 2);
+  if (planningGrossWeight !== null) next.ground_bearing_crane_max_weight = formatKgAndTonnes(planningGrossWeight);
+  if (totalLiftedWeight !== null) next.ground_bearing_load_max_weight = formatKgAndTonnes(totalLiftedWeight);
+  if (planningGrossWeight !== null && totalLiftedWeight !== null) next.ground_bearing_combined_weight = formatKgAndTonnes(planningGrossWeight + totalLiftedWeight);
+  if (bearingLoad !== null) next.ground_bearing_result = formatKgAndTonnes(bearingLoad);
 
   if (sections.range_chart_mat_length_m) next.ground_bearing_mat_length_m = sections.range_chart_mat_length_m;
   if (sections.range_chart_mat_width_m) next.ground_bearing_mat_width_m = sections.range_chart_mat_width_m;
   if (matArea !== null) next.ground_bearing_mat_area_m2 = roundForStorage(matArea, 3);
-  if (bearingLoad !== null) next.ground_bearing_bearing_load = roundForStorage(bearingLoad, 2);
+  if (bearingLoad !== null) next.ground_bearing_bearing_load = formatKgAndTonnes(bearingLoad);
   if (sections.range_chart_bearing_pressure) next.ground_bearing_pressure = sections.range_chart_bearing_pressure;
   if (bearingPressureKgM2 !== null) next.ground_bearing_pressure_kg_m2 = roundForStorage(bearingPressureKgM2, 2);
   if (sections.range_chart_bearing_pressure_formula) next.ground_bearing_notes = sections.range_chart_bearing_pressure_formula;
