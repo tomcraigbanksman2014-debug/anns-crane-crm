@@ -931,7 +931,8 @@ function RangeChartSvg({
   for (let value = 0; value <= scale.maxY + 0.001; value += minorStep) horizontalLines.push(round(value, 2));
 
   const clientLines = splitSvgText(chart.clientName || "—", 42, 1);
-  const craneLines = splitSvgText(cleanCraneName || "—", 42, 2);
+  const svgCraneName = tidyDisplayLabel(chart.craneName);
+  const craneLines = splitSvgText(svgCraneName || "—", 42, 2);
   const noteLines = splitSvgText(chart.notes || chart.selectedSetupLabel || "Lift sketch", 58, 1);
   const setupLines = splitSvgText(chart.selectedSetupLabel || "Manual check", 34, 2);
   const gapLabel = horizontalGapM >= 0 ? fmt(horizontalGapM) : `${fmt(Math.abs(horizontalGapM))} short`;
