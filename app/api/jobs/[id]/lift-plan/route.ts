@@ -56,6 +56,10 @@ const PACK_SECTION_KEYS = [
   "custom_crane_chart_note",
   "external_crane_hydraulic_outreach_m",
   "external_crane_jib_outreach_m",
+  "multi_crane_enabled",
+  "multi_crane_lift_type",
+  "multi_crane_notes",
+  "additional_cranes_json",
 ];
 
 function packSectionsFromBody(body: Record<string, unknown>) {
