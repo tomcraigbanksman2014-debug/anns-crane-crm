@@ -46,6 +46,9 @@ export type RangeChartSpecRule = {
   maxTipHeightM?: number | null;
   defaultBearingLoadKg?: number | null;
   bearingLoadSource?: string;
+  planningWeightKg?: number | null;
+  planningWeightSource?: string;
+  estimatedBearingFactor?: number | null;
   capacitySource?: string;
   capacityPoints?: RangeChartCapacityPoint[];
   capacityCurves?: RangeChartCapacityCurve[];
@@ -231,6 +234,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxPhysicalJibLengthM: 11,
     maxRadiusM: 39,
     maxTipHeightM: 46,
+    planningWeightKg: 26000,
+    planningWeightSource: "AK 46/6000 spec: permissible gross vehicle weight up to 26 t",
+    estimatedBearingFactor: 0.75,
     profileOptions: [
       profile("ak46-main-44", "Main boom / extension up to 44 m", 44, 44, 38, 43.3, "AK 46/6000 technical information"),
       profile("ak46-main-46", "Optional max extension up to 46 m", 46, 46, 39, 46, "AK 46/6000 technical information"),
@@ -262,6 +268,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxPhysicalJibLengthM: 21,
     maxRadiusM: 75,
     maxTipHeightM: 75,
+    planningWeightKg: 48000,
+    planningWeightSource: "GMK4080-1 product guide: total weight 48 t with 9.3 t counterweight",
+    estimatedBearingFactor: 0.75,
     profileOptions: [profile("gmk4080-main-51", "Main boom up to 51 m", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom")],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
@@ -303,6 +312,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxPhysicalJibLengthM: 5.1,
     maxRadiusM: 14.8,
     maxTipHeightM: 17.3,
+    planningWeightKg: 2520,
+    planningWeightSource: "SPX532 spec: dry crane weight 2520 kg",
+    estimatedBearingFactor: 0.75,
     profileOptions: [
       profile("spx532-main-j7", "Main boom — J7/full-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J7 chart"),
       profile("spx532-main-j6", "Main boom — J6 reduced-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J6 chart"),
@@ -344,6 +356,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxPhysicalJibLengthM: 9,
     maxRadiusM: 35.2,
     maxTipHeightM: 44.2,
+    planningWeightKg: 32000,
+    planningWeightSource: "HK 40 spec: total weight up to 32 t depending chassis/options",
+    estimatedBearingFactor: 0.75,
     profileOptions: [
       profile("hk40-main-35-2-85", "Main boom 35.2 m — 8.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 8.5 t counterweight"),
       profile("hk40-main-35-2-45", "Main boom 35.2 m — 4.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 4.5 t counterweight"),
@@ -371,6 +386,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxPhysicalJibLengthM: 14.5,
     maxRadiusM: 40,
     maxTipHeightM: 52,
+    planningWeightKg: 26000,
+    planningWeightSource: "MTK35 spec: total vehicle weight 26 t",
+    estimatedBearingFactor: 0.75,
     profileOptions: [
       profile("mtk35-main-32", "Main boom up to 32 m", 32, 32, 28, 40, "MTK35 main boom 10-32 m chart"),
       profile("mtk35-main-26-5", "Main boom 26.5 m", 26.5, 32, 26, 40, "MTK35 main boom chart"),
@@ -443,8 +461,8 @@ function curveMatches({ curve, boomLengthM, jibLengthM, jibAngleDeg }: { curve: 
   if (!jibMatches(curve, jibLengthM, jibAngleDeg)) return false;
   if (curve.boomLengthM !== null && curve.boomLengthM !== undefined && boomLengthM !== null && boomLengthM !== undefined && Number.isFinite(boomLengthM)) {
     if (boomLengthM > curve.boomLengthM + 0.75) return false;
-    // Allow a shorter entered boom length to use the next longer structured curve as a conservative preliminary chart line.
-    if (boomLengthM < curve.boomLengthM - 18) return false;
+    // A longer published boom chart is normally conservative for preliminary planning when the entered boom is shorter.
+    // Do not block capacity auto-fill just because the exact intermediate boom length has not been structured yet.
   }
   return true;
 }
@@ -543,10 +561,12 @@ export function calculateRangeChartBearingLoad({
   craneName,
   setupLabel,
   sourceLabel,
+  totalLiftedWeightKg,
 }: {
   craneName?: string | null;
   setupLabel?: string | null;
   sourceLabel?: string | null;
+  totalLiftedWeightKg?: number | null;
 }): RangeChartBearingResult {
   const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
   if (rule?.defaultBearingLoadKg) {
@@ -557,13 +577,25 @@ export function calculateRangeChartBearingLoad({
     };
   }
 
+  const lifted = totalLiftedWeightKg && Number.isFinite(totalLiftedWeightKg) ? totalLiftedWeightKg : null;
+  const planningWeight = rule?.planningWeightKg && Number.isFinite(rule.planningWeightKg) ? rule.planningWeightKg : null;
+  if (rule && planningWeight && lifted !== null) {
+    const factor = rule.estimatedBearingFactor ?? 0.75;
+    const bearingLoadKg = (planningWeight + lifted) * factor;
+    return {
+      bearingLoadKg,
+      method: "automatic",
+      source: `Planning estimate using existing lift-plan formula: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + total lifted weight) × ${factor}. Use exact outrigger reaction chart if available.`,
+    };
+  }
+
   return {
     bearingLoadKg: null,
     method: "manual",
     source: rule
-      ? `${rule.title} spec does not provide a single safe bearing reaction in the structured CRM rule. Use the exact outrigger reaction chart/manual value.`
+      ? `${rule.title} needs the total lifted weight to estimate bearing load, or an exact outrigger reaction can be entered manually.`
       : "No recognised crane bearing reaction rule found. Use the exact outrigger reaction chart/manual value.",
-    warning: "Bearing load/reaction cannot be safely auto-calculated from geometry alone. Enter/check the exact outrigger reaction before relying on ground bearing pressure.",
+    warning: "Bearing load/reaction cannot be auto-calculated until the crane is recognised and the load/accessory weight is entered, or an exact outrigger reaction is entered.",
   };
 }
 
