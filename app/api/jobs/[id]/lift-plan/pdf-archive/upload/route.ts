@@ -103,7 +103,7 @@ export async function POST(
         uploaded_by: user.id,
         uploaded_by_email: user.email ?? null,
       })
-      .select("id")
+      .select("id, title, archive_status, notes, file_name, file_path, file_type, file_size_bytes, uploaded_by_email, created_at")
       .single();
 
     if (insertError) {
@@ -126,7 +126,27 @@ export async function POST(
       },
     });
 
-    return NextResponse.json({ ok: true, archive_id: archive?.id ?? null });
+    const { data: signedData } = await admin.storage
+      .from("job-documents")
+      .createSignedUrl(storagePath, 60 * 60);
+
+    return NextResponse.json({
+      ok: true,
+      archive_id: archive?.id ?? null,
+      archive: archive
+        ? {
+            id: String(archive.id ?? ""),
+            title: archive.title ? String(archive.title) : "Previous lift plan pack",
+            archive_status: archive.archive_status ? String(archive.archive_status) : "previous_draft",
+            notes: archive.notes ? String(archive.notes) : null,
+            file_name: archive.file_name ? String(archive.file_name) : file.name,
+            file_size_bytes: Number(archive.file_size_bytes ?? file.size ?? buffer.length) || null,
+            uploaded_by_email: archive.uploaded_by_email ? String(archive.uploaded_by_email) : user.email ?? null,
+            created_at: archive.created_at ? String(archive.created_at) : new Date().toISOString(),
+            signed_url: signedData?.signedUrl ?? null,
+          }
+        : null,
+    });
   } catch (error: any) {
     return NextResponse.json(
       { error: error?.message ?? "Could not archive previous lift plan PDF." },
