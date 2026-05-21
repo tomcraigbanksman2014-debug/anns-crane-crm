@@ -31,6 +31,7 @@ type PlannerItem = {
   start_time?: string | null;
   end_time?: string | null;
   status?: string | null;
+  invoice_status?: string | null;
   site_name?: string | null;
   site_address?: string | null;
   operator_id?: string | null;
@@ -765,7 +766,20 @@ export default function PlannerBoard() {
 
   function getVisitInvoiceEntry(item: PlannerItem, dayIso?: string | null) {
     if (!dayIso) return null;
-    return item.visit_invoices?.[dayIso] ?? null;
+    const explicitEntry = item.visit_invoices?.[dayIso] ?? null;
+    if (explicitEntry) return explicitEntry;
+
+    const parentStatus = String(item.invoice_status ?? "").trim();
+    if (parentStatus && parentStatus.toLowerCase() !== "not invoiced") {
+      return {
+        job_id: item.job_id,
+        visit_date: dayIso,
+        invoice_status: parentStatus,
+        notes: "Shown from the main job invoice status.",
+      };
+    }
+
+    return null;
   }
 
   function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
