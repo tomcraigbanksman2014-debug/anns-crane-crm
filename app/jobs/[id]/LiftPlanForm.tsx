@@ -705,49 +705,19 @@ export default function LiftPlanForm({
         </div>
       </div>
 
-      <Section title="Selected crane control">
-        <div style={grid2}>
-          <SelectField
-            label="Selected allocated crane"
-            value={form.selected_job_equipment_id ?? ""}
-            onChange={updateSelectedCrane}
-            disabled={locked}
-            options={craneOptions.map((option) => ({ value: option.value, label: option.label }))}
-          />
-          <ReadOnlyFact label="Current selection" value={selectedCraneLabel} />
-        </div>
-        <div style={{ marginTop: 12, display: "grid", gap: 12 }}>
-          <SelectField
-            label="Crane setup / chart configuration"
-            value={form.selected_crane_setup_key ?? ""}
-            onChange={applyCraneSetup}
-            disabled={locked || availableCraneSetupOptions.length === 0}
-            options={[
-              { value: "", label: availableCraneSetupOptions.length ? "Select setup from crane spec/load chart…" : "No setup options found on uploaded specs" },
-              ...availableCraneSetupOptions.map((option) => ({ value: option.key, label: option.label })),
-            ]}
-          />
-          <div style={grid2}>
-            <ReadOnlyFact label="Boom / outreach reference" value={form.crane_outreach_reference || (selectedSetup ? setupOutreachText(selectedSetup) : "—")} />
-            <ReadOnlyFact label="Jib / max outreach" value={form.crane_jib_reference || (selectedSetup ? setupJibText(selectedSetup) : "—")} />
-          </div>
-        </div>
-        <div style={helperText}>Select the setup/chart before saving. This writes the boom, outreach and jib references into the full pack while keeping the fields editable for appointed-person checking.</div>
-      </Section>
-
-      {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
+      <div style={infoBox}>
+        Crane selection, crane setup/profile, load weight, lift radius, lift height, mat size, bearing load and bearing pressure are now controlled in the <strong>Range chart / lift sketch builder</strong> above. Use the sections below for wording, RAMS and approvals only.
+      </div>
       {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
-      <Section title="Lift details">
+      <Section title="Lift details / accessories">
         <div style={grid2}>
           <Field label="Load description" value={form.load_description ?? ""} onChange={(v) => update("load_description", v)} disabled={locked} />
-          <Field label="Load weight (kg)" type="number" step="0.01" value={form.load_weight ?? ""} onChange={(v) => update("load_weight", v)} disabled={locked} />
-          <Field label="Lift radius (m)" type="number" step="0.01" value={form.lift_radius ?? ""} onChange={(v) => update("lift_radius", v)} disabled={locked} />
-          <Field label="Lift height (m)" type="number" step="0.01" value={form.lift_height ?? ""} onChange={(v) => update("lift_height", v)} disabled={locked} />
           <Field label="Sling type" value={form.sling_type ?? ""} onChange={(v) => update("sling_type", v)} disabled={locked} />
           <Field label="Lifting accessories" value={form.lifting_accessories ?? ""} onChange={(v) => update("lifting_accessories", v)} disabled={locked} />
         </div>
+        <div style={helperText}>Load weight, lift radius and lift height are saved from the range chart builder above so they are not entered twice.</div>
       </Section>
 
       <Section title="Setup & site conditions">
@@ -756,24 +726,6 @@ export default function LiftPlanForm({
         <TextAreaField label="Ground conditions" value={form.ground_conditions ?? ""} onChange={(v) => update("ground_conditions", v)} disabled={locked} />
         <TextAreaField label="Exclusion zone details" value={form.exclusion_zone_details ?? ""} onChange={(v) => update("exclusion_zone_details", v)} disabled={locked} />
         <TextAreaField label="Weather limitations" value={form.weather_limitations ?? ""} onChange={(v) => update("weather_limitations", v)} disabled={locked} />
-      </Section>
-
-      <Section title="Mats & ground bearing calculation">
-        <div style={grid2}>
-          <SelectField
-            label="Mat / spreader size"
-            value={form.ground_bearing_mat_preset ?? ""}
-            onChange={updateMatPreset}
-            disabled={locked}
-            options={MAT_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
-          />
-          <Field label="Mat length (m)" type="number" step="0.01" value={form.ground_bearing_mat_length_m ?? ""} onChange={(v) => updateMatDimension("ground_bearing_mat_length_m", v)} disabled={locked} />
-          <Field label="Mat width (m)" type="number" step="0.01" value={form.ground_bearing_mat_width_m ?? ""} onChange={(v) => updateMatDimension("ground_bearing_mat_width_m", v)} disabled={locked} />
-          <ReadOnlyFact label="Mat area" value={formatArea(matAreaM2)} />
-          <Field label="Bearing load / outrigger reaction (kg or t)" value={form.ground_bearing_bearing_load ?? ""} onChange={(v) => update("ground_bearing_bearing_load", v)} disabled={locked} />
-          <ReadOnlyFact label="Estimated bearing pressure" value={matPressureText} />
-        </div>
-        <div style={helperText}>Calculation used in the pack: bearing load ÷ mat area. Example: 1m x 3m mat = 3m², so 30t ÷ 3 = 10t/m². Use the worst outrigger reaction where available.</div>
       </Section>
 
       <Section title="RAMS wording">
@@ -856,6 +808,7 @@ const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", ali
 const tickLabel: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 700 };
 const warningList: CSSProperties = { margin: "8px 0 0 18px", padding: 0, display: "grid", gap: 6 };
 const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.8)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12 };
+const infoBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontSize: 14, lineHeight: 1.45 };
 const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
 const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
