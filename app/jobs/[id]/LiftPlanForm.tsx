@@ -69,6 +69,28 @@ type LiftPlanData = {
   custom_crane_hydraulic_outreach_m?: string | null;
   custom_crane_jib_outreach_m?: string | null;
   custom_crane_max_radius_m?: string | null;
+  multi_crane_enabled?: boolean;
+  multi_crane_lift_type?: string | null;
+  multi_crane_notes?: string | null;
+  additional_cranes_json?: string | null;
+};
+
+type AdditionalCraneEntry = {
+  id: string;
+  crane_name: string;
+  crane_role: string;
+  setup_profile: string;
+  boom_length_m: string;
+  radius_m: string;
+  hook_height_m: string;
+  crane_gross_weight_kg: string;
+  load_share_kg: string;
+  accessory_weight_kg: string;
+  chart_capacity_kg: string;
+  mat_length_m: string;
+  mat_width_m: string;
+  spec_sheet_reference: string;
+  verification_notes: string;
 };
 
 function hasDraftValue(value: unknown) {
@@ -204,6 +226,104 @@ function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(String(value).replace(/,/g, ""));
   return Number.isFinite(n) ? n : null;
+}
+
+function safeJsonParseArray(value: unknown): AdditionalCraneEntry[] {
+  if (!value) return [];
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((item, index) => normaliseAdditionalCrane(item, index)).filter(Boolean) as AdditionalCraneEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function newAdditionalCraneEntry(): AdditionalCraneEntry {
+  const id = `crane-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+  return {
+    id,
+    crane_name: "",
+    crane_role: "Assisting crane",
+    setup_profile: "",
+    boom_length_m: "",
+    radius_m: "",
+    hook_height_m: "",
+    crane_gross_weight_kg: "",
+    load_share_kg: "",
+    accessory_weight_kg: "",
+    chart_capacity_kg: "",
+    mat_length_m: "",
+    mat_width_m: "",
+    spec_sheet_reference: "",
+    verification_notes: "",
+  };
+}
+
+function normaliseAdditionalCrane(item: any, index = 0): AdditionalCraneEntry {
+  const fallback = newAdditionalCraneEntry();
+  return {
+    ...fallback,
+    id: String(item?.id || `crane-${index + 1}`),
+    crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
+    crane_role: String(item?.crane_role ?? item?.craneRole ?? "Assisting crane"),
+    setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
+    boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
+    radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
+    hook_height_m: String(item?.hook_height_m ?? item?.hookHeightM ?? ""),
+    crane_gross_weight_kg: String(item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? ""),
+    load_share_kg: String(item?.load_share_kg ?? item?.loadShareKg ?? ""),
+    accessory_weight_kg: String(item?.accessory_weight_kg ?? item?.accessoryWeightKg ?? ""),
+    chart_capacity_kg: String(item?.chart_capacity_kg ?? item?.chartCapacityKg ?? ""),
+    mat_length_m: String(item?.mat_length_m ?? item?.matLengthM ?? ""),
+    mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
+    spec_sheet_reference: String(item?.spec_sheet_reference ?? item?.specSheetReference ?? ""),
+    verification_notes: String(item?.verification_notes ?? item?.verificationNotes ?? ""),
+  };
+}
+
+function stringifyAdditionalCranes(cranes: AdditionalCraneEntry[]) {
+  return JSON.stringify(cranes.map((item, index) => normaliseAdditionalCrane(item, index)));
+}
+
+function additionalCraneTotals(crane: AdditionalCraneEntry) {
+  const grossKg = numberOrNull(crane.crane_gross_weight_kg);
+  const loadKg = numberOrNull(crane.load_share_kg) ?? 0;
+  const accessoryKg = numberOrNull(crane.accessory_weight_kg) ?? 0;
+  const totalLiftedKg = loadKg + accessoryKg;
+  const chartCapacityKg = numberOrNull(crane.chart_capacity_kg);
+  const matLengthM = numberOrNull(crane.mat_length_m);
+  const matWidthM = numberOrNull(crane.mat_width_m);
+  const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
+  const bearingLoadKg = grossKg ? (grossKg + totalLiftedKg) * 0.75 : null;
+  const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
+  const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
+  return { grossKg, loadKg, accessoryKg, totalLiftedKg, chartCapacityKg, matAreaM2, bearingLoadKg, bearingPressureKgM2, utilisationPercent };
+}
+
+function formatKg(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg`;
+}
+
+function formatTonnes(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${(value / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t`;
+}
+
+function formatKgAndT(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${formatKg(value)} / ${formatTonnes(value)}`;
+}
+
+function formatM2(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m²`;
+}
+
+function formatPressureKgM2(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(value / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²`;
 }
 
 function formatMetres(value: number | null | undefined) {
@@ -390,6 +510,10 @@ export default function LiftPlanForm({
     custom_crane_hydraulic_outreach_m: initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
     custom_crane_jib_outreach_m: initialPackSections.custom_crane_jib_outreach_m ?? "",
     custom_crane_max_radius_m: initialPackSections.custom_crane_max_radius_m ?? "",
+    multi_crane_enabled: initialPackSections.multi_crane_enabled === "true" || Boolean(initialPackSections.additional_cranes_json),
+    multi_crane_lift_type: initialPackSections.multi_crane_lift_type ?? "Assisted / multiple crane lift",
+    multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
+    additional_cranes_json: initialPackSections.additional_cranes_json ?? "[]",
   }));
 
   const [saving, setSaving] = useState(false);
@@ -428,6 +552,7 @@ export default function LiftPlanForm({
   const matAreaM2 = numberOrNull(form.ground_bearing_mat_area_m2) ?? calcMatArea(form.ground_bearing_mat_length_m, form.ground_bearing_mat_width_m);
   const matBearingLoadKg = parseWeightToKg(form.ground_bearing_bearing_load);
   const matPressureText = formatPressure(matBearingLoadKg, matAreaM2);
+  const additionalCranes = useMemo(() => safeJsonParseArray(form.additional_cranes_json), [form.additional_cranes_json]);
 
   const personnelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -552,6 +677,33 @@ export default function LiftPlanForm({
       const area = calcMatArea(next.ground_bearing_mat_length_m, next.ground_bearing_mat_width_m);
       return { ...next, ground_bearing_mat_area_m2: area ? String(area) : "" };
     });
+  }
+
+
+  function setAdditionalCranes(nextCranes: AdditionalCraneEntry[]) {
+    setForm((prev) => ({
+      ...prev,
+      multi_crane_enabled: nextCranes.length > 0 ? true : prev.multi_crane_enabled,
+      additional_cranes_json: stringifyAdditionalCranes(nextCranes),
+    }));
+  }
+
+  function addAdditionalCrane() {
+    if (locked) return;
+    const next = [...additionalCranes, newAdditionalCraneEntry()];
+    setAdditionalCranes(next);
+  }
+
+  function updateAdditionalCrane(id: string, key: keyof AdditionalCraneEntry, value: string) {
+    if (locked) return;
+    const next = additionalCranes.map((item) => item.id === id ? { ...item, [key]: value } : item);
+    setAdditionalCranes(next);
+  }
+
+  function removeAdditionalCrane(id: string) {
+    if (locked) return;
+    const next = additionalCranes.filter((item) => item.id !== id);
+    setAdditionalCranes(next);
   }
 
   async function postForm(payload: LiftPlanData) {
@@ -711,6 +863,66 @@ export default function LiftPlanForm({
       {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
+
+      <Section title="Multi-crane / additional crane section">
+        <div style={tickRow}>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.multi_crane_enabled}
+              onChange={(e) => update("multi_crane_enabled", e.target.checked)}
+              disabled={locked}
+            />
+            Enable multi-crane / assisting crane details
+          </label>
+          <button type="button" onClick={addAdditionalCrane} disabled={locked} style={secondaryBtn}>+ Add another crane</button>
+        </div>
+        <div style={grid2}>
+          <Field label="Lift type / arrangement" value={form.multi_crane_lift_type ?? ""} onChange={(v) => update("multi_crane_lift_type", v)} disabled={locked} />
+        </div>
+        <TextAreaField label="Multi-crane notes / AP instructions" value={form.multi_crane_notes ?? ""} onChange={(v) => update("multi_crane_notes", v)} disabled={locked} rows={3} />
+        {additionalCranes.length === 0 ? (
+          <div style={helperText}>Add a second crane here if the lift plan needs an assisting crane, tailing crane, support crane or tandem/shared lift details. The main selected crane remains controlled by the range chart above.</div>
+        ) : null}
+        {additionalCranes.map((crane, index) => {
+          const totals = additionalCraneTotals(crane);
+          const overCapacity = Boolean(totals.utilisationPercent && totals.utilisationPercent > 100);
+          return (
+            <div key={crane.id} style={multiCraneCard}>
+              <div style={multiCraneHeader}>
+                <strong>Additional crane {index + 1}</strong>
+                <button type="button" onClick={() => removeAdditionalCrane(crane.id)} disabled={locked} style={smallDangerBtn}>Remove</button>
+              </div>
+              <div style={grid2}>
+                <Field label="Crane name / model" value={crane.crane_name} onChange={(v) => updateAdditionalCrane(crane.id, "crane_name", v)} disabled={locked} />
+                <Field label="Role in lift" value={crane.crane_role} onChange={(v) => updateAdditionalCrane(crane.id, "crane_role", v)} disabled={locked} />
+                <Field label="Setup / profile / chart used" value={crane.setup_profile} onChange={(v) => updateAdditionalCrane(crane.id, "setup_profile", v)} disabled={locked} />
+                <Field label="Spec sheet / chart reference" value={crane.spec_sheet_reference} onChange={(v) => updateAdditionalCrane(crane.id, "spec_sheet_reference", v)} disabled={locked} />
+                <Field label="Boom length (m)" type="number" step="0.01" value={crane.boom_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "boom_length_m", v)} disabled={locked} />
+                <Field label="Radius (m)" type="number" step="0.01" value={crane.radius_m} onChange={(v) => updateAdditionalCrane(crane.id, "radius_m", v)} disabled={locked} />
+                <Field label="Hook / lift height (m)" type="number" step="0.01" value={crane.hook_height_m} onChange={(v) => updateAdditionalCrane(crane.id, "hook_height_m", v)} disabled={locked} />
+                <Field label="Chart capacity at radius (kg)" type="number" step="1" value={crane.chart_capacity_kg} onChange={(v) => updateAdditionalCrane(crane.id, "chart_capacity_kg", v)} disabled={locked} />
+                <Field label="Crane planning / gross weight (kg)" type="number" step="1" value={crane.crane_gross_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "crane_gross_weight_kg", v)} disabled={locked} />
+                <Field label="Load share / load on this crane (kg)" type="number" step="1" value={crane.load_share_kg} onChange={(v) => updateAdditionalCrane(crane.id, "load_share_kg", v)} disabled={locked} />
+                <Field label="Accessories on this crane (kg)" type="number" step="1" value={crane.accessory_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "accessory_weight_kg", v)} disabled={locked} />
+                <Field label="Mat length (m)" type="number" step="0.01" value={crane.mat_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_length_m", v)} disabled={locked} />
+                <Field label="Mat width (m)" type="number" step="0.01" value={crane.mat_width_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_width_m", v)} disabled={locked} />
+              </div>
+              <div style={summaryGrid}>
+                <ReadOnlyFact label="Total lifted on this crane" value={formatKgAndT(totals.totalLiftedKg)} />
+                <ReadOnlyFact label="Utilisation" value={totals.utilisationPercent !== null ? `${totals.utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "—"} />
+                <ReadOnlyFact label="Mat area" value={formatM2(totals.matAreaM2)} />
+                <ReadOnlyFact label="Est. bearing load" value={formatKgAndT(totals.bearingLoadKg)} />
+                <ReadOnlyFact label="Est. bearing pressure" value={formatPressureKgM2(totals.bearingPressureKgM2)} />
+              </div>
+              {overCapacity ? <div style={capacityWarningBox}>Warning: this crane is over 100% of entered chart capacity. Change crane/setup/load share before approval.</div> : null}
+              <TextAreaField label="Verification notes for this crane" value={crane.verification_notes} onChange={(v) => updateAdditionalCrane(crane.id, "verification_notes", v)} disabled={locked} rows={3} />
+            </div>
+          );
+        })}
+        <div style={helperText}>For tandem or shared-load lifts, enter the planned load share on each crane. The pack will show each crane separately and still require appointed-person verification against the correct manufacturer/supplier charts.</div>
+      </Section>
+
       <Section title="Lift details / accessories">
         <div style={grid2}>
           <Field label="Load description" value={form.load_description ?? ""} onChange={(v) => update("load_description", v)} disabled={locked} />
@@ -813,3 +1025,8 @@ const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px
 const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
 const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
 const warningBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#c77d00", color: "#fff", fontWeight: 900, cursor: "pointer" };
+const smallDangerBtn: CSSProperties = { padding: "8px 10px", borderRadius: 10, border: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
+const multiCraneCard: CSSProperties = { border: "1px solid rgba(0,0,0,0.12)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.78)", display: "grid", gap: 12 };
+const multiCraneHeader: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" };
+const summaryGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 };
+const capacityWarningBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(220,0,0,0.10)", border: "1px solid rgba(220,0,0,0.25)", fontWeight: 900 };
