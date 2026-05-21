@@ -48,10 +48,17 @@ type AssignedJob = {
 type AssignedTransportJob = {
   id: string;
   transport_number?: string | null;
+  customer_name?: string | null;
+  vehicle_name?: string | null;
+  vehicle_reg_number?: string | null;
+  job_type?: string | null;
+  load_description?: string | null;
   collection_address?: string | null;
   delivery_address?: string | null;
   transport_date?: string | null;
+  collection_time?: string | null;
   delivery_date?: string | null;
+  delivery_time?: string | null;
   status?: string | null;
 };
 
@@ -131,6 +138,30 @@ function formatTimeRange(startTime: string | null | undefined, endTime: string |
   const end = clean(endTime);
   if (!start && !end) return "";
   return `${start ?? "—"} → ${end ?? "—"}`;
+}
+
+function titleCaseLabel(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  return raw.replace(/[_-]+/g, " ").replace(/\s+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function compactText(value: string | null | undefined, maxLength = 58) {
+  const text = clean(value);
+  if (!text) return null;
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function vehicleLabel(job: AssignedTransportJob) {
+  const name = clean(job.vehicle_name);
+  const reg = clean(job.vehicle_reg_number);
+  if (name && reg) return `${name} (${reg})`;
+  return name ?? reg ?? null;
+}
+
+function transportJobTimeRange(job: AssignedTransportJob) {
+  return formatTimeRange(job.collection_time, job.delivery_time);
 }
 
 function assignmentLabel(job: AssignedJob) {
@@ -482,9 +513,29 @@ export default function StaffPlannerBoard() {
 
         {assignmentInfo.transportJobs.length > 0 ? (
           <div style={assignmentBox}>
-            {assignmentInfo.transportJobs.map((job) => (
-              <div key={job.id}>Transport {job.transport_number || job.id}</div>
-            ))}
+            {assignmentInfo.transportJobs.map((job) => {
+              const timeRange = transportJobTimeRange(job);
+              const vehicle = vehicleLabel(job);
+              const customer = clean(job.customer_name);
+              const jobType = titleCaseLabel(job.job_type);
+              const load = compactText(job.load_description, 54);
+              const collection = compactText(job.collection_address, 58);
+              const delivery = compactText(job.delivery_address, 58);
+
+              return (
+                <a key={job.id} href={`/transport-jobs/${job.id}`} style={transportAssignmentCard}>
+                  <div style={assignmentTitleLine}>Transport {job.transport_number || job.id}</div>
+                  {customer ? <div style={assignmentStrongLine}>{customer}</div> : null}
+                  {vehicle ? <div style={assignmentMetaLine}>Vehicle: {vehicle}</div> : null}
+                  {jobType ? <div style={assignmentMetaLine}>Type: {jobType}</div> : null}
+                  {timeRange ? <div style={assignmentMetaLine}>{timeRange}</div> : null}
+                  {load ? <div style={assignmentSubLine}>Load: {load}</div> : null}
+                  {collection || delivery ? (
+                    <div style={assignmentSubLine}>{collection ?? "Collection TBC"} → {delivery ?? "Delivery TBC"}</div>
+                  ) : null}
+                </a>
+              );
+            })}
           </div>
         ) : null}
       </div>
@@ -1000,5 +1051,36 @@ const assignmentBox: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   fontSize: 11,
   display: "grid",
-  gap: 3,
+  gap: 6,
+};
+
+const transportAssignmentCard: React.CSSProperties = {
+  display: "grid",
+  gap: 2,
+  padding: "7px 8px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.62)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  color: "inherit",
+  textDecoration: "none",
+};
+
+const assignmentTitleLine: React.CSSProperties = {
+  fontWeight: 950,
+  lineHeight: 1.2,
+};
+
+const assignmentStrongLine: React.CSSProperties = {
+  fontWeight: 850,
+  lineHeight: 1.22,
+};
+
+const assignmentMetaLine: React.CSSProperties = {
+  opacity: 0.82,
+  lineHeight: 1.25,
+};
+
+const assignmentSubLine: React.CSSProperties = {
+  opacity: 0.70,
+  lineHeight: 1.25,
 };
