@@ -296,6 +296,18 @@ function formatKgAndTonnes(valueKg: number | null | undefined) {
   return `${kg.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg / ${tonnes.toLocaleString("en-GB", { maximumFractionDigits: 2 })} t`;
 }
 
+function formatKgOnly(valueKg: number | null | undefined) {
+  const kg = Number(valueKg ?? 0);
+  if (!Number.isFinite(kg) || kg <= 0) return "—";
+  return `${kg.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg`;
+}
+
+function formatPercentValue(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  return `${n.toLocaleString("en-GB", { maximumFractionDigits: n < 10 ? 1 : 0 })}%`;
+}
+
 function parseDecimal(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(String(value).replace(/,/g, ""));
@@ -1242,23 +1254,21 @@ export default async function CraneLiftPlanPackPage({
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
   const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
   const craneName = craneLabel(crane, allocation);
-  const craneCapacity = formatCapacity(equipmentProfile, crane);
-  const loadWeight = liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—";
-  const boomConfig = shortBoomConfiguration(
-    sections.boom_configuration,
-    liftPlan?.crane_configuration,
-    equipmentProfile
-  );
-  const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
-  const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
   const hasRangeGroundBearingData = Boolean(
     sections.range_chart_bearing_load_kg ||
     sections.range_chart_total_lifted_weight_kg ||
     sections.range_chart_mat_area_m2 ||
-    sections.range_chart_bearing_pressure
+    sections.range_chart_bearing_pressure ||
+    sections.range_chart_load_weight_kg ||
+    sections.range_chart_accessory_weight_kg ||
+    sections.range_chart_chart_capacity_kg
   );
   const rangeGroundCalc = hasRangeGroundBearingData ? rangeChartCalculated(sections) : null;
-  const rangeTotalLiftedWeightKg = rangeGroundCalc?.totalLiftedWeightKg ?? null;
+  const rangeLoadWeightKg = rangeGroundCalc?.loadWeightKg ?? parseWeightToKg(liftPlan?.load_weight);
+  const rangeAccessoryWeightKg = rangeGroundCalc?.accessoryWeightKg ?? parseWeightToKg(sections.crane_lifting_accessories_weight_text);
+  const rangeTotalLiftedWeightKg = rangeGroundCalc?.totalLiftedWeightKg ?? (rangeLoadWeightKg || rangeAccessoryWeightKg ? (rangeLoadWeightKg ?? 0) + (rangeAccessoryWeightKg ?? 0) : null);
+  const rangeChartCapacityKg = rangeGroundCalc?.chartCapacityKg ?? parseWeightToKg(sections.range_chart_chart_capacity_kg);
+  const rangeUtilisationPercent = rangeGroundCalc?.utilisationPercent ?? (rangeTotalLiftedWeightKg && rangeChartCapacityKg ? (rangeTotalLiftedWeightKg / rangeChartCapacityKg) * 100 : null);
   const rangeBearingLoadKg = rangeGroundCalc?.bearingLoadKg ?? null;
   const rangeBearingSource = String(rangeGroundCalc?.bearingSource ?? "").toLowerCase();
   const rangeBearingMethod = String(rangeGroundCalc?.bearingMethod ?? "").toLowerCase();
@@ -1270,8 +1280,22 @@ export default async function CraneLiftPlanPackPage({
   const rangePlanningGrossWeightKg = rangeBearingUsesPlanningFormula && rangeBearingLoadKg && rangeTotalLiftedWeightKg !== null
     ? Math.max(0, (rangeBearingLoadKg / 0.75) - rangeTotalLiftedWeightKg)
     : null;
+  const rangeSpecPlanningWeightKg = rangeGroundCalc?.limits?.planningWeightKg ?? null;
 
-  const craneMaxWeightKg = rangePlanningGrossWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(equipmentProfile?.maxCapacityKg) ?? parseWeightToKg(crane?.capacity);
+  const craneCapacity = rangeChartCapacityKg ? formatKgAndTonnes(rangeChartCapacityKg) : formatCapacity(equipmentProfile, crane);
+  const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
+  const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
+  const boomConfig = shortBoomConfiguration(
+    sections.boom_configuration,
+    liftPlan?.crane_configuration,
+    equipmentProfile
+  );
+  const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
+  const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
+    ? formatPercentValue(rangeUtilisationPercent)
+    : percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
+
+  const craneMaxWeightKg = rangePlanningGrossWeightKg ?? rangeSpecPlanningWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
   const combinedMaxWeightKg = craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg + loadMaxWeightKg : null;
   const estimatedGroundBearingKg = rangeBearingLoadKg ?? (combinedMaxWeightKg ? combinedMaxWeightKg * 0.75 : null);
@@ -1421,6 +1445,9 @@ export default async function CraneLiftPlanPackPage({
   };
   const inputField = (key: string, fallback: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={fieldText(key, fallback)} align={align} />
+  );
+  const calculatedInputField = (key: string, value: string, align: "left" | "right" = "left") => (
+    <EditableInput name={key} defaultValue={value} align={align} />
   );
   const monthInputField = (key: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={packMonthText(key)} align={align} />
@@ -1793,33 +1820,33 @@ export default async function CraneLiftPlanPackPage({
             [inputField("crane_label_type", "Crane type"), inputField("crane_type_value", craneName)],
             [
               inputField("crane_label_gross_weight", "Crane gross weight"),
-              inputField("crane_gross_weight", crane?.capacity ? `${crane?.capacity}` : "See selected machine profile / manufacturer information"),
+              calculatedInputField("crane_gross_weight", formatKgAndTonnes(craneMaxWeightKg)),
             ],
-            [inputField("crane_label_load_weight", "Gross weight of load"), inputField("crane_load_weight", loadWeight)],
+            [inputField("crane_label_load_weight", "Gross weight of load"), calculatedInputField("crane_load_weight", loadWeight)],
             [
               inputField("crane_label_lifting_accessories_weight", "Gross weight of lifting accessories"),
-              inputField("crane_lifting_accessories_weight_text", liftPlan?.lifting_accessories ? "Included within planned lift accessories." : "—"),
+              calculatedInputField("crane_lifting_accessories_weight_text", accessoryWeight),
             ],
             [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
             [inputField("crane_label_outreach_reference", "Boom / outreach reference"), inputField("crane_outreach_reference", outreachRef)],
             [inputField("crane_label_jib_reference", "Jib / max outreach"), inputField("crane_jib_reference", jibRef)],
-            [inputField("crane_label_max_capacity", "Max capacity"), inputField("crane_max_capacity", craneCapacity)],
-            [inputField("crane_label_utilisation", "Crane utilisation %"), inputField("crane_utilisation", utilisation)],
+            [inputField("crane_label_max_capacity", "Chart capacity at radius"), calculatedInputField("crane_max_capacity", craneCapacity)],
+            [inputField("crane_label_utilisation", "Crane utilisation %"), calculatedInputField("crane_utilisation", utilisation)],
           ]}
         />
 
         <BoxedParagraph title={inputField("ground_bearing_title", "Ground bearing load calculation")}>
           <InfoTable
             rows={[
-              [inputField("ground_bearing_label_crane_max", "Crane planning / gross weight"), inputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
-              [inputField("ground_bearing_label_load_max", "Total lifted load"), inputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
-              [inputField("ground_bearing_label_combined", "Combined planning weight"), inputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
-              [inputField("ground_bearing_label_factor", "Calculation factor"), inputField("ground_bearing_factor", "0.75")],
-              [inputField("ground_bearing_label_result", "Estimated bearing load / outrigger reaction"), inputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
-              [inputField("ground_bearing_label_mat_size", "Selected mat / spreader size"), inputField("ground_bearing_mat_size", matSizeText)],
-              [inputField("ground_bearing_label_mat_area", "Mat bearing area"), inputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
-              [inputField("ground_bearing_label_bearing_load", "Bearing load used for mat calculation"), inputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
-              [inputField("ground_bearing_label_pressure", "Estimated bearing pressure"), inputField("ground_bearing_pressure", bearingPressure)],
+              [inputField("ground_bearing_label_crane_max", "Crane planning / gross weight"), calculatedInputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
+              [inputField("ground_bearing_label_load_max", "Total lifted load"), calculatedInputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
+              [inputField("ground_bearing_label_combined", "Combined planning weight"), calculatedInputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
+              [inputField("ground_bearing_label_factor", "Calculation factor"), calculatedInputField("ground_bearing_factor", "0.75")],
+              [inputField("ground_bearing_label_result", "Estimated bearing load / outrigger reaction"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
+              [inputField("ground_bearing_label_mat_size", "Selected mat / spreader size"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
+              [inputField("ground_bearing_label_mat_area", "Mat bearing area"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
+              [inputField("ground_bearing_label_bearing_load", "Bearing load used for mat calculation"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
+              [inputField("ground_bearing_label_pressure", "Estimated bearing pressure"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
             ]}
           />
           <div style={{ marginTop: 8 }}>
