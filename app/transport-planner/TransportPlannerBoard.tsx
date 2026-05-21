@@ -541,18 +541,32 @@ export default function TransportPlannerBoard() {
 
   function getVisitInvoiceEntry(item: PlannerItem, visibleDayIso?: string | null) {
     if (!visibleDayIso) return null;
+
+    const priceMode = String(item.price_mode ?? "full_job").trim().toLowerCase();
+    const parentStatus = String(item.invoice_status ?? "Not Invoiced").trim();
+    const parentIsInvoiced = parentStatus && parentStatus.toLowerCase() !== "not invoiced";
+
+    // Full-job-price transport jobs must use the parent job invoice status as the source of truth.
+    // Old/stale visit rows can exist from earlier planner button saves, but they should not override a
+    // full-job transport job that is currently Not Invoiced on the job page.
+    if (priceMode !== "per_day") {
+      return parentIsInvoiced
+        ? {
+            invoice_status: parentStatus,
+            notes: "Shown from the main transport job invoice status.",
+          }
+        : null;
+    }
+
     const explicitEntry = item.visit_invoices?.[visibleDayIso] ?? null;
     if (explicitEntry) return explicitEntry;
 
-    const parentStatus = String(item.invoice_status ?? "").trim();
-    if (parentStatus && parentStatus.toLowerCase() !== "not invoiced") {
-      return {
-        invoice_status: parentStatus,
-        notes: "Shown from the main transport job invoice status.",
-      };
-    }
-
-    return null;
+    return parentIsInvoiced
+      ? {
+          invoice_status: parentStatus,
+          notes: "Shown from the main transport job invoice status.",
+        }
+      : null;
   }
 
   function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
