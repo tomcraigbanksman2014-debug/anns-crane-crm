@@ -652,7 +652,6 @@ function rangeChartCalculated(sections: StringMap) {
   const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
   const craneName = rangeText(sections, "range_chart_crane_name", "");
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
-  const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
   const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedSetupLabel);
@@ -683,13 +682,19 @@ function rangeChartCalculated(sections: StringMap) {
     jibAngleDeg,
     totalLiftedWeightKg,
   });
+  const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
   const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg") ?? capacityResult.capacityKg;
   const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matAreaM2 = parseDecimal(sections.range_chart_mat_area_m2) ?? (matLengthM && matWidthM ? matLengthM * matWidthM : null);
   const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? bearingResult.bearingLoadKg;
-  const bearingPressure = rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
+  const calculatedBearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
+  const bearingPressureKgM2 = calculatedBearingPressureKgM2 ?? parseDecimal(sections.range_chart_bearing_pressure_kg_m2);
+  const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
+  const bearingPressureFormula = bearingLoadKg && matAreaM2 && bearingPressureKgM2
+    ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} = ${bearingPressure}`
+    : rangeText(sections, "range_chart_bearing_pressure_formula", "Enter mat length and width to calculate bearing pressure from bearing load ÷ mat area.");
 
   return {
     radiusM,
@@ -717,6 +722,8 @@ function rangeChartCalculated(sections: StringMap) {
     matAreaM2,
     bearingLoadKg,
     bearingPressure,
+    bearingPressureKgM2,
+    bearingPressureFormula,
     capacityMethod: rangeText(sections, "range_chart_capacity_method", capacityResult.method),
     capacitySource: rangeText(sections, "range_chart_capacity_source", capacityResult.source),
     bearingMethod: rangeText(sections, "range_chart_bearing_method", bearingResult.method),
@@ -895,6 +902,7 @@ function RangeChartPackPage({
         <MetricBox label="Mat Area" value={formatAreaM2(calc.matAreaM2)} />
         <MetricBox label="Bearing Load / Reaction" value={formatRangeKg(calc.bearingLoadKg)} />
         <MetricBox label="Bearing Pressure" value={calc.bearingPressure} />
+        <MetricBox label="Bearing Formula" value={calc.bearingPressureFormula} />
       </div>
 
       <div style={rangeVerificationBox}>
