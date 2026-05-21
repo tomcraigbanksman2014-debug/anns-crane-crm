@@ -105,6 +105,34 @@ export async function GET(
   }
 }
 
+
+async function safeCreateLiftPlanVersion({
+  supabase,
+  existing,
+  user,
+  reason,
+}: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  existing: any;
+  user: any;
+  reason: string;
+}) {
+  if (!existing?.id) return;
+  try {
+    await supabase.from("lift_plan_versions").insert({
+      lift_plan_id: existing.id,
+      job_id: existing.job_id,
+      snapshot_data: existing,
+      created_by: user?.id ?? null,
+      created_by_email: user?.email ?? null,
+      reason,
+    });
+  } catch {
+    // Version history is a safety feature. If the migration has not been run yet,
+    // do not block saving the lift plan.
+  }
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -125,7 +153,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("lift_plans")
-      .select("id, paperwork_locked, pack_sections")
+      .select("*")
       .eq("job_id", params.id)
       .maybeSingle();
 
@@ -184,6 +212,8 @@ export async function POST(
         ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
         ...packSectionsFromPayload,
       };
+
+      await safeCreateLiftPlanVersion({ supabase, existing, user, reason: "before_save_draft" });
 
       const { error: updateError } = await supabase
         .from("lift_plans")
