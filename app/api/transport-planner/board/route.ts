@@ -71,41 +71,6 @@ function countDaysInclusive(startDate: string | null | undefined, endDate: strin
   return count;
 }
 
-
-function datesBetweenClamped(
-  startDate: string | null | undefined,
-  endDate: string | null | undefined,
-  rangeStart: string,
-  rangeEnd: string
-) {
-  const startText = String(startDate ?? "").slice(0, 10);
-  const endText = String(endDate ?? startDate ?? "").slice(0, 10);
-  if (!startText || !endText) return [] as string[];
-
-  const start = new Date(`${startText}T00:00:00`);
-  const end = new Date(`${endText}T00:00:00`);
-  const min = new Date(`${rangeStart}T00:00:00`);
-  const max = new Date(`${rangeEnd}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return [] as string[];
-
-  const cursor = start < min ? new Date(min) : new Date(start);
-  const stop = end > max ? max : end;
-  const days: string[] = [];
-  while (cursor <= stop) {
-    days.push(isoDate(cursor));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return days;
-}
-
-function normaliseInvoiceStatus(value: unknown) {
-  const raw = String(value ?? "").trim().toLowerCase();
-  if (raw === "paid") return "Paid";
-  if (raw === "part paid" || raw === "part_paid") return "Part Paid";
-  if (raw === "invoiced") return "Invoiced";
-  return "Not Invoiced";
-}
-
 function effectiveTransportPrice(job: any) {
   const mode = lower(job?.price_mode || "full_job");
   if (mode === "per_day") {
@@ -272,69 +237,8 @@ export async function GET(req: Request) {
       visitInvoicesByJobId.set(jobId, existing);
     });
 
-    const getVisitInvoicesForJob = (job: any) => {
-      const jobId = String(job?.id ?? "").trim();
-      if (!jobId) return {};
-
-      const existing = { ...(visitInvoicesByJobId.get(jobId) ?? {}) };
-      const parentStatus = normaliseInvoiceStatus(job?.invoice_status);
-      const mode = lower(job?.price_mode || "full_job");
-      const visibleDates = datesBetweenClamped(
-        job?.transport_date,
-        job?.delivery_date ?? job?.transport_date,
-        rangeStart,
-        rangeEnd
-      );
-
-      // Full-job pricing should follow the transport job invoice status.
-      // This prevents old per-visit rows making the planner say "Visit invoiced"
-      // while the transport job page says "Not Invoiced".
-      if (mode !== "per_day") {
-        visibleDates.forEach((visitDate) => {
-          existing[visitDate] = {
-            ...(existing[visitDate] ?? {}),
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: parentStatus,
-            invoice_number: parentStatus === "Not Invoiced" ? null : existing[visitDate]?.invoice_number ?? null,
-            invoice_date: parentStatus === "Not Invoiced" ? null : existing[visitDate]?.invoice_date ?? null,
-          };
-        });
-        return existing;
-      }
-
-      // Per-day pricing can keep individual visit statuses, but if the job itself
-      // has explicitly been reset to Not Invoiced we do not allow stale visit rows
-      // to keep showing as invoiced on the planner.
-      if (parentStatus === "Not Invoiced") {
-        visibleDates.forEach((visitDate) => {
-          existing[visitDate] = {
-            ...(existing[visitDate] ?? {}),
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: "Not Invoiced",
-            invoice_number: null,
-            invoice_date: null,
-          };
-        });
-        return existing;
-      }
-
-      // If the job has been marked invoiced from the job page/outstanding invoices
-      // and no visit row exists yet, show that status on the planner too.
-      visibleDates.forEach((visitDate) => {
-        if (!existing[visitDate]) {
-          existing[visitDate] = {
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: parentStatus,
-            invoice_number: null,
-            invoice_date: null,
-          };
-        }
-      });
-
-      return existing;
+    const getVisitInvoicesForJob = (jobId: string | null | undefined) => {
+      return visitInvoicesByJobId.get(String(jobId ?? "").trim()) ?? {};
     };
 
     const operatorById = new Map<string, any>();
@@ -361,7 +265,7 @@ export async function GET(req: Request) {
         linked_job_id: row.linked_job_id ?? null,
         vehicle_id: row.vehicle_id ?? null,
         status: row.status ?? null,
-        invoice_status: normaliseInvoiceStatus(row.invoice_status),
+        invoice_status: row.invoice_status ?? "Not Invoiced",
         job_type: row.job_type ?? null,
         load_description: row.load_description ?? null,
         supplier_id: row.supplier_id ?? null,
@@ -381,7 +285,7 @@ export async function GET(req: Request) {
         approval_status: row.approval_status ?? null,
         approval_reference: row.approval_reference ?? null,
         authorised_to_move: Boolean(row.authorised_to_move),
-        visit_invoices: getVisitInvoicesForJob(row),
+        visit_invoices: getVisitInvoicesForJob(row.id),
       };
     };
 
