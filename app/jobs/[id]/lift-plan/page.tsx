@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { createClient } from "@supabase/supabase-js";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { getPrimaryCraneContext, matchCraneJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
@@ -15,6 +16,8 @@ import {
   getJobSpecDocumentsForManager,
 } from "../../../lib/assetDocuments";
 import { rangeChartBuilderEnabled } from "../../../lib/features";
+
+export const dynamic = "force-dynamic";
 
 function line(label: string, value: string | null | undefined) {
   return { label, value: String(value ?? "—").trim() || "—" };
@@ -164,8 +167,26 @@ function archiveStatusLabel(value: unknown) {
   }
 }
 
+
+function getArchiveAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return null;
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
+
 async function loadLiftPlanPdfArchives(supabase: ReturnType<typeof createSupabaseServerClient>, jobId: string) {
-  const { data, error } = await supabase
+  const archiveClient = getArchiveAdminClient() ?? supabase;
+  const { data, error } = await archiveClient
     .from("lift_plan_pdf_archives")
     .select("id, title, archive_status, notes, file_name, file_path, file_type, file_size_bytes, uploaded_by_email, created_at")
     .eq("job_id", jobId)
@@ -180,7 +201,7 @@ async function loadLiftPlanPdfArchives(supabase: ReturnType<typeof createSupabas
   const signedMap = new Map<string, string>();
 
   if (paths.length) {
-    const { data: signed } = await supabase.storage.from("job-documents").createSignedUrls(paths, 60 * 60);
+    const { data: signed } = await archiveClient.storage.from("job-documents").createSignedUrls(paths, 60 * 60);
     for (const item of signed ?? []) {
       if (item?.path && item?.signedUrl) signedMap.set(String(item.path), String(item.signedUrl));
     }
