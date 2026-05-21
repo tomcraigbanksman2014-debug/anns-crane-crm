@@ -9,6 +9,38 @@ function cleanNumber(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function roundForStorage(value: number | null, decimals = 3) {
+  if (value === null || value === undefined) return null;
+  if (!Number.isFinite(value)) return null;
+  const factor = Math.pow(10, decimals);
+  return String(Math.round(value * factor) / factor);
+}
+
+function inferredRangeTotalLiftedWeight(sections: DynamicPackSectionsPayload) {
+  const storedTotal = cleanNumber(sections.range_chart_total_lifted_weight_kg);
+  if (storedTotal !== null) return storedTotal;
+
+  const load = cleanNumber(sections.range_chart_load_weight_kg) ?? 0;
+  const accessories = cleanNumber(sections.range_chart_accessory_weight_kg) ?? 0;
+  const total = load + accessories;
+  return total > 0 ? total : null;
+}
+
+function inferredPlanningGrossWeightFromRangeChart(sections: DynamicPackSectionsPayload) {
+  const bearingLoad = cleanNumber(sections.range_chart_bearing_load_kg);
+  const totalLifted = inferredRangeTotalLiftedWeight(sections);
+  const source = String(sections.range_chart_bearing_source ?? "").toLowerCase();
+  const method = String(sections.range_chart_bearing_method ?? "").toLowerCase();
+
+  // Only reverse the lift-plan estimate when the bearing value came from the planning formula.
+  // Do not reverse-calculate published outrigger/reaction values such as a spec-sheet reaction.
+  const isPlanningEstimate = source.includes("planning estimate") || source.includes("planning/gross weight") || source.includes("existing lift-plan formula");
+  if (bearingLoad === null || totalLifted === null || method !== "automatic" || !isPlanningEstimate) return null;
+
+  const planningGrossWeight = bearingLoad / 0.75 - totalLifted;
+  return planningGrossWeight > 0 && Number.isFinite(planningGrossWeight) ? planningGrossWeight : null;
+}
+
 const LONG_TEXT_SECTION_KEYS = new Set([
   "introduction",
   "client_responsibilities",
@@ -116,16 +148,30 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   const next: DynamicPackSectionsPayload = { ...sections };
   const boomLength = cleanNumber(sections.range_chart_boom_length_m);
   const jibLength = cleanNumber(sections.range_chart_jib_length_m);
+  const totalLiftedWeight = inferredRangeTotalLiftedWeight(sections);
+  const planningGrossWeight = inferredPlanningGrossWeightFromRangeChart(sections);
+  const bearingLoad = cleanNumber(sections.range_chart_bearing_load_kg);
+  const matArea = cleanNumber(sections.range_chart_mat_area_m2);
+  const bearingPressureKgM2 = cleanNumber(sections.range_chart_bearing_pressure_kg_m2);
 
   if (sections.range_chart_selected_setup_key) next.selected_crane_setup_key = sections.range_chart_selected_setup_key;
   if (sections.range_chart_selected_setup_label) next.selected_crane_setup_label = sections.range_chart_selected_setup_label;
   if (boomLength !== null) next.boom_length = `${boomLength} m boom`;
   if (jibLength !== null && jibLength > 0) next.crane_jib_reference = `${jibLength} m physical jib / extension`;
+
+  // Keep the older pack table fields in step with the range-chart calculation so stale/manual
+  // values cannot carry through to the printed ground-bearing table.
+  if (planningGrossWeight !== null) next.ground_bearing_crane_max_weight = roundForStorage(planningGrossWeight, 2);
+  if (totalLiftedWeight !== null) next.ground_bearing_load_max_weight = roundForStorage(totalLiftedWeight, 2);
+  if (planningGrossWeight !== null && totalLiftedWeight !== null) next.ground_bearing_combined_weight = roundForStorage(planningGrossWeight + totalLiftedWeight, 2);
+  if (bearingLoad !== null) next.ground_bearing_result = roundForStorage(bearingLoad, 2);
+
   if (sections.range_chart_mat_length_m) next.ground_bearing_mat_length_m = sections.range_chart_mat_length_m;
   if (sections.range_chart_mat_width_m) next.ground_bearing_mat_width_m = sections.range_chart_mat_width_m;
-  if (sections.range_chart_mat_area_m2) next.ground_bearing_mat_area_m2 = sections.range_chart_mat_area_m2;
-  if (sections.range_chart_bearing_load_kg) next.ground_bearing_bearing_load = sections.range_chart_bearing_load_kg;
+  if (matArea !== null) next.ground_bearing_mat_area_m2 = roundForStorage(matArea, 3);
+  if (bearingLoad !== null) next.ground_bearing_bearing_load = roundForStorage(bearingLoad, 2);
   if (sections.range_chart_bearing_pressure) next.ground_bearing_pressure = sections.range_chart_bearing_pressure;
+  if (bearingPressureKgM2 !== null) next.ground_bearing_pressure_kg_m2 = roundForStorage(bearingPressureKgM2, 2);
   if (sections.range_chart_bearing_pressure_formula) next.ground_bearing_notes = sections.range_chart_bearing_pressure_formula;
 
   return next;
