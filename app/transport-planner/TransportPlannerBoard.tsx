@@ -26,6 +26,7 @@ type PlannerItem = {
   operator_id?: string | null;
   vehicle_id?: string | null;
   status?: string | null;
+  invoice_status?: string | null;
   job_type?: string | null;
   load_description?: string | null;
   supplier_id?: string | null;
@@ -540,7 +541,18 @@ export default function TransportPlannerBoard() {
 
   function getVisitInvoiceEntry(item: PlannerItem, visibleDayIso?: string | null) {
     if (!visibleDayIso) return null;
-    return item.visit_invoices?.[visibleDayIso] ?? null;
+    const explicitEntry = item.visit_invoices?.[visibleDayIso] ?? null;
+    if (explicitEntry) return explicitEntry;
+
+    const parentStatus = String(item.invoice_status ?? "").trim();
+    if (parentStatus && parentStatus.toLowerCase() !== "not invoiced") {
+      return {
+        invoice_status: parentStatus,
+        notes: "Shown from the main transport job invoice status.",
+      };
+    }
+
+    return null;
   }
 
   function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
