@@ -766,20 +766,34 @@ export default function PlannerBoard() {
 
   function getVisitInvoiceEntry(item: PlannerItem, dayIso?: string | null) {
     if (!dayIso) return null;
+
+    const parentStatus = String(item.invoice_status ?? "Not Invoiced").trim();
+    const parentIsInvoiced = parentStatus && parentStatus.toLowerCase() !== "not invoiced";
+
+    // Full-job-price crane jobs must use the parent job invoice status as the source of truth.
+    // Per-day jobs can still use individual visit invoice rows.
+    if (!isPerDayPriced(item)) {
+      return parentIsInvoiced
+        ? {
+            job_id: item.job_id,
+            visit_date: dayIso,
+            invoice_status: parentStatus,
+            notes: "Shown from the main job invoice status.",
+          }
+        : null;
+    }
+
     const explicitEntry = item.visit_invoices?.[dayIso] ?? null;
     if (explicitEntry) return explicitEntry;
 
-    const parentStatus = String(item.invoice_status ?? "").trim();
-    if (parentStatus && parentStatus.toLowerCase() !== "not invoiced") {
-      return {
-        job_id: item.job_id,
-        visit_date: dayIso,
-        invoice_status: parentStatus,
-        notes: "Shown from the main job invoice status.",
-      };
-    }
-
-    return null;
+    return parentIsInvoiced
+      ? {
+          job_id: item.job_id,
+          visit_date: dayIso,
+          invoice_status: parentStatus,
+          notes: "Shown from the main job invoice status.",
+        }
+      : null;
   }
 
   function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
