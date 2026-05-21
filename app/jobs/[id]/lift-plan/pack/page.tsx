@@ -1251,15 +1251,35 @@ export default async function CraneLiftPlanPackPage({
   );
   const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
   const utilisation = percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
-  const craneMaxWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(equipmentProfile?.maxCapacityKg) ?? parseWeightToKg(crane?.capacity);
-  const loadMaxWeightKg = parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
+  const hasRangeGroundBearingData = Boolean(
+    sections.range_chart_bearing_load_kg ||
+    sections.range_chart_total_lifted_weight_kg ||
+    sections.range_chart_mat_area_m2 ||
+    sections.range_chart_bearing_pressure
+  );
+  const rangeGroundCalc = hasRangeGroundBearingData ? rangeChartCalculated(sections) : null;
+  const rangeTotalLiftedWeightKg = rangeGroundCalc?.totalLiftedWeightKg ?? null;
+  const rangeBearingLoadKg = rangeGroundCalc?.bearingLoadKg ?? null;
+  const rangeBearingSource = String(rangeGroundCalc?.bearingSource ?? "").toLowerCase();
+  const rangeBearingMethod = String(rangeGroundCalc?.bearingMethod ?? "").toLowerCase();
+  const rangeBearingUsesPlanningFormula = rangeBearingMethod === "automatic" && (
+    rangeBearingSource.includes("planning estimate") ||
+    rangeBearingSource.includes("planning/gross weight") ||
+    rangeBearingSource.includes("existing lift-plan formula")
+  );
+  const rangePlanningGrossWeightKg = rangeBearingUsesPlanningFormula && rangeBearingLoadKg && rangeTotalLiftedWeightKg !== null
+    ? Math.max(0, (rangeBearingLoadKg / 0.75) - rangeTotalLiftedWeightKg)
+    : null;
+
+  const craneMaxWeightKg = rangePlanningGrossWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(equipmentProfile?.maxCapacityKg) ?? parseWeightToKg(crane?.capacity);
+  const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
   const combinedMaxWeightKg = craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg + loadMaxWeightKg : null;
-  const estimatedGroundBearingKg = combinedMaxWeightKg ? combinedMaxWeightKg * 0.75 : null;
-  const matLengthM = parseDecimal(sections.ground_bearing_mat_length_m);
-  const matWidthM = parseDecimal(sections.ground_bearing_mat_width_m);
-  const matAreaM2 = parseDecimal(sections.ground_bearing_mat_area_m2) ?? (matLengthM && matWidthM ? Number((matLengthM * matWidthM).toFixed(3)) : null);
-  const bearingLoadKg = parseWeightToKg(sections.ground_bearing_bearing_load) ?? estimatedGroundBearingKg;
-  const bearingPressure = formatBearingPressure(bearingLoadKg, matAreaM2);
+  const estimatedGroundBearingKg = rangeBearingLoadKg ?? (combinedMaxWeightKg ? combinedMaxWeightKg * 0.75 : null);
+  const matLengthM = (rangeGroundCalc?.matLengthM && rangeGroundCalc.matLengthM > 0 ? rangeGroundCalc.matLengthM : null) ?? parseDecimal(sections.ground_bearing_mat_length_m);
+  const matWidthM = (rangeGroundCalc?.matWidthM && rangeGroundCalc.matWidthM > 0 ? rangeGroundCalc.matWidthM : null) ?? parseDecimal(sections.ground_bearing_mat_width_m);
+  const matAreaM2 = rangeGroundCalc?.matAreaM2 ?? parseDecimal(sections.ground_bearing_mat_area_m2) ?? (matLengthM && matWidthM ? Number((matLengthM * matWidthM).toFixed(3)) : null);
+  const bearingLoadKg = rangeBearingLoadKg ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? estimatedGroundBearingKg;
+  const bearingPressure = rangeGroundCalc?.bearingPressure && rangeGroundCalc.bearingPressure !== "—" ? rangeGroundCalc.bearingPressure : formatBearingPressure(bearingLoadKg, matAreaM2);
   const matSizeText = matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m` : matPresetLabel(sections.ground_bearing_mat_preset);
   const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
   const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
@@ -1791,11 +1811,11 @@ export default async function CraneLiftPlanPackPage({
         <BoxedParagraph title={inputField("ground_bearing_title", "Ground bearing load calculation")}>
           <InfoTable
             rows={[
-              [inputField("ground_bearing_label_crane_max", "Max weight / capacity of crane used"), inputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
-              [inputField("ground_bearing_label_load_max", "Max weight of load"), inputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
-              [inputField("ground_bearing_label_combined", "Combined max weight"), inputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
+              [inputField("ground_bearing_label_crane_max", "Crane planning / gross weight"), inputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
+              [inputField("ground_bearing_label_load_max", "Total lifted load"), inputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
+              [inputField("ground_bearing_label_combined", "Combined planning weight"), inputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
               [inputField("ground_bearing_label_factor", "Calculation factor"), inputField("ground_bearing_factor", "0.75")],
-              [inputField("ground_bearing_label_result", "Estimated ground bearing / outrigger load"), inputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
+              [inputField("ground_bearing_label_result", "Estimated bearing load / outrigger reaction"), inputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
               [inputField("ground_bearing_label_mat_size", "Selected mat / spreader size"), inputField("ground_bearing_mat_size", matSizeText)],
               [inputField("ground_bearing_label_mat_area", "Mat bearing area"), inputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
               [inputField("ground_bearing_label_bearing_load", "Bearing load used for mat calculation"), inputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
@@ -1803,7 +1823,7 @@ export default async function CraneLiftPlanPackPage({
             ]}
           />
           <div style={{ marginTop: 8 }}>
-            {areaField("ground_bearing_notes", `Calculation used: bearing load / outrigger reaction ÷ selected mat area in m². Example: a 1m x 3m mat has an area of 3m², so a 30t bearing load gives 10t/m². The table above also retains the existing planning estimate of (max weight / capacity of crane + max weight of load) × 0.75 where an exact outrigger reaction has not been entered. Final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.`, 5, true)}
+            {areaField("ground_bearing_notes", rangeGroundCalc?.bearingPressureFormula || `Calculation used: bearing load / outrigger reaction ÷ selected mat area in m². Bearing load is estimated as (crane planning/gross weight + total lifted load) × 0.75 unless an exact published outrigger reaction is available. Example: a 1m x 3m mat has an area of 3m², so a 30t bearing load gives 10t/m². Final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.`, 5, true)}
           </div>
         </BoxedParagraph>
 
