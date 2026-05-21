@@ -637,6 +637,11 @@ export function getRangeChartLimits({
   return {
     rule,
     maxCapacityKg: rule?.maxCapacityKg ?? null,
+    planningWeightKg: rule?.planningWeightKg ?? null,
+    planningWeightSource: rule?.planningWeightSource ?? null,
+    estimatedBearingFactor: rule?.estimatedBearingFactor ?? null,
+    defaultBearingLoadKg: rule?.defaultBearingLoadKg ?? null,
+    bearingLoadSource: rule?.bearingLoadSource ?? null,
     maxBoomLengthM: setupMaxBoomLengthM ?? rule?.maxBoomLengthM ?? null,
     maxPhysicalJibLengthM: setupMaxPhysicalJibLengthM ?? rule?.maxPhysicalJibLengthM ?? null,
     maxRadiusM: setupMaxRadiusM ?? rule?.maxRadiusM ?? null,
