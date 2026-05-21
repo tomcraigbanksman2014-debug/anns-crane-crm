@@ -7,7 +7,7 @@ import {
 import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
 import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
-import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits } from "../../../../lib/rangeChartSpecs";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null>;
 
@@ -811,6 +811,7 @@ type PackAdditionalCraneEntry = {
   id?: string;
   crane_name?: string;
   crane_role?: string;
+  planned_use?: string;
   setup_profile?: string;
   boom_length_m?: string;
   radius_m?: string;
@@ -823,6 +824,8 @@ type PackAdditionalCraneEntry = {
   mat_width_m?: string;
   spec_sheet_reference?: string;
   verification_notes?: string;
+  selected_profile_key?: string;
+  selected_jib_key?: string;
 };
 
 function parseAdditionalCraneEntries(value: unknown): PackAdditionalCraneEntry[] {
@@ -835,6 +838,7 @@ function parseAdditionalCraneEntries(value: unknown): PackAdditionalCraneEntry[]
         id: String(item?.id ?? ""),
         crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
         crane_role: String(item?.crane_role ?? item?.craneRole ?? ""),
+        planned_use: String(item?.planned_use ?? item?.plannedUse ?? ""),
         setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
         boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
         radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
@@ -847,6 +851,8 @@ function parseAdditionalCraneEntries(value: unknown): PackAdditionalCraneEntry[]
         mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
         spec_sheet_reference: String(item?.spec_sheet_reference ?? item?.specSheetReference ?? ""),
         verification_notes: String(item?.verification_notes ?? item?.verificationNotes ?? ""),
+        selected_profile_key: String(item?.selected_profile_key ?? item?.selectedProfileKey ?? ""),
+        selected_jib_key: String(item?.selected_jib_key ?? item?.selectedJibKey ?? ""),
       }))
       .filter((item) => Object.values(item).some((value) => String(value ?? "").trim().length > 0));
   } catch {
@@ -860,19 +866,89 @@ function additionalCraneNumber(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
-function additionalCraneCalc(crane: PackAdditionalCraneEntry) {
-  const grossKg = additionalCraneNumber(crane.crane_gross_weight_kg);
-  const loadKg = additionalCraneNumber(crane.load_share_kg) ?? 0;
-  const accessoryKg = additionalCraneNumber(crane.accessory_weight_kg) ?? 0;
+function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnType<typeof rangeChartCalculated> | null) {
+  const craneName = tidyDisplayLabel(crane.crane_name || "");
+  const specOptions = getRangeChartSpecOptions({ craneName, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
+  const selectedProfile = crane.selected_profile_key
+    ? specOptions.profileOptions.find((option) => option.key === crane.selected_profile_key) ?? null
+    : specOptions.profileOptions.find((option) => crane.setup_profile && option.label === crane.setup_profile) ?? specOptions.profileOptions[0] ?? null;
+  const selectedJib = crane.selected_jib_key
+    ? specOptions.jibOptions.find((option) => option.key === crane.selected_jib_key) ?? null
+    : specOptions.jibOptions.find((option) => crane.setup_profile && crane.setup_profile.toLowerCase().includes(option.label.toLowerCase())) ?? null;
+
+  const setupLabel = [selectedProfile?.label || crane.setup_profile || "", selectedJib?.label && !/^no jib/i.test(selectedJib.label) ? selectedJib.label : ""].filter(Boolean).join(" / ");
+  const limits = getRangeChartLimits({
+    craneName,
+    setupLabel,
+    sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+    setupMaxBoomLengthM: selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? null,
+    setupMaxRadiusM: selectedJib?.maxRadiusM ?? selectedProfile?.maxRadiusM ?? null,
+    setupMaxTipHeightM: selectedJib?.maxTipHeightM ?? selectedProfile?.maxTipHeightM ?? null,
+    setupMaxPhysicalJibLengthM: selectedJib?.lengthM ?? null,
+  });
+
+  const enteredBoomLengthM = additionalCraneNumber(crane.boom_length_m);
+  const maxBoomLengthM = selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? limits.maxBoomLengthM ?? null;
+  const boomLengthM = enteredBoomLengthM && maxBoomLengthM ? Math.min(enteredBoomLengthM, maxBoomLengthM) : enteredBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
+  const boomClamped = Boolean(enteredBoomLengthM && maxBoomLengthM && enteredBoomLengthM > maxBoomLengthM);
+  const radiusM = additionalCraneNumber(crane.radius_m) ?? primary?.radiusM ?? null;
+  const hookHeightM = additionalCraneNumber(crane.hook_height_m) ?? primary?.tipHeightM ?? null;
+  const grossKg = additionalCraneNumber(crane.crane_gross_weight_kg) ?? limits.planningWeightKg ?? null;
+  const loadKg = additionalCraneNumber(crane.load_share_kg) ?? primary?.loadWeightKg ?? 0;
+  const accessoryKg = additionalCraneNumber(crane.accessory_weight_kg) ?? primary?.accessoryWeightKg ?? 0;
   const totalLiftedKg = loadKg + accessoryKg;
-  const chartCapacityKg = additionalCraneNumber(crane.chart_capacity_kg);
+  const jibLengthM = selectedJib?.lengthM ?? 0;
+
+  const calculatedCapacity = radiusM
+    ? calculateRangeChartCapacity({
+        craneName,
+        setupLabel,
+        sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+        radiusM,
+        boomLengthM,
+        jibLengthM,
+        totalLiftedWeightKg: totalLiftedKg,
+      })
+    : null;
+  const chartCapacityKg = calculatedCapacity?.capacityKg ?? additionalCraneNumber(crane.chart_capacity_kg);
   const matLengthM = additionalCraneNumber(crane.mat_length_m);
   const matWidthM = additionalCraneNumber(crane.mat_width_m);
   const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
-  const bearingLoadKg = grossKg ? (grossKg + totalLiftedKg) * 0.75 : null;
+  const bearing = calculateRangeChartBearingLoad({
+    craneName,
+    setupLabel,
+    sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+    totalLiftedWeightKg: totalLiftedKg,
+  });
+  const bearingLoadKg = bearing.bearingLoadKg ?? (grossKg ? (grossKg + totalLiftedKg) * 0.75 : null);
   const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
   const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
-  return { grossKg, loadKg, accessoryKg, totalLiftedKg, chartCapacityKg, matLengthM, matWidthM, matAreaM2, bearingLoadKg, bearingPressureKgM2, utilisationPercent };
+  const warnings = [
+    boomClamped ? `Entered boom length ${enteredBoomLengthM}m is over the selected ${craneName || "crane"} setup limit. Pack uses ${boomLengthM}m for the check.` : null,
+    utilisationPercent && utilisationPercent > 100 ? `This crane option is over 100% of the selected chart capacity. Use a different setup/crane, reduce radius/load, or do not approve until corrected.` : null,
+    calculatedCapacity?.warning || null,
+    !chartCapacityKg && radiusM ? `No automatic chart capacity found for this alternative crane at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })}m. Appointed person must verify the exact chart manually.` : null,
+  ].filter(Boolean) as string[];
+
+  return {
+    grossKg,
+    loadKg,
+    accessoryKg,
+    totalLiftedKg,
+    chartCapacityKg,
+    matLengthM,
+    matWidthM,
+    matAreaM2,
+    bearingLoadKg,
+    bearingPressureKgM2,
+    utilisationPercent,
+    boomLengthM,
+    radiusM,
+    hookHeightM,
+    setupLabel,
+    specReference: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+    warnings,
+  };
 }
 
 function formatAdditionalCraneValue(value: unknown, suffix = "") {
@@ -1184,6 +1260,27 @@ async function signedJobDocumentMap(paths: string[]) {
   return out;
 }
 
+
+function appendixDedupeKey(asset: PackAppendixAssetItem) {
+  const title = normaliseDuplicateKey(String(asset.title ?? ""));
+  const doc = String(asset.source_document_id ?? "").trim();
+  const page = String(asset.page_number ?? "").trim();
+  const image = String(asset.image_url ?? "").split("?")[0];
+  return [doc || title, page, image || title].join(":");
+}
+
+function dedupeAppendixAssets(items: PackAppendixAssetItem[]) {
+  const seen = new Set<string>();
+  const out: PackAppendixAssetItem[] = [];
+  for (const item of items) {
+    const key = appendixDedupeKey(item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 export default async function CraneLiftPlanPackPage({
   params,
   searchParams,
@@ -1321,7 +1418,7 @@ export default async function CraneLiftPlanPackPage({
   const selectedSpecAppendixAssets = selectedAppendixKeySet
     ? specAppendixAssets.filter((asset, index) => selectedAppendixKeySet.has(appendixKey(asset, index)))
     : specAppendixAssets;
-  const appendixAssets = [...selectedSpecAppendixAssets, ...jobAppendixAssets];
+  const appendixAssets = dedupeAppendixAssets([...selectedSpecAppendixAssets, ...jobAppendixAssets]);
 
   const clientName = client?.company_name || "the client";
   const printTitle = [
@@ -1376,6 +1473,9 @@ export default async function CraneLiftPlanPackPage({
   const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
     ? formatPercentValue(rangeUtilisationPercent)
     : percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
+  const primaryCapacityWarning = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined && rangeUtilisationPercent > 100
+    ? `CAPACITY REVIEW REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} is over the selected chart capacity ${formatKgAndTonnes(rangeChartCapacityKg)} (${formatPercentValue(rangeUtilisationPercent)}). Select a stronger setup/crane, reduce radius/load, or do not approve until the appointed person has corrected the plan.`
+    : "";
 
   const craneMaxWeightKg = rangePlanningGrossWeightKg ?? rangeSpecPlanningWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
@@ -1408,8 +1508,16 @@ export default async function CraneLiftPlanPackPage({
     "lift_classification",
     (job as any)?.hire_type || "Basic"
   );
-  const boomConfigurationText = defaultSectionText(sections, "boom_configuration", boomConfig);
-  const boomLengthText = defaultSectionText(sections, "boom_length", boomLength);
+  const rangeSelectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
+  const rangeSelectedSetupLabel = String(sections.range_chart_selected_setup_label ?? "").trim();
+  const rangeHasNoJib = /^no jib|main boom only/i.test(rangeSelectedJibLabel);
+  const rangeBoomConfiguration = rangeGroundCalc
+    ? rangeHasNoJib || !rangeSelectedJibLabel
+      ? "Main boom"
+      : "Main boom + jib / extension"
+    : "";
+  const boomConfigurationText = rangeBoomConfiguration || defaultSectionText(sections, "boom_configuration", boomConfig);
+  const boomLengthText = rangeGroundCalc?.boomLengthM ? `${rangeGroundCalc.boomLengthM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : defaultSectionText(sections, "boom_length", boomLength);
   const introductionText = defaultSectionText(
     sections,
     "introduction",
@@ -1542,8 +1650,14 @@ export default async function CraneLiftPlanPackPage({
   const saveError = String(searchParams?.error ?? "").trim();
   const isLocked = Boolean((liftPlan as any)?.paperwork_locked);
 
-  const outreachRef = formatOutreachReference(equipmentProfile);
-  const jibRef = formatJibReference(equipmentProfile);
+  const outreachRef = rangeGroundCalc?.radiusM
+    ? `${rangeGroundCalc.radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius`
+    : formatOutreachReference(equipmentProfile);
+  const jibRef = rangeGroundCalc
+    ? rangeHasNoJib || !rangeSelectedJibLabel
+      ? "No jib / main boom only"
+      : rangeSelectedJibLabel
+    : formatJibReference(equipmentProfile);
 
   return (
     <div className="print-document-root" style={wrapper}>
@@ -1917,6 +2031,10 @@ export default async function CraneLiftPlanPackPage({
           ]}
         />
 
+        {primaryCapacityWarning ? (
+          <div style={packCapacityReviewBox}>{primaryCapacityWarning}</div>
+        ) : null}
+
         <BoxedParagraph title={inputField("ground_bearing_title", "Ground bearing load calculation")}>
           <InfoTable
             rows={[
@@ -1937,44 +2055,48 @@ export default async function CraneLiftPlanPackPage({
         </BoxedParagraph>
 
         {multiCraneEnabled ? (
-          <BoxedParagraph title={inputField("multi_crane_title", "Multi-crane / additional crane details")}>
+          <BoxedParagraph title={inputField("multi_crane_title", "Alternative crane options / additional crane details")}>
             <div style={{ display: "grid", gap: 12 }}>
               <InfoTable
                 rows={[
-                  [inputField("multi_crane_label_lift_type", "Lift type / arrangement"), calculatedInputField("multi_crane_lift_type", sections.multi_crane_lift_type || "Assisted / multiple crane lift")],
-                  [inputField("multi_crane_label_notes", "AP / lift sequence notes"), areaField("multi_crane_notes", sections.multi_crane_notes || "Additional crane details must be verified by the appointed person. No tandem or shared-load lift is to take place unless the lift sequence, load share, crane duties, ground bearing and communications have been planned and authorised.", 4, true)],
+                  [inputField("multi_crane_label_lift_type", "Lift type / arrangement"), calculatedInputField("multi_crane_lift_type", sections.multi_crane_lift_type || "Alternative crane options for same lift / multi-day job")],
+                  [inputField("multi_crane_label_notes", "AP / crane-option notes"), areaField("multi_crane_notes", sections.multi_crane_notes || "Each crane option must be verified by the appointed person against the actual crane used on the day. These entries are alternative crane options for the same planned work unless the lift type states tandem/shared-load.", 4, true)],
                 ]}
               />
               {additionalCraneEntries.length ? additionalCraneEntries.map((additionalCrane, index) => {
-                const calc = additionalCraneCalc(additionalCrane);
+                const calc = additionalCraneCalc(additionalCrane, rangeGroundCalc);
                 return (
                   <div key={additionalCrane.id || index} style={{ border: "1px solid #111", padding: 10 }}>
-                    <div style={{ fontWeight: 900, marginBottom: 8 }}>Additional crane {index + 1}</div>
+                    <div style={{ fontWeight: 900, marginBottom: 8 }}>Crane option {index + 1}</div>
                     <InfoTable
                       rows={[
                         ["Crane", calculatedInputField(`additional_crane_${index}_name`, additionalCrane.crane_name || "—")],
-                        ["Role", calculatedInputField(`additional_crane_${index}_role`, additionalCrane.crane_role || "—")],
-                        ["Setup / profile / chart", calculatedInputField(`additional_crane_${index}_setup`, additionalCrane.setup_profile || "—")],
-                        ["Spec sheet / chart reference", calculatedInputField(`additional_crane_${index}_spec`, additionalCrane.spec_sheet_reference || "—")],
-                        ["Boom length", calculatedInputField(`additional_crane_${index}_boom`, formatAdditionalCraneValue(additionalCrane.boom_length_m, " m"))],
-                        ["Radius", calculatedInputField(`additional_crane_${index}_radius`, formatAdditionalCraneValue(additionalCrane.radius_m, " m"))],
-                        ["Hook / lift height", calculatedInputField(`additional_crane_${index}_height`, formatAdditionalCraneValue(additionalCrane.hook_height_m, " m"))],
+                        ["Use / role", calculatedInputField(`additional_crane_${index}_role`, additionalCrane.crane_role || "—")],
+                        ["Planned day / visit / when used", calculatedInputField(`additional_crane_${index}_planned_use`, additionalCrane.planned_use || "—")],
+                        ["Setup / profile / chart", calculatedInputField(`additional_crane_${index}_setup`, calc.setupLabel || additionalCrane.setup_profile || "—")],
+                        ["Spec sheet / chart reference", calculatedInputField(`additional_crane_${index}_spec`, calc.specReference || additionalCrane.spec_sheet_reference || "—")],
+                        ["Boom length", calculatedInputField(`additional_crane_${index}_boom`, formatAdditionalCraneValue(calc.boomLengthM, " m"))],
+                        ["Radius", calculatedInputField(`additional_crane_${index}_radius`, formatAdditionalCraneValue(calc.radiusM, " m"))],
+                        ["Hook / lift height", calculatedInputField(`additional_crane_${index}_height`, formatAdditionalCraneValue(calc.hookHeightM, " m"))],
                         ["Chart capacity at radius", calculatedInputField(`additional_crane_${index}_capacity`, formatKgAndTonnes(calc.chartCapacityKg))],
                         ["Crane planning / gross weight", calculatedInputField(`additional_crane_${index}_gross`, formatKgAndTonnes(calc.grossKg))],
-                        ["Load share / load on this crane", calculatedInputField(`additional_crane_${index}_load_share`, formatKgAndTonnes(calc.loadKg))],
-                        ["Accessories on this crane", calculatedInputField(`additional_crane_${index}_accessories`, formatKgAndTonnes(calc.accessoryKg))],
-                        ["Total lifted on this crane", calculatedInputField(`additional_crane_${index}_total`, formatKgAndTonnes(calc.totalLiftedKg))],
+                        ["Planned load on this crane", calculatedInputField(`additional_crane_${index}_load_share`, formatKgAndTonnes(calc.loadKg))],
+                        ["Accessories for this crane", calculatedInputField(`additional_crane_${index}_accessories`, formatKgAndTonnes(calc.accessoryKg))],
+                        ["Total lifted / planned load", calculatedInputField(`additional_crane_${index}_total`, formatKgAndTonnes(calc.totalLiftedKg))],
                         ["Utilisation", calculatedInputField(`additional_crane_${index}_utilisation`, formatAdditionalPercent(calc.utilisationPercent))],
                         ["Selected mat / spreader", calculatedInputField(`additional_crane_${index}_mat`, calc.matLengthM && calc.matWidthM ? `${calc.matLengthM}m x ${calc.matWidthM}m` : "—")],
                         ["Mat bearing area", calculatedInputField(`additional_crane_${index}_mat_area`, formatAreaM2(calc.matAreaM2))],
                         ["Estimated bearing load / outrigger reaction", calculatedInputField(`additional_crane_${index}_bearing`, formatKgAndTonnes(calc.bearingLoadKg))],
                         ["Estimated bearing pressure", calculatedInputField(`additional_crane_${index}_pressure`, calc.bearingPressureKgM2 ? `${calc.bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(calc.bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—")],
-                        ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Verify exact manufacturer/supplier chart, radius, boom/jib setup, load share, hook block/accessories, outrigger setup, ground conditions and communication method before lifting.", 4, true)],
+                        ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Verify exact manufacturer/supplier chart, radius, boom/jib setup, load weight, hook block/accessories, outrigger setup, ground conditions and which crane is actually being used before lifting.", 4, true)],
                       ]}
                     />
+                    {calc.warnings.length ? (
+                      <div style={packCapacityReviewBox}>{calc.warnings.join("\n")}</div>
+                    ) : null}
                   </div>
                 );
-              }) : <div>No additional crane details entered.</div>}
+              }) : <div>No alternative crane details entered.</div>}
             </div>
           </BoxedParagraph>
         ) : null}
@@ -2223,6 +2345,8 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
   );
 }
 
+
+const packCapacityReviewBox: CSSProperties = { marginTop: 10, marginBottom: 10, padding: "10px 12px", border: "1px solid #8a1f11", borderRadius: 8, background: "#fff4f0", color: "#7a1309", fontWeight: 800, whiteSpace: "pre-line" };
 
 const fieldsetStyle: CSSProperties = {
   border: 0,
