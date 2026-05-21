@@ -118,6 +118,80 @@ function clearMachineNarrativeFields<T extends Record<string, any>>(prev: T) {
   return next as T;
 }
 
+const TIDY_LONG_TEXT_KEYS: Array<keyof LiftPlanData> = [
+  "crane_configuration",
+  "outrigger_setup",
+  "ground_conditions",
+  "method_statement",
+  "risk_assessment",
+  "site_hazards",
+  "control_measures",
+  "ppe_required",
+  "exclusion_zone_details",
+  "weather_limitations",
+  "emergency_procedures",
+  "approval_notes",
+  "configuration_outrigger_note",
+  "load_chart_note",
+  "ground_bearing_notes",
+];
+
+function normaliseDuplicateKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9.%/()'" -]/g, "")
+    .trim();
+}
+
+function tidyRepeatedTextBlock(value: unknown) {
+  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  if (!text) return "";
+
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const seenParagraphs = new Set<string>();
+  const uniqueParagraphs: string[] = [];
+
+  for (const paragraph of paragraphs.length ? paragraphs : [text]) {
+    const sentenceParts = paragraph
+      .replace(/([.!?])\s+(?=[A-Z0-9])/g, "$1\n")
+      .split(/\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const seenSentences = new Set<string>();
+    const uniqueSentences: string[] = [];
+
+    for (const sentence of sentenceParts.length ? sentenceParts : [paragraph]) {
+      const key = normaliseDuplicateKey(sentence);
+      if (!key || seenSentences.has(key)) continue;
+      seenSentences.add(key);
+      uniqueSentences.push(sentence);
+    }
+
+    const cleanedParagraph = uniqueSentences.join(" ").trim();
+    const paragraphKey = normaliseDuplicateKey(cleanedParagraph);
+    if (!paragraphKey || seenParagraphs.has(paragraphKey)) continue;
+    seenParagraphs.add(paragraphKey);
+    uniqueParagraphs.push(cleanedParagraph);
+  }
+
+  return uniqueParagraphs.join("\n\n").trim();
+}
+
+function tidyLiftPlanTextFields<T extends Record<string, any>>(payload: T) {
+  const next: Record<string, any> = { ...payload };
+  for (const key of TIDY_LONG_TEXT_KEYS) {
+    if (key in next) next[key] = tidyRepeatedTextBlock(next[key]);
+  }
+  return next as T;
+}
+
 function toInputDateTime(value: string | null | undefined) {
   if (!value) return "";
   const date = new Date(value);
@@ -263,7 +337,7 @@ export default function LiftPlanForm({
 }) {
   const initialPackSections = (initial?.pack_sections ?? {}) as Record<string, string | null>;
 
-  const [form, setForm] = useState<LiftPlanData>({
+  const [form, setForm] = useState<LiftPlanData>(() => tidyLiftPlanTextFields({
     selected_job_equipment_id: initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
     selected_crane_id: initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
     load_description: initial?.load_description ?? "",
@@ -316,7 +390,7 @@ export default function LiftPlanForm({
     custom_crane_hydraulic_outreach_m: initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
     custom_crane_jib_outreach_m: initialPackSections.custom_crane_jib_outreach_m ?? "",
     custom_crane_max_radius_m: initialPackSections.custom_crane_max_radius_m ?? "",
-  });
+  }));
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -481,12 +555,13 @@ export default function LiftPlanForm({
   }
 
   async function postForm(payload: LiftPlanData) {
-    const area = numberOrNull(payload.ground_bearing_mat_area_m2) ?? calcMatArea(payload.ground_bearing_mat_length_m, payload.ground_bearing_mat_width_m);
-    const pressure = formatPressure(parseWeightToKg(payload.ground_bearing_bearing_load), area);
+    const cleanedPayload = tidyLiftPlanTextFields(payload);
+    const area = numberOrNull(cleanedPayload.ground_bearing_mat_area_m2) ?? calcMatArea(cleanedPayload.ground_bearing_mat_length_m, cleanedPayload.ground_bearing_mat_width_m);
+    const pressure = formatPressure(parseWeightToKg(cleanedPayload.ground_bearing_bearing_load), area);
     const payloadWithCalculatedSections: LiftPlanData = {
-      ...payload,
-      ground_bearing_mat_area_m2: area ? String(area) : payload.ground_bearing_mat_area_m2 ?? "",
-      ground_bearing_pressure: pressure !== "—" ? pressure : payload.ground_bearing_pressure ?? "",
+      ...cleanedPayload,
+      ground_bearing_mat_area_m2: area ? String(area) : cleanedPayload.ground_bearing_mat_area_m2 ?? "",
+      ground_bearing_pressure: pressure !== "—" ? pressure : cleanedPayload.ground_bearing_pressure ?? "",
     };
 
     const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
@@ -539,8 +614,9 @@ export default function LiftPlanForm({
         finalised_at: form.finalised_at,
       };
 
-      await postForm(merged);
-      setForm(merged);
+      const cleanedMerged = tidyLiftPlanTextFields(merged);
+      await postForm(cleanedMerged);
+      setForm(cleanedMerged);
       setMsg(`AI draft generated and saved (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before finalising.`);
     } catch (e: any) {
       setMsg(e?.message || "Could not generate draft.");
@@ -554,7 +630,9 @@ export default function LiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
-      await postForm(form);
+      const cleanedForm = tidyLiftPlanTextFields(form);
+      await postForm(cleanedForm);
+      setForm(cleanedForm);
       setMsg("Lift plan / RAMS saved.");
     } catch (e: any) {
       setMsg(e?.message || "Error saving lift plan.");
