@@ -542,25 +542,14 @@ export default function TransportPlannerBoard() {
   function getVisitInvoiceEntry(item: PlannerItem, visibleDayIso?: string | null) {
     if (!visibleDayIso) return null;
 
-    const priceMode = String(item.price_mode ?? "full_job").trim().toLowerCase();
-    const parentStatus = String(item.invoice_status ?? "Not Invoiced").trim();
-    const parentIsInvoiced = parentStatus && parentStatus.toLowerCase() !== "not invoiced";
-
-    // Full-job-price transport jobs must use the parent job invoice status as the source of truth.
-    // Old/stale visit rows can exist from earlier planner button saves, but they should not override a
-    // full-job transport job that is currently Not Invoiced on the job page.
-    if (priceMode !== "per_day") {
-      return parentIsInvoiced
-        ? {
-            invoice_status: parentStatus,
-            notes: "Shown from the main transport job invoice status.",
-          }
-        : null;
-    }
-
     const explicitEntry = item.visit_invoices?.[visibleDayIso] ?? null;
     if (explicitEntry) return explicitEntry;
 
+    const parentStatus = String(item.invoice_status ?? "Not Invoiced").trim();
+    const parentIsInvoiced = parentStatus && parentStatus.toLowerCase() !== "not invoiced";
+
+    // Parent status is only a fallback when the whole job has already been invoiced/paid outside the planner.
+    // Planner buttons remain visit-level, even for full-job-price multi-day work.
     return parentIsInvoiced
       ? {
           invoice_status: parentStatus,
@@ -572,6 +561,11 @@ export default function TransportPlannerBoard() {
   function visitIsInvoiced(entry: VisitInvoiceEntry | null) {
     const status = String(entry?.invoice_status ?? "").trim().toLowerCase();
     return status === "invoiced" || status === "part paid" || status === "paid";
+  }
+
+  function parentInvoiceLocked(item: PlannerItem) {
+    const status = String(item.invoice_status ?? "").trim().toLowerCase();
+    return status === "part paid" || status === "paid";
   }
 
   async function setVisitInvoiceStatus(item: PlannerItem, visibleDayIso: string, nextStatus: "Not Invoiced" | "Invoiced") {
@@ -827,6 +821,7 @@ export default function TransportPlannerBoard() {
     const displayPrice = getDisplayPrice(item);
     const visitInvoiceEntry = getVisitInvoiceEntry(item, visibleDayIso);
     const visitInvoiced = visitIsInvoiced(visitInvoiceEntry);
+    const visitInvoiceLocked = parentInvoiceLocked(item);
     const visitInvoiceKey = visibleDayIso ? `${item.job_id}:${visibleDayIso}` : null;
 
     function stopVisitInvoiceDown(e: React.MouseEvent | React.PointerEvent) {
@@ -836,7 +831,7 @@ export default function TransportPlannerBoard() {
     function handleVisitInvoiceClick(e: React.MouseEvent) {
       e.preventDefault();
       e.stopPropagation();
-      if (!visibleDayIso) return;
+      if (!visibleDayIso || visitInvoiceLocked) return;
       setVisitInvoiceStatus(item, visibleDayIso, visitInvoiced ? "Not Invoiced" : "Invoiced");
     }
 
@@ -911,12 +906,12 @@ export default function TransportPlannerBoard() {
               type="button"
               data-no-open="true"
               style={visitInvoiced ? visitInvoiceUndoBtn : visitInvoiceBtn}
-              disabled={invoicingVisitKey === visitInvoiceKey}
+              disabled={visitInvoiceLocked || invoicingVisitKey === visitInvoiceKey}
               onMouseDown={stopVisitInvoiceDown}
               onPointerDown={stopVisitInvoiceDown}
               onClick={handleVisitInvoiceClick}
             >
-              {invoicingVisitKey === visitInvoiceKey ? "Saving…" : visitInvoiced ? "Undo" : "Mark invoiced"}
+              {visitInvoiceLocked ? "Locked" : invoicingVisitKey === visitInvoiceKey ? "Saving…" : visitInvoiced ? "Undo visit" : "Mark visit"}
             </button>
           </div>
         ) : null}
