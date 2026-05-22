@@ -3,6 +3,7 @@ import { requireApiUser } from "../../../lib/apiAuth";
 
 const VALID_STATUSES = new Set(["Not Invoiced", "Invoiced", "Part Paid", "Paid"]);
 const POSITIVE_STATUSES = new Set(["invoiced", "part paid", "paid"]);
+const LOCKED_PARENT_STATUSES = new Set(["part paid", "paid"]);
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -54,40 +55,47 @@ function dateRangeInclusive(startDate: unknown, endDate: unknown, excludeWeekend
   return dates;
 }
 
+function latestTimestamp(row: any) {
+  const raw = row?.updated_at ?? row?.invoice_date ?? row?.created_at ?? null;
+  const parsed = raw ? new Date(String(raw)).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function latestRowsByDate(rows: any[]) {
+  const byDate = new Map<string, any>();
+  for (const row of rows ?? []) {
+    const visitDate = cleanDate(row?.visit_date);
+    if (!visitDate) continue;
+    const existing = byDate.get(visitDate);
+    if (!existing || latestTimestamp(row) >= latestTimestamp(existing)) {
+      byDate.set(visitDate, row);
+    }
+  }
+  return byDate;
+}
+
 function deriveParentInvoiceStatus(params: {
   rows: any[];
   requiredDates: string[];
-  priceMode: string | null | undefined;
+  fallbackVisitDate: string;
 }) {
-  const priceMode = lower(params.priceMode || "full_job");
-  const rows = params.rows ?? [];
-  const byDate = new Map<string, string>();
-
-  for (const row of rows) {
-    const visitDate = cleanDate(row?.visit_date);
-    if (!visitDate) continue;
-    byDate.set(visitDate, String(row?.invoice_status ?? "Not Invoiced"));
-  }
-
-  const statuses =
-    priceMode === "per_day" && params.requiredDates.length > 0
-      ? params.requiredDates.map((date) => byDate.get(date) ?? "Not Invoiced")
-      : rows.map((row) => String(row?.invoice_status ?? "Not Invoiced"));
-
+  const byDate = latestRowsByDate(params.rows ?? []);
+  const requiredDates = params.requiredDates.length > 0 ? params.requiredDates : [params.fallbackVisitDate];
+  const statuses = requiredDates.map((date) => String(byDate.get(date)?.invoice_status ?? "Not Invoiced"));
   const normalised = statuses.map(lower);
-  const anyPositive = normalised.some((status) => POSITIVE_STATUSES.has(status));
-  if (!anyPositive) return "Not Invoiced";
 
-  const anyPartPaid = normalised.includes("part paid");
-  const anyPaid = normalised.includes("paid");
-  const anyNotInvoiced = normalised.some((status) => !POSITIVE_STATUSES.has(status));
-  const allPaid = normalised.length > 0 && normalised.every((status) => status === "paid");
-  const allPositive = normalised.length > 0 && normalised.every((status) => POSITIVE_STATUSES.has(status));
+  if (normalised.length === 0) return "Not Invoiced";
+  const allPaid = normalised.every((status) => status === "paid");
+  const allPositive = normalised.every((status) => POSITIVE_STATUSES.has(status));
 
   if (allPaid) return "Paid";
-  if (priceMode === "per_day" && (!allPositive || anyPartPaid || (anyPaid && !allPaid))) return "Part Paid";
-  if (anyPartPaid || anyNotInvoiced) return "Part Paid";
-  return "Invoiced";
+  if (allPositive) {
+    return normalised.some((status) => status === "part paid" || status === "paid") ? "Part Paid" : "Invoiced";
+  }
+
+  // Important: multi-day jobs can have one visit marked invoiced while the full job is still not fully invoiced.
+  // The parent job must remain Not Invoiced until every planned visit is invoiced, so finance still sees it.
+  return "Not Invoiced";
 }
 
 export async function POST(req: Request) {
@@ -119,63 +127,12 @@ export async function POST(req: Request) {
     if (jobError) return NextResponse.json({ error: jobError.message }, { status: 400 });
     if (!job) return NextResponse.json({ error: "Job not found." }, { status: 404 });
 
-    const priceMode = lower(job.price_mode || "full_job");
-    const isFullJobPrice = priceMode !== "per_day";
-
-    let savedVisitInvoice: any = null;
-
-    if (isFullJobPrice) {
-      const { data: existingRows, error: existingError } = await supabase
-        .from("job_visit_invoices")
-        .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
-        .eq("job_id", jobId);
-
-      if (existingError) return NextResponse.json({ error: existingError.message }, { status: 400 });
-
-      const payload = {
-        invoice_status: invoiceStatus,
-        invoice_number: invoiceNumber,
-        invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
-        notes,
-      };
-
-      if ((existingRows ?? []).length > 0) {
-        const ids = (existingRows ?? []).map((row: any) => row.id).filter(Boolean);
-        const { data, error } = await supabase
-          .from("job_visit_invoices")
-          .update(payload)
-          .in("id", ids)
-          .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes");
-
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        savedVisitInvoice = Array.isArray(data) ? data[0] ?? null : data;
-      } else {
-        const { data, error } = await supabase
-          .from("job_visit_invoices")
-          .insert({
-            job_id: jobId,
-            visit_date: visitDate,
-            invoice_status: invoiceStatus,
-            invoice_number: invoiceNumber,
-            invoice_date: invoiceStatus === "Not Invoiced" ? null : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
-            notes,
-            created_by: user?.id ?? null,
-          })
-          .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
-          .single();
-
-        if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-        savedVisitInvoice = data;
-      }
-
-      const { error: parentUpdateError } = await supabase
-        .from("jobs")
-        .update({ invoice_status: invoiceStatus })
-        .eq("id", jobId);
-
-      if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
-
-      return NextResponse.json({ ok: true, visit_invoice: savedVisitInvoice, job_invoice_status: invoiceStatus });
+    const currentParentStatus = lower(job.invoice_status ?? "Not Invoiced");
+    if (LOCKED_PARENT_STATUSES.has(currentParentStatus)) {
+      return NextResponse.json(
+        { error: "This crane job is Part Paid or Paid. Change it from the job/invoices page, not the planner." },
+        { status: 409 }
+      );
     }
 
     const payload = {
@@ -208,10 +165,11 @@ export async function POST(req: Request) {
       job.end_date ?? job.start_date ?? job.job_date ?? visitDate,
       Boolean(job.exclude_weekends)
     );
+
     const parentInvoiceStatus = deriveParentInvoiceStatus({
       rows: allVisitRows ?? [],
       requiredDates,
-      priceMode: job.price_mode,
+      fallbackVisitDate: visitDate,
     });
 
     const { error: parentUpdateError } = await supabase
