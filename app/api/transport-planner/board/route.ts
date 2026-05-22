@@ -214,7 +214,7 @@ export async function GET(req: Request) {
     if (activeJobIds.length > 0) {
       const { data: visitInvoiceData, error: visitInvoiceError } = await supabase
         .from("job_daily_visit_rates")
-        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes")
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at")
         .eq("job_type", "transport")
         .in("job_id", activeJobIds)
         .gte("visit_date", rangeStart)
@@ -233,7 +233,12 @@ export async function GET(req: Request) {
       const visitDate = String(row?.visit_date ?? "").slice(0, 10);
       if (!jobId || !visitDate) return;
       const existing = visitInvoicesByJobId.get(jobId) ?? {};
-      existing[visitDate] = row;
+      const existingRow = existing[visitDate];
+      const existingTime = existingRow?.updated_at ? new Date(String(existingRow.updated_at)).getTime() : 0;
+      const rowTime = row?.updated_at ? new Date(String(row.updated_at)).getTime() : 0;
+      if (!existingRow || rowTime >= existingTime) {
+        existing[visitDate] = row;
+      }
       visitInvoicesByJobId.set(jobId, existing);
     });
 
@@ -285,7 +290,7 @@ export async function GET(req: Request) {
         approval_status: row.approval_status ?? null,
         approval_reference: row.approval_reference ?? null,
         authorised_to_move: Boolean(row.authorised_to_move),
-        visit_invoices: lower(row.price_mode ?? "full_job") === "per_day" ? getVisitInvoicesForJob(row.id) : {},
+        visit_invoices: getVisitInvoicesForJob(row.id),
       };
     };
 
