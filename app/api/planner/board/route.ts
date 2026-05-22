@@ -579,7 +579,12 @@ export async function GET(req: Request) {
       const visitDate = String(row?.visit_date ?? "").slice(0, 10);
       if (!jobId || !visitDate) return;
       const existing = visitInvoicesByJobId.get(jobId) ?? {};
-      existing[visitDate] = row;
+      const existingRow = existing[visitDate];
+      const existingTime = existingRow?.updated_at ? new Date(String(existingRow.updated_at)).getTime() : 0;
+      const rowTime = row?.updated_at ? new Date(String(row.updated_at)).getTime() : 0;
+      if (!existingRow || rowTime >= existingTime) {
+        existing[visitDate] = row;
+      }
       visitInvoicesByJobId.set(jobId, existing);
     });
 
@@ -1207,7 +1212,7 @@ export async function GET(req: Request) {
 
     const items = [...allocationItems, ...crossHireItems, ...labourOnlyItems, ...directJobItems].map((item: any) => ({
       ...item,
-      visit_invoices: String(item.price_mode ?? "full_job").trim().toLowerCase() === "per_day" ? getVisitInvoicesForJob(item.job_id) : {},
+      visit_invoices: getVisitInvoicesForJob(item.job_id),
     }));
 
     const days = Array.from({ length: 7 }).map((_, index) => {
