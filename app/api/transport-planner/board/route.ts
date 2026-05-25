@@ -1,329 +1,222 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
-import { getAssetAvailabilityForRange } from "../../../lib/assetAvailability";
 
-function startOfWeekMonday(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
+const VALID_STATUSES = new Set(["Not Invoiced", "Invoiced", "Part Paid", "Paid"]);
+const POSITIVE_STATUSES = new Set(["invoiced", "part paid", "paid"]);
+const LOCKED_PARENT_STATUSES = new Set(["part paid", "paid"]);
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+
+function clean(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text.length ? text : null;
 }
 
-function addDays(base: Date, days: number) {
-  const d = new Date(base);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function num(value: unknown) {
-  const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n : 0;
+function cleanDate(value: unknown) {
+  const text = clean(value);
+  if (!text) return null;
+  const dateOnly = text.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateOnly) ? dateOnly : null;
 }
 
 function lower(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function hasTransportSubcontractMeta(row: any) {
-  const supplierId = String(row?.supplier_id ?? "").trim();
-  const supplierReference = String(row?.supplier_reference ?? "").trim();
-  const supplierCost = num(row?.supplier_cost);
-
-  return Boolean(supplierId || supplierReference || supplierCost > 0);
+function weekdayFromDate(dateOnly: string) {
+  const parsed = new Date(`${dateOnly}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return WEEKDAYS[parsed.getDay()] ?? "";
 }
 
-function isCrossHiredTransportPlannerJob(row: any) {
-  return !String(row?.vehicle_id ?? "").trim() && hasTransportSubcontractMeta(row);
+function parseDateOnly(value: unknown) {
+  const dateOnly = cleanDate(value);
+  if (!dateOnly) return null;
+  const parsed = new Date(`${dateOnly}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-function overlapsRange(
-  startDate: string | null | undefined,
-  endDate: string | null | undefined,
-  rangeStart: string,
-  rangeEnd: string
-) {
-  const start = String(startDate ?? "").trim();
-  const end = String(endDate ?? startDate ?? "").trim();
-  if (!start || !end) return false;
-  return start <= rangeEnd && end >= rangeStart;
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function countDaysInclusive(startDate: string | null | undefined, endDate: string | null | undefined) {
-  const start = String(startDate ?? "").trim();
-  const end = String(endDate ?? startDate ?? "").trim();
-  if (!start || !end) return 0;
+function dateRangeInclusive(startDate: unknown, endDate: unknown) {
+  const start = parseDateOnly(startDate);
+  const end = parseDateOnly(endDate ?? startDate);
+  if (!start || !end) return [];
 
-  const s = new Date(`${start}T00:00:00`);
-  const e = new Date(`${end}T00:00:00`);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e < s) return 0;
+  const from = end < start ? end : start;
+  const to = end < start ? start : end;
+  const dates: string[] = [];
+  const cursor = new Date(from);
 
-  let count = 0;
-  const cursor = new Date(s);
-  while (cursor <= e) {
-    count += 1;
+  while (cursor <= to) {
+    dates.push(isoDate(cursor));
     cursor.setDate(cursor.getDate() + 1);
   }
-  return count;
+
+  return dates;
 }
 
-function effectiveTransportPrice(job: any) {
-  const mode = lower(job?.price_mode || "full_job");
-  if (mode === "per_day") {
-    const rate = num(job?.price_per_day);
-    const days = Math.max(countDaysInclusive(job?.transport_date, job?.delivery_date ?? job?.transport_date), 1);
-    return Number((rate * days).toFixed(2));
+function latestTimestamp(row: any) {
+  const raw = row?.updated_at ?? row?.invoice_date ?? row?.created_at ?? null;
+  const parsed = raw ? new Date(String(raw)).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function latestRowsByDate(rows: any[]) {
+  const byDate = new Map<string, any>();
+  for (const row of rows ?? []) {
+    const visitDate = cleanDate(row?.visit_date);
+    if (!visitDate) continue;
+    const existing = byDate.get(visitDate);
+    if (!existing || latestTimestamp(row) >= latestTimestamp(existing)) {
+      byDate.set(visitDate, row);
+    }
   }
-  return num(job?.agreed_sell_rate) || num(job?.price) || num(job?.total_invoice);
+  return byDate;
 }
 
-export async function GET(req: Request) {
+function deriveParentInvoiceStatus(params: {
+  rows: any[];
+  requiredDates: string[];
+  fallbackVisitDate: string;
+}) {
+  const byDate = latestRowsByDate(params.rows ?? []);
+  const requiredDates = params.requiredDates.length > 0 ? params.requiredDates : [params.fallbackVisitDate];
+  const statuses = requiredDates.map((date) => String(byDate.get(date)?.invoice_status ?? "Not Invoiced"));
+  const normalised = statuses.map(lower);
+
+  if (normalised.length === 0) return "Not Invoiced";
+  const allPaid = normalised.every((status) => status === "paid");
+  const allPositive = normalised.every((status) => POSITIVE_STATUSES.has(status));
+
+  if (allPaid) return "Paid";
+  if (allPositive) {
+    return normalised.some((status) => status === "part paid" || status === "paid") ? "Part Paid" : "Invoiced";
+  }
+
+  // Important: a multi-day full-job-price job can have one visit marked invoiced while the full job is not complete.
+  // The parent job must stay Not Invoiced until every planned visit is invoiced, so it remains visible to finance.
+  return "Not Invoiced";
+}
+
+export async function POST(req: Request) {
   try {
     const { supabase, response } = await requireApiUser();
     if (response) return response;
-    const url = new URL(req.url);
-    const dateParam = String(url.searchParams.get("date") ?? "").trim();
 
-    const baseDate = dateParam ? new Date(`${dateParam}T00:00:00`) : new Date();
-    if (Number.isNaN(baseDate.getTime())) {
-      return NextResponse.json({ error: "Invalid date." }, { status: 400 });
+    const body = await req.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+
+    const transportJobId = clean(body.transport_job_id ?? body.job_id);
+    const visitDate = cleanDate(body.visit_date);
+    const invoiceStatus = clean(body.invoice_status) ?? "Invoiced";
+    const invoiceNumber = clean(body.invoice_number);
+    const notes = clean(body.notes);
+
+    if (!transportJobId) return NextResponse.json({ error: "Transport job is required." }, { status: 400 });
+    if (!visitDate) return NextResponse.json({ error: "Visit date is required." }, { status: 400 });
+    if (!VALID_STATUSES.has(invoiceStatus)) {
+      return NextResponse.json({ error: "Invalid visit invoice status." }, { status: 400 });
     }
 
-    const weekStart = startOfWeekMonday(baseDate);
-    const weekEnd = addDays(weekStart, 6);
-
-    const rangeStart = isoDate(weekStart);
-    const rangeEnd = isoDate(weekEnd);
-    const bankHolidays = getEnglandWalesBankHolidays(weekStart.getFullYear()).filter(
-      (d) => d.date >= rangeStart && d.date <= rangeEnd
-    );
-
-    const { data: jobsData, error: jobsError } = await supabase
+    const { data: transportJob, error: jobError } = await supabase
       .from("transport_jobs")
-      .select(`
-        id,
-        transport_number,
-        client_id,
-        linked_job_id,
-        vehicle_id,
-        operator_id,
-        job_type,
-        collection_address,
-        delivery_address,
-        transport_date,
-        collection_time,
-        delivery_date,
-        delivery_time,
-        load_description,
-        status,
-        invoice_status,
-        supplier_id,
-        supplier_reference,
-        supplier_cost,
-        agreed_sell_rate,
-        price,
-        total_invoice,
-        price_mode,
-        price_per_day,
-        abnormal_load_enabled,
-        abnormal_load_category,
-        movement_reference,
-        movement_order_reference,
-        movement_order_status,
-        submission_method,
-        submission_status,
-        approval_status,
-        approval_reference,
-        authorised_to_move,
-        notes,
-        clients:client_id (
-          id,
-          company_name
-        )
-      `)
-      .eq("archived", false)
-      .lte("transport_date", rangeEnd)
-      .or(`delivery_date.gte.${rangeStart},delivery_date.is.null`)
-      .order("transport_date", { ascending: true });
+      .select("id, invoice_status, price_mode, transport_date, delivery_date")
+      .eq("id", transportJobId)
+      .maybeSingle();
 
-    if (jobsError) {
-      return NextResponse.json({ error: jobsError.message }, { status: 400 });
+    if (jobError) return NextResponse.json({ error: jobError.message }, { status: 400 });
+    if (!transportJob) return NextResponse.json({ error: "Transport job not found." }, { status: 404 });
+
+    const currentParentStatus = lower(transportJob.invoice_status ?? "Not Invoiced");
+    if (LOCKED_PARENT_STATUSES.has(currentParentStatus)) {
+      return NextResponse.json(
+        { error: "This transport job is Part Paid or Paid. Change it from the job/invoices page, not the planner." },
+        { status: 409 }
+      );
     }
 
-    const transportJobs = jobsData ?? [];
-    const operatorIds = Array.from(
-      new Set(
-        transportJobs
-          .map((row: any) => String(row.operator_id ?? "").trim())
-          .filter(Boolean)
-      )
-    );
+    const payload = {
+      invoice_status: invoiceStatus,
+      invoice_number: invoiceNumber,
+      invoice_date:
+        invoiceStatus === "Not Invoiced"
+          ? null
+          : cleanDate(body.invoice_date) ?? new Date().toISOString().slice(0, 10),
+      notes,
+    };
 
-    const [vehiclesRes, operatorsRes, assetAvailability] = await Promise.all([
-      supabase
-        .from("vehicles")
-        .select("id, name, reg_number, status, archived")
-        .eq("archived", false)
-        .order("name", { ascending: true }),
-      operatorIds.length
-        ? supabase
-            .from("operators")
-            .select("id, full_name, status, archived")
-            .in("id", operatorIds)
-            .eq("archived", false)
-            .order("full_name", { ascending: true })
-        : Promise.resolve({ data: [], error: null } as any),
-      getAssetAvailabilityForRange(supabase, "vehicle", rangeStart, rangeEnd),
-    ]);
+    const { data: targetRows, error: targetRowsError } = await supabase
+      .from("job_daily_visit_rates")
+      .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at")
+      .eq("job_type", "transport")
+      .eq("job_id", transportJobId)
+      .eq("visit_date", visitDate);
 
-    if (vehiclesRes.error) {
-      return NextResponse.json({ error: vehiclesRes.error.message }, { status: 400 });
-    }
-    if (operatorsRes.error) {
-      return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
-    }
+    if (targetRowsError) return NextResponse.json({ error: targetRowsError.message }, { status: 400 });
 
-    const vehicles = vehiclesRes.data ?? [];
-    const operators = operatorsRes.data ?? [];
-    const vehicleAvailabilityByAssetId = new Map<string, any[]>();
-    for (const entry of assetAvailability ?? []) {
-      const assetId = String((entry as any).asset_id ?? "").trim();
-      if (!assetId) continue;
-      const list = vehicleAvailabilityByAssetId.get(assetId) ?? [];
-      list.push(entry);
-      vehicleAvailabilityByAssetId.set(assetId, list);
-    }
+    let savedVisitInvoice: any = null;
 
-    const activeJobs = transportJobs
-      .filter((row: any) => lower(row.status) !== "cancelled")
-      .filter((row: any) =>
-        overlapsRange(row.transport_date, row.delivery_date ?? row.transport_date, rangeStart, rangeEnd)
-      )
-      .map((row: any) => ({
-        ...row,
-        effective_price: effectiveTransportPrice(row),
-      }));
-
-    const activeJobIds = activeJobs.map((row: any) => String(row.id ?? "").trim()).filter(Boolean);
-    let visitInvoices: any[] = [];
-
-    if (activeJobIds.length > 0) {
-      const { data: visitInvoiceData, error: visitInvoiceError } = await supabase
+    if ((targetRows ?? []).length > 0) {
+      const ids = (targetRows ?? []).map((row: any) => row.id).filter(Boolean);
+      const { data, error } = await supabase
         .from("job_daily_visit_rates")
+        .update(payload)
+        .in("id", ids)
+        .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at");
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      savedVisitInvoice = Array.isArray(data) ? data[0] ?? null : data;
+    } else {
+      const { data, error } = await supabase
+        .from("job_daily_visit_rates")
+        .insert({
+          job_type: "transport",
+          job_id: transportJobId,
+          visit_date: visitDate,
+          weekday: weekdayFromDate(visitDate),
+          charge: 0,
+          invoice_status: payload.invoice_status,
+          invoice_number: payload.invoice_number,
+          invoice_date: payload.invoice_date,
+          notes: payload.notes,
+        })
         .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at")
-        .eq("job_type", "transport")
-        .in("job_id", activeJobIds)
-        .gte("visit_date", rangeStart)
-        .lte("visit_date", rangeEnd);
+        .single();
 
-      if (visitInvoiceError) {
-        return NextResponse.json({ error: visitInvoiceError.message }, { status: 400 });
-      }
-
-      visitInvoices = visitInvoiceData ?? [];
+      if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      savedVisitInvoice = data;
     }
 
-    const visitInvoicesByJobId = new Map<string, Record<string, any>>();
-    visitInvoices.forEach((row: any) => {
-      const jobId = String(row?.job_id ?? "").trim();
-      const visitDate = String(row?.visit_date ?? "").slice(0, 10);
-      if (!jobId || !visitDate) return;
-      const existing = visitInvoicesByJobId.get(jobId) ?? {};
-      const existingRow = existing[visitDate];
-      const existingTime = existingRow?.updated_at ? new Date(String(existingRow.updated_at)).getTime() : 0;
-      const rowTime = row?.updated_at ? new Date(String(row.updated_at)).getTime() : 0;
-      if (!existingRow || rowTime >= existingTime) {
-        existing[visitDate] = row;
-      }
-      visitInvoicesByJobId.set(jobId, existing);
-    });
+    const { data: allVisitRows, error: visitRowsError } = await supabase
+      .from("job_daily_visit_rates")
+      .select("id, job_id, visit_date, invoice_status, updated_at")
+      .eq("job_type", "transport")
+      .eq("job_id", transportJobId);
 
-    const getVisitInvoicesForJob = (jobId: string | null | undefined) => {
-      return visitInvoicesByJobId.get(String(jobId ?? "").trim()) ?? {};
-    };
+    if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
 
-    const operatorById = new Map<string, any>();
-    for (const operator of operators) {
-      operatorById.set(String((operator as any).id ?? ""), operator);
-    }
-
-    const mapJob = (row: any) => {
-      const client = row?.clients && Array.isArray(row.clients) ? row.clients[0] : row?.clients ?? null;
-      const operator = operatorById.get(String(row.operator_id ?? "")) ?? null;
-
-      return {
-        job_id: row.id,
-        transport_number: row.transport_number ?? null,
-        client_name: client?.company_name ?? null,
-        collection_address: row.collection_address ?? null,
-        delivery_address: row.delivery_address ?? null,
-        transport_date: row.transport_date ?? null,
-        collection_time: row.collection_time ?? null,
-        delivery_date: row.delivery_date ?? row.transport_date ?? null,
-        delivery_time: row.delivery_time ?? null,
-        operator_name: operator?.full_name ?? null,
-        operator_id: row.operator_id ?? null,
-        linked_job_id: row.linked_job_id ?? null,
-        vehicle_id: row.vehicle_id ?? null,
-        status: row.status ?? null,
-        invoice_status: row.invoice_status ?? "Not Invoiced",
-        job_type: row.job_type ?? null,
-        load_description: row.load_description ?? null,
-        supplier_id: row.supplier_id ?? null,
-        supplier_reference: row.supplier_reference ?? null,
-        supplier_cost: num(row.supplier_cost),
-        agreed_sell_rate: num(row.agreed_sell_rate),
-        job_price: num(row.effective_price),
-        price_mode: row.price_mode ?? "full_job",
-        price_per_day: num(row.price_per_day),
-        abnormal_load_enabled: Boolean(row.abnormal_load_enabled),
-        abnormal_load_category: row.abnormal_load_category ?? null,
-        movement_reference: row.movement_reference ?? null,
-        movement_order_reference: row.movement_order_reference ?? null,
-        movement_order_status: row.movement_order_status ?? null,
-        submission_method: row.submission_method ?? null,
-        submission_status: row.submission_status ?? null,
-        approval_status: row.approval_status ?? null,
-        approval_reference: row.approval_reference ?? null,
-        authorised_to_move: Boolean(row.authorised_to_move),
-        visit_invoices: getVisitInvoicesForJob(row.id),
-      };
-    };
-
-    const crossHiredJobs = activeJobs.filter((row: any) => isCrossHiredTransportPlannerJob(row));
-    const ownedTransportJobs = activeJobs.filter((row: any) => !isCrossHiredTransportPlannerJob(row));
-
-    const vehicleRows = vehicles.map((vehicle: any) => ({
-      id: vehicle.id,
-      name: vehicle.name,
-      reg_number: vehicle.reg_number,
-      status: vehicle.status,
-      availability: vehicleAvailabilityByAssetId.get(String(vehicle.id)) ?? [],
-      items: ownedTransportJobs.filter((row: any) => row.vehicle_id === vehicle.id).map(mapJob),
-    }));
-
-    const unallocatedJobs = ownedTransportJobs.filter((row: any) => !row.vehicle_id).map(mapJob);
-    const crossHiredPlannerJobs = crossHiredJobs.map((row: any) => ({
-      ...mapJob(row),
-      planner_group: "cross_hired",
-    }));
-
-    return NextResponse.json({
-      week_start: rangeStart,
-      week_end: rangeEnd,
-      bank_holidays: bankHolidays,
-      vehicles: vehicleRows,
-      unallocated_jobs: unallocatedJobs,
-      cross_hired_jobs: crossHiredPlannerJobs,
-    });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message ?? "Could not load transport planner board." },
-      { status: 400 }
+    const requiredDates = dateRangeInclusive(
+      transportJob.transport_date ?? visitDate,
+      transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
     );
+
+    const parentInvoiceStatus = deriveParentInvoiceStatus({
+      rows: allVisitRows ?? [],
+      requiredDates,
+      fallbackVisitDate: visitDate,
+    });
+
+    const { error: parentUpdateError } = await supabase
+      .from("transport_jobs")
+      .update({ invoice_status: parentInvoiceStatus })
+      .eq("id", transportJobId);
+
+    if (parentUpdateError) return NextResponse.json({ error: parentUpdateError.message }, { status: 400 });
+
+    return NextResponse.json({ ok: true, visit_invoice: savedVisitInvoice, job_invoice_status: parentInvoiceStatus });
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message ?? "Could not update transport visit invoice status." }, { status: 400 });
   }
 }
