@@ -95,9 +95,47 @@ function deriveParentInvoiceStatus(params: {
     return normalised.some((status) => status === "part paid" || status === "paid") ? "Part Paid" : "Invoiced";
   }
 
-  // Important: a multi-day full-job-price job can have one visit marked invoiced while the full job is not complete.
-  // The parent job must stay Not Invoiced until every planned visit is invoiced, so it remains visible to finance.
+  // Visit-level planner invoicing: one invoiced visit must not mark the whole multi-day job as invoiced.
+  // Keep the parent job visible to finance until every planned visit date is invoiced.
   return "Not Invoiced";
+}
+
+async function materialiseParentInvoiceIntoVisits(params: {
+  supabase: any;
+  transportJobId: string;
+  requiredDates: string[];
+  existingRows: any[];
+  parentStatus: string;
+  activeVisitDate: string;
+}) {
+  const parentStatus = String(params.parentStatus ?? "").trim();
+  if (lower(parentStatus) !== "invoiced") return params.existingRows ?? [];
+
+  const requiredDates = params.requiredDates.length > 0 ? params.requiredDates : [params.activeVisitDate];
+  const byDate = latestRowsByDate(params.existingRows ?? []);
+  const missingDates = requiredDates.filter((date) => !byDate.has(date));
+
+  if (missingDates.length === 0) return params.existingRows ?? [];
+
+  const rowsToInsert = missingDates.map((date) => ({
+    job_type: "transport",
+    job_id: params.transportJobId,
+    visit_date: date,
+    weekday: weekdayFromDate(date),
+    charge: 0,
+    invoice_status: "Invoiced",
+    invoice_number: null,
+    invoice_date: null,
+    notes: "Created automatically from the main transport job invoice status before a visit-level planner change, so other visit days stay marked correctly.",
+  }));
+
+  const { data, error } = await params.supabase
+    .from("job_daily_visit_rates")
+    .insert(rowsToInsert)
+    .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at");
+
+  if (error) throw new Error(error.message);
+  return [...(params.existingRows ?? []), ...((data ?? []) as any[])];
 }
 
 export async function POST(req: Request) {
@@ -135,6 +173,33 @@ export async function POST(req: Request) {
         { error: "This transport job is Part Paid or Paid. Change it from the job/invoices page, not the planner." },
         { status: 409 }
       );
+    }
+
+    const requiredDates = dateRangeInclusive(
+      transportJob.transport_date ?? visitDate,
+      transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
+    );
+
+    const { data: initialVisitRows, error: initialRowsError } = await supabase
+      .from("job_daily_visit_rates")
+      .select("id, job_id, visit_date, weekday, charge, invoice_status, invoice_number, invoice_date, notes, updated_at")
+      .eq("job_type", "transport")
+      .eq("job_id", transportJobId);
+
+    if (initialRowsError) return NextResponse.json({ error: initialRowsError.message }, { status: 400 });
+
+    // Critical legacy safeguard:
+    // Old planner versions sometimes represented a multi-day job as invoiced only by the parent job status.
+    // If the user now undoes one visit, first create explicit invoiced rows for the other visit days so they do not all flip to Not Invoiced.
+    if (invoiceStatus === "Not Invoiced") {
+      await materialiseParentInvoiceIntoVisits({
+        supabase,
+        transportJobId,
+        requiredDates,
+        existingRows: initialVisitRows ?? [],
+        parentStatus: transportJob.invoice_status ?? "",
+        activeVisitDate: visitDate,
+      });
     }
 
     const payload = {
@@ -196,11 +261,6 @@ export async function POST(req: Request) {
       .eq("job_id", transportJobId);
 
     if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
-
-    const requiredDates = dateRangeInclusive(
-      transportJob.transport_date ?? visitDate,
-      transportJob.delivery_date ?? transportJob.transport_date ?? visitDate
-    );
 
     const parentInvoiceStatus = deriveParentInvoiceStatus({
       rows: allVisitRows ?? [],
