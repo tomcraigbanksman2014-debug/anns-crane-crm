@@ -93,9 +93,46 @@ function deriveParentInvoiceStatus(params: {
     return normalised.some((status) => status === "part paid" || status === "paid") ? "Part Paid" : "Invoiced";
   }
 
-  // Important: multi-day jobs can have one visit marked invoiced while the full job is still not fully invoiced.
-  // The parent job must remain Not Invoiced until every planned visit is invoiced, so finance still sees it.
+  // Visit-level planner invoicing: one invoiced visit must not mark the whole multi-day job as invoiced.
+  // Keep the parent job visible to finance until every planned visit date is invoiced.
   return "Not Invoiced";
+}
+
+async function materialiseParentInvoiceIntoVisits(params: {
+  supabase: any;
+  jobId: string;
+  requiredDates: string[];
+  existingRows: any[];
+  parentStatus: string;
+  createdBy: string | null;
+  activeVisitDate: string;
+}) {
+  const parentStatus = String(params.parentStatus ?? "").trim();
+  if (lower(parentStatus) !== "invoiced") return params.existingRows ?? [];
+
+  const requiredDates = params.requiredDates.length > 0 ? params.requiredDates : [params.activeVisitDate];
+  const byDate = latestRowsByDate(params.existingRows ?? []);
+  const missingDates = requiredDates.filter((date) => !byDate.has(date));
+
+  if (missingDates.length === 0) return params.existingRows ?? [];
+
+  const rowsToInsert = missingDates.map((date) => ({
+    job_id: params.jobId,
+    visit_date: date,
+    invoice_status: "Invoiced",
+    invoice_number: null,
+    invoice_date: null,
+    notes: "Created automatically from the main job invoice status before a visit-level planner change, so other visit days stay marked correctly.",
+    created_by: params.createdBy,
+  }));
+
+  const { data, error } = await params.supabase
+    .from("job_visit_invoices")
+    .insert(rowsToInsert)
+    .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes");
+
+  if (error) throw new Error(error.message);
+  return [...(params.existingRows ?? []), ...((data ?? []) as any[])];
 }
 
 export async function POST(req: Request) {
@@ -135,6 +172,34 @@ export async function POST(req: Request) {
       );
     }
 
+    const requiredDates = dateRangeInclusive(
+      job.start_date ?? job.job_date ?? visitDate,
+      job.end_date ?? job.start_date ?? job.job_date ?? visitDate,
+      Boolean(job.exclude_weekends)
+    );
+
+    const { data: initialVisitRows, error: initialRowsError } = await supabase
+      .from("job_visit_invoices")
+      .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
+      .eq("job_id", jobId);
+
+    if (initialRowsError) return NextResponse.json({ error: initialRowsError.message }, { status: 400 });
+
+    // Critical legacy safeguard:
+    // Old planner versions sometimes represented a multi-day job as invoiced only by the parent job status.
+    // If the user now undoes one visit, first create explicit invoiced rows for the other visit days so they do not all flip to Not Invoiced.
+    if (invoiceStatus === "Not Invoiced") {
+      await materialiseParentInvoiceIntoVisits({
+        supabase,
+        jobId,
+        requiredDates,
+        existingRows: initialVisitRows ?? [],
+        parentStatus: job.invoice_status ?? "",
+        createdBy: user?.id ?? null,
+        activeVisitDate: visitDate,
+      });
+    }
+
     const payload = {
       job_id: jobId,
       visit_date: visitDate,
@@ -155,16 +220,10 @@ export async function POST(req: Request) {
 
     const { data: allVisitRows, error: visitRowsError } = await supabase
       .from("job_visit_invoices")
-      .select("id, job_id, visit_date, invoice_status")
+      .select("id, job_id, visit_date, invoice_status, invoice_number, invoice_date, notes")
       .eq("job_id", jobId);
 
     if (visitRowsError) return NextResponse.json({ error: visitRowsError.message }, { status: 400 });
-
-    const requiredDates = dateRangeInclusive(
-      job.start_date ?? job.job_date ?? visitDate,
-      job.end_date ?? job.start_date ?? job.job_date ?? visitDate,
-      Boolean(job.exclude_weekends)
-    );
 
     const parentInvoiceStatus = deriveParentInvoiceStatus({
       rows: allVisitRows ?? [],
