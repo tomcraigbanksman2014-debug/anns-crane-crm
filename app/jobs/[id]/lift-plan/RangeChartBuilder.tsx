@@ -210,11 +210,28 @@ function defaultRangeState({
 
   const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12;
   const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75);
-  const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6));
-  const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4);
+  const storedBoomLength = numberOrNull(sections.range_chart_boom_length_m) ?? setupBoomLength;
+  const storedBoomAngle = numberOrNull(sections.range_chart_boom_angle_deg);
+  const storedJibLength = normalisePhysicalJibLength(
+    numberOrNull(sections.range_chart_jib_length_m),
+    radius,
+    storedBoomLength,
+    inferPhysicalJibLengthFromText(sections.range_chart_selected_jib_option_label) ?? setupJibLength
+  );
+  const storedJibAngle = numberOrNull(sections.range_chart_jib_angle_deg) ?? 20;
+  const derivedFromBoom = storedBoomLength !== null && storedBoomAngle !== null
+    ? hookFromBoomGeometry({ boomLengthM: storedBoomLength, boomAngleDeg: storedBoomAngle, jibLengthM: storedJibLength, jibAngleDeg: storedJibAngle })
+    : null;
+  const derivedFromHook = storedBoomLength === null || storedBoomAngle === null
+    ? boomFromHookGeometry({ radiusM: radius, tipHeightM: tipHeight, jibLengthM: storedJibLength, jibAngleDeg: storedJibAngle })
+    : null;
+  const resolvedRadius = derivedFromBoom?.radiusM ?? radius;
+  const resolvedTipHeight = derivedFromBoom?.tipHeightM ?? tipHeight;
+  const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(resolvedTipHeight - 1, liftHeightM ?? resolvedTipHeight * 0.6));
+  const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, resolvedRadius - 4);
 
   return {
-    enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
+    enabled: parseBool(sections.range_chart_enabled),
     clientName: firstText(sections.range_chart_client, defaultClientName),
     craneName: tidyDisplayLabel(firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
@@ -225,15 +242,12 @@ function defaultRangeState({
     selectedSetupLabel: firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
     selectedJibOptionKey: firstText(sections.range_chart_selected_jib_option_key),
     selectedJibOptionLabel: firstText(sections.range_chart_selected_jib_option_label),
-    boomLengthM: numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
-    boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
-    radiusM: numberForInput(radius, "12"),
-    tipHeightM: numberForInput(tipHeight, "10"),
-    jibLengthM: numberForInput(
-      normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
-      setupJibLength ? String(setupJibLength) : "0"
-    ),
-    jibAngleDeg: numberForInput(sections.range_chart_jib_angle_deg, "20"),
+    boomLengthM: numberForInput(storedBoomLength ?? derivedFromHook?.boomLengthM, setupBoomLength ? String(setupBoomLength) : ""),
+    boomAngleDeg: numberForInput(storedBoomAngle ?? derivedFromHook?.boomAngleDeg, ""),
+    radiusM: numberForInput(resolvedRadius, "12"),
+    tipHeightM: numberForInput(resolvedTipHeight, "10"),
+    jibLengthM: numberForInput(storedJibLength, setupJibLength ? String(setupJibLength) : "0"),
+    jibAngleDeg: numberForInput(storedJibAngle, "20"),
     objectDistanceM: numberForInput(objectDistance, "8"),
     objectHeightM: numberForInput(objectHeight, "4"),
     objectWidthM: numberForInput(sections.range_chart_object_width_m, "8"),
@@ -251,22 +265,36 @@ function defaultRangeState({
 }
 
 function chartNumbers(chart: RangeChartState): ChartNumbers {
+  const rawRadiusM = Math.max(0.5, numberOrNull(chart.radiusM) ?? 12);
+  const rawTipHeightM = Math.max(0.5, numberOrNull(chart.tipHeightM) ?? 10);
+  const enteredBoomLengthM = numberOrNull(chart.boomLengthM);
+  const enteredBoomAngleDeg = numberOrNull(chart.boomAngleDeg);
+  const jibLengthM = Math.max(
+    0,
+    normalisePhysicalJibLength(
+      numberOrNull(chart.jibLengthM),
+      rawRadiusM,
+      enteredBoomLengthM,
+      inferPhysicalJibLengthFromText(chart.selectedJibOptionLabel) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel)
+    )
+  );
+  const jibAngleDeg = numberOrNull(chart.jibAngleDeg) ?? 20;
+
+  // Use boom length/angle as the canonical drawing geometry whenever both are present.
+  // Radius and hook height are then derived from the same boom/jib geometry, so the drawing,
+  // figures, capacity check and pack output cannot drift apart after older saved data or edits.
+  const resolvedHook = enteredBoomLengthM !== null && enteredBoomAngleDeg !== null
+    ? hookFromBoomGeometry({ boomLengthM: enteredBoomLengthM, boomAngleDeg: enteredBoomAngleDeg, jibLengthM, jibAngleDeg })
+    : { radiusM: rawRadiusM, tipHeightM: rawTipHeightM };
+
   return {
-    radiusM: Math.max(0.5, numberOrNull(chart.radiusM) ?? 12),
-    tipHeightM: Math.max(0.5, numberOrNull(chart.tipHeightM) ?? 10),
+    radiusM: Math.max(0.5, resolvedHook.radiusM),
+    tipHeightM: Math.max(0.5, resolvedHook.tipHeightM),
     objectDistanceM: Math.max(0, numberOrNull(chart.objectDistanceM) ?? 8),
     objectHeightM: Math.max(0.1, numberOrNull(chart.objectHeightM) ?? 4),
     objectWidthM: Math.max(0.5, numberOrNull(chart.objectWidthM) ?? 8),
-    jibLengthM: Math.max(
-      0,
-      normalisePhysicalJibLength(
-        numberOrNull(chart.jibLengthM),
-        Math.max(0.5, numberOrNull(chart.radiusM) ?? 12),
-        numberOrNull(chart.boomLengthM),
-        inferPhysicalJibLengthFromText(chart.selectedSetupLabel)
-      )
-    ),
-    jibAngleDeg: numberOrNull(chart.jibAngleDeg) ?? 20,
+    jibLengthM,
+    jibAngleDeg,
     loadWeightKg: numberOrNull(chart.loadWeightKg),
     accessoryWeightKg: numberOrNull(chart.accessoryWeightKg),
     chartCapacityKg: numberOrNull(chart.chartCapacityKg),
@@ -685,8 +713,8 @@ export default function RangeChartBuilder({
       range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
       range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
       range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
-      range_chart_radius_m: chart.radiusM,
-      range_chart_tip_height_m: chart.tipHeightM,
+      range_chart_radius_m: String(round(numbers.radiusM, 2)),
+      range_chart_tip_height_m: String(round(numbers.tipHeightM, 2)),
       range_chart_jib_length_m: String(round(numbers.jibLengthM, 2)),
       range_chart_jib_angle_deg: chart.jibAngleDeg,
       range_chart_object_distance_m: chart.objectDistanceM,
@@ -734,6 +762,26 @@ export default function RangeChartBuilder({
     if (!res.ok) throw new Error(data?.error || "Could not save range chart data.");
     return data;
   }
+
+  useEffect(() => {
+    setChart((prev) => {
+      let next = prev;
+      let geometryChanged = false;
+      const clampField = (key: keyof RangeChartState, maxValue: number | null | undefined) => {
+        const parsed = numberOrNull(next[key]);
+        if (parsed !== null && maxValue !== null && maxValue !== undefined && Number.isFinite(maxValue) && parsed > maxValue) {
+          next = { ...next, [key]: String(maxValue) };
+          geometryChanged = true;
+        }
+      };
+      clampField("boomLengthM", limits.maxBoomLengthM);
+      clampField("jibLengthM", limits.maxPhysicalJibLengthM);
+      clampField("radiusM", limits.maxRadiusM);
+      clampField("tipHeightM", limits.maxTipHeightM);
+      if (next === prev) return prev;
+      return geometryChanged ? syncHookFromBoom(next) : next;
+    });
+  }, [limits.maxBoomLengthM, limits.maxPhysicalJibLengthM, limits.maxRadiusM, limits.maxTipHeightM]);
 
   useEffect(() => {
     const payload = buildRangeChartPayload(false);
