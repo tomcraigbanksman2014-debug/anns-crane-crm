@@ -78,7 +78,20 @@ function effectiveTransportPrice(job: any) {
     const days = Math.max(countDaysInclusive(job?.transport_date, job?.delivery_date ?? job?.transport_date), 1);
     return Number((rate * days).toFixed(2));
   }
-  return num(job?.agreed_sell_rate) || num(job?.price) || num(job?.total_invoice);
+
+  // Prefer the current commercial subtotal saved on the job page.
+  // agreed_sell_rate/price can become stale on older records, and total_invoice normally includes VAT.
+  const subtotal = num(job?.invoice_subtotal);
+  if (subtotal > 0) return subtotal;
+
+  const agreed = num(job?.agreed_sell_rate) || num(job?.price);
+  if (agreed > 0) return agreed;
+
+  const gross = num(job?.total_invoice);
+  const vat = num(job?.invoice_vat);
+  if (gross > 0 && vat > 0) return Math.max(Number((gross - vat).toFixed(2)), 0);
+
+  return gross;
 }
 
 export async function GET(req: Request) {
@@ -126,6 +139,8 @@ export async function GET(req: Request) {
         supplier_cost,
         agreed_sell_rate,
         price,
+        invoice_subtotal,
+        invoice_vat,
         total_invoice,
         price_mode,
         price_per_day,
