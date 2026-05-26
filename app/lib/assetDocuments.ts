@@ -103,6 +103,85 @@ function normaliseTitle(value: string | null | undefined) {
     .trim();
 }
 
+
+function normaliseCraneIdentity(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[öø]/g, "o")
+    .replace(/[ä]/g, "a")
+    .replace(/[ü]/g, "u")
+    .replace(/[éè]/g, "e")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function craneFamilyKey(...values: unknown[]) {
+  const text = normaliseCraneIdentity(values.filter(Boolean).join(" "));
+  if (!text) return "";
+
+  if (text.includes("ak46") || text.includes("ak466000") || (text.includes("bocker") && text.includes("46")) || (text.includes("boecker") && text.includes("46"))) return "ak46";
+  if (text.includes("gmk40801") || text.includes("gmk4080") || (text.includes("grove") && text.includes("4080"))) return "gmk4080";
+  if (text.includes("spx532") || (text.includes("jekko") && text.includes("532")) || text === "jekko") return "spx532";
+  if (text.includes("hk40") || (text.includes("tadano") && text.includes("40")) || (text.includes("faun") && text.includes("40"))) return "hk40";
+  if (text.includes("mtk35") || (text.includes("marchetti") && text.includes("35"))) return "mtk35";
+
+  return text;
+}
+
+type CraneAppendixLookupContext = CraneAppendixSelectionContext & {
+  craneName?: string | null;
+  craneMake?: string | null;
+  craneModel?: string | null;
+  craneCapacity?: string | null;
+};
+
+function contextCraneFamily(context?: CraneAppendixLookupContext | null) {
+  return craneFamilyKey(context?.craneName, context?.craneMake, context?.craneModel, context?.craneCapacity);
+}
+
+async function resolveCraneIdsForAppendix(
+  initialCraneId: string | null | undefined,
+  context?: CraneAppendixLookupContext | null
+) {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown) => {
+    const id = String(value ?? "").trim();
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    ids.push(id);
+  };
+
+  add(initialCraneId);
+
+  const wantedFamily = contextCraneFamily(context);
+  const wantedRaw = normaliseCraneIdentity([context?.craneName, context?.craneMake, context?.craneModel, context?.craneCapacity].filter(Boolean).join(" "));
+  if (!wantedFamily && !wantedRaw) return ids;
+
+  const admin = createSupabaseAdminClient();
+  const { data: cranes } = await admin
+    .from("cranes")
+    .select("id, name, make, model, capacity, reg_number")
+    .limit(250);
+
+  for (const crane of (cranes as any[]) ?? []) {
+    const candidateFamily = craneFamilyKey(crane?.name, crane?.make, crane?.model, crane?.capacity, crane?.reg_number);
+    const candidateRaw = normaliseCraneIdentity([crane?.name, crane?.make, crane?.model, crane?.capacity, crane?.reg_number].filter(Boolean).join(" "));
+    if (!candidateRaw) continue;
+
+    if (wantedFamily && candidateFamily && wantedFamily === candidateFamily) {
+      add(crane?.id);
+      continue;
+    }
+
+    if (wantedRaw && (candidateRaw.includes(wantedRaw) || wantedRaw.includes(candidateRaw))) {
+      add(crane?.id);
+    }
+  }
+
+  return ids;
+}
+
 function filterDocsByTitles<T extends { title?: string | null }>(docs: T[], titles: string[] | null) {
   if (!titles || !titles.length) return docs;
   const wanted = new Set(titles.map((title) => normaliseTitle(title)));
@@ -442,36 +521,68 @@ export async function getVehicleDocumentsForManager(vehicleId: string) {
   })) satisfies AssetDocumentManagerItem[];
 }
 
+
+function dedupeAppendixAssets(items: PackAppendixAssetItem[]) {
+  const seen = new Set<string>();
+  const out: PackAppendixAssetItem[] = [];
+  for (const item of items) {
+    const key = [
+      item.source_type ?? "",
+      item.source_document_id ?? "",
+      item.page_number ?? "",
+      normaliseTitle(item.title),
+    ].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 export async function getCraneAppendixAssetsForPack(
   craneId: string | null | undefined,
-  context?: CraneAppendixSelectionContext | null
+  context?: CraneAppendixLookupContext | null
 ) {
-  if (!craneId) return [];
+  const craneIds = await resolveCraneIdsForAppendix(craneId, context);
+  if (!craneIds.length) return [];
 
   const admin = createSupabaseAdminClient();
 
-  const { data: docs, error } = await admin
-    .from("crane_documents")
-    .select("id, title, document_type, appendix_order")
-    .eq("crane_id", craneId)
-    .eq("include_in_pack", true)
-    .order("appendix_order", { ascending: true })
-    .order("uploaded_at", { ascending: true });
+  async function loadDocs(requireIncludeInPack: boolean) {
+    let query = admin
+      .from("crane_documents")
+      .select("id, crane_id, title, document_type, appendix_order, include_in_pack, uploaded_at")
+      .in("crane_id", craneIds)
+      .in("document_type", ["spec_sheet", "load_chart", "manual"]);
 
-  if (error || !docs || !docs.length) {
-    return [];
+    if (requireIncludeInPack) {
+      query = query.eq("include_in_pack", true);
+    }
+
+    const { data, error } = await query
+      .order("appendix_order", { ascending: true })
+      .order("uploaded_at", { ascending: true });
+
+    if (error || !data?.length) return [] as any[];
+    return data as any[];
   }
 
-  // Important: this function feeds the manual lift-plan tick-box selector as well as the
-  // printable pack. Do not return only automatic/rule-matched pages here. If a full crane
-  // spec sheet has been uploaded, the appointed person must be able to see and choose any
-  // generated preview page, including fly-jib/load-chart pages.
-  const chosenDocs = docs;
+  // Normal route: documents deliberately marked for the lift pack.
+  let docs = await loadDocs(true);
+
+  // Safety fallback: if crane naming/record tidying means the selected crane spec pages are not being found,
+  // still show generated preview pages from the matched crane spec/load-chart/manual documents. The selector
+  // remains the control for what is actually printed.
+  if (!docs.length) {
+    docs = await loadDocs(false);
+  }
+
+  if (!docs.length) return [];
 
   const { data: previews } = await admin
     .from("asset_document_previews")
     .select("id, crane_document_id, page_number, title, preview_storage_path")
-    .in("crane_document_id", chosenDocs.map((doc: any) => doc.id))
+    .in("crane_document_id", docs.map((doc: any) => doc.id))
     .order("page_number", { ascending: true });
 
   if (!previews || !previews.length) {
@@ -483,27 +594,28 @@ export async function getCraneAppendixAssetsForPack(
     previews.map((preview: any) => String(preview.preview_storage_path ?? "")).filter(Boolean)
   );
 
-  const allAssets = buildAppendixItemsFromRows({ previews, docs: chosenDocs, storageMap });
+  const allAssets = buildAppendixItemsFromRows({ previews, docs, storageMap });
 
-  // Keep rule-selected pages first if rules exist, but append the remaining generated pages
-  // so the selector never hides pages such as JIB1000/JIB1200/JIB500 charts.
-  const ruleAssets = await getCraneRuleAppendixAssets(craneId, context);
-  if (!ruleAssets.length) return allAssets;
+  // Keep rule-selected pages first if rules exist, but append all remaining generated pages.
+  // This prevents a rename such as "BOCKER AK 46/6000" / "Böcker AK46" or "HK40 Tadano Faun"
+  // from hiding the crane's own spec sheet pages on the lift plan screen.
+  const ruleAssets = await Promise.all(craneIds.map((id) => getCraneRuleAppendixAssets(id, context)));
+  const orderedRuleAssets = ruleAssets.flat();
+  if (!orderedRuleAssets.length) return allAssets;
 
-  const usedKeys = new Set(ruleAssets.map((asset) => asset.key).filter(Boolean));
+  const usedKeys = new Set(orderedRuleAssets.map((asset) => asset.key).filter(Boolean));
   const merged = [
-    ...ruleAssets,
+    ...orderedRuleAssets,
     ...allAssets.filter((asset) => !usedKeys.has(asset.key ?? "")),
   ];
 
-  return merged.sort(
+  return dedupeAppendixAssets(merged).sort(
     (a, b) =>
       a.appendix_order - b.appendix_order ||
       a.page_number - b.page_number ||
       String(a.title).localeCompare(String(b.title))
   );
 }
-
 
 export async function getJobSpecDocumentsForManager(jobId: string) {
   const admin = createSupabaseAdminClient();
