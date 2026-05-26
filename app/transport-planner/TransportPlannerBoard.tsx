@@ -250,9 +250,21 @@ function availabilityBlocksAssignment(entries: AssetAvailabilityEntry[]) {
 }
 
 function getDisplayPrice(item: PlannerItem) {
+  // The planner should reflect the latest saved job price, not a stale visit/row value.
+  // For per-day jobs, show the per-day rate on each visit card.
+  const mode = String(item.price_mode ?? "full_job").trim().toLowerCase();
+  if (mode === "per_day") {
+    const dayRate = Number(item.price_per_day ?? 0);
+    if (Number.isFinite(dayRate) && dayRate > 0) return dayRate;
+  }
+
+  const jobPrice = Number(item.job_price ?? 0);
+  if (Number.isFinite(jobPrice) && jobPrice > 0) return jobPrice;
+
   const agreed = Number(item.agreed_sell_rate ?? 0);
-  if (agreed > 0) return agreed;
-  return Number(item.job_price ?? 0);
+  if (Number.isFinite(agreed) && agreed > 0) return agreed;
+
+  return 0;
 }
 
 function isCrossHiredTransportItem(item: PlannerItem) {
