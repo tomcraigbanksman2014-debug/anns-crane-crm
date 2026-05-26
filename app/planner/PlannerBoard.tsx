@@ -237,15 +237,21 @@ function isPerDayPriced(item: PlannerItem) {
 }
 
 function getDisplayPrice(item: PlannerItem) {
-  const agreed = Number(item.agreed_sell_rate ?? 0);
-  if (Number.isFinite(agreed) && agreed > 0) return agreed;
-
+  // The live job price is the source of truth for planner display.
+  // Older allocation rows can hold an old agreed_sell_rate, so do not let them override
+  // a price edited on the job page. For per-day jobs, show the day rate on each visit card.
   if (isPerDayPriced(item)) {
     const dayRate = Number(item.price_per_day ?? 0);
     if (Number.isFinite(dayRate) && dayRate > 0) return dayRate;
   }
 
-  return Number(item.job_price ?? 0);
+  const jobPrice = Number(item.job_price ?? 0);
+  if (Number.isFinite(jobPrice) && jobPrice > 0) return jobPrice;
+
+  const agreed = Number(item.agreed_sell_rate ?? 0);
+  if (Number.isFinite(agreed) && agreed > 0) return agreed;
+
+  return 0;
 }
 
 function priceDisplaySuffix(item: PlannerItem) {
