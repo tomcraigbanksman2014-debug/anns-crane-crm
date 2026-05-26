@@ -646,7 +646,9 @@ function AppendixPage({
 
 function rangeChartIsEnabled(sections: StringMap) {
   const enabled = String(sections.range_chart_enabled ?? "").trim().toLowerCase();
-  return ["1", "true", "yes", "on", "enabled"].includes(enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m);
+  // Include in pack controls the sketch page only. Core range-chart values can still feed
+  // the lift plan fields without forcing the visual chart into the pack.
+  return ["1", "true", "yes", "on", "enabled"].includes(enabled);
 }
 
 function rangeText(sections: StringMap, key: string, fallback = "—") {
@@ -715,31 +717,38 @@ function normaliseRangePhysicalJibLength(rawValue: number | null, radiusM: numbe
 }
 
 function rangeChartCalculated(sections: StringMap) {
-  const radiusM = rangeNumber(sections, "range_chart_radius_m", 12);
-  const tipHeightM = rangeNumber(sections, "range_chart_tip_height_m", 10);
-  const objectDistanceM = rangeNumber(sections, "range_chart_object_distance_m", Math.max(0, radiusM - 4));
-  const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
-  const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
+  const rawRadiusM = rangeNumber(sections, "range_chart_radius_m", 12);
+  const rawTipHeightM = rangeNumber(sections, "range_chart_tip_height_m", 10);
   const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
+  const selectedJibLabel = rangeText(sections, "range_chart_selected_jib_option_label", "");
   const craneName = tidyDisplayLabel(rangeText(sections, "range_chart_crane_name", ""));
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
-  const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedSetupLabel);
+  const storedBoomAngleDeg = parseDecimal(sections.range_chart_boom_angle_deg);
+  const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedJibLabel) ?? inferRangePhysicalJibLengthFromText(selectedSetupLabel);
   const rawJibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
-  const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, radiusM, storedBoomLengthM, inferredJibLengthM);
+  const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, rawRadiusM, storedBoomLengthM, inferredJibLengthM);
   const jibAngleDeg = rangeNumber(sections, "range_chart_jib_angle_deg", 0);
   const pivotHeight = 1.1;
+  const boomAngleRad = ((storedBoomAngleDeg ?? 0) * Math.PI) / 180;
   const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
-  const hookX = radiusM;
-  const hookY = tipHeightM;
-  const boomEndX = Math.max(0.1, hookX - (jibLengthM > 0 ? jibLengthM * Math.cos(jibAngleRad) : 0));
-  const boomEndY = Math.max(pivotHeight, hookY - (jibLengthM > 0 ? jibLengthM * Math.sin(jibAngleRad) : 0));
+  const boomEndXFromStored = storedBoomLengthM !== null && storedBoomAngleDeg !== null ? Math.max(0.1, storedBoomLengthM * Math.cos(boomAngleRad)) : null;
+  const boomEndYFromStored = storedBoomLengthM !== null && storedBoomAngleDeg !== null ? Math.max(pivotHeight, pivotHeight + storedBoomLengthM * Math.sin(boomAngleRad)) : null;
+  const hookX = boomEndXFromStored !== null ? boomEndXFromStored + (jibLengthM > 0 ? jibLengthM * Math.cos(jibAngleRad) : 0) : rawRadiusM;
+  const hookY = boomEndYFromStored !== null ? boomEndYFromStored + (jibLengthM > 0 ? jibLengthM * Math.sin(jibAngleRad) : 0) : rawTipHeightM;
+  const radiusM = Math.max(0.5, hookX);
+  const tipHeightM = Math.max(0.5, hookY);
+  const objectDistanceM = rangeNumber(sections, "range_chart_object_distance_m", Math.max(0, radiusM - 4));
+  const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
+  const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
+  const boomEndX = boomEndXFromStored ?? Math.max(0.1, hookX - (jibLengthM > 0 ? jibLengthM * Math.cos(jibAngleRad) : 0));
+  const boomEndY = boomEndYFromStored ?? Math.max(pivotHeight, hookY - (jibLengthM > 0 ? jibLengthM * Math.sin(jibAngleRad) : 0));
   const calculatedBoomLength = Math.sqrt(Math.pow(boomEndX, 2) + Math.pow(boomEndY - pivotHeight, 2));
   const calculatedBoomAngle = (Math.atan2(boomEndY - pivotHeight, boomEndX) * 180) / Math.PI;
-  const boomLengthM = rangeNumber(sections, "range_chart_boom_length_m", calculatedBoomLength);
-  const boomAngleDeg = rangeNumber(sections, "range_chart_boom_angle_deg", calculatedBoomAngle);
-  const clearanceM = rangeNumber(sections, "range_chart_clearance_m", hookY - objectHeightM);
+  const boomLengthM = storedBoomLengthM ?? calculatedBoomLength;
+  const boomAngleDeg = storedBoomAngleDeg ?? calculatedBoomAngle;
+  const clearanceM = hookY - objectHeightM;
   const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
   const accessoryWeightKg = rangeKg(sections, "range_chart_accessory_weight_kg");
   const totalLiftedWeightKg = rangeKg(sections, "range_chart_total_lifted_weight_kg") ?? ((loadWeightKg ?? 0) + (accessoryWeightKg ?? 0) || null);
@@ -754,12 +763,12 @@ function rangeChartCalculated(sections: StringMap) {
     totalLiftedWeightKg,
   });
   const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
-  const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg") ?? capacityResult.capacityKg;
+  const chartCapacityKg = capacityResult.capacityKg ?? rangeKg(sections, "range_chart_chart_capacity_kg");
   const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matAreaM2 = parseDecimal(sections.range_chart_mat_area_m2) ?? (matLengthM && matWidthM ? matLengthM * matWidthM : null);
-  const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? bearingResult.bearingLoadKg;
+  const bearingLoadKg = bearingResult.bearingLoadKg ?? rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load);
   const calculatedBearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
   const bearingPressureKgM2 = calculatedBearingPressureKgM2 ?? parseDecimal(sections.range_chart_bearing_pressure_kg_m2);
   const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
