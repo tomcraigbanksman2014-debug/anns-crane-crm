@@ -24,6 +24,11 @@ export type AssetAppendixPreset = {
 };
 
 export type CraneAppendixSelectionContext = {
+  /** Optional crane identity fields are used only to find the correct CRM spec sheets when crane names have been tidied/renamed. */
+  craneName?: string | null;
+  craneMake?: string | null;
+  craneModel?: string | null;
+  craneCapacity?: string | null;
   liftType?: string | null;
   craneConfiguration?: string | null;
   outriggerSetup?: string | null;
@@ -136,6 +141,16 @@ const PRESETS: AssetAppendixPreset[] = [
     ],
   },
   {
+    key: "hk40",
+    label: "Tadano Faun HK40",
+    assetType: "crane",
+    bundles: [
+      { key: "spec", title: "HK40 SPEC / DIMENSIONS", documentType: "spec_sheet", appendixOrder: 10, pages: [1, 2, 3] },
+      { key: "main_boom", title: "HK40 MAIN BOOM CHARTS", documentType: "load_chart", appendixOrder: 20, pages: [4, 5, 6] },
+      { key: "extension", title: "HK40 EXTENSION / RANGE", documentType: "load_chart", appendixOrder: 30, pages: [7, 8, 9] },
+    ],
+  },
+  {
     key: "mtk35",
     label: "Marchetti MTK 35",
     assetType: "crane",
@@ -175,6 +190,7 @@ export function detectAssetAppendixPreset(assetType: AssetPresetKind, profile: A
     if (hasAny(haystack, ["ak 46", "ak46", "46 6000", "46/6000", "bocker ak"])) return PRESETS.find((p) => p.key === "ak46") ?? null;
     if (hasAny(haystack, ["gmk4080", "gmk 4080", "4080 1", "4080-1", "grove"])) return PRESETS.find((p) => p.key === "gmk4080") ?? null;
     if (hasAny(haystack, ["spx532", "spx 532", "jekko"])) return PRESETS.find((p) => p.key === "jekko_spx532") ?? null;
+    if (hasAny(haystack, ["hk40", "hk 40", "tadano faun", "faun hk"])) return PRESETS.find((p) => p.key === "hk40") ?? null;
     if (hasAny(haystack, ["mtk35", "mtk 35", "marchetti"])) return PRESETS.find((p) => p.key === "mtk35") ?? null;
   }
 
@@ -301,6 +317,12 @@ export function selectCraneBundleTitlesForContext(
     if (facts.attachment_mode === "jib1200") keys.push("jib1200_a", "jib1200_b");
     else if (facts.attachment_mode === "jib1000") keys.push("jib1000");
     else keys.push("main_boom");
+    return bundleTitles(preset, keys);
+  }
+
+  if (preset.key === "hk40") {
+    const keys = ["spec", "main_boom"];
+    if (facts.attachment_mode === "extension" || facts.attachment_mode === "jib") keys.push("extension");
     return bundleTitles(preset, keys);
   }
 
