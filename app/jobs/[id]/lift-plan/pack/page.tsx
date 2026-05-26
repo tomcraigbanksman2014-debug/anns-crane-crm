@@ -1392,8 +1392,24 @@ export default async function CraneLiftPlanPackPage({
   });
 
   const linkedCraneIdForAppendix = realLinkedCraneId(job, liftPlan, primary, crane);
+  const craneNameForAppendix = craneLabel(crane, allocation);
+  const craneAppendixContext = {
+    craneName: craneNameForAppendix,
+    craneMake: (crane as any)?.make ?? null,
+    craneModel: (crane as any)?.model ?? null,
+    craneCapacity: (crane as any)?.capacity ?? null,
+    liftType: (job as any)?.lift_type ?? (job as any)?.hire_type ?? null,
+    craneConfiguration: String(sections.range_chart_selected_setup_label ?? sections.boom_configuration ?? liftPlan?.crane_configuration ?? ""),
+    loadDescription: String(liftPlan?.method_statement ?? (job as any)?.notes ?? ""),
+    notes: [
+      (job as any)?.notes,
+      sections.range_chart_selected_setup_label,
+      sections.range_chart_selected_jib_label,
+      sections.range_chart_external_spec_document_title,
+    ].filter(Boolean).join(" "),
+  };
   const [craneAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
-    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix),
+    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix, craneAppendixContext),
     getJobSpecAppendixAssetsForPack(params.id),
   ]);
   const appendixImageDocs = ((jobDocuments as any[]) ?? []).filter(isAppendixImageDocument);
@@ -1432,7 +1448,7 @@ export default async function CraneLiftPlanPackPage({
     `Job ${(job as any)?.job_number ?? ""}`.trim();
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
   const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
-  const craneName = craneLabel(crane, allocation);
+  const craneName = craneNameForAppendix;
   const hasRangeGroundBearingData = Boolean(
     sections.range_chart_bearing_load_kg ||
     sections.range_chart_total_lifted_weight_kg ||
