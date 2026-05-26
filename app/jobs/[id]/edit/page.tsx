@@ -94,8 +94,10 @@ async function updateJob(formData: FormData) {
       ? Number((pricePerDay * billableDays).toFixed(2))
       : Number(fullJobPrice.toFixed(2));
 
-  const invoiceSubtotalInput = numberOrZero(formData.get("invoice_subtotal"));
-  const invoiceSubtotal = invoiceSubtotalInput > 0 ? invoiceSubtotalInput : calculatedSubtotal;
+  // Price mode/full-job price/price-per-day are the source of truth when editing a job.
+  // The invoice_subtotal input is displayed for visibility, but older form values must not
+  // override a newly edited job price and leave the planner showing stale money.
+  const invoiceSubtotal = calculatedSubtotal;
   const invoiceVat = Number((invoiceSubtotal * 0.2).toFixed(2));
   const invoiceTotal = Number((invoiceSubtotal + invoiceVat).toFixed(2));
   const supplierLinks = parseSupplierLinksFromFormData(formData);
