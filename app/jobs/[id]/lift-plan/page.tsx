@@ -365,9 +365,25 @@ export default async function JobLiftPlanPage({
 
   const packSections = ((liftPlan as any)?.pack_sections as Record<string, unknown> | null) ?? {};
   const linkedCraneIdForAppendix = realLinkedCraneId(job, liftPlan, primary, crane);
+  const craneLabelForAppendix = craneDisplayLabel(crane) || craneDisplayLabel(one((job as any)?.cranes)) || String((primary?.allocation as any)?.item_name ?? "");
+  const craneAppendixContext = {
+    craneName: craneLabelForAppendix,
+    craneMake: (crane as any)?.make ?? null,
+    craneModel: (crane as any)?.model ?? null,
+    craneCapacity: (crane as any)?.capacity ?? null,
+    liftType: (job as any)?.lift_type ?? (job as any)?.hire_type ?? null,
+    craneConfiguration: String((packSections as any)?.range_chart_selected_setup_label ?? (packSections as any)?.boom_configuration ?? (liftPlan as any)?.crane_configuration ?? ""),
+    loadDescription: String((liftPlan as any)?.method_statement ?? (job as any)?.notes ?? ""),
+    notes: [
+      (job as any)?.notes,
+      (packSections as any)?.range_chart_selected_setup_label,
+      (packSections as any)?.range_chart_selected_jib_label,
+      (packSections as any)?.range_chart_external_spec_document_title,
+    ].filter(Boolean).join(" "),
+  };
   const [jobSpecDocuments, craneSpecAppendixAssets, jobSpecAppendixAssets] = await Promise.all([
     getJobSpecDocumentsForManager(params.id),
-    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix),
+    getCraneAppendixAssetsForPack(linkedCraneIdForAppendix, craneAppendixContext),
     getJobSpecAppendixAssetsForPack(params.id),
   ]);
   const specAppendixItems = [...craneSpecAppendixAssets, ...jobSpecAppendixAssets]
