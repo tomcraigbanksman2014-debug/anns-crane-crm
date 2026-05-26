@@ -743,8 +743,10 @@ async function updateTransportJob(formData: FormData) {
       ? money(pricePerDay * Math.max(dayCount, 1))
       : fullJobPrice;
 
-  const invoiceSubtotalRaw = money(numberOrZero(formData.get("invoice_subtotal")));
-  const invoiceSubtotal = invoiceSubtotalRaw > 0 ? invoiceSubtotalRaw : agreedSellRate;
+  // Price mode/full-job price/price-per-day are the source of truth when editing transport.
+  // Do not let an old invoice_subtotal form value override the newly edited customer charge,
+  // otherwise the planner and commercial totals can continue showing stale money.
+  const invoiceSubtotal = agreedSellRate;
   const invoiceVat = money(invoiceSubtotal * 0.2);
   const totalInvoice = money(invoiceSubtotal + invoiceVat);
 
