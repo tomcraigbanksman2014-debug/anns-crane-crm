@@ -39,6 +39,7 @@ type RangeChartState = {
   chartCapacityKg: string;
   matLengthM: string;
   matWidthM: string;
+  matCount: string;
   bearingLoadKg: string;
   verificationNote: string;
 };
@@ -56,6 +57,7 @@ type ChartNumbers = {
   chartCapacityKg: number | null;
   matLengthM: number | null;
   matWidthM: number | null;
+  matCount: number;
   bearingLoadKg: number | null;
 };
 
@@ -210,28 +212,11 @@ function defaultRangeState({
 
   const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12;
   const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75);
-  const storedBoomLength = numberOrNull(sections.range_chart_boom_length_m) ?? setupBoomLength;
-  const storedBoomAngle = numberOrNull(sections.range_chart_boom_angle_deg);
-  const storedJibLength = normalisePhysicalJibLength(
-    numberOrNull(sections.range_chart_jib_length_m),
-    radius,
-    storedBoomLength,
-    inferPhysicalJibLengthFromText(sections.range_chart_selected_jib_option_label) ?? setupJibLength
-  );
-  const storedJibAngle = numberOrNull(sections.range_chart_jib_angle_deg) ?? 20;
-  const derivedFromBoom = storedBoomLength !== null && storedBoomAngle !== null
-    ? hookFromBoomGeometry({ boomLengthM: storedBoomLength, boomAngleDeg: storedBoomAngle, jibLengthM: storedJibLength, jibAngleDeg: storedJibAngle })
-    : null;
-  const derivedFromHook = storedBoomLength === null || storedBoomAngle === null
-    ? boomFromHookGeometry({ radiusM: radius, tipHeightM: tipHeight, jibLengthM: storedJibLength, jibAngleDeg: storedJibAngle })
-    : null;
-  const resolvedRadius = derivedFromBoom?.radiusM ?? radius;
-  const resolvedTipHeight = derivedFromBoom?.tipHeightM ?? tipHeight;
-  const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(resolvedTipHeight - 1, liftHeightM ?? resolvedTipHeight * 0.6));
-  const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, resolvedRadius - 4);
+  const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6));
+  const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4);
 
   return {
-    enabled: parseBool(sections.range_chart_enabled),
+    enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
     clientName: firstText(sections.range_chart_client, defaultClientName),
     craneName: tidyDisplayLabel(firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
@@ -242,12 +227,15 @@ function defaultRangeState({
     selectedSetupLabel: firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
     selectedJibOptionKey: firstText(sections.range_chart_selected_jib_option_key),
     selectedJibOptionLabel: firstText(sections.range_chart_selected_jib_option_label),
-    boomLengthM: numberForInput(storedBoomLength ?? derivedFromHook?.boomLengthM, setupBoomLength ? String(setupBoomLength) : ""),
-    boomAngleDeg: numberForInput(storedBoomAngle ?? derivedFromHook?.boomAngleDeg, ""),
-    radiusM: numberForInput(resolvedRadius, "12"),
-    tipHeightM: numberForInput(resolvedTipHeight, "10"),
-    jibLengthM: numberForInput(storedJibLength, setupJibLength ? String(setupJibLength) : "0"),
-    jibAngleDeg: numberForInput(storedJibAngle, "20"),
+    boomLengthM: numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
+    boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
+    radiusM: numberForInput(radius, "12"),
+    tipHeightM: numberForInput(tipHeight, "10"),
+    jibLengthM: numberForInput(
+      normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
+      setupJibLength ? String(setupJibLength) : "0"
+    ),
+    jibAngleDeg: numberForInput(sections.range_chart_jib_angle_deg, "20"),
     objectDistanceM: numberForInput(objectDistance, "8"),
     objectHeightM: numberForInput(objectHeight, "4"),
     objectWidthM: numberForInput(sections.range_chart_object_width_m, "8"),
@@ -256,6 +244,7 @@ function defaultRangeState({
     chartCapacityKg: numberForInput(sections.range_chart_chart_capacity_kg, ""),
     matLengthM: numberForInput(sections.range_chart_mat_length_m, numberForInput(sections.ground_bearing_mat_length_m, "")),
     matWidthM: numberForInput(sections.range_chart_mat_width_m, numberForInput(sections.ground_bearing_mat_width_m, "")),
+    matCount: numberForInput(sections.range_chart_mat_count, numberForInput(sections.ground_bearing_outrigger_count, "4")),
     bearingLoadKg: numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
     verificationNote: firstText(
       sections.range_chart_verification_note,
@@ -265,41 +254,28 @@ function defaultRangeState({
 }
 
 function chartNumbers(chart: RangeChartState): ChartNumbers {
-  const rawRadiusM = Math.max(0.5, numberOrNull(chart.radiusM) ?? 12);
-  const rawTipHeightM = Math.max(0.5, numberOrNull(chart.tipHeightM) ?? 10);
-  const enteredBoomLengthM = numberOrNull(chart.boomLengthM);
-  const enteredBoomAngleDeg = numberOrNull(chart.boomAngleDeg);
-  const jibLengthM = Math.max(
-    0,
-    normalisePhysicalJibLength(
-      numberOrNull(chart.jibLengthM),
-      rawRadiusM,
-      enteredBoomLengthM,
-      inferPhysicalJibLengthFromText(chart.selectedJibOptionLabel) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel)
-    )
-  );
-  const jibAngleDeg = numberOrNull(chart.jibAngleDeg) ?? 20;
-
-  // Use boom length/angle as the canonical drawing geometry whenever both are present.
-  // Radius and hook height are then derived from the same boom/jib geometry, so the drawing,
-  // figures, capacity check and pack output cannot drift apart after older saved data or edits.
-  const resolvedHook = enteredBoomLengthM !== null && enteredBoomAngleDeg !== null
-    ? hookFromBoomGeometry({ boomLengthM: enteredBoomLengthM, boomAngleDeg: enteredBoomAngleDeg, jibLengthM, jibAngleDeg })
-    : { radiusM: rawRadiusM, tipHeightM: rawTipHeightM };
-
   return {
-    radiusM: Math.max(0.5, resolvedHook.radiusM),
-    tipHeightM: Math.max(0.5, resolvedHook.tipHeightM),
+    radiusM: Math.max(0.5, numberOrNull(chart.radiusM) ?? 12),
+    tipHeightM: Math.max(0.5, numberOrNull(chart.tipHeightM) ?? 10),
     objectDistanceM: Math.max(0, numberOrNull(chart.objectDistanceM) ?? 8),
     objectHeightM: Math.max(0.1, numberOrNull(chart.objectHeightM) ?? 4),
     objectWidthM: Math.max(0.5, numberOrNull(chart.objectWidthM) ?? 8),
-    jibLengthM,
-    jibAngleDeg,
+    jibLengthM: Math.max(
+      0,
+      normalisePhysicalJibLength(
+        numberOrNull(chart.jibLengthM),
+        Math.max(0.5, numberOrNull(chart.radiusM) ?? 12),
+        numberOrNull(chart.boomLengthM),
+        inferPhysicalJibLengthFromText(chart.selectedSetupLabel)
+      )
+    ),
+    jibAngleDeg: numberOrNull(chart.jibAngleDeg) ?? 20,
     loadWeightKg: numberOrNull(chart.loadWeightKg),
     accessoryWeightKg: numberOrNull(chart.accessoryWeightKg),
     chartCapacityKg: numberOrNull(chart.chartCapacityKg),
     matLengthM: numberOrNull(chart.matLengthM),
     matWidthM: numberOrNull(chart.matWidthM),
+    matCount: Math.max(1, Math.round(numberOrNull(chart.matCount) ?? 4)),
     bearingLoadKg: numberOrNull(chart.bearingLoadKg),
   };
 }
@@ -318,8 +294,10 @@ function calculatedFrom(numbers: ChartNumbers) {
   const clearance = hookY - numbers.objectHeightM;
   const totalLiftedWeight = (numbers.loadWeightKg ?? 0) + (numbers.accessoryWeightKg ?? 0);
   const utilisation = totalLiftedWeight && numbers.chartCapacityKg ? (totalLiftedWeight / numbers.chartCapacityKg) * 100 : null;
-  const matArea = numbers.matLengthM && numbers.matWidthM ? numbers.matLengthM * numbers.matWidthM : null;
+  const singleMatArea = numbers.matLengthM && numbers.matWidthM ? numbers.matLengthM * numbers.matWidthM : null;
+  const matArea = singleMatArea ? singleMatArea * Math.max(1, numbers.matCount || 1) : null;
   const pressureKgM2 = numbers.bearingLoadKg && matArea ? numbers.bearingLoadKg / matArea : null;
+  const singleMatPressureKgM2 = numbers.bearingLoadKg && singleMatArea ? numbers.bearingLoadKg / singleMatArea : null;
 
   return {
     pivotHeight,
@@ -332,8 +310,10 @@ function calculatedFrom(numbers: ChartNumbers) {
     clearance,
     totalLiftedWeight: totalLiftedWeight || null,
     utilisation,
+    singleMatArea,
     matArea,
     pressureKgM2,
+    singleMatPressureKgM2,
   };
 }
 
@@ -508,9 +488,11 @@ export default function RangeChartBuilder({
   const correctedJibLength = rawJibLength !== null && Math.abs(rawJibLength - numbers.jibLengthM) > 0.1;
   const matPressureText = fmtPressure(effectivePressureKgM2);
   const matAreaText = fmtArea(calc.matArea);
+  const singleMatAreaText = fmtArea(calc.singleMatArea);
+  const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
-    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
-    : "Enter mat length and width to calculate bearing pressure from bearing load ÷ mat area.";
+    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} total mat area (${numbers.matCount} mat/outrigger${numbers.matCount === 1 ? "" : "s"}) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 ? `. Worst single-mat check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
+    : "Enter mat length, width and number of supporting outriggers/mats to calculate bearing pressure.";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -713,8 +695,8 @@ export default function RangeChartBuilder({
       range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
       range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
       range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
-      range_chart_radius_m: String(round(numbers.radiusM, 2)),
-      range_chart_tip_height_m: String(round(numbers.tipHeightM, 2)),
+      range_chart_radius_m: chart.radiusM,
+      range_chart_tip_height_m: chart.tipHeightM,
       range_chart_jib_length_m: String(round(numbers.jibLengthM, 2)),
       range_chart_jib_angle_deg: chart.jibAngleDeg,
       range_chart_object_distance_m: chart.objectDistanceM,
@@ -730,7 +712,10 @@ export default function RangeChartBuilder({
       range_chart_utilisation_percent: effectiveUtilisation ? String(round(effectiveUtilisation, 1)) : "",
       range_chart_mat_length_m: chart.matLengthM,
       range_chart_mat_width_m: chart.matWidthM,
+      range_chart_mat_count: chart.matCount,
+      range_chart_single_mat_area_m2: calc.singleMatArea ? String(round(calc.singleMatArea, 3)) : "",
       range_chart_mat_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
+      range_chart_mat_total_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
       range_chart_bearing_load_kg: effectiveBearingLoadKg ? String(round(effectiveBearingLoadKg, 2)) : "",
       range_chart_bearing_method: bearingResult.method,
       range_chart_bearing_source: bearingResult.source,
@@ -762,26 +747,6 @@ export default function RangeChartBuilder({
     if (!res.ok) throw new Error(data?.error || "Could not save range chart data.");
     return data;
   }
-
-  useEffect(() => {
-    setChart((prev) => {
-      let next = prev;
-      let geometryChanged = false;
-      const clampField = (key: keyof RangeChartState, maxValue: number | null | undefined) => {
-        const parsed = numberOrNull(next[key]);
-        if (parsed !== null && maxValue !== null && maxValue !== undefined && Number.isFinite(maxValue) && parsed > maxValue) {
-          next = { ...next, [key]: String(maxValue) };
-          geometryChanged = true;
-        }
-      };
-      clampField("boomLengthM", limits.maxBoomLengthM);
-      clampField("jibLengthM", limits.maxPhysicalJibLengthM);
-      clampField("radiusM", limits.maxRadiusM);
-      clampField("tipHeightM", limits.maxTipHeightM);
-      if (next === prev) return prev;
-      return geometryChanged ? syncHookFromBoom(next) : next;
-    });
-  }, [limits.maxBoomLengthM, limits.maxPhysicalJibLengthM, limits.maxRadiusM, limits.maxTipHeightM]);
 
   useEffect(() => {
     const payload = buildRangeChartPayload(false);
@@ -940,7 +905,8 @@ export default function RangeChartBuilder({
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
               <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
-              <ReadOnlyInfo label="Mat area" value={matAreaText} helper="Mat area = length × width. Example: 3m × 1m = 3m²." />
+              <Field label="Number of outriggers / mats" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="For a mobile crane on four 600mm × 600mm mats, enter length 0.6, width 0.6 and count 4." />
+              <ReadOnlyInfo label="Total mat bearing area" value={matAreaText} helper="Total area = mat length × mat width × number of supporting mats/outriggers. Single mat area shown in the formula/check below." />
               <ReadOnlyInfo label="Bearing load / reaction" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
               <ReadOnlyInfo label="Bearing pressure" value={matPressureText} helper={matPressureFormulaText} />
             </div>
@@ -984,12 +950,13 @@ export default function RangeChartBuilder({
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
             <Metric label="Bearing load / reaction" value={bearingLoadText} />
-            <Metric label="Mat area" value={matAreaText} />
+            <Metric label="Total mat area" value={matAreaText} />
+            <Metric label="Single mat check" value={singleMatPressureText} />
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
             <Metric label="Bearing pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Bearing pressure is calculated as bearing load/reaction divided by mat area. The final lift must be checked against the correct manufacturer/supplier load chart, counterweight/ballast, outrigger setup, accessories, ground conditions and appointed-person approval before lifting.
+            Planning sketch only. Bearing pressure is calculated using the selected total mat/support area. The worst single-outrigger reaction and actual ground capacity must still be checked by the appointed person against the crane chart, outrigger setup, mat arrangement and ground conditions before lifting.
           </div>
         </div>
       </div>
