@@ -784,11 +784,12 @@ function rangeChartCalculated(sections: StringMap) {
   const singleMatPressureKgM2 = bearingLoadKg && singleMatAreaM2 ? bearingLoadKg / singleMatAreaM2 : null;
   const bearingPressureKgM2 = calculatedBearingPressureKgM2;
   const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—";
-  const bearingPressureFormula = bearingLoadKg && matAreaM2 && bearingPressureKgM2
-    ? `Additional spreader reference only: ${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} additional mat/spreader area (${matCount} piece${matCount === 1 ? "" : "s"}) = ${bearingPressure}${singleMatPressureKgM2 && matCount > 1 ? `. Single additional piece check: ${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(singleMatAreaM2)} = ${singleMatPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(singleMatPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : ""}`
-    : isStandardMatSize(matLengthM, matWidthM)
-      ? "Standard crane mats are already assumed in the AnnS 0.75 ground-loading figure. Additional mat/spreader pressure is only shown when extra mats are added."
-      : "Standard crane mats are assumed in the AnnS 0.75 calculation. Optional: enter only additional mat/spreader dimensions, such as 3m × 1m, if used in addition to the standard mats.";
+  const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
+  const bearingPressureFormula = bearingLoadKg && limits.planningWeightKg && totalLiftedWeightKg
+    ? `(${formatRangeKg(limits.planningWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × ${estimatedBearingFactor} = ${formatRangeKg(bearingLoadKg)}`
+    : bearingLoadKg
+      ? `Estimated max outrigger load = ${formatRangeKg(bearingLoadKg)}`
+      : "Estimated max outrigger load requires crane and load details";
 
   return {
     radiusM,
@@ -1141,9 +1142,9 @@ function RangeChartPackPage({
         <MetricBox label="Chart Capacity" value={formatRangeKg(calc.chartCapacityKg)} />
         <MetricBox label="Capacity Source" value={`${calc.capacityMethod === "automatic" ? "Auto" : "Manual"} check`} />
         <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "Manual check required"} />
-        <MetricBox label="Additional Spreader Area" value={formatAreaM2(calc.matAreaM2)} />
+        {calc.matAreaM2 ? <MetricBox label="Additional Spreader Area" value={formatAreaM2(calc.matAreaM2)} /> : null}
         <MetricBox label="Bearing Load / Reaction" value={formatRangeKg(calc.bearingLoadKg)} />
-        <MetricBox label="Additional Spreader Pressure" value={calc.bearingPressure} />
+        {calc.bearingPressureKgM2 ? <MetricBox label="Additional Spreader Pressure" value={calc.bearingPressure} /> : null}
         <MetricBox label="Ground-Loading Formula" value={calc.bearingPressureFormula} />
       </div>
 
@@ -1540,6 +1541,12 @@ export default async function CraneLiftPlanPackPage({
   const bearingPressure = rangeGroundCalc?.bearingPressure && rangeGroundCalc.bearingPressure !== "—" ? rangeGroundCalc.bearingPressure : formatBearingPressure(bearingLoadKg, matAreaM2);
   const singleMatPressure = bearingLoadKg && singleMatAreaM2 ? formatBearingPressure(bearingLoadKg, singleMatAreaM2) : "—";
   const matSizeText = matLengthM && matWidthM && additionalMatSpread ? `${matLengthM}m x ${matWidthM}m × ${matCount} additional` : "Standard crane mats assumed";
+  const primaryGroundLoadingFormula = rangeGroundCalc?.bearingPressureFormula || (bearingLoadKg && craneMaxWeightKg && loadMaxWeightKg
+    ? `(${formatRangeKg(craneMaxWeightKg)} + ${formatRangeKg(loadMaxWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}`
+    : "Estimated max outrigger load requires crane and load details");
+  const primaryAdditionalSpreaderFormula = additionalMatSpread && bearingLoadKg && matAreaM2 && bearingPressure !== "—"
+    ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} = ${bearingPressure}`
+    : "";
   const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
   const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
   const methodStatementLines = splitLines(liftPlan?.method_statement);
@@ -2097,16 +2104,18 @@ export default async function CraneLiftPlanPackPage({
               [inputField("ground_bearing_label_factor", "Calculation factor"), calculatedInputField("ground_bearing_factor", "0.75")],
               [inputField("ground_bearing_label_result", "Estimated max outrigger load"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
               [inputField("ground_bearing_label_mat_size", "Standard mats / additional spreader"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
-              [inputField("ground_bearing_label_mat_count", "Additional spreader pieces"), calculatedInputField("ground_bearing_mat_count", additionalMatSpread ? String(matCount) : "—")],
-              [inputField("ground_bearing_label_single_mat_area", "Single additional piece area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
-              [inputField("ground_bearing_label_mat_area", "Additional mat/spreader area"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
               [inputField("ground_bearing_label_bearing_load", "Max outrigger load used for AnnS ground-loading check"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
-              [inputField("ground_bearing_label_pressure", "Additional spreader pressure reference"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
-              [inputField("ground_bearing_label_single_mat_pressure", "Single additional piece pressure"), calculatedInputField("ground_bearing_single_mat_pressure", additionalMatSpread && matCount > 1 ? singleMatPressure : "—")],
+              ...(additionalMatSpread ? ([
+                [inputField("ground_bearing_label_mat_count", "Additional spreader pieces"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
+                [inputField("ground_bearing_label_single_mat_area", "Single additional piece area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
+                [inputField("ground_bearing_label_mat_area", "Additional mat/spreader area"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
+                [inputField("ground_bearing_label_pressure", "Additional spreader pressure reference"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
+                ...(matCount > 1 ? ([[inputField("ground_bearing_label_single_mat_pressure", "Single additional piece pressure"), calculatedInputField("ground_bearing_single_mat_pressure", singleMatPressure)]] as Array<[ReactNode, any]>) : []),
+              ] as Array<[ReactNode, any]>) : []),
             ]}
           />
           <div style={{ marginTop: 8 }}>
-            {areaField("ground_bearing_notes", rangeGroundCalc?.bearingPressureFormula || `AnnS ground-loading method: (crane planning/gross weight + total lifted load) × 0.75 = estimated maximum outrigger load with the crane standard mats assumed. Leave additional mat/spreader dimensions blank when only standard mats are used. If extra spreader mats are used, such as 3m × 1m mats, enter those as additional mats and the pack will show a separate reference pressure for the extra spread. Final ground suitability, mat/spreader requirements and exact outrigger reactions must be confirmed by the appointed person/client before lifting.`, 5, true)}
+            {areaField("ground_bearing_notes", [primaryGroundLoadingFormula, primaryAdditionalSpreaderFormula].filter(Boolean).join("\n"), 3, true)}
           </div>
         </BoxedParagraph>
 
