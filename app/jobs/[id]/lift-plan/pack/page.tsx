@@ -918,7 +918,10 @@ function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnTyp
   const chartCapacityKg = calculatedCapacity?.capacityKg ?? additionalCraneNumber(crane.chart_capacity_kg);
   const matLengthM = additionalCraneNumber(crane.mat_length_m);
   const matWidthM = additionalCraneNumber(crane.mat_width_m);
-  const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
+  const matCountRaw = additionalCraneNumber((crane as Record<string, unknown>).mat_count) ?? additionalCraneNumber((crane as Record<string, unknown>).matCount) ?? additionalCraneNumber((crane as Record<string, unknown>).outrigger_count) ?? 4;
+  const matCount = Math.max(1, Math.round(matCountRaw));
+  const singleMatAreaM2 = matLengthM && matWidthM ? Number((matLengthM * matWidthM).toFixed(3)) : null;
+  const matAreaM2 = singleMatAreaM2 ? Number((singleMatAreaM2 * matCount).toFixed(3)) : null;
   const bearing = calculateRangeChartBearingLoad({
     craneName,
     setupLabel,
