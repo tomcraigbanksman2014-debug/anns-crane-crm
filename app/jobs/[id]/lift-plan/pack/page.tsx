@@ -754,11 +754,11 @@ function rangeChartCalculated(sections: StringMap) {
     totalLiftedWeightKg,
   });
   const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
-  const chartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg") ?? capacityResult.capacityKg;
-  const utilisationPercent = parseDecimal(sections.range_chart_utilisation_percent) ?? (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
+  const chartCapacityKg = capacityResult.capacityKg ?? rangeKg(sections, "range_chart_chart_capacity_kg");
+  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : parseDecimal(sections.range_chart_utilisation_percent);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
-  const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mat_count) ?? parseDecimal(sections.ground_bearing_outrigger_count) ?? 4));
+  const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
   const singleMatAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
   const matAreaM2 = singleMatAreaM2 ? singleMatAreaM2 * matCount : (parseDecimal(sections.range_chart_mat_total_area_m2) ?? parseDecimal(sections.range_chart_mat_area_m2));
   const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? bearingResult.bearingLoadKg;
@@ -767,8 +767,8 @@ function rangeChartCalculated(sections: StringMap) {
   const bearingPressureKgM2 = calculatedBearingPressureKgM2 ?? parseDecimal(sections.range_chart_bearing_pressure_kg_m2);
   const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : rangeText(sections, "range_chart_bearing_pressure", formatBearingPressure(bearingLoadKg, matAreaM2));
   const bearingPressureFormula = bearingLoadKg && matAreaM2 && bearingPressureKgM2
-    ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} total mat/support area (${matCount} mat/outrigger${matCount === 1 ? "" : "s"}) = ${bearingPressure}${singleMatPressureKgM2 ? `. Worst single-mat check: ${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(singleMatAreaM2)} = ${singleMatPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(singleMatPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : ""}`
-    : rangeText(sections, "range_chart_bearing_pressure_formula", "Enter mat length, width and number of supporting outriggers/mats to calculate bearing pressure.");
+    ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} support area under the worst loaded outrigger (${matCount} mat/spreader piece${matCount === 1 ? "" : "s"} under that outrigger) = ${bearingPressure}${singleMatPressureKgM2 && matCount > 1 ? `. Single piece check: ${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(singleMatAreaM2)} = ${singleMatPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(singleMatPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : ""}`
+    : rangeText(sections, "range_chart_bearing_pressure_formula", "Enter mat length, width and mats/spreader pieces under the worst loaded outrigger to calculate bearing pressure.");
 
   return {
     radiusM,
@@ -827,6 +827,8 @@ type PackAdditionalCraneEntry = {
   chart_capacity_kg?: string;
   mat_length_m?: string;
   mat_width_m?: string;
+  mat_count?: string;
+  mats_under_loaded_outrigger?: string;
   spec_sheet_reference?: string;
   verification_notes?: string;
   selected_profile_key?: string;
@@ -854,6 +856,8 @@ function parseAdditionalCraneEntries(value: unknown): PackAdditionalCraneEntry[]
         chart_capacity_kg: String(item?.chart_capacity_kg ?? item?.chartCapacityKg ?? ""),
         mat_length_m: String(item?.mat_length_m ?? item?.matLengthM ?? ""),
         mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
+        mat_count: String(item?.mat_count ?? item?.matCount ?? ""),
+        mats_under_loaded_outrigger: String(item?.mats_under_loaded_outrigger ?? item?.matsUnderLoadedOutrigger ?? item?.mat_count ?? item?.matCount ?? ""),
         spec_sheet_reference: String(item?.spec_sheet_reference ?? item?.specSheetReference ?? ""),
         verification_notes: String(item?.verification_notes ?? item?.verificationNotes ?? ""),
         selected_profile_key: String(item?.selected_profile_key ?? item?.selectedProfileKey ?? ""),
@@ -918,10 +922,9 @@ function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnTyp
   const chartCapacityKg = calculatedCapacity?.capacityKg ?? additionalCraneNumber(crane.chart_capacity_kg);
   const matLengthM = additionalCraneNumber(crane.mat_length_m);
   const matWidthM = additionalCraneNumber(crane.mat_width_m);
-  const matCountRaw = additionalCraneNumber((crane as Record<string, unknown>).mat_count) ?? additionalCraneNumber((crane as Record<string, unknown>).matCount) ?? additionalCraneNumber((crane as Record<string, unknown>).outrigger_count) ?? 4;
-  const matCount = Math.max(1, Math.round(matCountRaw));
-  const singleMatAreaM2 = matLengthM && matWidthM ? Number((matLengthM * matWidthM).toFixed(3)) : null;
-  const matAreaM2 = singleMatAreaM2 ? Number((singleMatAreaM2 * matCount).toFixed(3)) : null;
+  const matCount = Math.max(1, Math.round(additionalCraneNumber(crane.mats_under_loaded_outrigger) ?? additionalCraneNumber(crane.mat_count) ?? 1));
+  const singleMatAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
+  const matAreaM2 = singleMatAreaM2 ? singleMatAreaM2 * matCount : null;
   const bearing = calculateRangeChartBearingLoad({
     craneName,
     setupLabel,
@@ -1509,13 +1512,13 @@ export default async function CraneLiftPlanPackPage({
   const estimatedGroundBearingKg = rangeBearingLoadKg ?? (combinedMaxWeightKg ? combinedMaxWeightKg * 0.75 : null);
   const matLengthM = (rangeGroundCalc?.matLengthM && rangeGroundCalc.matLengthM > 0 ? rangeGroundCalc.matLengthM : null) ?? parseDecimal(sections.ground_bearing_mat_length_m);
   const matWidthM = (rangeGroundCalc?.matWidthM && rangeGroundCalc.matWidthM > 0 ? rangeGroundCalc.matWidthM : null) ?? parseDecimal(sections.ground_bearing_mat_width_m);
-  const matCount = Math.max(1, Math.round((rangeGroundCalc?.matCount && rangeGroundCalc.matCount > 0 ? rangeGroundCalc.matCount : null) ?? parseDecimal(sections.range_chart_mat_count) ?? parseDecimal(sections.ground_bearing_outrigger_count) ?? 4));
+  const matCount = Math.max(1, Math.round((rangeGroundCalc?.matCount && rangeGroundCalc.matCount > 0 ? rangeGroundCalc.matCount : null) ?? parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
   const singleMatAreaM2 = matLengthM && matWidthM ? Number((matLengthM * matWidthM).toFixed(3)) : null;
   const matAreaM2 = singleMatAreaM2 ? Number((singleMatAreaM2 * matCount).toFixed(3)) : (rangeGroundCalc?.matAreaM2 ?? parseDecimal(sections.ground_bearing_mat_area_m2));
   const bearingLoadKg = rangeBearingLoadKg ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? estimatedGroundBearingKg;
   const bearingPressure = rangeGroundCalc?.bearingPressure && rangeGroundCalc.bearingPressure !== "—" ? rangeGroundCalc.bearingPressure : formatBearingPressure(bearingLoadKg, matAreaM2);
   const singleMatPressure = bearingLoadKg && singleMatAreaM2 ? formatBearingPressure(bearingLoadKg, singleMatAreaM2) : "—";
-  const matSizeText = matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount}` : matPresetLabel(sections.ground_bearing_mat_preset);
+  const matSizeText = matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount} under worst loaded outrigger` : matPresetLabel(sections.ground_bearing_mat_preset);
   const scopeFallback = fallbackScope(clientName, projectName, liftPlan, loadWeight);
   const communicationFallback = fallbackCommunication((job as any)?.contact_name || "");
   const methodStatementLines = splitLines(liftPlan?.method_statement);
@@ -2073,16 +2076,16 @@ export default async function CraneLiftPlanPackPage({
               [inputField("ground_bearing_label_factor", "Calculation factor"), calculatedInputField("ground_bearing_factor", "0.75")],
               [inputField("ground_bearing_label_result", "Estimated bearing load / outrigger reaction"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
               [inputField("ground_bearing_label_mat_size", "Selected mat / spreader size"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
-              [inputField("ground_bearing_label_mat_count", "No. of mats / outriggers used"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
+              [inputField("ground_bearing_label_mat_count", "Mats/spreader pieces under worst loaded outrigger"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
               [inputField("ground_bearing_label_single_mat_area", "Single mat area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
-              [inputField("ground_bearing_label_mat_area", "Total mat/support area used"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
+              [inputField("ground_bearing_label_mat_area", "Support area under worst loaded outrigger"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
               [inputField("ground_bearing_label_bearing_load", "Bearing load used for mat calculation"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
-              [inputField("ground_bearing_label_pressure", "Estimated pressure over selected mats"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
-              [inputField("ground_bearing_label_single_mat_pressure", "Worst single-mat check"), calculatedInputField("ground_bearing_single_mat_pressure", singleMatPressure)],
+              [inputField("ground_bearing_label_pressure", "Estimated pressure under worst loaded outrigger"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
+              [inputField("ground_bearing_label_single_mat_pressure", "Single mat/piece check"), calculatedInputField("ground_bearing_single_mat_pressure", matCount > 1 ? singleMatPressure : "Same as above")],
             ]}
           />
           <div style={{ marginTop: 8 }}>
-            {areaField("ground_bearing_notes", rangeGroundCalc?.bearingPressureFormula || `Calculation used: bearing load / outrigger reaction ÷ total selected mat/support area. For a mobile crane on four 600mm × 600mm mats, total area is 0.6 × 0.6 × 4 = 1.44m². The worst single-outrigger/mat pressure is also shown as a conservative check. Final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.`, 5, true)}
+            {areaField("ground_bearing_notes", rangeGroundCalc?.bearingPressureFormula || `Calculation used: estimated worst loaded outrigger reaction ÷ support area directly under that outrigger. For four separate 600mm × 600mm outrigger mats, the area used per loaded outrigger is normally 0.6 × 0.6 = 0.36m², not 1.44m². Only enter more than one mat/spreader piece if those pieces are actually layered/combined under the same loaded outrigger. Final ground bearing pressures, mat/spreader requirements and outrigger reactions must be confirmed against the actual crane chart, outrigger setup and ground conditions before lifting.`, 5, true)}
           </div>
         </BoxedParagraph>
 
