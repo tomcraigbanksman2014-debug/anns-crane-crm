@@ -95,6 +95,23 @@ function numberOrNull(value: unknown) {
   return Number.isFinite(n) ? n : null;
 }
 
+function isStandardMatSize(lengthM: number | null | undefined, widthM: number | null | undefined) {
+  const length = Number(lengthM ?? 0);
+  const width = Number(widthM ?? 0);
+  if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0) return false;
+  const a = Math.min(length, width);
+  const b = Math.max(length, width);
+  const close = (x: number, y: number) => Math.abs(x - y) <= 0.025;
+  return (close(a, 0.6) && close(b, 0.6)) || (close(a, 0.55) && close(b, 0.55));
+}
+
+function hasAdditionalMatSpread(lengthM: number | null | undefined, widthM: number | null | undefined) {
+  const length = Number(lengthM ?? 0);
+  const width = Number(widthM ?? 0);
+  if (!Number.isFinite(length) || !Number.isFinite(width) || length <= 0 || width <= 0) return false;
+  return !isStandardMatSize(length, width);
+}
+
 function numberForInput(value: unknown, fallback = "") {
   const n = numberOrNull(value);
   return n === null ? fallback : String(n);
@@ -297,7 +314,8 @@ function calculatedFrom(numbers: ChartNumbers) {
   const clearance = hookY - numbers.objectHeightM;
   const totalLiftedWeight = (numbers.loadWeightKg ?? 0) + (numbers.accessoryWeightKg ?? 0);
   const utilisation = totalLiftedWeight && numbers.chartCapacityKg ? (totalLiftedWeight / numbers.chartCapacityKg) * 100 : null;
-  const singleMatArea = numbers.matLengthM && numbers.matWidthM ? numbers.matLengthM * numbers.matWidthM : null;
+  const additionalMatSpread = hasAdditionalMatSpread(numbers.matLengthM, numbers.matWidthM);
+  const singleMatArea = additionalMatSpread && numbers.matLengthM && numbers.matWidthM ? numbers.matLengthM * numbers.matWidthM : null;
   const matArea = singleMatArea ? singleMatArea * Math.max(1, numbers.matCount || 1) : null;
   const pressureKgM2 = numbers.bearingLoadKg && matArea ? numbers.bearingLoadKg / matArea : null;
   const singleMatPressureKgM2 = numbers.bearingLoadKg && singleMatArea ? numbers.bearingLoadKg / singleMatArea : null;
@@ -494,8 +512,10 @@ export default function RangeChartBuilder({
   const singleMatAreaText = fmtArea(calc.singleMatArea);
   const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
-    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} support area under the worst loaded outrigger (${numbers.matCount} mat/spreader piece${numbers.matCount === 1 ? "" : "s"} under that outrigger) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 && numbers.matCount > 1 ? `. Single piece check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
-    : "Enter mat length, width and any spreader pieces under the worst loaded outrigger to show pressure through the mat/spreader.";
+    ? `Additional spreader reference only: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} additional mat/spreader area (${numbers.matCount} piece${numbers.matCount === 1 ? "" : "s"}) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 && numbers.matCount > 1 ? `. Single additional piece check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
+    : isStandardMatSize(numbers.matLengthM, numbers.matWidthM)
+      ? "Standard crane mats are already assumed in the AnnS 0.75 ground-loading figure. Leave additional mat/spreader dimensions blank unless extra mats such as 3m × 1m are used."
+      : "Standard crane mats are assumed. Optional: enter only additional mat/spreader dimensions, such as 3m × 1m, if used in addition to the standard mats.";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -726,7 +746,7 @@ export default function RangeChartBuilder({
       range_chart_bearing_pressure_kg_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2, 2)) : "",
       range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
       range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
-      range_chart_bearing_pressure_formula: effectivePressureKgM2 ? matPressureFormulaText : "",
+      range_chart_bearing_pressure_formula: effectivePressureKgM2 ? `${matPressureFormulaText}. Reference only — AnnS planning figure is the estimated max outrigger load calculated by (crane planning/gross weight + total lifted load) × 0.75 with standard mats assumed.` : "",
       range_chart_limit_warning: chartWarnings.join(" "),
       range_chart_verification_note: chart.verificationNote,
     };
@@ -907,12 +927,12 @@ export default function RangeChartBuilder({
               <Field label="Load weight (kg)" type="number" value={chart.loadWeightKg} onChange={(value) => update("loadWeightKg", value)} />
               <Field label="Accessory weight (kg)" type="number" value={chart.accessoryWeightKg} onChange={(value) => update("accessoryWeightKg", value)} />
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
-              <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
-              <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
-              <Field label="Mats/spreader pieces under loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Normally enter 1 for one mat under the loaded outrigger. Only enter more if several mats/spreader pieces are actually layered or combined under that same loaded outrigger." />
-              <ReadOnlyInfo label="Mat/spreader area under loaded outrigger" value={matAreaText} helper="Area used for pressure = mat length × mat width × mats/spreader pieces under the loaded outrigger." />
+              <Field label="Additional mat/spreader length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} helper="Leave blank when only the crane standard mats are used." />
+              <Field label="Additional mat/spreader width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} helper="Only enter extra spreader/mats, e.g. 3m × 1m." />
+              <Field label="Additional spreader pieces" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Only used when additional mat/spreader dimensions are entered. Standard mats are included in the AnnS estimate." />
+              <ReadOnlyInfo label="Additional mat/spreader area" value={matAreaText} helper="Blank means standard mats only. Area is only calculated for extra mats/spreaders added on top of the standard mats." />
               <ReadOnlyInfo label="Estimated max outrigger load" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
-              <ReadOnlyInfo label="Pressure through mat/spreader" value={matPressureText} helper={matPressureFormulaText} />
+              <ReadOnlyInfo label="Additional spreader pressure reference" value={matPressureText} helper={matPressureFormulaText} />
             </div>
             <TextArea label="Verification note" value={chart.verificationNote} onChange={(value) => update("verificationNote", value)} rows={3} />
           </Section>
@@ -954,13 +974,13 @@ export default function RangeChartBuilder({
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
             <Metric label="Estimated max outrigger load" value={bearingLoadText} />
-            <Metric label="Mat/spreader area" value={matAreaText} />
-            <Metric label="Single mat pressure check" value={singleMatPressureText} />
+            <Metric label="Additional spreader area" value={matAreaText} />
+            <Metric label="Single additional piece pressure" value={singleMatPressureText} />
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
-            <Metric label="Pressure through mat/spreader" value={matPressureText} />
+            <Metric label="Additional spreader pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Pressure through mat/spreader is calculated from the estimated worst loaded outrigger reaction divided by the support area under that outrigger. Do not average the reaction across all four outriggers unless an appointed person has an exact manufacturer reaction/distribution confirming it. Final ground capacity, mat/spreader arrangement and outrigger reaction must be verified before lifting.
+            Planning sketch only. AnnS estimated max outrigger load uses (crane planning/gross weight + total lifted load) × 0.75 with the crane standard mats assumed. Leave additional mat/spreader dimensions blank when only standard mats are used. Enter extra mats, such as 3m × 1m, only when they are used in addition. Final ground suitability and outrigger reactions must be verified before lifting.
           </div>
         </div>
       </div>
