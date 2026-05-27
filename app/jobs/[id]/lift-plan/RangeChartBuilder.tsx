@@ -307,7 +307,6 @@ function calculatedFrom(numbers: ChartNumbers) {
   const singleMatArea = enteredMatSpread && numbers.matLengthM && numbers.matWidthM ? numbers.matLengthM * numbers.matWidthM : null;
   const matArea = singleMatArea ? singleMatArea * Math.max(1, numbers.matCount || 1) : null;
   const pressureKgM2 = numbers.bearingLoadKg && matArea ? numbers.bearingLoadKg / matArea : null;
-  const singleMatPressureKgM2 = numbers.bearingLoadKg && singleMatArea ? numbers.bearingLoadKg / singleMatArea : null;
 
   return {
     pivotHeight,
@@ -323,7 +322,6 @@ function calculatedFrom(numbers: ChartNumbers) {
     singleMatArea,
     matArea,
     pressureKgM2,
-    singleMatPressureKgM2,
   };
 }
 
@@ -498,7 +496,6 @@ export default function RangeChartBuilder({
   const correctedJibLength = rawJibLength !== null && Math.abs(rawJibLength - numbers.jibLengthM) > 0.1;
   const matPressureText = fmtPressure(effectivePressureKgM2);
   const matAreaText = fmtArea(calc.matArea);
-  const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
   const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
   const bearingFormulaBase = effectiveBearingLoadKg && limits.planningWeightKg && calc.totalLiftedWeight
     ? `(${fmtKg(limits.planningWeightKg)} × ${estimatedBearingFactor}) + ${fmtKg(calc.totalLiftedWeight)} = ${fmtKg(effectiveBearingLoadKg)}`
@@ -923,7 +920,7 @@ export default function RangeChartBuilder({
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat/spreader length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} helper="Enter only when you want the CRM to calculate bearing pressure from a support area." />
               <Field label="Mat/spreader width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} helper="Any entered support size is used in the bearing pressure calculation." />
-              <Field label="Mats/spreader pieces under loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Used only when mat/spreader dimensions are entered." />
+              <Field label="Mats/spreader pieces under worst-case loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="This is the number of support pieces under the one calculated worst-case outrigger, not the total pieces across the whole crane." />
               <ReadOnlyInfo label="Mat/spreader bearing area" value={matAreaText} helper="Blank means no support-area pressure calculation has been entered." />
               <ReadOnlyInfo label="Estimated max outrigger load" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
               <ReadOnlyInfo label="Mat/spreader pressure reference" value={matPressureText} helper={matPressureFormulaText} />
@@ -969,7 +966,6 @@ export default function RangeChartBuilder({
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
             <Metric label="Estimated max outrigger load" value={bearingLoadText} />
             {calc.matArea ? <Metric label="Mat/spreader bearing area" value={matAreaText} /> : null}
-            {calc.singleMatPressureKgM2 && numbers.matCount > 1 ? <Metric label="Single additional piece pressure" value={singleMatPressureText} /> : null}
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
             {effectivePressureKgM2 ? <Metric label="Mat/spreader pressure" value={matPressureText} /> : null}
           </div>
