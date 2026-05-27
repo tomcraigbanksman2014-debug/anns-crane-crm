@@ -638,11 +638,11 @@ export function calculateRangeChartBearingLoad({
   const planningWeight = rule?.planningWeightKg && Number.isFinite(rule.planningWeightKg) ? rule.planningWeightKg : null;
   if (rule && planningWeight && lifted !== null) {
     const factor = rule.estimatedBearingFactor ?? 0.75;
-    const bearingLoadKg = (planningWeight + lifted) * factor;
+    const bearingLoadKg = planningWeight * factor + lifted;
     return {
       bearingLoadKg,
       method: "automatic",
-      source: `Planning estimate using existing lift-plan formula: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + total lifted weight) × ${factor}. Use exact outrigger reaction chart if available.`,
+      source: `Planning estimate using appointed-person mat calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} × ${factor}) + gross lifted load. Use exact outrigger reaction chart if available.`,
     };
   }
 
