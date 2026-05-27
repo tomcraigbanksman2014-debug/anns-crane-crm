@@ -509,13 +509,16 @@ export default function RangeChartBuilder({
   const correctedJibLength = rawJibLength !== null && Math.abs(rawJibLength - numbers.jibLengthM) > 0.1;
   const matPressureText = fmtPressure(effectivePressureKgM2);
   const matAreaText = fmtArea(calc.matArea);
-  const singleMatAreaText = fmtArea(calc.singleMatArea);
   const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
+  const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
+  const bearingFormulaBase = effectiveBearingLoadKg && limits.planningWeightKg && calc.totalLiftedWeight
+    ? `(${fmtKg(limits.planningWeightKg)} + ${fmtKg(calc.totalLiftedWeight)}) × ${estimatedBearingFactor} = ${fmtKg(effectiveBearingLoadKg)}`
+    : effectiveBearingLoadKg
+      ? `Estimated max outrigger load = ${fmtKg(effectiveBearingLoadKg)}`
+      : "Estimated max outrigger load requires crane and load details";
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
-    ? `Additional spreader reference only: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} additional mat/spreader area (${numbers.matCount} piece${numbers.matCount === 1 ? "" : "s"}) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 && numbers.matCount > 1 ? `. Single additional piece check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
-    : isStandardMatSize(numbers.matLengthM, numbers.matWidthM)
-      ? "Standard crane mats are already assumed in the AnnS 0.75 ground-loading figure. Leave additional mat/spreader dimensions blank unless extra mats such as 3m × 1m are used."
-      : "Standard crane mats are assumed. Optional: enter only additional mat/spreader dimensions, such as 3m × 1m, if used in addition to the standard mats.";
+    ? `${bearingFormulaBase}. ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
+    : bearingFormulaBase;
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -974,13 +977,13 @@ export default function RangeChartBuilder({
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
             <Metric label="Estimated max outrigger load" value={bearingLoadText} />
-            <Metric label="Additional spreader area" value={matAreaText} />
-            <Metric label="Single additional piece pressure" value={singleMatPressureText} />
+            {calc.matArea ? <Metric label="Additional spreader area" value={matAreaText} /> : null}
+            {calc.singleMatPressureKgM2 && numbers.matCount > 1 ? <Metric label="Single additional piece pressure" value={singleMatPressureText} /> : null}
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
-            <Metric label="Additional spreader pressure" value={matPressureText} />
+            {effectivePressureKgM2 ? <Metric label="Additional spreader pressure" value={matPressureText} /> : null}
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. AnnS estimated max outrigger load uses (crane planning/gross weight + total lifted load) × 0.75 with the crane standard mats assumed. Leave additional mat/spreader dimensions blank when only standard mats are used. Enter extra mats, such as 3m × 1m, only when they are used in addition. Final ground suitability and outrigger reactions must be verified before lifting.
+            Planning sketch only. Ground-loading formula used: {matPressureFormulaText}. Final ground suitability, support area and outrigger reactions must be verified before lifting.
           </div>
         </div>
       </div>
