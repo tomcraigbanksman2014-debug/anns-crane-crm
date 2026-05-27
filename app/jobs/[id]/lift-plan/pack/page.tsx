@@ -770,7 +770,6 @@ function rangeChartCalculated(sections: StringMap) {
   const matAreaM2 = singleMatAreaM2 ? singleMatAreaM2 * matCount : null;
   const bearingLoadKg = rangeKg(sections, "range_chart_bearing_load_kg") ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? bearingResult.bearingLoadKg;
   const calculatedBearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
-  const singleMatPressureKgM2 = bearingLoadKg && singleMatAreaM2 ? bearingLoadKg / singleMatAreaM2 : null;
   const bearingPressureKgM2 = calculatedBearingPressureKgM2;
   const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—";
   const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
@@ -1529,8 +1528,7 @@ export default async function CraneLiftPlanPackPage({
   const matAreaM2 = singleMatAreaM2 ? Number((singleMatAreaM2 * matCount).toFixed(3)) : null;
   const bearingLoadKg = rangeBearingLoadKg ?? parseWeightToKg(sections.ground_bearing_bearing_load) ?? estimatedGroundBearingKg;
   const bearingPressure = rangeGroundCalc?.bearingPressure && rangeGroundCalc.bearingPressure !== "—" ? rangeGroundCalc.bearingPressure : formatBearingPressure(bearingLoadKg, matAreaM2);
-  const singleMatPressure = bearingLoadKg && singleMatAreaM2 ? formatBearingPressure(bearingLoadKg, singleMatAreaM2) : "—";
-  const matSizeText = enteredMatSpread && matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount}` : "Mat/spreader dimensions not entered";
+  const matSizeText = enteredMatSpread && matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount} under worst-case loaded outrigger` : "Mat/spreader dimensions not entered";
   const primaryGroundLoadingFormula = rangeGroundCalc?.bearingPressureFormula || (bearingLoadKg && craneMaxWeightKg && loadMaxWeightKg
     ? `(${formatRangeKg(craneMaxWeightKg)} × 0.75) + ${formatRangeKg(loadMaxWeightKg)} = ${formatRangeKg(bearingLoadKg)}`
     : "Estimated max outrigger load requires crane and load details");
@@ -2096,11 +2094,10 @@ export default async function CraneLiftPlanPackPage({
               [inputField("ground_bearing_label_mat_size", "Mat / spreader dimensions"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
               [inputField("ground_bearing_label_bearing_load", "Max outrigger load used for AnnS ground-loading check"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
               ...(enteredMatSpread ? ([
-                [inputField("ground_bearing_label_mat_count", "Mats/spreader pieces under loaded outrigger"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
-                [inputField("ground_bearing_label_single_mat_area", "Single mat/spreader area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
-                [inputField("ground_bearing_label_mat_area", "Total mat/spreader bearing area"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
+                [inputField("ground_bearing_label_mat_count", "Mats/spreader pieces under worst-case loaded outrigger"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
+                [inputField("ground_bearing_label_single_mat_area", "Single support piece area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
+                [inputField("ground_bearing_label_mat_area", "Total support area under worst-case outrigger"), calculatedInputField("ground_bearing_mat_area_display", formatAreaM2(matAreaM2))],
                 [inputField("ground_bearing_label_pressure", "Mat/spreader pressure reference"), calculatedInputField("ground_bearing_pressure", bearingPressure)],
-                ...(matCount > 1 ? ([[inputField("ground_bearing_label_single_mat_pressure", "Single mat/spreader pressure"), calculatedInputField("ground_bearing_single_mat_pressure", singleMatPressure)]] as Array<[ReactNode, any]>) : []),
               ] as Array<[ReactNode, any]>) : []),
             ]}
           />
