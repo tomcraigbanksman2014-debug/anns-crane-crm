@@ -495,7 +495,7 @@ export default function RangeChartBuilder({
   const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
     ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} support area under the worst loaded outrigger (${numbers.matCount} mat/spreader piece${numbers.matCount === 1 ? "" : "s"} under that outrigger) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 && numbers.matCount > 1 ? `. Single piece check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
-    : "Enter mat length, width and mats/spreader pieces under the worst loaded outrigger to calculate bearing pressure.";
+    : "Enter mat length, width and any spreader pieces under the worst loaded outrigger to show pressure through the mat/spreader.";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -909,10 +909,10 @@ export default function RangeChartBuilder({
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
               <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
-              <Field label="Mats / spreader pieces under worst loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Do not enter 4 just because the crane has four outriggers. Enter 1 for one 600mm × 600mm mat under the loaded outrigger, or more only if mats/spreader pieces are layered/combined under that same outrigger." />
-              <ReadOnlyInfo label="Support area under worst loaded outrigger" value={matAreaText} helper="Area used for ground bearing = mat length × mat width × mats/spreader pieces under the worst loaded outrigger." />
-              <ReadOnlyInfo label="Bearing load / reaction" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
-              <ReadOnlyInfo label="Bearing pressure" value={matPressureText} helper={matPressureFormulaText} />
+              <Field label="Mats/spreader pieces under loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Normally enter 1 for one mat under the loaded outrigger. Only enter more if several mats/spreader pieces are actually layered or combined under that same loaded outrigger." />
+              <ReadOnlyInfo label="Mat/spreader area under loaded outrigger" value={matAreaText} helper="Area used for pressure = mat length × mat width × mats/spreader pieces under the loaded outrigger." />
+              <ReadOnlyInfo label="Estimated max outrigger load" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
+              <ReadOnlyInfo label="Pressure through mat/spreader" value={matPressureText} helper={matPressureFormulaText} />
             </div>
             <TextArea label="Verification note" value={chart.verificationNote} onChange={(value) => update("verificationNote", value)} rows={3} />
           </Section>
@@ -953,14 +953,14 @@ export default function RangeChartBuilder({
             <Metric label="Clearance" value={fmt(calc.clearance)} tone={calc.clearance < 0 ? "danger" : "normal"} />
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
-            <Metric label="Bearing load / reaction" value={bearingLoadText} />
-            <Metric label="Total mat area" value={matAreaText} />
-            <Metric label="Single mat check" value={singleMatPressureText} />
+            <Metric label="Estimated max outrigger load" value={bearingLoadText} />
+            <Metric label="Mat/spreader area" value={matAreaText} />
+            <Metric label="Single mat pressure check" value={singleMatPressureText} />
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
-            <Metric label="Bearing pressure" value={matPressureText} />
+            <Metric label="Pressure through mat/spreader" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Bearing pressure is calculated from the estimated worst loaded outrigger reaction divided by the support area under that outrigger. Do not average the reaction across all four outriggers unless an appointed person has an exact manufacturer reaction/distribution confirming it. Final ground capacity, mat/spreader arrangement and outrigger reaction must be verified before lifting.
+            Planning sketch only. Pressure through mat/spreader is calculated from the estimated worst loaded outrigger reaction divided by the support area under that outrigger. Do not average the reaction across all four outriggers unless an appointed person has an exact manufacturer reaction/distribution confirming it. Final ground capacity, mat/spreader arrangement and outrigger reaction must be verified before lifting.
           </div>
         </div>
       </div>
