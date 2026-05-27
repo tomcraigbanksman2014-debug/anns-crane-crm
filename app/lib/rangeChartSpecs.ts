@@ -254,7 +254,7 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
         jibLengthM: null,
         boomLengthM: 46,
         source: "AK 46/6000 spec: 6t at 8m, 4t at 11m, 2t at 17.7m, 1t at 26m, 500kg at 34.5m, 250kg at 39m",
-        setupAdvice: "AK46 preliminary check: use the normal crane-operation range/load table. Confirm single/two-fall operation, jib extension, payload mode and exact LMI before approval.",
+        setupAdvice: "AK46 preliminary check: use the published crane-operation range/load table for capacity at radius. The 5.3m / 8.1m / 11.0m hydraulic fly/extension selection is used for geometry and verification notes only; do not apply the 800kg extension marker as a hard cap where the crane-operation chart gives 1,000kg up to 26m. Confirm single/two-fall operation, exact boom/extension configuration and LMI before approval.",
       }),
     ],
     notes: "Uses the published AK 46/6000 range/load points as a conservative planning curve. Final duty must still be checked on the supplier/manufacturer chart.",
@@ -271,7 +271,10 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     planningWeightKg: 48000,
     planningWeightSource: "GMK4080-1 product guide: total weight 48 t with 9.3 t counterweight",
     estimatedBearingFactor: 0.75,
-    profileOptions: [profile("gmk4080-main-51", "Main boom up to 51 m", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom")],
+    profileOptions: [
+      profile("gmk4080-main-51-manual", "Main boom up to 51 m — select counterweight/chart manually", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom. Automatic capacity needs an exact counterweight/chart selection."),
+      profile("gmk4080-main-51-193t", "Main boom up to 51 m — 19.3 t counterweight chart", 51, 51, null, 54, "GMK4080-1 load chart: 51 m main boom, 19.3 t counterweight"),
+    ],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
       jib("gmk4080-swingaway-8-7", "8.7 m bi-fold swingaway", 8.7, 46, 63, "GMK4080-1 optional bi-fold swingaway 8.7 m"),
@@ -457,7 +460,63 @@ function boomCurveScore(curve: RangeChartCapacityCurve, boomLengthM?: number | n
   return Math.abs(diff) + 20;
 }
 
-function curveMatches({ curve, boomLengthM, jibLengthM, jibAngleDeg }: { curve: RangeChartCapacityCurve; boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null }) {
+function textHasCounterweightSelection(text: string, counterweightT: number | null | undefined) {
+  if (counterweightT === null || counterweightT === undefined) return true;
+  const value = Number(counterweightT);
+  if (!Number.isFinite(value)) return true;
+
+  // The all-terrain/truck-crane charts must not auto-fill from a stronger chart unless that chart has been
+  // deliberately selected. Match common labels such as "19.3 t counterweight", "8.5t", "0 t counterweight",
+  // or the profile/curve key itself.
+  const escaped = String(value).replace(".", "\\.");
+  const patterns = [
+    new RegExp(`\\b${escaped}\\s*t(?:onne|onnes)?\\b`, "i"),
+    new RegExp(`\\b${escaped}t\\b`, "i"),
+    new RegExp(`\\b${escaped}\\s*ton(?:ne|nes)?\\b`, "i"),
+  ];
+  if (value === 0) patterns.push(/\b0\s*t\s*counterweight\b/i, /\bwithout\s+counterweight\b/i);
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function textHasJekkoStabilitySelection(text: string, curve: RangeChartCapacityCurve) {
+  if (!/spx532|jekko|jib500gr|jib1000|main boom/i.test(`${curve.key} ${curve.label}`)) return true;
+  if (/j7/i.test(curve.key)) return /\bj7\b|full[-\s]?stability/i.test(text);
+  if (/j6/i.test(curve.key)) return /\bj6\b/i.test(text);
+  if (/j5/i.test(curve.key)) return /\bj5\b/i.test(text);
+  // The grabber chart is a specific attachment chart, so only auto-fill when the attachment was selected.
+  if (/jib500gr/i.test(curve.key)) return /jib500gr|grabber/i.test(text);
+  return true;
+}
+
+function selectedCurveAllowed(rule: RangeChartSpecRule, curve: RangeChartCapacityCurve, setupLabel?: string | null, sourceLabel?: string | null) {
+  const text = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
+  if ((rule.id === "gmk4080-1" || rule.id === "hk40") && !textHasCounterweightSelection(text, curve.counterweightT)) {
+    return false;
+  }
+  if (rule.id === "spx532" && !textHasJekkoStabilitySelection(text, curve)) {
+    return false;
+  }
+  return true;
+}
+
+function curveMatches({
+  rule,
+  curve,
+  boomLengthM,
+  jibLengthM,
+  jibAngleDeg,
+  setupLabel,
+  sourceLabel,
+}: {
+  rule: RangeChartSpecRule;
+  curve: RangeChartCapacityCurve;
+  boomLengthM?: number | null;
+  jibLengthM?: number | null;
+  jibAngleDeg?: number | null;
+  setupLabel?: string | null;
+  sourceLabel?: string | null;
+}) {
+  if (!selectedCurveAllowed(rule, curve, setupLabel, sourceLabel)) return false;
   if (!jibMatches(curve, jibLengthM, jibAngleDeg)) return false;
   if (curve.boomLengthM !== null && curve.boomLengthM !== undefined && boomLengthM !== null && boomLengthM !== undefined && Number.isFinite(boomLengthM)) {
     if (boomLengthM > curve.boomLengthM + 0.75) return false;
@@ -467,26 +526,15 @@ function curveMatches({ curve, boomLengthM, jibLengthM, jibAngleDeg }: { curve: 
   return true;
 }
 
-function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number }) {
+function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
   const curves = rule.capacityCurves ?? [];
   const matches = curves
-    .filter((item) => curveMatches({ curve: item, boomLengthM: args.boomLengthM, jibLengthM: args.jibLengthM, jibAngleDeg: args.jibAngleDeg }))
+    .filter((item) => curveMatches({ rule, curve: item, boomLengthM: args.boomLengthM, jibLengthM: args.jibLengthM, jibAngleDeg: args.jibAngleDeg, setupLabel: args.setupLabel, sourceLabel: args.sourceLabel }))
     .filter((item) => conservativeCapacityFromCurve(item.points, args.radiusM) !== null)
     .sort((a, b) => boomCurveScore(a, args.boomLengthM) - boomCurveScore(b, args.boomLengthM));
   return matches[0] ?? null;
 }
 
-
-function ak46JibPayloadCapKg(jibLengthM?: number | null, setupLabel?: string | null, sourceLabel?: string | null): number | null {
-  const text = `${setupLabel ?? ""} ${sourceLabel ?? ""}`.toLowerCase();
-  const length = Number.isFinite(jibLengthM ?? NaN) ? Math.max(0, Number(jibLengthM)) : 0;
-  const mentionsJib = /jib|fly|extension|hydraulic/.test(text) || length > 0.25;
-  if (!mentionsJib) return null;
-  if (length >= 10.25 || /\b11(?:\.0)?\s*m/.test(text)) return 800;
-  if (length >= 7.5 || /\b8(?:\.1|\.14)?\s*m/.test(text)) return 1500;
-  if (length >= 4.5 || /\b5(?:\.3|\.28)?\s*m/.test(text)) return 3000;
-  return null;
-}
 
 function applyPayloadCap(
   rule: RangeChartSpecRule,
@@ -496,29 +544,53 @@ function applyPayloadCap(
   setupAdvice: string | undefined,
   args: { setupLabel?: string | null; sourceLabel?: string | null; jibLengthM?: number | null; totalLiftedWeightKg?: number | null },
 ): { capacityKg: number | null; source: string; warning?: string; setupAdvice?: string } {
-  if (rule.id !== "ak46-6000" || capacityKg === null) return { capacityKg, source, warning, setupAdvice };
-  const cap = ak46JibPayloadCapKg(args.jibLengthM, args.setupLabel, args.sourceLabel);
-  if (!cap) return { capacityKg, source, warning, setupAdvice };
-  const cappedCapacity = Math.min(capacityKg, cap);
-  const capSource = `${source}. AK46 selected jib payload cap applied: ${cap.toLocaleString("en-GB")} kg`;
-  const capAdvice = `${setupAdvice || ""} AK46 jib payload must also be checked: selected jib is capped at approximately ${cap.toLocaleString("en-GB")} kg before hook block/accessories.`.trim();
-  const capWarning = args.totalLiftedWeightKg && args.totalLiftedWeightKg > cappedCapacity
-    ? `${rule.title} selected setup is over the structured chart/jib payload capacity at this radius. ${capAdvice}`
-    : warning;
-  return { capacityKg: cappedCapacity, source: capSource, warning: capWarning, setupAdvice: capAdvice };
+  // Important AK46 correction:
+  // The Böcker AK46/6000 spec gives crane-operation capacity by radius:
+  // 6t @ 8m, 4t @ 11m, 2t @ 17.7m, 1t @ 26m, 500kg @ 34.5m, 250kg @ 38-39m.
+  // The 5.3m / 8.1m / 11.0m hydraulic fly/extension labels must NOT be treated as a
+  // hard global 3000kg / 1500kg / 800kg cap at every radius. Doing that incorrectly
+  // makes the real 1,000kg-at-26m crane-operation point fail as 800kg/overloaded.
+  // Keep the extension selection for geometry/verification notes, but let the
+  // structured crane-operation radius table decide the automatic planning capacity.
+  void rule;
+  void args;
+  return { capacityKg, source, warning, setupAdvice };
 }
 
-function viableSetupAdvice(rule: RangeChartSpecRule, radiusM: number, totalLiftedWeightKg: number | null | undefined, selectedCurve?: RangeChartCapacityCurve | null) {
+function viableSetupAdvice(
+  rule: RangeChartSpecRule,
+  radiusM: number,
+  totalLiftedWeightKg: number | null | undefined,
+  selectedCurve?: RangeChartCapacityCurve | null,
+  setupLabel?: string | null,
+  sourceLabel?: string | null,
+  boomLengthM?: number | null,
+  jibLengthM?: number | null,
+  jibAngleDeg?: number | null,
+) {
   if (!totalLiftedWeightKg || !(rule.capacityCurves?.length)) return "";
+  const selectorText = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
+
+  if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
+    return "Select the exact GMK4080-1 counterweight/load-chart setup before the CRM auto-fills capacity. The uploaded structured curve is for the 19.3 t counterweight chart and must not be used silently.";
+  }
+  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
+    return "Select the exact HK40 counterweight chart before the CRM auto-fills capacity. HK40 capacity changes by counterweight.";
+  }
+  if (rule.id === "spx532" && !/\bj[567]\b|full[-\s]?stability|jib500gr|grabber/i.test(selectorText)) {
+    return "Select the exact Jekko SPX532 J-rating/stability or attachment chart before the CRM auto-fills capacity. SPX532 capacity depends on outrigger/stability setup.";
+  }
+
   const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
   if (selectedCurve && selectedCapacity !== null && selectedCapacity >= totalLiftedWeightKg) {
     return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
   }
   const viable = rule.capacityCurves
+    .filter((item) => curveMatches({ rule, curve: item, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel }))
     .map((item) => ({ curve: item, capacityKg: conservativeCapacityFromCurve(item.points, radiusM) }))
     .filter((item) => item.capacityKg !== null && item.capacityKg >= totalLiftedWeightKg)
     .sort((a, b) => (a.capacityKg ?? 0) - (b.capacityKg ?? 0));
-  if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m. Reduce radius, reduce load, select a different duty/counterweight table, or choose another crane.`;
+  if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
   const first = viable[0];
   return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
 }
@@ -552,10 +624,10 @@ export function calculateRangeChartCapacity({
     };
   }
 
-  const selectedCurve = bestMatchingCapacityCurve(rule, { radiusM, boomLengthM, jibLengthM, jibAngleDeg });
+  const selectedCurve = bestMatchingCapacityCurve(rule, { radiusM, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel });
   if (selectedCurve) {
     const capacityKg = conservativeCapacityFromCurve(selectedCurve.points, radiusM);
-    const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve) || selectedCurve.setupAdvice;
+    const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg) || selectedCurve.setupAdvice;
     return {
       ...(() => {
         const capped = applyPayloadCap(
@@ -583,7 +655,7 @@ export function calculateRangeChartCapacity({
   if (capacityKg !== null) {
     return {
       ...(() => {
-        const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg);
+        const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg);
         const capped = applyPayloadCap(
           rule,
           capacityKg,
@@ -610,7 +682,7 @@ export function calculateRangeChartCapacity({
     method: "manual",
     source: rule.capacitySource || `${rule.title} load chart`,
     warning: `${rule.title} has geometry limits loaded, but this exact boom/jib/counterweight/outrigger setup is not covered by a structured CRM curve. Check the exact manufacturer/supplier chart before approval.`,
-    setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg),
+    setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
   };
 }
 
