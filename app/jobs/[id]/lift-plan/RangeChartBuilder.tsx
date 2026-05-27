@@ -244,7 +244,10 @@ function defaultRangeState({
     chartCapacityKg: numberForInput(sections.range_chart_chart_capacity_kg, ""),
     matLengthM: numberForInput(sections.range_chart_mat_length_m, numberForInput(sections.ground_bearing_mat_length_m, "")),
     matWidthM: numberForInput(sections.range_chart_mat_width_m, numberForInput(sections.ground_bearing_mat_width_m, "")),
-    matCount: numberForInput(sections.range_chart_mat_count, numberForInput(sections.ground_bearing_outrigger_count, "4")),
+    matCount: numberForInput(
+      sections.range_chart_mats_under_loaded_outrigger,
+      numberForInput(sections.ground_bearing_mats_under_loaded_outrigger, "1")
+    ),
     bearingLoadKg: numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
     verificationNote: firstText(
       sections.range_chart_verification_note,
@@ -275,7 +278,7 @@ function chartNumbers(chart: RangeChartState): ChartNumbers {
     chartCapacityKg: numberOrNull(chart.chartCapacityKg),
     matLengthM: numberOrNull(chart.matLengthM),
     matWidthM: numberOrNull(chart.matWidthM),
-    matCount: Math.max(1, Math.round(numberOrNull(chart.matCount) ?? 4)),
+    matCount: Math.max(1, Math.round(numberOrNull(chart.matCount) ?? 1)),
     bearingLoadKg: numberOrNull(chart.bearingLoadKg),
   };
 }
@@ -491,8 +494,8 @@ export default function RangeChartBuilder({
   const singleMatAreaText = fmtArea(calc.singleMatArea);
   const singleMatPressureText = fmtPressure(calc.singleMatPressureKgM2);
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
-    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} total mat area (${numbers.matCount} mat/outrigger${numbers.matCount === 1 ? "" : "s"}) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 ? `. Worst single-mat check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
-    : "Enter mat length, width and number of supporting outriggers/mats to calculate bearing pressure.";
+    ? `${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} support area under the worst loaded outrigger (${numbers.matCount} mat/spreader piece${numbers.matCount === 1 ? "" : "s"} under that outrigger) = ${fmtPressure(effectivePressureKgM2)}${calc.singleMatPressureKgM2 && numbers.matCount > 1 ? `. Single piece check: ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.singleMatArea)} = ${fmtPressure(calc.singleMatPressureKgM2)}` : ""}`
+    : "Enter mat length, width and mats/spreader pieces under the worst loaded outrigger to calculate bearing pressure.";
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -713,6 +716,7 @@ export default function RangeChartBuilder({
       range_chart_mat_length_m: chart.matLengthM,
       range_chart_mat_width_m: chart.matWidthM,
       range_chart_mat_count: chart.matCount,
+      range_chart_mats_under_loaded_outrigger: chart.matCount,
       range_chart_single_mat_area_m2: calc.singleMatArea ? String(round(calc.singleMatArea, 3)) : "",
       range_chart_mat_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
       range_chart_mat_total_area_m2: calc.matArea ? String(round(calc.matArea, 3)) : "",
@@ -905,8 +909,8 @@ export default function RangeChartBuilder({
               <ReadOnlyInfo label="Chart capacity at radius" value={chartCapacityText} helper={formatComputedSource(capacityResult.method, capacityResult.source)} />
               <Field label="Mat length (m)" type="number" value={chart.matLengthM} onChange={(value) => update("matLengthM", value)} />
               <Field label="Mat width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} />
-              <Field label="Number of outriggers / mats" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="For a mobile crane on four 600mm × 600mm mats, enter length 0.6, width 0.6 and count 4." />
-              <ReadOnlyInfo label="Total mat bearing area" value={matAreaText} helper="Total area = mat length × mat width × number of supporting mats/outriggers. Single mat area shown in the formula/check below." />
+              <Field label="Mats / spreader pieces under worst loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="Do not enter 4 just because the crane has four outriggers. Enter 1 for one 600mm × 600mm mat under the loaded outrigger, or more only if mats/spreader pieces are layered/combined under that same outrigger." />
+              <ReadOnlyInfo label="Support area under worst loaded outrigger" value={matAreaText} helper="Area used for ground bearing = mat length × mat width × mats/spreader pieces under the worst loaded outrigger." />
               <ReadOnlyInfo label="Bearing load / reaction" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
               <ReadOnlyInfo label="Bearing pressure" value={matPressureText} helper={matPressureFormulaText} />
             </div>
@@ -956,7 +960,7 @@ export default function RangeChartBuilder({
             <Metric label="Bearing pressure" value={matPressureText} />
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Bearing pressure is calculated using the selected total mat/support area. The worst single-outrigger reaction and actual ground capacity must still be checked by the appointed person against the crane chart, outrigger setup, mat arrangement and ground conditions before lifting.
+            Planning sketch only. Bearing pressure is calculated from the estimated worst loaded outrigger reaction divided by the support area under that outrigger. Do not average the reaction across all four outriggers unless an appointed person has an exact manufacturer reaction/distribution confirming it. Final ground capacity, mat/spreader arrangement and outrigger reaction must be verified before lifting.
           </div>
         </div>
       </div>
