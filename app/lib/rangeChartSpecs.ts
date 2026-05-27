@@ -476,6 +476,38 @@ function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM
   return matches[0] ?? null;
 }
 
+
+function ak46JibPayloadCapKg(jibLengthM?: number | null, setupLabel?: string | null, sourceLabel?: string | null): number | null {
+  const text = `${setupLabel ?? ""} ${sourceLabel ?? ""}`.toLowerCase();
+  const length = Number.isFinite(jibLengthM ?? NaN) ? Math.max(0, Number(jibLengthM)) : 0;
+  const mentionsJib = /jib|fly|extension|hydraulic/.test(text) || length > 0.25;
+  if (!mentionsJib) return null;
+  if (length >= 10.25 || /\b11(?:\.0)?\s*m/.test(text)) return 800;
+  if (length >= 7.5 || /\b8(?:\.1|\.14)?\s*m/.test(text)) return 1500;
+  if (length >= 4.5 || /\b5(?:\.3|\.28)?\s*m/.test(text)) return 3000;
+  return null;
+}
+
+function applyPayloadCap(
+  rule: RangeChartSpecRule,
+  capacityKg: number | null,
+  source: string,
+  warning: string | undefined,
+  setupAdvice: string | undefined,
+  args: { setupLabel?: string | null; sourceLabel?: string | null; jibLengthM?: number | null; totalLiftedWeightKg?: number | null },
+): { capacityKg: number | null; source: string; warning?: string; setupAdvice?: string } {
+  if (rule.id !== "ak46-6000" || capacityKg === null) return { capacityKg, source, warning, setupAdvice };
+  const cap = ak46JibPayloadCapKg(args.jibLengthM, args.setupLabel, args.sourceLabel);
+  if (!cap) return { capacityKg, source, warning, setupAdvice };
+  const cappedCapacity = Math.min(capacityKg, cap);
+  const capSource = `${source}. AK46 selected jib payload cap applied: ${cap.toLocaleString("en-GB")} kg`;
+  const capAdvice = `${setupAdvice || ""} AK46 jib payload must also be checked: selected jib is capped at approximately ${cap.toLocaleString("en-GB")} kg before hook block/accessories.`.trim();
+  const capWarning = args.totalLiftedWeightKg && args.totalLiftedWeightKg > cappedCapacity
+    ? `${rule.title} selected setup is over the structured chart/jib payload capacity at this radius. ${capAdvice}`
+    : warning;
+  return { capacityKg: cappedCapacity, source: capSource, warning: capWarning, setupAdvice: capAdvice };
+}
+
 function viableSetupAdvice(rule: RangeChartSpecRule, radiusM: number, totalLiftedWeightKg: number | null | undefined, selectedCurve?: RangeChartCapacityCurve | null) {
   if (!totalLiftedWeightKg || !(rule.capacityCurves?.length)) return "";
   const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
@@ -525,26 +557,51 @@ export function calculateRangeChartCapacity({
     const capacityKg = conservativeCapacityFromCurve(selectedCurve.points, radiusM);
     const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve) || selectedCurve.setupAdvice;
     return {
-      capacityKg,
-      method: "automatic",
-      source: selectedCurve.source,
-      setupAdvice: advice,
-      warning: capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
-        ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
-        : undefined,
+      ...(() => {
+        const capped = applyPayloadCap(
+          rule,
+          capacityKg,
+          selectedCurve.source,
+          capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
+            ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
+            : undefined,
+          advice,
+          { setupLabel, sourceLabel, jibLengthM, totalLiftedWeightKg }
+        );
+        return {
+          capacityKg: capped.capacityKg,
+          method: "automatic" as const,
+          source: capped.source,
+          setupAdvice: capped.setupAdvice,
+          warning: capped.warning,
+        };
+      })(),
     };
   }
 
   const capacityKg = conservativeCapacityFromCurve(rule.capacityPoints, radiusM);
   if (capacityKg !== null) {
     return {
-      capacityKg,
-      method: "automatic",
-      source: rule.capacitySource || `${rule.title} structured capacity rule`,
-      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg),
-      warning: capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
-        ? `${rule.title} selected setup is over the structured chart capacity at this radius.`
-        : undefined,
+      ...(() => {
+        const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg);
+        const capped = applyPayloadCap(
+          rule,
+          capacityKg,
+          rule.capacitySource || `${rule.title} structured capacity rule`,
+          capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
+            ? `${rule.title} selected setup is over the structured chart capacity at this radius.`
+            : undefined,
+          advice,
+          { setupLabel, sourceLabel, jibLengthM, totalLiftedWeightKg }
+        );
+        return {
+          capacityKg: capped.capacityKg,
+          method: "automatic" as const,
+          source: capped.source,
+          setupAdvice: capped.setupAdvice,
+          warning: capped.warning,
+        };
+      })(),
     };
   }
 
