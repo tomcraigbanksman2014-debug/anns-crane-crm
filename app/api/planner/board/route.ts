@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
 import { getAssetAvailabilityForRange } from "../../../lib/assetAvailability";
+import { getCraneLolerInspectionItemsForRange } from "../../../lib/craneLolerInspections";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
@@ -328,6 +329,7 @@ export async function GET(req: Request) {
       jobSupplierLinksRes,
       visitInvoicesRes,
       assetAvailability,
+      lolerInspectionItems,
     ] = await Promise.all([
       supabase
         .from("jobs")
@@ -515,6 +517,7 @@ export async function GET(req: Request) {
         .lte("visit_date", weekEnd),
 
       getAssetAvailabilityForRange(supabase, "crane", weekStart, weekEnd),
+      getCraneLolerInspectionItemsForRange(supabase, weekStart, weekEnd),
     ]);
 
     if (jobsRes.error) {
@@ -564,6 +567,15 @@ export async function GET(req: Request) {
       const list = craneAvailabilityByAssetId.get(assetId) ?? [];
       list.push(entry);
       craneAvailabilityByAssetId.set(assetId, list);
+    }
+
+    const craneLolerByAssetId = new Map<string, any[]>();
+    for (const entry of lolerInspectionItems ?? []) {
+      const assetId = String((entry as any).crane_id ?? "").trim();
+      if (!assetId) continue;
+      const list = craneLolerByAssetId.get(assetId) ?? [];
+      list.push(entry);
+      craneLolerByAssetId.set(assetId, list);
     }
 
     const craneById = new Map(cranes.map((row: any) => [String(row.id), row]));
@@ -1242,6 +1254,7 @@ export async function GET(req: Request) {
       equipment: cranes.map((crane: any) => ({
         ...crane,
         availability: craneAvailabilityByAssetId.get(String(crane.id)) ?? [],
+        loler_inspections: craneLolerByAssetId.get(String(crane.id)) ?? [],
       })),
     });
   } catch (e: any) {
