@@ -262,6 +262,7 @@ export default function ClientShell({
       { label: "Suppliers", href: "/suppliers" },
 
       { label: "Cranes", href: "/cranes" },
+      { label: "LOLER Inspections", href: "/cranes/loler-inspections" },
       { label: "Vehicles", href: "/vehicles" },
       { label: "Equipment", href: "/equipment" },
       { label: "Asset Locations", href: "/equipment/locations" },
