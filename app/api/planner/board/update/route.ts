@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
 import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
 import { assertAssetAvailable } from "../../../../lib/assetAvailability";
+import { assertCraneNotBlockedByLoler } from "../../../../lib/craneLolerInspections";
 
 function clean(value: unknown) {
   const s = String(value ?? "").trim();
@@ -222,6 +223,12 @@ export async function POST(req: Request) {
       await assertAssetAvailable(supabase, {
         assetType: "crane",
         assetId: craneId,
+        startDate: effectiveAssignmentStart,
+        endDate: effectiveAssignmentEnd,
+      });
+
+      await assertCraneNotBlockedByLoler(supabase, {
+        craneId,
         startDate: effectiveAssignmentStart,
         endDate: effectiveAssignmentEnd,
       });
