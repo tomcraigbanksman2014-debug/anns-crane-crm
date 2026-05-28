@@ -45,7 +45,7 @@ export default async function LolerInspectionsPage() {
       .from("crane_loler_inspection_items")
       .select("id, run_id, crane_id, planned_date, status, blocks_assignment, notes, certificate_reference, next_loler_due_on, completed_at, completed_by, created_at, updated_at")
       .in("run_id", runIds)
-      .order("planned_date", { ascending: true });
+      .order("created_at", { ascending: true });
 
     if (itemError) {
       if (isMissingLolerTable(itemError)) {
