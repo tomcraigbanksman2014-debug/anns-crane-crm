@@ -28,12 +28,23 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       payload.planned_date = plannedDate;
     }
 
+    if ("completed_date" in body || "completed_at" in body) {
+      const completedDate = clean(body.completed_date ?? body.completed_at);
+      if (!isIsoDate(completedDate)) return NextResponse.json({ error: "Completed date is invalid." }, { status: 400 });
+      payload.completed_at = completedDate ? `${completedDate}T00:00:00.000Z` : null;
+      payload.completed_by = completedDate ? user?.email ?? null : null;
+    }
+
     if ("status" in body) {
       const status = normaliseLolerStatus(body.status);
       payload.status = status;
-      if ((status === "passed" || status === "failed") && !body.completed_at) {
+      if ((status === "passed" || status === "failed") && !payload.completed_at) {
         payload.completed_at = new Date().toISOString();
         payload.completed_by = user?.email ?? null;
+      }
+      if (status !== "passed" && status !== "failed" && !("completed_date" in body) && !("completed_at" in body)) {
+        payload.completed_at = null;
+        payload.completed_by = null;
       }
     }
 
