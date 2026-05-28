@@ -51,7 +51,7 @@ export async function GET() {
         .from("crane_loler_inspection_items")
         .select("id, run_id, crane_id, planned_date, status, blocks_assignment, notes, certificate_reference, next_loler_due_on, completed_at, completed_by, created_at, updated_at")
         .in("run_id", runIds)
-        .order("planned_date", { ascending: true });
+        .order("created_at", { ascending: true });
 
       if (itemsError) {
         if (isMissingLolerTable(itemsError)) {
@@ -118,7 +118,7 @@ export async function POST(req: Request) {
       const rows = craneIds.map((craneId: string) => ({
         run_id: run.id,
         crane_id: craneId,
-        planned_date: startDate,
+        planned_date: null,
         status: normaliseLolerStatus("planned"),
         blocks_assignment: false,
       }));
