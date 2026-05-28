@@ -70,6 +70,11 @@ function fmtDate(value: string | null | undefined) {
   return d.toLocaleDateString("en-GB");
 }
 
+function dateInputValue(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : "";
+}
+
 function statusLabel(value: string | null | undefined) {
   return STATUS_OPTIONS.find((item) => item.value === value)?.label ?? "Pending";
 }
@@ -190,6 +195,22 @@ export default function LolerInspectionManager({
     }
   }
 
+  function updateItemStatus(item: LolerItem, status: string) {
+    const patch: Partial<LolerItem> & { completed_date?: string } = { status };
+    if ((status === "passed" || status === "failed") && !dateInputValue(item.completed_at)) {
+      patch.completed_date = todayIso();
+    }
+    updateItem(item.id, patch);
+  }
+
+  function updateItemCompletedDate(item: LolerItem, completedDate: string) {
+    const patch: Partial<LolerItem> & { completed_date?: string } = { completed_date: completedDate };
+    if (completedDate && item.status !== "passed" && item.status !== "failed") {
+      patch.status = "passed";
+    }
+    updateItem(item.id, patch);
+  }
+
   async function archiveRun(runId: string) {
     if (!window.confirm("Archive this LOLER inspection run?")) return;
     setSaving(true);
@@ -229,7 +250,7 @@ export default function LolerInspectionManager({
       </div>
 
       <div style={noticeBox}>
-        Planner behaviour: LOLER entries show as planner badges. They do <strong>not</strong> block crane assignment unless <strong>Block assignment while inspected</strong> is ticked for that crane.
+        Planner behaviour: selected cranes show LOLER badges on every day in the inspection run window. They do <strong>not</strong> block crane assignment unless <strong>Block assignment while inspected</strong> is ticked for that crane. The per-crane date below is the completed date.
       </div>
 
       {setupRequired ? <div style={warnBox}>Run the LOLER SQL first, then refresh this page.</div> : null}
@@ -356,7 +377,8 @@ export default function LolerInspectionManager({
                       <div>
                         <div style={{ fontWeight: 1000 }}>{craneLabel(crane)}</div>
                         <div style={{ marginTop: 2, fontSize: 12, opacity: 0.72 }}>
-                          Planned: {fmtDate(item.planned_date)}
+                          Inspection window: {fmtDate(selectedRun?.start_date)} to {fmtDate(selectedRun?.end_date)}<br />
+                          Completed: {fmtDate(item.completed_at)}
                         </div>
                       </div>
                       <span style={status === "passed" ? goodPill : status === "failed" ? dangerPill : status === "in_progress" ? warnPill : neutralPill}>
@@ -366,11 +388,11 @@ export default function LolerInspectionManager({
 
                     <div style={itemFormGrid}>
                       <label style={fieldLabel}>
-                        Planned date
+                        Completed date
                         <input
                           type="date"
-                          value={item.planned_date ?? ""}
-                          onChange={(e) => updateItem(item.id, { planned_date: e.target.value })}
+                          value={dateInputValue(item.completed_at)}
+                          onChange={(e) => updateItemCompletedDate(item, e.target.value)}
                           style={inputStyle}
                           disabled={saving}
                         />
@@ -379,7 +401,7 @@ export default function LolerInspectionManager({
                         Status
                         <select
                           value={status}
-                          onChange={(e) => updateItem(item.id, { status: e.target.value })}
+                          onChange={(e) => updateItemStatus(item, e.target.value)}
                           style={inputStyle}
                           disabled={saving}
                         >
@@ -428,8 +450,8 @@ export default function LolerInspectionManager({
                     </label>
 
                     {status !== "passed" ? (
-                      <button type="button" onClick={() => updateItem(item.id, { status: "passed" })} style={primaryBtn} disabled={saving}>
-                        Mark passed / done
+                      <button type="button" onClick={() => updateItemStatus(item, "passed")} style={primaryBtn} disabled={saving}>
+                        Mark passed / done today
                       </button>
                     ) : null}
                   </div>
