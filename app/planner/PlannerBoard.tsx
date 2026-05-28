@@ -77,11 +77,29 @@ type AssetAvailabilityEntry = {
   blocks_assignment?: boolean | null;
 };
 
+type CraneLolerInspectionEntry = {
+  id: string;
+  run_id?: string | null;
+  crane_id?: string | null;
+  title?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  planned_date?: string | null;
+  status?: string | null;
+  blocks_assignment?: boolean | null;
+  notes?: string | null;
+  inspector_company?: string | null;
+  inspector_name?: string | null;
+  certificate_reference?: string | null;
+  next_loler_due_on?: string | null;
+};
+
 type PlannerEquipment = {
   id: string;
   name?: string | null;
   asset_number?: string | null;
   availability?: AssetAvailabilityEntry[];
+  loler_inspections?: CraneLolerInspectionEntry[];
 };
 
 type PlannerResponse = {
@@ -215,6 +233,38 @@ function availabilityEntriesForDay(equipment: PlannerEquipment, dayIso: string) 
 
 function availabilityBlocksAssignment(entries: AssetAvailabilityEntry[]) {
   return entries.some((entry) => entry.blocks_assignment !== false);
+}
+
+function lolerStatusLabel(value: string | null | undefined) {
+  const raw = String(value ?? "pending").trim().toLowerCase();
+  if (raw === "planned") return "LOLER planned";
+  if (raw === "in_progress") return "LOLER in progress";
+  if (raw === "passed") return "LOLER passed";
+  if (raw === "failed") return "LOLER failed";
+  if (raw === "deferred") return "LOLER deferred";
+  return "LOLER pending";
+}
+
+function lolerMatchesDay(entry: CraneLolerInspectionEntry, dayIso: string) {
+  const planned = String(entry.planned_date ?? "").trim();
+  if (planned) return planned === dayIso;
+
+  const start = String(entry.start_date ?? "").trim();
+  const end = String(entry.end_date ?? entry.start_date ?? "").trim();
+  if (!start || !end) return false;
+  return start <= dayIso && end >= dayIso;
+}
+
+function lolerEntriesForDay(equipment: PlannerEquipment, dayIso: string) {
+  return (equipment.loler_inspections ?? []).filter((entry) => lolerMatchesDay(entry, dayIso));
+}
+
+function lolerBlocksAssignment(entries: CraneLolerInspectionEntry[]) {
+  return entries.some((entry) => {
+    const status = String(entry.status ?? "pending").trim().toLowerCase();
+    if (status === "passed" || status === "deferred") return false;
+    return entry.blocks_assignment === true;
+  });
 }
 
 function getClientName(item: PlannerItem) {
@@ -1221,6 +1271,22 @@ export default function PlannerBoard() {
     );
   }
 
+  function lolerSummaryForDay(dayIso: string) {
+    const entries = (data?.equipment ?? []).reduce<CraneLolerInspectionEntry[]>((acc, equipment) => {
+      return [...acc, ...lolerEntriesForDay(equipment, dayIso)];
+    }, []);
+    if (!entries.length) return null;
+
+    const done = entries.filter((entry) => String(entry.status ?? "").toLowerCase() === "passed").length;
+    const blocking = entries.filter((entry) => entry.blocks_assignment === true).length;
+
+    return (
+      <div style={lolerHeaderSummary}>
+        LOLER {done}/{entries.length} done{blocking ? ` • ${blocking} blocking` : ""}
+      </div>
+    );
+  }
+
   function renderAssetAvailability(entries: AssetAvailabilityEntry[]) {
     if (!entries.length) return null;
 
@@ -1246,15 +1312,48 @@ export default function PlannerBoard() {
     );
   }
 
+  function renderLolerInspections(entries: CraneLolerInspectionEntry[]) {
+    if (!entries.length) return null;
+
+    return (
+      <div style={lolerWrap}>
+        {entries.map((entry) => {
+          const status = String(entry.status ?? "pending").trim().toLowerCase();
+          const blocks = status !== "passed" && status !== "deferred" && entry.blocks_assignment === true;
+          const inspector = [entry.inspector_company, entry.inspector_name].filter(Boolean).join(" / ");
+
+          return (
+            <a
+              key={entry.id}
+              href="/cranes/loler-inspections"
+              style={blocks ? lolerBlockingBadge : status === "passed" ? lolerDoneBadge : lolerSoftBadge}
+              title={entry.notes ?? undefined}
+            >
+              <div style={{ fontWeight: 1000 }}>{lolerStatusLabel(status)}</div>
+              <div style={{ marginTop: 2, fontSize: 11 }}>
+                {entry.title || "LOLER inspection"}{blocks ? " • Blocking" : ""}
+              </div>
+              {inspector ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{inspector}</div> : null}
+              {entry.notes ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{entry.notes}</div> : null}
+            </a>
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderDropCell(
     items: PlannerItem[],
     target: DropTarget,
     highlight = false,
     showEmptyCrossHire = false,
     crossHireSection = false,
-    availabilityEntries: AssetAvailabilityEntry[] = []
+    availabilityEntries: AssetAvailabilityEntry[] = [],
+    lolerEntries: CraneLolerInspectionEntry[] = []
   ) {
     const blockedByAvailability = availabilityBlocksAssignment(availabilityEntries);
+    const blockedByLoler = lolerBlocksAssignment(lolerEntries);
+    const blockedByAssignmentRule = blockedByAvailability || blockedByLoler;
 
     return (
       <div
@@ -1263,16 +1362,17 @@ export default function PlannerBoard() {
           ...(crossHireSection ? crossHireDayCell : null),
           ...(highlight ? holidayCell : null),
           ...(availabilityEntries.length ? (blockedByAvailability ? assetUnavailableCell : assetSoftUnavailableCell) : null),
-          ...(draggingId && !blockedByAvailability ? dropReadyCell : null),
+          ...(lolerEntries.length ? (blockedByLoler ? assetUnavailableCell : lolerSoftCell) : null),
+          ...(draggingId && !blockedByAssignmentRule ? dropReadyCell : null),
         }}
-        title={blockedByAvailability ? "This crane has downtime booked. Remove or unblock the downtime before assigning new work." : undefined}
+        title={blockedByAssignmentRule ? "This crane has downtime or a blocking LOLER inspection. Remove/unblock it before assigning new work." : undefined}
         onDragOver={(e) => {
-          if (blockedByAvailability) return;
+          if (blockedByAssignmentRule) return;
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }}
         onDrop={(e) => {
-          if (blockedByAvailability) return;
+          if (blockedByAssignmentRule) return;
           e.preventDefault();
           const item = (data?.items ?? []).find((row) => row.id === draggingId);
           if (item) {
@@ -1281,6 +1381,7 @@ export default function PlannerBoard() {
         }}
       >
         {renderAssetAvailability(availabilityEntries)}
+        {renderLolerInspections(lolerEntries)}
         {items.length > 0 ? (
           sortItemsByStartTime(items).map((item) => renderCard(item, true, target.dayIso))
         ) : showEmptyCrossHire ? (
@@ -1353,6 +1454,7 @@ export default function PlannerBoard() {
               <div style={{ marginTop: 2, fontSize: 12, opacity: 0.75 }}>
                 {activeDay.is_bank_holiday ? activeDay.bank_holiday_label ?? "Bank holiday" : activeDay.date}
               </div>
+              {lolerSummaryForDay(activeDay.date)}
             </div>
             <button
               type="button"
@@ -1485,6 +1587,7 @@ export default function PlannerBoard() {
                         {day.bank_holiday_label ?? "Bank holiday"}
                       </div>
                     ) : null}
+                    {lolerSummaryForDay(day.date)}
                   </div>
                 ))}
 
@@ -1600,23 +1703,27 @@ export default function PlannerBoard() {
 
                       {(() => {
                         const dayAvailability = availabilityEntriesForDay(equipment, activeDay.date);
+                        const dayLoler = lolerEntriesForDay(equipment, activeDay.date);
                         const blockedByAvailability = availabilityBlocksAssignment(dayAvailability);
+                        const blockedByLoler = lolerBlocksAssignment(dayLoler);
+                        const blockedByAssignmentRule = blockedByAvailability || blockedByLoler;
                         return (
                           <div
                             style={{
                               ...mobileDayCell,
                               ...(activeDay.is_bank_holiday ? holidayCell : null),
                               ...(dayAvailability.length ? (blockedByAvailability ? assetUnavailableCell : assetSoftUnavailableCell) : null),
-                              ...(draggingId && !blockedByAvailability ? dropReadyCell : null),
+                              ...(dayLoler.length ? (blockedByLoler ? assetUnavailableCell : lolerSoftCell) : null),
+                              ...(draggingId && !blockedByAssignmentRule ? dropReadyCell : null),
                             }}
-                            title={blockedByAvailability ? "This crane has downtime booked. Remove or unblock the downtime before assigning new work." : undefined}
+                            title={blockedByAssignmentRule ? "This crane has downtime or a blocking LOLER inspection. Remove/unblock it before assigning new work." : undefined}
                             onDragOver={(e) => {
-                              if (blockedByAvailability) return;
+                              if (blockedByAssignmentRule) return;
                               e.preventDefault();
                               e.dataTransfer.dropEffect = "move";
                             }}
                             onDrop={(e) => {
-                              if (blockedByAvailability) return;
+                              if (blockedByAssignmentRule) return;
                               e.preventDefault();
                               const item = (data?.items ?? []).find((row) => row.id === draggingId);
                               if (item) {
@@ -1629,6 +1736,7 @@ export default function PlannerBoard() {
                             }}
                           >
                             {renderAssetAvailability(dayAvailability)}
+                            {renderLolerInspections(dayLoler)}
                             {dayItems.length > 0 ? (
                               dayItems.map((item) => renderCard(item, false, activeDay.date))
                             ) : dayAvailability.length ? (
@@ -1661,6 +1769,7 @@ export default function PlannerBoard() {
                         {day.bank_holiday_label ?? "Bank holiday"}
                       </div>
                     ) : null}
+                    {lolerSummaryForDay(day.date)}
                   </div>
                 ))}
 
@@ -1684,7 +1793,8 @@ export default function PlannerBoard() {
                         Boolean(day.is_bank_holiday),
                         false,
                         false,
-                        availabilityEntriesForDay(equipment, day.date)
+                        availabilityEntriesForDay(equipment, day.date),
+                        lolerEntriesForDay(equipment, day.date)
                       )
                     )}
                   />
@@ -1873,6 +1983,11 @@ const assetSoftUnavailableCell: React.CSSProperties = {
   border: "1px solid rgba(255,170,0,0.22)",
 };
 
+const lolerSoftCell: React.CSSProperties = {
+  background: "rgba(59,130,246,0.08)",
+  border: "1px solid rgba(59,130,246,0.22)",
+};
+
 const assetAvailabilityWrap: React.CSSProperties = {
   display: "grid",
   gap: 6,
@@ -1894,6 +2009,50 @@ const assetSoftUnavailableBadge: React.CSSProperties = {
   background: "rgba(255,170,0,0.14)",
   color: "#8a5609",
   border: "1px solid rgba(255,170,0,0.26)",
+};
+
+const lolerWrap: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+  marginBottom: 8,
+};
+
+const lolerSoftBadge: React.CSSProperties = {
+  display: "block",
+  padding: "7px 8px",
+  borderRadius: 10,
+  background: "rgba(59,130,246,0.12)",
+  color: "#075985",
+  border: "1px solid rgba(59,130,246,0.24)",
+  fontSize: 12,
+  fontWeight: 900,
+  textDecoration: "none",
+};
+
+const lolerBlockingBadge: React.CSSProperties = {
+  ...lolerSoftBadge,
+  background: "rgba(220,38,38,0.14)",
+  color: "#7f1d1d",
+  border: "1px solid rgba(220,38,38,0.26)",
+};
+
+const lolerDoneBadge: React.CSSProperties = {
+  ...lolerSoftBadge,
+  background: "rgba(22,163,74,0.12)",
+  color: "#166534",
+  border: "1px solid rgba(22,163,74,0.24)",
+};
+
+const lolerHeaderSummary: React.CSSProperties = {
+  marginTop: 3,
+  display: "inline-block",
+  padding: "3px 7px",
+  borderRadius: 999,
+  background: "rgba(59,130,246,0.12)",
+  color: "#075985",
+  border: "1px solid rgba(59,130,246,0.22)",
+  fontSize: 10,
+  fontWeight: 1000,
 };
 
 
