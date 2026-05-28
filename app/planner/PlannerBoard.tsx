@@ -85,6 +85,8 @@ type CraneLolerInspectionEntry = {
   start_date?: string | null;
   end_date?: string | null;
   planned_date?: string | null;
+  completed_at?: string | null;
+  completed_by?: string | null;
   status?: string | null;
   blocks_assignment?: boolean | null;
   notes?: string | null;
@@ -246,9 +248,8 @@ function lolerStatusLabel(value: string | null | undefined) {
 }
 
 function lolerMatchesDay(entry: CraneLolerInspectionEntry, dayIso: string) {
-  const planned = String(entry.planned_date ?? "").trim();
-  if (planned) return planned === dayIso;
-
+  // LOLER runs are multi-day inspection windows. Show the selected crane on every
+  // day covered by the run, not only on a single planned/completed date.
   const start = String(entry.start_date ?? "").trim();
   const end = String(entry.end_date ?? entry.start_date ?? "").trim();
   if (!start || !end) return false;
@@ -257,6 +258,25 @@ function lolerMatchesDay(entry: CraneLolerInspectionEntry, dayIso: string) {
 
 function lolerEntriesForDay(equipment: PlannerEquipment, dayIso: string) {
   return (equipment.loler_inspections ?? []).filter((entry) => lolerMatchesDay(entry, dayIso));
+}
+
+function plannerDisplayDate(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const d = new Date(raw.includes("T") ? raw : `${raw}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return raw.slice(0, 10);
+  return d.toLocaleDateString("en-GB");
+}
+
+function lolerRunDateText(entry: CraneLolerInspectionEntry) {
+  const start = plannerDisplayDate(entry.start_date);
+  const end = plannerDisplayDate(entry.end_date ?? entry.start_date);
+  if (start && end && start !== end) return `${start} to ${end}`;
+  return start || end;
+}
+
+function lolerCompletedDateText(entry: CraneLolerInspectionEntry) {
+  return plannerDisplayDate(entry.completed_at);
 }
 
 function lolerBlocksAssignment(entries: CraneLolerInspectionEntry[]) {
@@ -1321,6 +1341,8 @@ export default function PlannerBoard() {
           const status = String(entry.status ?? "pending").trim().toLowerCase();
           const blocks = status !== "passed" && status !== "deferred" && entry.blocks_assignment === true;
           const inspector = [entry.inspector_company, entry.inspector_name].filter(Boolean).join(" / ");
+          const runDates = lolerRunDateText(entry);
+          const completedDate = lolerCompletedDateText(entry);
 
           return (
             <a
@@ -1333,6 +1355,8 @@ export default function PlannerBoard() {
               <div style={{ marginTop: 2, fontSize: 11 }}>
                 {entry.title || "LOLER inspection"}{blocks ? " • Blocking" : ""}
               </div>
+              {runDates ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>Window: {runDates}</div> : null}
+              {completedDate ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>Completed: {completedDate}</div> : null}
               {inspector ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{inspector}</div> : null}
               {entry.notes ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{entry.notes}</div> : null}
             </a>
