@@ -96,6 +96,24 @@ type CraneLolerInspectionEntry = {
   next_loler_due_on?: string | null;
 };
 
+type LolerDrawerForm = {
+  completed_date: string;
+  status: string;
+  certificate_reference: string;
+  next_loler_due_on: string;
+  blocks_assignment: boolean;
+  notes: string;
+};
+
+const LOLER_STATUS_OPTIONS = [
+  { value: "pending", label: "Pending" },
+  { value: "planned", label: "Planned" },
+  { value: "in_progress", label: "In progress" },
+  { value: "passed", label: "Passed / done" },
+  { value: "failed", label: "Failed / action required" },
+  { value: "deferred", label: "Deferred" },
+];
+
 type PlannerEquipment = {
   id: string;
   name?: string | null;
@@ -266,6 +284,12 @@ function plannerDisplayDate(value: string | null | undefined) {
   const d = new Date(raw.includes("T") ? raw : `${raw}T00:00:00`);
   if (Number.isNaN(d.getTime())) return raw.slice(0, 10);
   return d.toLocaleDateString("en-GB");
+}
+
+function dateInputValue(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  return raw.slice(0, 10);
 }
 
 function lolerRunDateText(entry: CraneLolerInspectionEntry) {
@@ -585,6 +609,16 @@ export default function PlannerBoard() {
   const [invoicingVisitKey, setInvoicingVisitKey] = useState<string | null>(null);
   const [message, setMessage] = useState<string>("");
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [openLolerItemId, setOpenLolerItemId] = useState<string | null>(null);
+  const [lolerDrawerForm, setLolerDrawerForm] = useState<LolerDrawerForm>({
+    completed_date: "",
+    status: "planned",
+    certificate_reference: "",
+    next_loler_due_on: "",
+    blocks_assignment: false,
+    notes: "",
+  });
+  const [savingLolerItemId, setSavingLolerItemId] = useState<string | null>(null);
   const messageTimerRef = useRef<number | null>(null);
   const dragPointerYRef = useRef<number | null>(null);
   const dragAutoScrollFrameRef = useRef<number | null>(null);
@@ -793,6 +827,15 @@ export default function PlannerBoard() {
       (item) => !item.equipment_id && String(item.planner_group ?? "") === "labour_only"
     );
   }, [data]);
+
+  const allLolerEntries = useMemo(() => {
+    return (data?.equipment ?? []).flatMap((equipment) => equipment.loler_inspections ?? []);
+  }, [data]);
+
+  const selectedLolerEntry = useMemo(() => {
+    if (!openLolerItemId) return null;
+    return allLolerEntries.find((entry) => String(entry.id) === String(openLolerItemId)) ?? null;
+  }, [allLolerEntries, openLolerItemId]);
 
   function moveWeek(delta: number) {
     const base = new Date(`${weekStart}T00:00:00`);
@@ -1086,6 +1129,69 @@ export default function PlannerBoard() {
     setDragSourceDay(null);
   }
 
+  function getCraneForLoler(entry: CraneLolerInspectionEntry | null | undefined) {
+    if (!entry) return null;
+    return (data?.equipment ?? []).find((equipment) => String(equipment.id) === String(entry.crane_id)) ?? null;
+  }
+
+  function openLolerDrawer(entry: CraneLolerInspectionEntry) {
+    setOpenMenuId(null);
+    setOpenLolerItemId(entry.id);
+    setLolerDrawerForm({
+      completed_date: dateInputValue(entry.completed_at),
+      status: String(entry.status ?? "planned").trim() || "planned",
+      certificate_reference: String(entry.certificate_reference ?? ""),
+      next_loler_due_on: dateInputValue(entry.next_loler_due_on),
+      blocks_assignment: entry.blocks_assignment === true,
+      notes: String(entry.notes ?? ""),
+    });
+  }
+
+  function updateLolerDrawerField<K extends keyof LolerDrawerForm>(field: K, value: LolerDrawerForm[K]) {
+    setLolerDrawerForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function confirmLolerDrawer() {
+    const entry = selectedLolerEntry;
+    if (!entry || savingLolerItemId) return;
+
+    setSavingLolerItemId(entry.id);
+    setActionError("");
+    setMessage("");
+
+    const statusFromForm = String(lolerDrawerForm.status || "planned").trim().toLowerCase();
+    const statusForSave =
+      lolerDrawerForm.completed_date && ["pending", "planned", "in_progress"].includes(statusFromForm)
+        ? "passed"
+        : statusFromForm || "planned";
+
+    try {
+      const res = await fetch(`/api/crane-loler-inspections/items/${entry.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          completed_date: lolerDrawerForm.completed_date,
+          status: statusForSave,
+          certificate_reference: lolerDrawerForm.certificate_reference,
+          next_loler_due_on: lolerDrawerForm.next_loler_due_on,
+          blocks_assignment: lolerDrawerForm.blocks_assignment,
+          notes: lolerDrawerForm.notes,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Could not update LOLER inspection.");
+
+      setOpenLolerItemId(null);
+      await loadBoard(weekStart);
+      showMessage("LOLER inspection updated.");
+    } catch (e: any) {
+      setActionError(e?.message || "Could not update LOLER inspection.");
+    } finally {
+      setSavingLolerItemId(null);
+    }
+  }
+
   function renderMenu(item: PlannerItem) {
     const isOpen = openMenuId === item.id;
 
@@ -1345,11 +1451,19 @@ export default function PlannerBoard() {
           const completedDate = lolerCompletedDateText(entry);
 
           return (
-            <a
+            <button
               key={entry.id}
-              href="/cranes/loler-inspections"
+              type="button"
+              data-no-drag="true"
               style={blocks ? lolerBlockingBadge : status === "passed" ? lolerDoneBadge : lolerSoftBadge}
               title={entry.notes ?? undefined}
+              onMouseDown={(event) => event.stopPropagation()}
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openLolerDrawer(entry);
+              }}
             >
               <div style={{ fontWeight: 1000 }}>{lolerStatusLabel(status)}</div>
               <div style={{ marginTop: 2, fontSize: 11 }}>
@@ -1359,9 +1473,120 @@ export default function PlannerBoard() {
               {completedDate ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>Completed: {completedDate}</div> : null}
               {inspector ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{inspector}</div> : null}
               {entry.notes ? <div style={{ marginTop: 2, fontSize: 11, opacity: 0.78 }}>{entry.notes}</div> : null}
-            </a>
+            </button>
           );
         })}
+      </div>
+    );
+  }
+
+  function renderLolerDrawer() {
+    if (!selectedLolerEntry) return null;
+
+    const crane = getCraneForLoler(selectedLolerEntry);
+    const status = String(lolerDrawerForm.status || "planned").trim().toLowerCase();
+    const runWindow = lolerRunDateText(selectedLolerEntry);
+    const savingThis = savingLolerItemId === selectedLolerEntry.id;
+
+    return (
+      <div style={lolerDrawerBackdrop} onClick={() => setOpenLolerItemId(null)}>
+        <aside
+          style={lolerDrawerPanel}
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={(event) => event.stopPropagation()}
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div style={lolerDrawerHeader}>
+            <div>
+              <div style={{ fontSize: 12, opacity: 0.72, fontWeight: 900 }}>LOLER inspection</div>
+              <h3 style={{ margin: "4px 0 0", fontSize: 20 }}>{crane?.name ?? "Selected crane"}</h3>
+              <div style={{ marginTop: 4, fontSize: 13, opacity: 0.74 }}>{crane?.asset_number ?? "No reg"}</div>
+            </div>
+            <button type="button" style={drawerCloseBtn} onClick={() => setOpenLolerItemId(null)}>×</button>
+          </div>
+
+          <div style={lolerDrawerNotice}>
+            <strong>Inspection window:</strong> {runWindow || "—"}
+            <br />
+            <strong>Completed:</strong> {lolerCompletedDateText(selectedLolerEntry) || "—"}
+          </div>
+
+          <div style={lolerDrawerFormGrid}>
+            <label style={drawerFieldLabel}>
+              Completed date
+              <input
+                type="date"
+                value={lolerDrawerForm.completed_date}
+                onChange={(event) => updateLolerDrawerField("completed_date", event.target.value)}
+                style={drawerInputStyle}
+                disabled={savingThis}
+              />
+            </label>
+
+            <label style={drawerFieldLabel}>
+              Status
+              <select
+                value={status}
+                onChange={(event) => updateLolerDrawerField("status", event.target.value)}
+                style={drawerInputStyle}
+                disabled={savingThis}
+              >
+                {LOLER_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label style={drawerFieldLabel}>
+              Certificate / report ref
+              <input
+                value={lolerDrawerForm.certificate_reference}
+                onChange={(event) => updateLolerDrawerField("certificate_reference", event.target.value)}
+                style={drawerInputStyle}
+                disabled={savingThis}
+              />
+            </label>
+
+            <label style={drawerFieldLabel}>
+              Next LOLER due
+              <input
+                type="date"
+                value={lolerDrawerForm.next_loler_due_on}
+                onChange={(event) => updateLolerDrawerField("next_loler_due_on", event.target.value)}
+                style={drawerInputStyle}
+                disabled={savingThis}
+              />
+            </label>
+
+            <label style={drawerCheckRow}>
+              <input
+                type="checkbox"
+                checked={lolerDrawerForm.blocks_assignment}
+                onChange={(event) => updateLolerDrawerField("blocks_assignment", event.target.checked)}
+                disabled={savingThis}
+              />
+              Block assignment while this crane is being inspected
+            </label>
+
+            <label style={drawerFieldLabel}>
+              Notes
+              <textarea
+                value={lolerDrawerForm.notes}
+                onChange={(event) => updateLolerDrawerField("notes", event.target.value)}
+                style={drawerTextareaStyle}
+                disabled={savingThis}
+              />
+            </label>
+          </div>
+
+          <button type="button" style={drawerConfirmBtn} onClick={confirmLolerDrawer} disabled={savingThis}>
+            {savingThis ? "Saving…" : "Confirm"}
+          </button>
+
+          <a href="/cranes/loler-inspections" style={drawerSecondaryLink}>
+            Open full LOLER page
+          </a>
+        </aside>
       </div>
     );
   }
@@ -1828,6 +2053,8 @@ export default function PlannerBoard() {
           </section>
         </>
       ) : null}
+
+      {renderLolerDrawer()}
     </div>
   );
 }
@@ -2043,6 +2270,8 @@ const lolerWrap: React.CSSProperties = {
 
 const lolerSoftBadge: React.CSSProperties = {
   display: "block",
+  width: "100%",
+  textAlign: "left",
   padding: "7px 8px",
   borderRadius: 10,
   background: "rgba(59,130,246,0.12)",
@@ -2051,6 +2280,7 @@ const lolerSoftBadge: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 900,
   textDecoration: "none",
+  cursor: "pointer",
 };
 
 const lolerBlockingBadge: React.CSSProperties = {
@@ -2135,6 +2365,117 @@ const viewToggleActive: React.CSSProperties = {
   ...viewToggleBtn,
   background: "#111",
   color: "#fff",
+};
+
+const lolerDrawerBackdrop: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 70,
+  background: "rgba(15,23,42,0.28)",
+  display: "flex",
+  justifyContent: "flex-end",
+  alignItems: "stretch",
+};
+
+const lolerDrawerPanel: React.CSSProperties = {
+  width: "min(430px, 94vw)",
+  height: "100%",
+  overflowY: "auto",
+  background: "#f8fbff",
+  borderLeft: "1px solid rgba(15,23,42,0.16)",
+  boxShadow: "-16px 0 40px rgba(15,23,42,0.22)",
+  padding: 18,
+  display: "grid",
+  alignContent: "start",
+  gap: 14,
+};
+
+const lolerDrawerHeader: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "flex-start",
+};
+
+const drawerCloseBtn: React.CSSProperties = {
+  width: 34,
+  height: 34,
+  borderRadius: 999,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.82)",
+  fontSize: 22,
+  fontWeight: 900,
+  cursor: "pointer",
+  lineHeight: 1,
+};
+
+const lolerDrawerNotice: React.CSSProperties = {
+  padding: 12,
+  borderRadius: 12,
+  background: "rgba(59,130,246,0.10)",
+  border: "1px solid rgba(59,130,246,0.20)",
+  color: "#075985",
+  fontSize: 13,
+  lineHeight: 1.5,
+};
+
+const lolerDrawerFormGrid: React.CSSProperties = {
+  display: "grid",
+  gap: 12,
+};
+
+const drawerFieldLabel: React.CSSProperties = {
+  display: "grid",
+  gap: 5,
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const drawerInputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "10px 11px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.16)",
+  boxSizing: "border-box",
+  background: "#fff",
+};
+
+const drawerTextareaStyle: React.CSSProperties = {
+  ...drawerInputStyle,
+  minHeight: 94,
+  resize: "vertical",
+  fontFamily: "inherit",
+};
+
+const drawerCheckRow: React.CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  fontSize: 13,
+  fontWeight: 900,
+};
+
+const drawerConfirmBtn: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 14px",
+  borderRadius: 10,
+  border: "1px solid #111",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 1000,
+  cursor: "pointer",
+};
+
+const drawerSecondaryLink: React.CSSProperties = {
+  display: "inline-block",
+  textAlign: "center",
+  padding: "10px 12px",
+  borderRadius: 10,
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.82)",
+  color: "#111",
+  border: "1px solid rgba(0,0,0,0.10)",
+  fontWeight: 900,
 };
 
 function desktopGrid(days: number): React.CSSProperties {
