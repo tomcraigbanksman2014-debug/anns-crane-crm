@@ -99,9 +99,14 @@ export default async function CranesPage() {
               </p>
             </div>
 
-            <a href="/cranes/new" style={primaryBtn}>
-              + Add crane
-            </a>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <a href="/cranes/loler-inspections" style={secondaryBtn}>
+                LOLER inspections
+              </a>
+              <a href="/cranes/new" style={primaryBtn}>
+                + Add crane
+              </a>
+            </div>
           </div>
 
           {error ? <div style={errorBox}>{error.message}</div> : null}
