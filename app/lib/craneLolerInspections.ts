@@ -14,6 +14,8 @@ export type CraneLolerInspectionPlannerEntry = {
   start_date: string;
   end_date: string;
   planned_date?: string | null;
+  completed_at?: string | null;
+  completed_by?: string | null;
   status: CraneLolerInspectionStatus | string;
   blocks_assignment?: boolean | null;
   notes?: string | null;
@@ -68,9 +70,10 @@ export function lolerStatusLabel(value: unknown) {
 }
 
 export function lolerItemOverlapsDay(entry: CraneLolerInspectionPlannerEntry, dayIso: string) {
-  const planned = clean(entry.planned_date);
-  if (planned) return planned === dayIso;
-
+  // A LOLER inspection run is an inspection window, not a single planned visit.
+  // Show every selected crane across every day in the run so the planner can work around
+  // the inspection window. The per-crane date on the inspection page is the completed date,
+  // not the planner display date.
   const start = clean(entry.start_date);
   const end = clean(entry.end_date) ?? start;
   return Boolean(start && end && start <= dayIso && end >= dayIso);
@@ -110,9 +113,9 @@ export async function getCraneLolerInspectionItemsForRange(
 
   const { data: items, error: itemsError } = await supabase
     .from("crane_loler_inspection_items")
-    .select("id, run_id, crane_id, planned_date, status, blocks_assignment, notes, certificate_reference, next_loler_due_on")
+    .select("id, run_id, crane_id, planned_date, status, blocks_assignment, notes, certificate_reference, next_loler_due_on, completed_at, completed_by, created_at")
     .in("run_id", runIds)
-    .order("planned_date", { ascending: true });
+    .order("created_at", { ascending: true });
 
   if (itemsError) {
     if (isMissingLolerTable(itemsError)) return [];
@@ -134,6 +137,8 @@ export async function getCraneLolerInspectionItemsForRange(
         start_date: clean(run?.start_date) ?? "",
         end_date: clean(run?.end_date) ?? clean(run?.start_date) ?? "",
         planned_date: clean(item?.planned_date),
+        completed_at: clean(item?.completed_at),
+        completed_by: clean(item?.completed_by),
         status: normaliseLolerStatus(item?.status),
         blocks_assignment: item?.blocks_assignment === true,
         notes: clean(item?.notes),
@@ -145,8 +150,6 @@ export async function getCraneLolerInspectionItemsForRange(
     })
     .filter(Boolean)
     .filter((entry: any) => {
-      const planned = clean(entry.planned_date);
-      if (planned) return planned >= start && planned <= end;
       return clean(entry.start_date)! <= end && clean(entry.end_date)! >= start;
     }) as CraneLolerInspectionPlannerEntry[];
 }
@@ -169,8 +172,6 @@ export async function getBlockingCraneLolerInspection(
     entries.find((entry) => {
       if (String(entry.crane_id) !== craneId) return false;
       if (!lolerItemBlocksAssignment(entry)) return false;
-      const planned = clean(entry.planned_date);
-      if (planned) return planned >= startDate && planned <= endDate;
       return clean(entry.start_date)! <= endDate && clean(entry.end_date)! >= startDate;
     }) ?? null
   );
@@ -187,7 +188,7 @@ export async function assertCraneNotBlockedByLoler(
   const conflict = await getBlockingCraneLolerInspection(supabase, input);
   if (!conflict) return;
 
-  const dateText = conflict.planned_date || `${conflict.start_date} to ${conflict.end_date}`;
+  const dateText = `${conflict.start_date} to ${conflict.end_date}`;
   throw new Error(
     `Crane is blocked for LOLER inspection on ${dateText}. Mark the LOLER item as not blocking, deferred, or completed before assigning work.`
   );
