@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { writeAuditLog } from "../lib/audit";
 
 import ServerSubmitButton from "../components/ServerSubmitButton";
+
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -60,21 +61,107 @@ function netInvoiceValue(row: any) {
   return Number.isFinite(totalInvoice) ? totalInvoice : 0;
 }
 
+const JOB_STATUS_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "provisional", label: "Provisional" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "late_cancelled", label: "Late Cancelled" },
+];
+
+function cleanParam(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function buildJobsPath(params: Record<string, string | null | undefined>) {
+  const search = new URLSearchParams();
+
+  const add = (key: string, value: string | null | undefined) => {
+    const clean = cleanParam(value);
+    if (clean) search.set(key, clean);
+  };
+
+  add("view", params.view && params.view !== "active" ? params.view : "");
+  add("invoice", params.invoice && params.invoice !== "all" ? params.invoice : "");
+  add("q", params.q);
+  add("customer", params.customer);
+  add("date_from", params.date_from);
+  add("date_to", params.date_to);
+  add("status", params.status);
+  add("operator", params.operator);
+  add("equipment", params.equipment);
+  add("success", params.success);
+  add("error", params.error);
+
+  const qs = search.toString();
+  return qs ? `/jobs?${qs}` : "/jobs";
+}
+
+function getReturnParams(formData: FormData) {
+  return {
+    view: cleanParam(formData.get("return_view")) || "active",
+    invoice: cleanParam(formData.get("return_invoice")) || "all",
+    q: cleanParam(formData.get("return_q")),
+    customer: cleanParam(formData.get("return_customer")),
+    date_from: cleanParam(formData.get("return_date_from")),
+    date_to: cleanParam(formData.get("return_date_to")),
+    status: cleanParam(formData.get("return_status")),
+    operator: cleanParam(formData.get("return_operator")),
+    equipment: cleanParam(formData.get("return_equipment")),
+  };
+}
+
+function includesText(value: unknown, needle: string) {
+  return String(value ?? "").toLowerCase().includes(needle);
+}
+
+function rowMatchesSearch(job: any, q: string) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return true;
+
+  const client = first(job.clients);
+  const operator = first(job.operators);
+  const equipment = first(job.equipment);
+
+  return [
+    job.job_number,
+    job.site_name,
+    job.site_address,
+    job.status,
+    job.invoice_status,
+    client?.company_name,
+    operator?.full_name,
+    equipment?.name,
+    equipment?.asset_number,
+  ].some((value) => includesText(value, needle));
+}
+
+function rowMatchesDateWindow(job: any, dateFrom: string, dateTo: string) {
+  if (!dateFrom && !dateTo) return true;
+
+  const startDate = String(job.start_date ?? job.job_date ?? "").slice(0, 10);
+  const endDate = String(job.end_date ?? job.job_date ?? job.start_date ?? "").slice(0, 10);
+
+  if (!startDate && !endDate) return false;
+  if (dateFrom && endDate && endDate < dateFrom) return false;
+  if (dateTo && startDate && startDate > dateTo) return false;
+  return true;
+}
+
 async function updateInvoiceStatus(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
+  const returnParams = getReturnParams(formData);
 
   const jobId = String(formData.get("job_id") ?? "");
   const invoiceStatus = String(formData.get("invoice_status") ?? "Not Invoiced");
   const rawAmountPaid = String(formData.get("amount_paid") ?? "").trim();
-  const view = String(formData.get("return_view") ?? "active");
-  const invoice = String(formData.get("return_invoice") ?? "all");
 
   if (!jobId) {
-    redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent("Missing job id.")}`
-    );
+    redirect(buildJobsPath({ ...returnParams, error: "Missing job id." }));
   }
 
   const {
@@ -88,9 +175,7 @@ async function updateInvoiceStatus(formData: FormData) {
     .single();
 
   if (existingError || !existingJob) {
-    redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(existingError?.message || "Job not found.")}`
-    );
+    redirect(buildJobsPath({ ...returnParams, error: existingError?.message || "Job not found." }));
   }
 
   const totalInvoice = netInvoiceValue(existingJob);
@@ -104,11 +189,7 @@ async function updateInvoiceStatus(formData: FormData) {
     amountPaid = clampMoney(parsed, 0, totalInvoice);
 
     if (amountPaid <= 0) {
-      redirect(
-        `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(
-          "Enter the amount paid before saving Part Paid."
-        )}`
-      );
+      redirect(buildJobsPath({ ...returnParams, error: "Enter the amount paid before saving Part Paid." }));
     }
   } else if (invoiceStatus === "Paid") {
     amountPaid = totalInvoice;
@@ -120,11 +201,7 @@ async function updateInvoiceStatus(formData: FormData) {
     currentStatus === invoiceStatus &&
     Number(currentAmountPaid.toFixed(2)) === Number(amountPaid.toFixed(2))
   ) {
-    redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(
-        "Invoice details already up to date."
-      )}`
-    );
+    redirect(buildJobsPath({ ...returnParams, success: "Invoice details already up to date." }));
   }
 
   const { error } = await supabase
@@ -140,9 +217,7 @@ async function updateInvoiceStatus(formData: FormData) {
   revalidatePath("/dashboard");
 
   if (error) {
-    redirect(
-      `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&error=${encodeURIComponent(error.message)}`
-    );
+    redirect(buildJobsPath({ ...returnParams, error: error.message }));
   }
 
   await writeAuditLog({
@@ -168,15 +243,20 @@ async function updateInvoiceStatus(formData: FormData) {
       ? "Invoice updated to Paid"
       : `Invoice status updated to ${invoiceStatus}`;
 
-  redirect(
-    `/jobs?view=${encodeURIComponent(view)}&invoice=${encodeURIComponent(invoice)}&success=${encodeURIComponent(successText)}`
-  );
+  redirect(buildJobsPath({ ...returnParams, success: successText }));
 }
 
 type JobsPageProps = {
   searchParams?: {
     view?: string;
     invoice?: string;
+    q?: string;
+    customer?: string;
+    date_from?: string;
+    date_to?: string;
+    status?: string;
+    operator?: string;
+    equipment?: string;
     error?: string;
     success?: string;
   };
@@ -186,8 +266,60 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
   const supabase = createSupabaseServerClient();
   const view = String(searchParams?.view ?? "active").toLowerCase();
   const invoiceFilter = String(searchParams?.invoice ?? "all").toLowerCase();
+  const q = cleanParam(searchParams?.q);
+  const customerId = cleanParam(searchParams?.customer);
+  const dateFrom = cleanParam(searchParams?.date_from).slice(0, 10);
+  const dateTo = cleanParam(searchParams?.date_to).slice(0, 10);
+  const statusFilter = cleanParam(searchParams?.status);
+  const operatorId = cleanParam(searchParams?.operator);
+  const equipmentId = cleanParam(searchParams?.equipment);
   const errorMessage = String(searchParams?.error ?? "");
   const successMessage = String(searchParams?.success ?? "");
+
+  const baseParams = {
+    view,
+    invoice: invoiceFilter,
+    q,
+    customer: customerId,
+    date_from: dateFrom,
+    date_to: dateTo,
+    status: statusFilter,
+    operator: operatorId,
+    equipment: equipmentId,
+  };
+
+  const jobsHref = (overrides: Partial<typeof baseParams>) => buildJobsPath({ ...baseParams, ...overrides });
+  const exportSearch = new URLSearchParams();
+  Object.entries(baseParams).forEach(([key, value]) => {
+    const clean = cleanParam(value);
+    if (clean && !(key === "view" && clean === "active") && !(key === "invoice" && clean === "all")) {
+      exportSearch.set(key, clean);
+    }
+  });
+  const exportUrl = `/api/export/jobs${exportSearch.toString() ? `?${exportSearch.toString()}` : ""}`;
+
+  const [customersResult, operatorsResult, equipmentResult] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, company_name")
+      .or("archived.is.null,archived.eq.false")
+      .order("company_name", { ascending: true })
+      .limit(1000),
+    supabase
+      .from("operators")
+      .select("id, full_name")
+      .order("full_name", { ascending: true })
+      .limit(1000),
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number")
+      .order("name", { ascending: true })
+      .limit(1000),
+  ]);
+
+  const customerOptions = customersResult.data ?? [];
+  const operatorOptions = operatorsResult.data ?? [];
+  const equipmentOptions = equipmentResult.data ?? [];
 
   let query = supabase
     .from("jobs")
@@ -241,10 +373,24 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
 
   if (invoiceFilter === "outstanding") {
     query = query.in("invoice_status", ["Not Invoiced", "Invoiced", "Part Paid"]);
+  } else if (["not_invoiced", "invoiced", "part_paid", "paid"].includes(invoiceFilter)) {
+    const invoiceMap: Record<string, string> = {
+      not_invoiced: "Not Invoiced",
+      invoiced: "Invoiced",
+      part_paid: "Part Paid",
+      paid: "Paid",
+    };
+    query = query.eq("invoice_status", invoiceMap[invoiceFilter]);
   }
 
+  if (customerId) query = query.eq("client_id", customerId);
+  if (statusFilter) query = query.eq("status", statusFilter);
+  if (operatorId) query = query.eq("operator_id", operatorId);
+  if (equipmentId) query = query.eq("equipment_id", equipmentId);
+
   const { data, error } = await query;
-  const rows = data ?? [];
+  const rows = (data ?? []).filter((job: any) => rowMatchesDateWindow(job, dateFrom, dateTo) && rowMatchesSearch(job, q));
+  const hasExtraFilters = Boolean(q || customerId || dateFrom || dateTo || statusFilter || operatorId || equipmentId);
 
   return (
     <ClientShell>
@@ -259,7 +405,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
             </div>
 
             <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <a href={`/api/export/jobs?view=${view}&invoice=${invoiceFilter}`} style={secondaryBtn}>
+              <a href={exportUrl} style={secondaryBtn}>
                 Export CSV
               </a>
               <a href="/jobs/new" style={primaryBtn}>
@@ -269,28 +415,125 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           </div>
 
           <div style={tabsRow}>
-            <a href={`/jobs?view=active&invoice=${invoiceFilter}`} style={view === "active" ? activeTabBtn : tabBtn}>
+            <a href={jobsHref({ view: "active" })} style={view === "active" ? activeTabBtn : tabBtn}>
               Active
             </a>
-            <a href={`/jobs?view=archived&invoice=${invoiceFilter}`} style={view === "archived" ? activeTabBtn : tabBtn}>
+            <a href={jobsHref({ view: "archived" })} style={view === "archived" ? activeTabBtn : tabBtn}>
               Archived
             </a>
-            <a href={`/jobs?view=all&invoice=${invoiceFilter}`} style={view === "all" ? activeTabBtn : tabBtn}>
+            <a href={jobsHref({ view: "all" })} style={view === "all" ? activeTabBtn : tabBtn}>
               All
             </a>
           </div>
 
           <div style={tabsRow}>
-            <a href={`/jobs?view=${view}&invoice=all`} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
+            <a href={jobsHref({ invoice: "all" })} style={invoiceFilter === "all" ? activeTabBtn : tabBtn}>
               All invoices
             </a>
-            <a
-              href={`/jobs?view=${view}&invoice=outstanding`}
-              style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}
-            >
+            <a href={jobsHref({ invoice: "outstanding" })} style={invoiceFilter === "outstanding" ? activeTabBtn : tabBtn}>
               Outstanding invoices
             </a>
+            <a href={jobsHref({ invoice: "not_invoiced" })} style={invoiceFilter === "not_invoiced" ? activeTabBtn : tabBtn}>
+              Not invoiced
+            </a>
+            <a href={jobsHref({ invoice: "invoiced" })} style={invoiceFilter === "invoiced" ? activeTabBtn : tabBtn}>
+              Invoiced
+            </a>
+            <a href={jobsHref({ invoice: "part_paid" })} style={invoiceFilter === "part_paid" ? activeTabBtn : tabBtn}>
+              Part paid
+            </a>
+            <a href={jobsHref({ invoice: "paid" })} style={invoiceFilter === "paid" ? activeTabBtn : tabBtn}>
+              Paid
+            </a>
           </div>
+
+          <form action="/jobs" method="get" style={filterCard}>
+            {view && view !== "active" ? <input type="hidden" name="view" value={view} /> : null}
+            {invoiceFilter && invoiceFilter !== "all" ? <input type="hidden" name="invoice" value={invoiceFilter} /> : null}
+
+            <div style={filterGrid}>
+              <label style={filterLabel}>
+                Search
+                <input
+                  name="q"
+                  defaultValue={q}
+                  placeholder="Job #, site, customer, operator..."
+                  style={filterInput}
+                />
+              </label>
+
+              <label style={filterLabel}>
+                Customer
+                <select name="customer" defaultValue={customerId} style={filterInput}>
+                  <option value="">All customers</option>
+                  {customerOptions.map((customer: any) => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.company_name ?? "Unnamed customer"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={filterLabel}>
+                From date
+                <input name="date_from" type="date" defaultValue={dateFrom} style={filterInput} />
+              </label>
+
+              <label style={filterLabel}>
+                To date
+                <input name="date_to" type="date" defaultValue={dateTo} style={filterInput} />
+              </label>
+
+              <label style={filterLabel}>
+                Status
+                <select name="status" defaultValue={statusFilter} style={filterInput}>
+                  <option value="">All statuses</option>
+                  {JOB_STATUS_OPTIONS.map((status) => (
+                    <option key={status.value} value={status.value}>
+                      {status.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={filterLabel}>
+                Operator
+                <select name="operator" defaultValue={operatorId} style={filterInput}>
+                  <option value="">All operators</option>
+                  {operatorOptions.map((operator: any) => (
+                    <option key={operator.id} value={operator.id}>
+                      {operator.full_name ?? "Unnamed operator"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={filterLabel}>
+                Crane / equipment
+                <select name="equipment" defaultValue={equipmentId} style={filterInput}>
+                  <option value="">All equipment</option>
+                  {equipmentOptions.map((item: any) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name ?? "Unnamed equipment"}
+                      {item.asset_number ? ` (${item.asset_number})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
+              <button type="submit" style={primaryButtonLike}>Apply filters</button>
+              {hasExtraFilters ? (
+                <a href={jobsHref({ q: "", customer: "", date_from: "", date_to: "", status: "", operator: "", equipment: "" })} style={secondaryBtn}>
+                  Clear filters
+                </a>
+              ) : null}
+              <span style={{ fontSize: 13, opacity: 0.72, fontWeight: 800 }}>
+                Showing {rows.length} job{rows.length === 1 ? "" : "s"}
+              </span>
+            </div>
+          </form>
 
           {successMessage ? <div style={successBox}>{successMessage}</div> : null}
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
@@ -298,7 +541,7 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
           {error ? (
             <div style={errorBox}>{error.message}</div>
           ) : rows.length === 0 ? (
-            <div style={emptyBox}>No jobs found for this view.</div>
+            <div style={emptyBox}>No jobs found for the selected filters.</div>
           ) : (
             <div style={{ marginTop: 16, overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -396,6 +639,13 @@ export default async function JobsPage({ searchParams }: JobsPageProps) {
                               <input type="hidden" name="job_id" value={job.id} />
                               <input type="hidden" name="return_view" value={view} />
                               <input type="hidden" name="return_invoice" value={invoiceFilter} />
+                              <input type="hidden" name="return_q" value={q} />
+                              <input type="hidden" name="return_customer" value={customerId} />
+                              <input type="hidden" name="return_date_from" value={dateFrom} />
+                              <input type="hidden" name="return_date_to" value={dateTo} />
+                              <input type="hidden" name="return_status" value={statusFilter} />
+                              <input type="hidden" name="return_operator" value={operatorId} />
+                              <input type="hidden" name="return_equipment" value={equipmentId} />
 
                               <select
                                 name="invoice_status"
@@ -460,6 +710,37 @@ const tabsRow: React.CSSProperties = {
   marginTop: 16,
 };
 
+const filterCard: React.CSSProperties = {
+  marginTop: 16,
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.48)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
+const filterGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: 10,
+};
+
+const filterLabel: React.CSSProperties = {
+  display: "grid",
+  gap: 5,
+  fontSize: 12,
+  fontWeight: 900,
+};
+
+const filterInput: React.CSSProperties = {
+  width: "100%",
+  height: 40,
+  padding: "0 10px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  background: "rgba(255,255,255,0.95)",
+  boxSizing: "border-box",
+};
+
 const thStyle: React.CSSProperties = {
   padding: "10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
@@ -483,6 +764,12 @@ const primaryBtn: React.CSSProperties = {
   color: "#fff",
   textDecoration: "none",
   fontWeight: 900,
+};
+
+const primaryButtonLike: React.CSSProperties = {
+  ...primaryBtn,
+  border: "none",
+  cursor: "pointer",
 };
 
 const secondaryBtn: React.CSSProperties = {
