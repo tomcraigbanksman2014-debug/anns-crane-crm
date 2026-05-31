@@ -117,9 +117,8 @@ function TermsImage({ url, alt }: { url: string; alt: string }) {
   );
 }
 
-async function waitForPrintImages() {
-  if (typeof document === "undefined") return;
-  const images = Array.from(document.querySelectorAll<HTMLImageElement>(".hire-print-root img"));
+async function waitForImagesInDocument(doc: Document, selector = "img") {
+  const images = Array.from(doc.querySelectorAll<HTMLImageElement>(selector));
   await Promise.all(
     images.map(
       (image) =>
@@ -129,7 +128,7 @@ async function waitForPrintImages() {
             return;
           }
           const finish = () => resolve();
-          const timer = window.setTimeout(finish, 4000);
+          const timer = window.setTimeout(finish, 5000);
           image.addEventListener(
             "load",
             () => {
@@ -149,6 +148,15 @@ async function waitForPrintImages() {
         })
     )
   );
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 }
 
 
@@ -184,8 +192,61 @@ export default function HireAgreementPack({
   }, [safeDocumentTitle]);
 
   async function handlePrint() {
-    await waitForPrintImages();
-    window.setTimeout(() => window.print(), 75);
+    if (typeof document === "undefined") return;
+
+    const printRoot = document.querySelector<HTMLElement>(".hire-print-root");
+    if (!printRoot) {
+      window.print();
+      return;
+    }
+
+    await waitForImagesInDocument(document, ".hire-print-root img");
+
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      window.print();
+      return;
+    }
+
+    const printHtml = printRoot.outerHTML;
+    popup.document.open();
+    popup.document.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>${escapeHtml(safeDocumentTitle)}</title>
+<style>
+  @page { size: A4; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #fff; width: 210mm; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .hire-print-root { display: block !important; width: 210mm !important; margin: 0 !important; padding: 0 !important; gap: 0 !important; }
+  .hire-page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+  .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+  .terms-page { padding: 0 !important; }
+  .terms-page img { width: 210mm !important; height: 297mm !important; object-fit: fill !important; display: block !important; }
+</style>
+</head>
+<body>${printHtml}</body>
+</html>`);
+    popup.document.close();
+
+    await waitForImagesInDocument(popup.document, "img");
+    popup.focus();
+    popup.document.title = safeDocumentTitle;
+    window.setTimeout(() => popup.print(), 250);
   }
 
   const visibleRateLines = useMemo(() => {
@@ -616,23 +677,46 @@ const printCss = `
   .hire-print-root { overflow-x: auto; }
 }
 @media print {
+  .no-print { display: none !important; }
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    width: 210mm !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
   body * { visibility: hidden !important; }
   .hire-print-root, .hire-print-root * { visibility: visible !important; }
   .hire-print-root {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
+    position: static !important;
     display: block !important;
+    width: 210mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 0 !important;
+    overflow: visible !important;
   }
-  .no-print { display: none !important; }
   .hire-page {
     width: 210mm !important;
     min-height: 297mm !important;
+    height: 297mm !important;
+    max-height: 297mm !important;
     margin: 0 !important;
     box-shadow: none !important;
     page-break-after: always !important;
     break-after: page !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    overflow: hidden !important;
+  }
+  .terms-page { padding: 0 !important; }
+  .terms-page img {
+    width: 210mm !important;
+    height: 297mm !important;
+    object-fit: fill !important;
+    display: block !important;
   }
   .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
 }
