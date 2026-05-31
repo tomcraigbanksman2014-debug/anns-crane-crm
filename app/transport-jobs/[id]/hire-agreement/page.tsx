@@ -98,6 +98,8 @@ export default async function TransportHireAgreementPage({ params }: { params: {
     .single();
 
   const client = first((job as any)?.clients);
+  const transportNumber = (job as any)?.transport_number ?? (job as any)?.job_number ?? params.id;
+  const documentFileName = `${client?.company_name ?? "Customer"} - Transport Job ${transportNumber} - Hire Agreement`;
   const operator = first((job as any)?.operators);
   const contactName = client?.contact_name ?? "";
   const contactDetails = [client?.email, client?.phone].filter(Boolean).join(" / ");
@@ -119,7 +121,7 @@ export default async function TransportHireAgreementPage({ params }: { params: {
         ) : (
           <HireAgreementPack
             kind="transport"
-            jobLabel={`transport job ${(job as any)?.transport_number ?? params.id}`}
+            jobLabel={`transport job ${transportNumber}`}
             backHref={`/transport-jobs/${params.id}`}
             initialFields={[
               { key: "issueDate", label: "Agreement date", value: todayLabel() },
@@ -142,6 +144,7 @@ export default async function TransportHireAgreementPage({ params }: { params: {
               "/hire-agreement-terms/transport-rha-terms-page-3.png",
             ]}
             termsLabel="RHA carriage terms"
+            documentFileName={documentFileName}
           />
         )}
       </div>
