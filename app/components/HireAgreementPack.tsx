@@ -202,19 +202,40 @@ export default function HireAgreementPack({
 
     await waitForImagesInDocument(document, ".hire-print-root img");
 
-    const popup = window.open("", "_blank");
-    if (!popup) {
+    const existingFrame = document.getElementById("hire-agreement-print-frame");
+    if (existingFrame) existingFrame.remove();
+
+    const frame = document.createElement("iframe");
+    frame.id = "hire-agreement-print-frame";
+    frame.title = safeDocumentTitle;
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    frame.style.opacity = "0";
+    frame.style.pointerEvents = "none";
+    document.body.appendChild(frame);
+
+    const printDoc = frame.contentDocument || frame.contentWindow?.document;
+    const printWindow = frame.contentWindow;
+    if (!printDoc || !printWindow) {
+      frame.remove();
       window.print();
       return;
     }
 
     const printHtml = printRoot.outerHTML;
-    popup.document.open();
-    popup.document.write(`<!doctype html>
+    const baseHref = typeof window !== "undefined" ? `${window.location.origin}/` : "/";
+    printDoc.open();
+    printDoc.write(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<base href="${escapeHtml(baseHref)}" />
 <title>${escapeHtml(safeDocumentTitle)}</title>
 <style>
   @page { size: A4; margin: 0; }
@@ -241,12 +262,23 @@ export default function HireAgreementPack({
 </head>
 <body>${printHtml}</body>
 </html>`);
-    popup.document.close();
+    printDoc.close();
 
-    await waitForImagesInDocument(popup.document, "img");
-    popup.focus();
-    popup.document.title = safeDocumentTitle;
-    window.setTimeout(() => popup.print(), 250);
+    await waitForImagesInDocument(printDoc, "img");
+
+    let removed = false;
+    const removeFrame = () => {
+      if (removed) return;
+      removed = true;
+      window.setTimeout(() => frame.remove(), 500);
+    };
+
+    printWindow.onafterprint = removeFrame;
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+      window.setTimeout(removeFrame, 30000);
+    }, 250);
   }
 
   const visibleRateLines = useMemo(() => {
