@@ -180,14 +180,14 @@ export default async function JobHireAgreementPage({
   const termsImageUrls =
     agreementType === "contract-lift"
       ? [
-          "/hire-agreement-terms/contract-lift-terms-page-1.png",
-          "/hire-agreement-terms/contract-lift-terms-page-2.png",
-          "/hire-agreement-terms/contract-lift-terms-page-3.png",
+          "/contract-lift-terms-page-1(1)%20(1).png",
+          "/contract-lift-terms-page-2(1)%20(1).png",
+          "/contract-lift-terms-page-3(1)%20(1).png",
         ]
       : [
-          "/hire-agreement-terms/cpa-hire-terms-page-1.png",
-          "/hire-agreement-terms/cpa-hire-terms-page-2.png",
-          "/hire-agreement-terms/cpa-hire-terms-page-3.png",
+          "/cpa-hire-terms-page-1(1).png",
+          "/cpa-hire-terms-page-2(1).png",
+          "/cpa-hire-terms-page-3(1)%20(1).png",
         ];
 
   return (
