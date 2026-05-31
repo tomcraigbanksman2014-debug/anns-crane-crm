@@ -862,6 +862,12 @@ export default async function JobDetailPage({
             <a href={`/jobs/${params.id}/lift-plan`} style={secondaryBtn}>
               Lift plan / RAMS
             </a>
+            <a href={`/jobs/${params.id}/hire-agreement?type=cpa-hire`} style={secondaryBtn}>
+              CPA hire agreement
+            </a>
+            <a href={`/jobs/${params.id}/hire-agreement?type=contract-lift`} style={secondaryBtn}>
+              Contract lift agreement
+            </a>
             <DuplicateJobButton jobId={params.id} />
             <RepeatJobPatternButton
               jobId={params.id}
