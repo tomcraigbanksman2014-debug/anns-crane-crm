@@ -1238,6 +1238,9 @@ export default async function TransportJobDetailPage({
               <a href={`/transport-jobs/${params.id}/lift-plan`} style={secondaryBtn}>
                 Lift plan / RAMS
               </a>
+              <a href={`/transport-jobs/${params.id}/hire-agreement`} style={secondaryBtn}>
+                Hire agreement
+              </a>
               <DuplicateTransportJobButton jobId={params.id} />
               <RepeatJobPatternButton
                 jobId={params.id}
