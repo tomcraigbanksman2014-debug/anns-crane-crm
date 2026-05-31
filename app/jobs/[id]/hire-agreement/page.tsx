@@ -175,6 +175,8 @@ export default async function JobHireAgreementPage({
   const contactName = client?.contact_name ?? (job as any)?.site_contact ?? "";
   const contactDetails = [client?.phone, client?.email].filter(Boolean).join(" / ");
   const siteAddress = [(job as any)?.site_name, (job as any)?.site_address].filter(Boolean).join("\n");
+  const jobNumber = (job as any)?.job_number ?? params.id;
+  const documentFileName = `${client?.company_name ?? "Customer"} - Job ${jobNumber} - ${agreementType === "contract-lift" ? "Contract Lift Hire Agreement" : "CPA Hire Agreement"}`;
   const termsImageUrls =
     agreementType === "contract-lift"
       ? [
@@ -197,7 +199,7 @@ export default async function JobHireAgreementPage({
         ) : (
           <HireAgreementPack
             kind={agreementType}
-            jobLabel={`job ${(job as any)?.job_number ?? params.id}`}
+            jobLabel={`job ${jobNumber}`}
             backHref={`/jobs/${params.id}`}
             switchLinks={[
               { label: "CPA hire agreement", href: `/jobs/${params.id}/hire-agreement?type=cpa-hire`, active: agreementType === "cpa-hire" },
@@ -226,6 +228,7 @@ export default async function JobHireAgreementPage({
             initialAdditionalTerms={agreementType === "contract-lift" ? contractLiftAdditionalTerms : cpaAdditionalTerms}
             termsImageUrls={termsImageUrls}
             termsLabel={agreementType === "contract-lift" ? "CPA contract lift terms" : "CPA model hire conditions"}
+            documentFileName={documentFileName}
           />
         )}
       </div>
