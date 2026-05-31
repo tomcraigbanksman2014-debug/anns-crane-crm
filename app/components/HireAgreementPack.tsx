@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AgreementKind = "cpa-hire" | "contract-lift" | "transport";
 
@@ -29,6 +29,7 @@ type HireAgreementPackProps = {
   initialAdditionalTerms: string;
   termsImageUrls: string[];
   termsLabel: string;
+  documentFileName?: string;
 };
 
 const COMPANY_FOOTER =
@@ -70,6 +71,87 @@ function safeLine(line: AgreementRateLine) {
   return Boolean(line.qty.trim() || line.description.trim() || line.rate.trim());
 }
 
+function sanitizeDocumentTitle(value: string) {
+  return String(value || "Hire Agreement")
+    .replace(/[\\/:*?"<>|#%{}~&]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120) || "Hire Agreement";
+}
+
+function fallbackTermsUrls(url: string) {
+  const legacy: Record<string, string[]> = {
+    "/hire-agreement-terms/cpa-hire-terms-page-1.png": ["/cpa-hire-terms-page-1(1).png"],
+    "/hire-agreement-terms/cpa-hire-terms-page-2.png": ["/cpa-hire-terms-page-2(1).png"],
+    "/hire-agreement-terms/cpa-hire-terms-page-3.png": ["/cpa-hire-terms-page-3(1)%20(1).png", "/cpa-hire-terms-page-3(1) (1).png"],
+    "/hire-agreement-terms/contract-lift-terms-page-1.png": ["/contract-lift-terms-page-1(1)%20(1).png", "/contract-lift-terms-page-1(1) (1).png"],
+    "/hire-agreement-terms/contract-lift-terms-page-2.png": ["/contract-lift-terms-page-2(1)%20(1).png", "/contract-lift-terms-page-2(1) (1).png"],
+    "/hire-agreement-terms/contract-lift-terms-page-3.png": ["/contract-lift-terms-page-3(1)%20(1).png", "/contract-lift-terms-page-3(1) (1).png"],
+    "/hire-agreement-terms/transport-rha-terms-page-1.png": ["/transport-rha-terms-page-1(1)%20(1).png", "/transport-rha-terms-page-1(1) (1).png"],
+    "/hire-agreement-terms/transport-rha-terms-page-2.png": ["/transport-rha-terms-page-2(1)%20(1).png", "/transport-rha-terms-page-2(1) (1).png"],
+    "/hire-agreement-terms/transport-rha-terms-page-3.png": ["/transport-rha-terms-page-3(1)%20(1).png", "/transport-rha-terms-page-3(1) (1).png"],
+  };
+  return [url, ...(legacy[url] || [])];
+}
+
+function TermsImage({ url, alt }: { url: string; alt: string }) {
+  const candidates = useMemo(() => fallbackTermsUrls(url), [url]);
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const src = candidates[Math.min(candidateIndex, candidates.length - 1)];
+
+  useEffect(() => {
+    setCandidateIndex(0);
+  }, [url]);
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="eager"
+      decoding="sync"
+      style={termsImageStyle}
+      onError={() => {
+        setCandidateIndex((current) => (current + 1 < candidates.length ? current + 1 : current));
+      }}
+    />
+  );
+}
+
+async function waitForPrintImages() {
+  if (typeof document === "undefined") return;
+  const images = Array.from(document.querySelectorAll<HTMLImageElement>(".hire-print-root img"));
+  await Promise.all(
+    images.map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          if (image.complete && image.naturalWidth > 0) {
+            resolve();
+            return;
+          }
+          const finish = () => resolve();
+          const timer = window.setTimeout(finish, 4000);
+          image.addEventListener(
+            "load",
+            () => {
+              window.clearTimeout(timer);
+              finish();
+            },
+            { once: true }
+          );
+          image.addEventListener(
+            "error",
+            () => {
+              window.clearTimeout(timer);
+              finish();
+            },
+            { once: true }
+          );
+        })
+    )
+  );
+}
+
+
 export default function HireAgreementPack({
   kind,
   jobLabel,
@@ -81,6 +163,7 @@ export default function HireAgreementPack({
   initialAdditionalTerms,
   termsImageUrls,
   termsLabel,
+  documentFileName,
 }: HireAgreementPackProps) {
   const [fields, setFields] = useState<AgreementField[]>(initialFields);
   const [supplyText, setSupplyText] = useState(initialSupply);
@@ -88,13 +171,28 @@ export default function HireAgreementPack({
     initialRateLines.length ? initialRateLines : [{ id: "line-1", qty: "1x", description: "Rate", rate: "" }]
   );
   const [additionalTerms, setAdditionalTerms] = useState(initialAdditionalTerms);
+  const title = KIND_LABELS[kind];
+
+  const safeDocumentTitle = useMemo(
+    () => sanitizeDocumentTitle(documentFileName || `${fieldValue(fields, "client") || "Customer"} - ${jobLabel} - ${title}`),
+    [documentFileName, fields, jobLabel, title]
+  );
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.title = safeDocumentTitle;
+  }, [safeDocumentTitle]);
+
+  async function handlePrint() {
+    await waitForPrintImages();
+    window.setTimeout(() => window.print(), 75);
+  }
 
   const visibleRateLines = useMemo(() => {
     const nonEmpty = rateLines.filter(safeLine);
     return nonEmpty.length ? nonEmpty : [{ id: "empty", qty: "", description: "", rate: "" }];
   }, [rateLines]);
 
-  const title = KIND_LABELS[kind];
   const client = fieldValue(fields, "client");
   const issueDate = fieldValue(fields, "issueDate");
   const projectDate = fieldValue(fields, "projectDate");
@@ -124,9 +222,13 @@ export default function HireAgreementPack({
             {link.label}
           </a>
         ))}
-        <button type="button" onClick={() => window.print()} style={primaryButton}>
+        <button type="button" onClick={handlePrint} style={primaryButton}>
           Print / save PDF
         </button>
+      </div>
+
+      <div className="no-print" style={fileNameNoticeStyle}>
+        PDF filename should default to: <strong>{safeDocumentTitle}</strong>
       </div>
 
       <div className="no-print" style={editorCard}>
@@ -307,7 +409,7 @@ export default function HireAgreementPack({
 
         {termsImageUrls.map((url, index) => (
           <section key={url} className="hire-page terms-page" style={{ ...hirePageStyle, padding: 0 }}>
-            <img src={url} alt={`${termsLabel} page ${index + 1}`} style={termsImageStyle} />
+            <TermsImage url={url} alt={`${termsLabel} page ${index + 1}`} />
           </section>
         ))}
       </div>
@@ -355,6 +457,18 @@ const secondaryButton: React.CSSProperties = {
   fontWeight: 800,
   textDecoration: "none",
   cursor: "pointer",
+};
+
+
+const fileNameNoticeStyle: React.CSSProperties = {
+  border: "1px solid #bfdbfe",
+  background: "#eff6ff",
+  color: "#1e3a8a",
+  borderRadius: 12,
+  padding: "10px 12px",
+  marginBottom: 12,
+  fontSize: 13,
+  fontWeight: 700,
 };
 
 const editorCard: React.CSSProperties = {
@@ -491,7 +605,7 @@ const footerStyle: React.CSSProperties = {
 
 const termsImageStyle: React.CSSProperties = {
   width: "210mm",
-  minHeight: "297mm",
+  height: "297mm",
   objectFit: "fill",
   display: "block",
 };
