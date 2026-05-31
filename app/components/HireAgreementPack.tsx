@@ -1,0 +1,525 @@
+"use client";
+
+import { useMemo, useState } from "react";
+
+type AgreementKind = "cpa-hire" | "contract-lift" | "transport";
+
+type AgreementField = {
+  key: string;
+  label: string;
+  value: string;
+  multiline?: boolean;
+};
+
+type AgreementRateLine = {
+  id: string;
+  qty: string;
+  description: string;
+  rate: string;
+};
+
+type HireAgreementPackProps = {
+  kind: AgreementKind;
+  jobLabel: string;
+  backHref: string;
+  switchLinks?: { label: string; href: string; active?: boolean }[];
+  initialFields: AgreementField[];
+  initialSupply: string;
+  initialRateLines: AgreementRateLine[];
+  initialAdditionalTerms: string;
+  termsImageUrls: string[];
+  termsLabel: string;
+};
+
+const COMPANY_FOOTER =
+  "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk,";
+
+const KIND_LABELS: Record<AgreementKind, string> = {
+  "cpa-hire": "CPA Hire Agreement",
+  "contract-lift": "Contract Lift Hire Agreement",
+  transport: "Transport Hire Agreement",
+};
+
+function fieldValue(fields: AgreementField[], key: string) {
+  return fields.find((field) => field.key === key)?.value ?? "";
+}
+
+function updateField(fields: AgreementField[], key: string, value: string) {
+  return fields.map((field) => (field.key === key ? { ...field, value } : field));
+}
+
+function splitLines(value: string) {
+  return String(value ?? "")
+    .split(/\r?\n/g)
+    .map((line) => line.trimEnd());
+}
+
+function addBlankRateLine(lines: AgreementRateLine[]) {
+  return [
+    ...lines,
+    {
+      id: `line-${Date.now()}-${lines.length + 1}`,
+      qty: "",
+      description: "",
+      rate: "",
+    },
+  ];
+}
+
+function safeLine(line: AgreementRateLine) {
+  return Boolean(line.qty.trim() || line.description.trim() || line.rate.trim());
+}
+
+export default function HireAgreementPack({
+  kind,
+  jobLabel,
+  backHref,
+  switchLinks = [],
+  initialFields,
+  initialSupply,
+  initialRateLines,
+  initialAdditionalTerms,
+  termsImageUrls,
+  termsLabel,
+}: HireAgreementPackProps) {
+  const [fields, setFields] = useState<AgreementField[]>(initialFields);
+  const [supplyText, setSupplyText] = useState(initialSupply);
+  const [rateLines, setRateLines] = useState<AgreementRateLine[]>(
+    initialRateLines.length ? initialRateLines : [{ id: "line-1", qty: "1x", description: "Rate", rate: "" }]
+  );
+  const [additionalTerms, setAdditionalTerms] = useState(initialAdditionalTerms);
+
+  const visibleRateLines = useMemo(() => {
+    const nonEmpty = rateLines.filter(safeLine);
+    return nonEmpty.length ? nonEmpty : [{ id: "empty", qty: "", description: "", rate: "" }];
+  }, [rateLines]);
+
+  const title = KIND_LABELS[kind];
+  const client = fieldValue(fields, "client");
+  const issueDate = fieldValue(fields, "issueDate");
+  const projectDate = fieldValue(fields, "projectDate");
+  const contactName = fieldValue(fields, "contactName");
+  const contactDetails = fieldValue(fields, "contactDetails");
+  const siteAddress = fieldValue(fields, "siteAddress");
+  const collectionAddress = fieldValue(fields, "collectionAddress");
+  const deliveryAddress = fieldValue(fields, "deliveryAddress");
+  const hireType = fieldValue(fields, "hireType");
+  const poNumber = fieldValue(fields, "poNumber");
+  const paymentTerms = fieldValue(fields, "paymentTerms");
+
+  function setRateLine(index: number, key: keyof AgreementRateLine, value: string) {
+    setRateLines((prev) => prev.map((line, lineIndex) => (lineIndex === index ? { ...line, [key]: value } : line)));
+  }
+
+  return (
+    <div style={pageWrap}>
+      <style>{printCss}</style>
+
+      <div className="no-print" style={toolbarStyle}>
+        <a href={backHref} style={secondaryButton}>
+          ← Back
+        </a>
+        {switchLinks.map((link) => (
+          <a key={link.href} href={link.href} style={link.active ? primaryButton : secondaryButton}>
+            {link.label}
+          </a>
+        ))}
+        <button type="button" onClick={() => window.print()} style={primaryButton}>
+          Print / save PDF
+        </button>
+      </div>
+
+      <div className="no-print" style={editorCard}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 26 }}>{title}</h1>
+          <p style={{ margin: "6px 0 0", opacity: 0.72 }}>
+            Generated from {jobLabel}. Edit any field below before printing. The terms pages are fixed images copied from the supplied examples so the wording is preserved exactly.
+          </p>
+        </div>
+
+        <div style={editorGrid}>
+          {fields.map((field) => (
+            <label key={field.key} style={labelStyle}>
+              {field.label}
+              {field.multiline ? (
+                <textarea
+                  value={field.value}
+                  onChange={(event) => setFields((prev) => updateField(prev, field.key, event.target.value))}
+                  rows={field.key.includes("Address") ? 4 : 3}
+                  style={textareaStyle}
+                />
+              ) : (
+                <input
+                  value={field.value}
+                  onChange={(event) => setFields((prev) => updateField(prev, field.key, event.target.value))}
+                  style={inputStyle}
+                />
+              )}
+            </label>
+          ))}
+        </div>
+
+        <label style={labelStyle}>
+          To supply / scope of work
+          <textarea value={supplyText} onChange={(event) => setSupplyText(event.target.value)} rows={5} style={textareaStyle} />
+        </label>
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <h2 style={{ margin: 0, fontSize: 18 }}>Rates / charge lines</h2>
+            <button type="button" onClick={() => setRateLines((prev) => addBlankRateLine(prev))} style={secondaryButton}>
+              Add line
+            </button>
+          </div>
+
+          <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+            {rateLines.map((line, index) => (
+              <div key={line.id} style={rateEditorGrid}>
+                <input value={line.qty} onChange={(event) => setRateLine(index, "qty", event.target.value)} placeholder="Qty" style={inputStyle} />
+                <input
+                  value={line.description}
+                  onChange={(event) => setRateLine(index, "description", event.target.value)}
+                  placeholder="Description"
+                  style={inputStyle}
+                />
+                <input value={line.rate} onChange={(event) => setRateLine(index, "rate", event.target.value)} placeholder="Rate" style={inputStyle} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <label style={{ ...labelStyle, marginTop: 16 }}>
+          Additional visible terms on page 1
+          <textarea value={additionalTerms} onChange={(event) => setAdditionalTerms(event.target.value)} rows={8} style={textareaStyle} />
+        </label>
+      </div>
+
+      <div className="hire-print-root" style={printRootStyle}>
+        <section className="hire-page" style={hirePageStyle}>
+          <div style={topLineStyle}>
+            <img src="/logo.png" alt="AnnS Crane Hire" style={{ width: 190, height: "auto" }} />
+            <div style={{ textAlign: "right", fontWeight: 700 }}>{issueDate}</div>
+          </div>
+
+          <h1 style={documentTitleStyle}>HIRE AGREEMENT</h1>
+
+          <table style={mainTableStyle}>
+            <tbody>
+              <tr>
+                <th style={thStyle}>Client:</th>
+                <td style={tdStyle}>{client}</td>
+                <th style={thStyle}>Date & Time of Project:</th>
+                <td style={tdStyle}>{projectDate}</td>
+              </tr>
+              <tr>
+                <th style={thStyle}>Contact Name:</th>
+                <td style={tdStyle}>{contactName}</td>
+                <th style={thStyle}>{kind === "transport" ? "email / Tel:" : "Tel:"}</th>
+                <td style={tdStyle}>{contactDetails}</td>
+              </tr>
+              {kind === "transport" ? (
+                <>
+                  <tr>
+                    <th style={thStyle}>Collection Address:</th>
+                    <td colSpan={3} style={tdStyle}>{splitLines(collectionAddress).map((line, index) => <div key={index}>{line || "\u00a0"}</div>)}</td>
+                  </tr>
+                  <tr>
+                    <th style={thStyle}>Delivery Address:</th>
+                    <td colSpan={3} style={tdStyle}>{splitLines(deliveryAddress).map((line, index) => <div key={index}>{line || "\u00a0"}</div>)}</td>
+                  </tr>
+                </>
+              ) : (
+                <tr>
+                  <th style={thStyle}>Site Location:</th>
+                  <td colSpan={3} style={tdStyle}>{splitLines(siteAddress).map((line, index) => <div key={index}>{line || "\u00a0"}</div>)}</td>
+                </tr>
+              )}
+              <tr>
+                <th style={thStyle}>Hire Type:</th>
+                <td colSpan={3} style={tdStyle}>{hireType}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table style={{ ...mainTableStyle, marginTop: 10 }}>
+            <tbody>
+              <tr>
+                <th style={{ ...thStyle, width: "22%" }}>To Supply:</th>
+                <td style={tdStyle}>{splitLines(supplyText).map((line, index) => <div key={index}>{line || "\u00a0"}</div>)}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <table style={{ ...mainTableStyle, marginTop: 10 }}>
+            <thead>
+              <tr>
+                <th colSpan={3} style={thStyle}>Rates</th>
+              </tr>
+              <tr>
+                <th style={{ ...thStyle, width: 70 }}>Qty</th>
+                <th style={thStyle}>Description</th>
+                <th style={{ ...thStyle, width: 210 }}>Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRateLines.map((line) => (
+                <tr key={line.id}>
+                  <td style={tdStyle}>{line.qty}</td>
+                  <td style={tdStyle}>{line.description}</td>
+                  <td style={tdStyle}>{line.rate}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div style={vatNoticeStyle}>ALL RATES ARE EXCLUDING VAT AND BASED ON WEEKDAY WORKING</div>
+
+          <div style={termsBoxStyle}>
+            {splitLines(additionalTerms).map((line, index) => (
+              <div key={index}>{line || "\u00a0"}</div>
+            ))}
+          </div>
+
+          <table style={{ ...mainTableStyle, marginTop: 12 }}>
+            <tbody>
+              <tr>
+                <th colSpan={4} style={{ ...thStyle, fontSize: 16 }}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk:</th>
+              </tr>
+              <tr>
+                <th colSpan={4} style={thStyle}>FOR AND ON BEHALF OF:</th>
+              </tr>
+              <tr>
+                <td colSpan={4} style={{ ...tdStyle, height: 46, letterSpacing: 2 }}>
+                  N_a_m_e_:______________________ S_i_g_n_e_d_:___________________ D_a_t_e_:______________________
+                </td>
+              </tr>
+              <tr>
+                <th style={thStyle}>Purchase Order No:</th>
+                <td style={tdStyle}>{poNumber}</td>
+                <th style={thStyle}>PAYMENT TERMS:</th>
+                <td style={tdStyle}>{paymentTerms}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div style={footerStyle}>{COMPANY_FOOTER}</div>
+        </section>
+
+        {termsImageUrls.map((url, index) => (
+          <section key={url} className="hire-page terms-page" style={{ ...hirePageStyle, padding: 0 }}>
+            <img src={url} alt={`${termsLabel} page ${index + 1}`} style={termsImageStyle} />
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const pageWrap: React.CSSProperties = {
+  width: "min(1420px, 100%)",
+  margin: "0 auto",
+  padding: "0 0 32px",
+};
+
+const toolbarStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
+  alignItems: "center",
+  marginBottom: 14,
+};
+
+const primaryButton: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 12,
+  background: "#0f172a",
+  color: "#fff",
+  border: "1px solid #0f172a",
+  padding: "10px 14px",
+  fontWeight: 800,
+  textDecoration: "none",
+  cursor: "pointer",
+};
+
+const secondaryButton: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: 12,
+  background: "#fff",
+  color: "#0f172a",
+  border: "1px solid #d1d5db",
+  padding: "10px 14px",
+  fontWeight: 800,
+  textDecoration: "none",
+  cursor: "pointer",
+};
+
+const editorCard: React.CSSProperties = {
+  border: "1px solid #dbeafe",
+  background: "#ffffff",
+  borderRadius: 16,
+  padding: 16,
+  marginBottom: 18,
+  boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+};
+
+const editorGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: 12,
+  marginTop: 16,
+};
+
+const rateEditorGrid: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "90px minmax(180px, 1fr) minmax(160px, 260px)",
+  gap: 8,
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 6,
+  fontWeight: 800,
+  fontSize: 13,
+};
+
+const inputStyle: React.CSSProperties = {
+  border: "1px solid #d1d5db",
+  borderRadius: 10,
+  padding: "10px 11px",
+  fontSize: 14,
+  fontWeight: 600,
+  width: "100%",
+  boxSizing: "border-box",
+};
+
+const textareaStyle: React.CSSProperties = {
+  ...inputStyle,
+  minHeight: 76,
+  resize: "vertical",
+  fontFamily: "inherit",
+};
+
+const printRootStyle: React.CSSProperties = {
+  display: "grid",
+  gap: 18,
+};
+
+const hirePageStyle: React.CSSProperties = {
+  width: "210mm",
+  minHeight: "297mm",
+  margin: "0 auto",
+  background: "#fff",
+  color: "#111827",
+  padding: "14mm 12mm 18mm",
+  boxSizing: "border-box",
+  boxShadow: "0 16px 40px rgba(15, 23, 42, 0.16)",
+  position: "relative",
+  fontFamily: "Arial, Helvetica, sans-serif",
+  fontSize: 12,
+};
+
+const topLineStyle: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  marginBottom: 10,
+};
+
+const documentTitleStyle: React.CSSProperties = {
+  margin: "4px 0 12px",
+  textAlign: "center",
+  fontSize: 30,
+  lineHeight: 1.1,
+  fontWeight: 900,
+  textTransform: "uppercase",
+};
+
+const mainTableStyle: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  tableLayout: "fixed",
+};
+
+const thStyle: React.CSSProperties = {
+  border: "1px solid #111827",
+  padding: "6px 7px",
+  textAlign: "left",
+  verticalAlign: "top",
+  fontWeight: 900,
+  background: "#fff",
+};
+
+const tdStyle: React.CSSProperties = {
+  border: "1px solid #111827",
+  padding: "6px 7px",
+  textAlign: "left",
+  verticalAlign: "top",
+  whiteSpace: "pre-wrap",
+};
+
+const vatNoticeStyle: React.CSSProperties = {
+  border: "1px solid #111827",
+  borderTop: 0,
+  textAlign: "center",
+  padding: "7px 10px",
+  fontWeight: 900,
+};
+
+const termsBoxStyle: React.CSSProperties = {
+  border: "1px solid #111827",
+  marginTop: 12,
+  padding: 8,
+  fontSize: 9.6,
+  lineHeight: 1.25,
+  whiteSpace: "pre-wrap",
+  maxHeight: "83mm",
+  overflow: "hidden",
+};
+
+const footerStyle: React.CSSProperties = {
+  position: "absolute",
+  left: "12mm",
+  right: "12mm",
+  bottom: "7mm",
+  textAlign: "center",
+  fontSize: 12,
+};
+
+const termsImageStyle: React.CSSProperties = {
+  width: "210mm",
+  minHeight: "297mm",
+  objectFit: "fill",
+  display: "block",
+};
+
+const printCss = `
+@page { size: A4; margin: 0; }
+@media (max-width: 760px) {
+  .hire-print-root { overflow-x: auto; }
+}
+@media print {
+  body * { visibility: hidden !important; }
+  .hire-print-root, .hire-print-root * { visibility: visible !important; }
+  .hire-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    display: block !important;
+  }
+  .no-print { display: none !important; }
+  .hire-page {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+  .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
+}
+`;
