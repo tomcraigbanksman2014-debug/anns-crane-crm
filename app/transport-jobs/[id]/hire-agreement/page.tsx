@@ -139,9 +139,9 @@ export default async function TransportHireAgreementPage({ params }: { params: {
             initialRateLines={commercialLines(job)}
             initialAdditionalTerms={transportAdditionalTerms}
             termsImageUrls={[
-              "/hire-agreement-terms/transport-rha-terms-page-1.png",
-              "/hire-agreement-terms/transport-rha-terms-page-2.png",
-              "/hire-agreement-terms/transport-rha-terms-page-3.png",
+              "/transport-rha-terms-page-1(1)%20(1).png",
+              "/transport-rha-terms-page-2(1)%20(1).png",
+              "/transport-rha-terms-page-3(1)%20(1).png",
             ]}
             termsLabel="RHA carriage terms"
             documentFileName={documentFileName}
