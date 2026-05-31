@@ -41,6 +41,22 @@ function getAdminClient() {
   });
 }
 
+function redirectBack(req: Request, transportJobId: string, params: { error?: string; success?: string }) {
+  const url = new URL(`/transport-jobs/${transportJobId}`, req.url);
+
+  if (params.error) {
+    url.searchParams.set("error", params.error);
+  }
+
+  if (params.success) {
+    url.searchParams.set("success", params.success);
+  }
+
+  // Important for form POST uploads: use 303 so the browser follows the redirect with a GET.
+  // A 307/308 can re-POST to /transport-jobs/[id], which causes the 500 screen even though the file has uploaded.
+  return NextResponse.redirect(url, { status: 303 });
+}
+
 export async function POST(
   req: Request,
   { params }: { params: { id: string } }
@@ -55,9 +71,7 @@ export async function POST(
     } = await supabase.auth.getUser();
 
     if (userError || !user) {
-      return NextResponse.redirect(
-        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent("Not signed in.")}`, req.url)
-      );
+      return redirectBack(req, params.id, { error: "Not signed in." });
     }
 
     const { data: transportJob, error: jobError } = await admin
@@ -67,15 +81,11 @@ export async function POST(
       .maybeSingle();
 
     if (jobError) {
-      return NextResponse.redirect(
-        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(jobError.message)}`, req.url)
-      );
+      return redirectBack(req, params.id, { error: jobError.message });
     }
 
     if (!transportJob) {
-      return NextResponse.redirect(
-        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent("Transport job not found.")}`, req.url)
-      );
+      return redirectBack(req, params.id, { error: "Transport job not found." });
     }
 
     const formData = await req.formData();
@@ -86,17 +96,15 @@ export async function POST(
 
     const files = formData
       .getAll("files")
-      .filter((entry): entry is File => entry instanceof File);
+      .filter((entry): entry is File => entry instanceof File && entry.size > 0);
 
     const fallbackFile = formData.get("file");
-    if (files.length === 0 && fallbackFile instanceof File) {
+    if (files.length === 0 && fallbackFile instanceof File && fallbackFile.size > 0) {
       files.push(fallbackFile);
     }
 
     if (files.length === 0) {
-      return NextResponse.redirect(
-        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent("No file selected.")}`, req.url)
-      );
+      return redirectBack(req, params.id, { error: "No file selected." });
     }
 
     const uploadedRows: Array<Record<string, any>> = [];
@@ -107,7 +115,8 @@ export async function POST(
       const buffer = Buffer.from(bytes);
 
       const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const filePath = `${params.id}/${Date.now()}-${safeName}`;
+      const uniquePart = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const filePath = `${params.id}/${uniquePart}-${safeName}`;
 
       const { error: uploadError } = await admin.storage
         .from("job-documents")
@@ -120,9 +129,7 @@ export async function POST(
         if (uploadedPaths.length > 0) {
           await admin.storage.from("job-documents").remove(uploadedPaths);
         }
-        return NextResponse.redirect(
-          new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(uploadError.message)}`, req.url)
-        );
+        return redirectBack(req, params.id, { error: uploadError.message });
       }
 
       uploadedPaths.push(filePath);
@@ -145,40 +152,35 @@ export async function POST(
       if (uploadedPaths.length > 0) {
         await admin.storage.from("job-documents").remove(uploadedPaths);
       }
-      return NextResponse.redirect(
-        new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(insertError.message)}`, req.url)
-      );
+      return redirectBack(req, params.id, { error: insertError.message });
     }
 
-    await writeAuditLog({
-      actor_user_id: user.id,
-      actor_username: user.email ? user.email.split("@")[0] : null,
-      action: "transport_job_document_uploaded",
-      entity_type: "transport_job_document",
-      entity_id: params.id,
-      meta: {
-        transport_job_id: params.id,
-        document_type: documentType,
-        share_with_operator: shareWithOperator,
-        files: uploadedRows.map((row) => ({
-          file_name: row.file_name,
-          file_path: row.file_path,
-          file_type: row.file_type,
-        })),
-      },
-    });
+    try {
+      await writeAuditLog({
+        actor_user_id: user.id,
+        actor_username: user.email ? user.email.split("@")[0] : null,
+        action: "transport_job_document_uploaded",
+        entity_type: "transport_job_document",
+        entity_id: params.id,
+        meta: {
+          transport_job_id: params.id,
+          document_type: documentType,
+          share_with_operator: shareWithOperator,
+          files: uploadedRows.map((row) => ({
+            file_name: row.file_name,
+            file_path: row.file_path,
+            file_type: row.file_type,
+          })),
+        },
+      });
+    } catch (auditError) {
+      console.error("Transport document uploaded but audit log failed", auditError);
+    }
 
-    return NextResponse.redirect(
-      new URL(
-        `/transport-jobs/${params.id}?success=${encodeURIComponent(
-          uploadedRows.length === 1 ? "Document uploaded." : `${uploadedRows.length} documents uploaded.`
-        )}`,
-        req.url
-      )
-    );
+    return redirectBack(req, params.id, {
+      success: uploadedRows.length === 1 ? "Document uploaded." : `${uploadedRows.length} documents uploaded.`,
+    });
   } catch (e: any) {
-    return NextResponse.redirect(
-      new URL(`/transport-jobs/${params.id}?error=${encodeURIComponent(e?.message ?? "Upload failed.")}`, req.url)
-    );
+    return redirectBack(req, params.id, { error: e?.message ?? "Upload failed." });
   }
 }
