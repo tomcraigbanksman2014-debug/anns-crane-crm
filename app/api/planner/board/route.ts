@@ -216,11 +216,21 @@ function plannerLiftPlanStatus(job: any, liftPlan: any) {
   return shouldShowLiftPlanStatus(job) ? liftPlanStatusLabel(liftPlan) : null;
 }
 
+function normalisePlannerStatus(status: string | null | undefined) {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
 function isPlannerVisibleStatus(status: string | null | undefined) {
-  const s = String(status ?? "").trim().toLowerCase();
+  const s = normalisePlannerStatus(status);
   if (!s) return true;
-  if (s === "cancelled") return false;
-  if (s === "late_cancelled") return false;
+
+  // Late-cancelled jobs still need to stay visible on the planner because they are
+  // operationally/financially relevant and can still be invoiced. Only ordinary
+  // cancellations and draft jobs are hidden from the live planner.
+  if (s === "cancelled" || s === "canceled") return false;
   if (s === "draft") return false;
   return true;
 }
