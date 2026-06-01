@@ -9,6 +9,43 @@ function clean(value: unknown) {
   return s.length ? s : null;
 }
 
+function normaliseStatus(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isLateCancelledStatus(value: unknown) {
+  return normaliseStatus(value) === "late_cancelled";
+}
+
+function safePlannerStatusUpdate(existingStatus: unknown, requestedStatus: unknown) {
+  const existing = clean(existingStatus);
+  const requested = clean(requestedStatus);
+  const existingKey = normaliseStatus(existing);
+  const requestedKey = normaliseStatus(requested);
+
+  // Drag/drop planner moves must never downgrade a late-cancelled job back to planned.
+  // The planner sends status only to preserve the existing status, not to make a commercial status change.
+  if (existingKey === "late_cancelled" && (!requestedKey || requestedKey === "planned")) {
+    return existing ?? "late_cancelled";
+  }
+
+  // If the client sends a stale/default planned status for an already-saved non-planned job,
+  // leave the job status alone and only move the allocation/date.
+  if (existing && existingKey !== "planned" && requestedKey === "planned") {
+    return null;
+  }
+
+  // If the requested value is the same status under different spacing/casing, keep the saved value.
+  if (existing && requested && existingKey === requestedKey) {
+    return existing;
+  }
+
+  return requested;
+}
+
 function buildTimestamp(dateValue: string | null, timeValue: string | null, fallbackTime: string) {
   if (!dateValue) return null;
   const time = timeValue ?? fallbackTime;
@@ -176,7 +213,7 @@ export async function POST(req: Request) {
     const endDate = clean(body.end_date) ?? startDate;
     const startTime = clean(body.start_time);
     const endTime = clean(body.end_time);
-    const status = clean(body.status);
+    const requestedStatus = clean(body.status);
     const plannerGroup = clean(body.planner_group);
     const targetPlannerGroup = clean(body.target_planner_group);
 
@@ -193,7 +230,7 @@ export async function POST(req: Request) {
 
     const { data: linkedJob, error: linkedJobError } = await supabase
       .from("jobs")
-      .select("id, exclude_weekends, supplier_id, cross_hire_cost_total, start_date, end_date, job_date, start_time, end_time")
+      .select("id, status, exclude_weekends, supplier_id, cross_hire_cost_total, start_date, end_date, job_date, start_time, end_time")
       .eq("id", jobId)
       .single();
 
@@ -202,6 +239,7 @@ export async function POST(req: Request) {
     }
 
     const excludeWeekends = Boolean(linkedJob.exclude_weekends);
+    const status = safePlannerStatusUpdate(linkedJob.status, requestedStatus);
 
     const movingToCrossHire = targetPlannerGroup === "cross_hired";
     const movingToOwnedCrane = Boolean(craneId) && targetPlannerGroup !== "cross_hired";
