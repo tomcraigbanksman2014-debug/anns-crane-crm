@@ -160,6 +160,20 @@ function statusTone(status: string | null | undefined): React.CSSProperties {
     };
   }
 
+  if (s === "late_cancelled" || s === "late cancelled" || s === "late-cancelled") {
+    return {
+      background: "rgba(255,0,0,0.10)",
+      border: "1px solid rgba(255,0,0,0.18)",
+    };
+  }
+
+  if (s === "cancelled" || s === "canceled") {
+    return {
+      background: "rgba(160,160,160,0.10)",
+      border: "1px solid rgba(160,160,160,0.18)",
+    };
+  }
+
   return {
     background: "rgba(255,255,255,0.88)",
     border: "1px solid rgba(0,0,0,0.10)",
