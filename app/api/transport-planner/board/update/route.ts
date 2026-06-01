@@ -9,6 +9,37 @@ function clean(value: any) {
   return s.length ? s : null;
 }
 
+function normaliseStatus(value: unknown) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function safeTransportPlannerStatusUpdate(existingStatus: unknown, requestedStatus: unknown) {
+  const existing = clean(existingStatus);
+  const requested = clean(requestedStatus);
+  const existingKey = normaliseStatus(existing);
+  const requestedKey = normaliseStatus(requested);
+
+  // Drag/drop planner moves must never downgrade a late-cancelled transport job back to planned.
+  if (existingKey === "late_cancelled" && (!requestedKey || requestedKey === "planned")) {
+    return existing ?? "late_cancelled";
+  }
+
+  // If the browser sends a stale/default planned status for a saved non-planned job,
+  // preserve the saved job status and only update planner fields.
+  if (existing && existingKey !== "planned" && requestedKey === "planned") {
+    return null;
+  }
+
+  if (existing && requested && existingKey === requestedKey) {
+    return existing;
+  }
+
+  return requested;
+}
+
 function parseDateTime(dateValue: string | null, timeValue: string | null) {
   if (!dateValue || !timeValue) return null;
   const iso = `${dateValue}T${timeValue}:00`;
@@ -44,7 +75,7 @@ export async function POST(req: Request) {
 
     const { data: existingJob, error: existingJobError } = await supabase
       .from("transport_jobs")
-      .select("id, supplier_id, supplier_reference, supplier_cost, operator_id, vehicle_id, transport_date, delivery_date, collection_time, delivery_time")
+      .select("id, status, supplier_id, supplier_reference, supplier_cost, operator_id, vehicle_id, transport_date, delivery_date, collection_time, delivery_time")
       .eq("id", transportJobId)
       .single();
 
@@ -95,7 +126,10 @@ export async function POST(req: Request) {
     }
 
     if ("status" in body) {
-      updatePayload.status = clean(body.status) ?? "planned";
+      const safeStatus = safeTransportPlannerStatusUpdate(existingJob.status, body.status);
+      if (safeStatus) {
+        updatePayload.status = safeStatus;
+      }
     }
 
     if ("collection_address" in body) {
