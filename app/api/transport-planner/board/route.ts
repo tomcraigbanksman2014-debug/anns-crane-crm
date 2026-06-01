@@ -41,6 +41,24 @@ function isCrossHiredTransportPlannerJob(row: any) {
   return !String(row?.vehicle_id ?? "").trim() && hasTransportSubcontractMeta(row);
 }
 
+function normalisePlannerStatus(status: string | null | undefined) {
+  return String(status ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
+}
+
+function isTransportPlannerVisibleStatus(status: string | null | undefined) {
+  const s = normalisePlannerStatus(status);
+  if (!s) return true;
+
+  // Late-cancelled transport jobs should remain on the transport planner because
+  // they are still operationally/financially relevant and can still be invoiced.
+  // Only normal cancellations are hidden.
+  if (s === "cancelled" || s === "canceled") return false;
+  return true;
+}
+
 function overlapsRange(
   startDate: string | null | undefined,
   endDate: string | null | undefined,
@@ -214,7 +232,7 @@ export async function GET(req: Request) {
     }
 
     const activeJobs = transportJobs
-      .filter((row: any) => lower(row.status) !== "cancelled")
+      .filter((row: any) => isTransportPlannerVisibleStatus(row.status))
       .filter((row: any) =>
         overlapsRange(row.transport_date, row.delivery_date ?? row.transport_date, rangeStart, rangeEnd)
       )
