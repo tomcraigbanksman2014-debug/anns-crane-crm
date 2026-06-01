@@ -240,24 +240,62 @@ export default function HireAgreementPack({
 <style>
   @page { size: A4; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; width: 210mm; }
-  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .hire-print-root { display: block !important; width: 210mm !important; margin: 0 !important; padding: 0 !important; gap: 0 !important; }
+  body { -webkit-print-color-adjust: exact; print-color-adjust: exact; font-family: Arial, Helvetica, sans-serif; }
+  .hire-print-root { display: block !important; width: 210mm !important; margin: 0 auto !important; padding: 0 !important; gap: 0 !important; }
   .hire-page {
     width: 210mm !important;
-    min-height: 297mm !important;
     height: 297mm !important;
-    max-height: 297mm !important;
-    margin: 0 !important;
+    min-height: 0 !important;
+    margin: 0 auto !important;
     box-shadow: none !important;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     overflow: hidden !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
+  }
+  .hire-front-page {
+    padding: 6mm 9mm 6mm !important;
+    font-size: 9.2px !important;
+    line-height: 1.12 !important;
+  }
+  .hire-front-page table { page-break-inside: avoid !important; break-inside: avoid !important; }
+  .hire-front-page th,
+  .hire-front-page td { padding: 2.6px 4px !important; line-height: 1.1 !important; }
+  .hire-front-page h1 { margin: 2mm 0 4mm !important; font-size: 24px !important; }
+  .hire-front-page .hire-logo { width: 88px !important; height: auto !important; }
+  .hire-front-page .hire-top-line { margin-bottom: 4mm !important; }
+  .hire-front-page .hire-rates-table { margin-top: 2.5mm !important; }
+  .hire-front-page .hire-terms-box {
+    margin-top: 2.5mm !important;
+    padding: 4px !important;
+    font-size: 6.9px !important;
+    line-height: 1.02 !important;
+    max-height: 42mm !important;
+    overflow: hidden !important;
+  }
+  .hire-front-page .hire-signature-table { margin-top: 2.5mm !important; }
+  .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
+  .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
+  .terms-page {
+    height: 297mm !important;
+    padding: 6mm 8mm !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .terms-page img {
+    width: auto !important;
+    height: auto !important;
+    max-width: 194mm !important;
+    max-height: 283mm !important;
+    object-fit: contain !important;
+    display: block !important;
+    margin: 0 auto !important;
   }
   .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
-  .terms-page { padding: 0 !important; }
-  .terms-page img { width: 210mm !important; height: 297mm !important; object-fit: fill !important; display: block !important; }
 </style>
 </head>
 <body>${printHtml}</body>
@@ -390,13 +428,13 @@ export default function HireAgreementPack({
       </div>
 
       <div className="hire-print-root" style={printRootStyle}>
-        <section className="hire-page" style={hirePageStyle}>
-          <div style={topLineStyle}>
-            <img src="/logo.png" alt="AnnS Crane Hire" style={{ width: 190, height: "auto" }} />
+        <section className="hire-page hire-front-page" style={hirePageStyle}>
+          <div className="hire-top-line" style={topLineStyle}>
+            <img className="hire-logo" src="/logo.png" alt="AnnS Crane Hire" style={{ width: 96, height: "auto" }} />
             <div style={{ textAlign: "right", fontWeight: 700 }}>{issueDate}</div>
           </div>
 
-          <h1 style={documentTitleStyle}>HIRE AGREEMENT</h1>
+          <h1 className="hire-document-title" style={documentTitleStyle}>HIRE AGREEMENT</h1>
 
           <table style={mainTableStyle}>
             <tbody>
@@ -445,7 +483,7 @@ export default function HireAgreementPack({
             </tbody>
           </table>
 
-          <table style={{ ...mainTableStyle, marginTop: 10 }}>
+          <table className="hire-rates-table" style={{ ...mainTableStyle, marginTop: 7 }}>
             <thead>
               <tr>
                 <th colSpan={3} style={thStyle}>Rates</th>
@@ -469,22 +507,22 @@ export default function HireAgreementPack({
 
           <div style={vatNoticeStyle}>ALL RATES ARE EXCLUDING VAT AND BASED ON WEEKDAY WORKING</div>
 
-          <div style={termsBoxStyle}>
+          <div className="hire-terms-box" style={termsBoxStyle}>
             {splitLines(additionalTerms).map((line, index) => (
               <div key={index}>{line || "\u00a0"}</div>
             ))}
           </div>
 
-          <table style={{ ...mainTableStyle, marginTop: 12 }}>
+          <table className="hire-signature-table" style={{ ...mainTableStyle, marginTop: 7 }}>
             <tbody>
               <tr>
-                <th colSpan={4} style={{ ...thStyle, fontSize: 16 }}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk:</th>
+                <th colSpan={4} style={{ ...thStyle, fontSize: 12 }}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk:</th>
               </tr>
               <tr>
                 <th colSpan={4} style={thStyle}>FOR AND ON BEHALF OF:</th>
               </tr>
               <tr>
-                <td colSpan={4} style={{ ...tdStyle, height: 46, letterSpacing: 2 }}>
+                <td className="hire-signature-line" colSpan={4} style={{ ...tdStyle, height: 24, letterSpacing: 1.1, fontSize: 9.5 }}>
                   N_a_m_e_:______________________ S_i_g_n_e_d_:___________________ D_a_t_e_:______________________
                 </td>
               </tr>
@@ -497,11 +535,11 @@ export default function HireAgreementPack({
             </tbody>
           </table>
 
-          <div style={footerStyle}>{COMPANY_FOOTER}</div>
+          <div className="hire-footer" style={footerStyle}>{COMPANY_FOOTER}</div>
         </section>
 
         {termsImageUrls.map((url, index) => (
-          <section key={url} className="hire-page terms-page" style={{ ...hirePageStyle, padding: 0 }}>
+          <section key={url} className="hire-page terms-page" style={termsPageStyle}>
             <TermsImage url={url} alt={`${termsLabel} page ${index + 1}`} />
           </section>
         ))}
@@ -621,26 +659,26 @@ const hirePageStyle: React.CSSProperties = {
   margin: "0 auto",
   background: "#fff",
   color: "#111827",
-  padding: "14mm 12mm 18mm",
+  padding: "8mm 10mm 7mm",
   boxSizing: "border-box",
   boxShadow: "0 16px 40px rgba(15, 23, 42, 0.16)",
   position: "relative",
   fontFamily: "Arial, Helvetica, sans-serif",
-  fontSize: 12,
+  fontSize: 9.8,
 };
 
 const topLineStyle: React.CSSProperties = {
   display: "flex",
   justifyContent: "space-between",
   alignItems: "flex-start",
-  marginBottom: 10,
+  marginBottom: 8,
 };
 
 const documentTitleStyle: React.CSSProperties = {
-  margin: "4px 0 12px",
+  margin: "3px 0 10px",
   textAlign: "center",
-  fontSize: 30,
-  lineHeight: 1.1,
+  fontSize: 26,
+  lineHeight: 1.05,
   fontWeight: 900,
   textTransform: "uppercase",
 };
@@ -653,7 +691,7 @@ const mainTableStyle: React.CSSProperties = {
 
 const thStyle: React.CSSProperties = {
   border: "1px solid #111827",
-  padding: "6px 7px",
+  padding: "3px 5px",
   textAlign: "left",
   verticalAlign: "top",
   fontWeight: 900,
@@ -662,7 +700,7 @@ const thStyle: React.CSSProperties = {
 
 const tdStyle: React.CSSProperties = {
   border: "1px solid #111827",
-  padding: "6px 7px",
+  padding: "3px 5px",
   textAlign: "left",
   verticalAlign: "top",
   whiteSpace: "pre-wrap",
@@ -672,34 +710,41 @@ const vatNoticeStyle: React.CSSProperties = {
   border: "1px solid #111827",
   borderTop: 0,
   textAlign: "center",
-  padding: "7px 10px",
+  padding: "4px 8px",
   fontWeight: 900,
 };
 
 const termsBoxStyle: React.CSSProperties = {
   border: "1px solid #111827",
-  marginTop: 12,
-  padding: 8,
-  fontSize: 9.6,
-  lineHeight: 1.25,
+  marginTop: 7,
+  padding: 5,
+  fontSize: 7.1,
+  lineHeight: 1.04,
   whiteSpace: "pre-wrap",
-  maxHeight: "83mm",
+  maxHeight: "45mm",
   overflow: "hidden",
 };
 
 const footerStyle: React.CSSProperties = {
-  position: "absolute",
-  left: "12mm",
-  right: "12mm",
-  bottom: "7mm",
+  marginTop: 5,
   textAlign: "center",
-  fontSize: 12,
+  fontSize: 8.5,
+};
+
+const termsPageStyle: React.CSSProperties = {
+  ...hirePageStyle,
+  padding: "7mm 8mm",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
 };
 
 const termsImageStyle: React.CSSProperties = {
-  width: "210mm",
-  height: "297mm",
-  objectFit: "fill",
+  width: "100%",
+  maxWidth: "194mm",
+  maxHeight: "283mm",
+  height: "auto",
+  objectFit: "contain",
   display: "block",
 };
 
@@ -725,30 +770,63 @@ const printCss = `
     position: static !important;
     display: block !important;
     width: 210mm !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 0 !important;
     gap: 0 !important;
     overflow: visible !important;
   }
   .hire-page {
     width: 210mm !important;
-    min-height: 297mm !important;
     height: 297mm !important;
-    max-height: 297mm !important;
-    margin: 0 !important;
+    min-height: 0 !important;
+    margin: 0 auto !important;
     box-shadow: none !important;
     page-break-after: always !important;
     break-after: page !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;
     overflow: hidden !important;
+    box-sizing: border-box !important;
+    background: #fff !important;
   }
-  .terms-page { padding: 0 !important; }
-  .terms-page img {
-    width: 210mm !important;
+  .hire-front-page {
+    padding: 6mm 9mm 6mm !important;
+    font-size: 9.2px !important;
+    line-height: 1.12 !important;
+  }
+  .hire-front-page table { page-break-inside: avoid !important; break-inside: avoid !important; }
+  .hire-front-page th,
+  .hire-front-page td { padding: 2.6px 4px !important; line-height: 1.1 !important; }
+  .hire-front-page h1 { margin: 2mm 0 4mm !important; font-size: 24px !important; }
+  .hire-front-page .hire-logo { width: 88px !important; height: auto !important; }
+  .hire-front-page .hire-top-line { margin-bottom: 4mm !important; }
+  .hire-front-page .hire-rates-table { margin-top: 2.5mm !important; }
+  .hire-front-page .hire-terms-box {
+    margin-top: 2.5mm !important;
+    padding: 4px !important;
+    font-size: 6.9px !important;
+    line-height: 1.02 !important;
+    max-height: 42mm !important;
+    overflow: hidden !important;
+  }
+  .hire-front-page .hire-signature-table { margin-top: 2.5mm !important; }
+  .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
+  .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
+  .terms-page {
     height: 297mm !important;
-    object-fit: fill !important;
+    padding: 6mm 8mm !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+  .terms-page img {
+    width: auto !important;
+    height: auto !important;
+    max-width: 194mm !important;
+    max-height: 283mm !important;
+    object-fit: contain !important;
     display: block !important;
+    margin: 0 auto !important;
   }
   .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
 }
