@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { getEnglandWalesBankHolidays } from "../../../lib/bankHolidays";
-import { countWorkingDaysInclusive } from "../../../lib/workingDays";
+import { buildHolidayEntitlementSummary, countHolidayLeaveDaysInclusive, getHolidayYearForDate } from "../../../lib/holidayEntitlement";
 
 function startOfWeek(dateStr?: string | null) {
   const base = dateStr ? new Date(`${dateStr}T00:00:00`) : new Date();
@@ -98,7 +98,7 @@ function normaliseAvailabilityEntry(entry: any, officeNameById: Map<string, stri
     person_key: availabilityPersonKey({ ...entry, person_type: personType }),
     start_date: startDate,
     end_date: endDate,
-    working_day_count: status === "holiday" ? countWorkingDaysInclusive(startDate, endDate) : null,
+    working_day_count: status === "holiday" ? countHolidayLeaveDaysInclusive(startDate, endDate) : null,
   };
 }
 
@@ -186,6 +186,7 @@ export async function GET(req: Request) {
     const weekEndDate = endOfWeek(date);
     const weekStart = isoDate(weekStartDate);
     const weekEnd = isoDate(weekEndDate);
+    const holidayYear = getHolidayYearForDate(weekStart);
 
     const bankHolidaySeed =
       weekEndDate.getFullYear() === weekStartDate.getFullYear()
@@ -203,6 +204,7 @@ export async function GET(req: Request) {
       jobAllocationsRes,
       transportJobsRes,
       officeStaffRes,
+      availabilityHolidayYearRes,
     ] = await Promise.all([
       supabase
         .from("operators")
@@ -315,6 +317,13 @@ export async function GET(req: Request) {
         .select("id, full_name, email, phone, staff_type, archived")
         .eq("archived", false)
         .order("full_name", { ascending: true }),
+
+      supabase
+        .from("operator_availability")
+        .select("id, operator_id, staff_member_id, person_type, start_date, end_date, status")
+        .eq("status", "holiday")
+        .lte("start_date", holidayYear.end)
+        .or(`end_date.gte.${holidayYear.start},end_date.is.null`),
     ]);
 
     if (operatorsRes.error) return NextResponse.json({ error: operatorsRes.error.message }, { status: 400 });
@@ -324,6 +333,7 @@ export async function GET(req: Request) {
     if (jobAllocationsRes.error) return NextResponse.json({ error: jobAllocationsRes.error.message }, { status: 400 });
     if (transportJobsRes.error) return NextResponse.json({ error: transportJobsRes.error.message }, { status: 400 });
     if (officeStaffRes.error) return NextResponse.json({ error: officeStaffRes.error.message }, { status: 400 });
+    if (availabilityHolidayYearRes.error) return NextResponse.json({ error: availabilityHolidayYearRes.error.message }, { status: 400 });
 
     const officeStaffRows = officeStaffRes.data ?? [];
     const officeNameById = new Map<string, string>(officeStaffRows.map((row: any) => [String(row.id), String(row.full_name ?? "Office staff")] as [string, string]));
@@ -356,6 +366,15 @@ export async function GET(req: Request) {
       const list = entriesByOperator.get(operatorId) ?? [];
       list.push(normaliseAvailabilityEntry(entry, officeNameById));
       entriesByOperator.set(operatorId, list);
+    }
+
+    const holidayYearEntriesByPerson = new Map<string, any[]>();
+    for (const entry of availabilityHolidayYearRes.data ?? []) {
+      const personKey = availabilityPersonKey(entry);
+      if (!personKey || personKey.endsWith(":")) continue;
+      const list = holidayYearEntriesByPerson.get(personKey) ?? [];
+      list.push(entry);
+      holidayYearEntriesByPerson.set(personKey, list);
     }
 
     const craneJobsByOperator = new Map<string, any[]>();
@@ -496,6 +515,10 @@ export async function GET(req: Request) {
         String(a.transport_date ?? "").localeCompare(String(b.transport_date ?? ""))
       );
 
+      const holidaySummary = row.planner_person_type === "subcontractor"
+        ? null
+        : buildHolidayEntitlementSummary(holidayYearEntriesByPerson.get(operatorId) ?? [], weekStart);
+
       return {
         id: row.id,
         full_name: row.full_name,
@@ -512,6 +535,7 @@ export async function GET(req: Request) {
           entries
             .filter((entry: any) => String(entry.status ?? "").toLowerCase() === "holiday")
             .reduce((sum: number, entry: any) => sum + Number(entry.working_day_count ?? 0), 0) || 0,
+        holiday_entitlement: holidaySummary,
       };
     });
 
@@ -520,6 +544,8 @@ export async function GET(req: Request) {
       week_end: weekEnd,
       days,
       bank_holidays: bankHolidays,
+      holiday_year: holidayYear,
+      holiday_entitlement_days: 28,
       operators,
     });
   } catch (e: any) {
