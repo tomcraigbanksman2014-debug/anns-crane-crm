@@ -973,7 +973,7 @@ const SUPPORT_TOPICS: SupportTopic[] = [
     title: "Lift plans / range chart",
     keywords: ["lift plan", "method statement", "risk assessment", "range chart", "ground bearing", "mat", "outrigger", "appointed person", "contract lift"],
     message:
-      "For contract lifts, open the job and then the lift plan. Check crane, load, accessories, radius, boom/setup, ground bearing/mat details, method statement and risk assessment. The range chart is a planning aid only and must be checked by the appointed person against the correct manufacturer chart/spec sheet before approval. Do not unlock or approve a lift plan unless authorised.",
+      "For contract lifts, open the job and then the lift plan. To add/select a crane on a lift plan, first check the crane is selected on the job/allocation, then open the Lift Plan page and use the selected crane/crane section to choose the crane from the dropdown. If the crane is not available to pick, check the job allocation/equipment first rather than creating a new crane record. For an extra/alternative crane option, use the additional crane/options area and keep each crane option separate so the appointed person can check the correct pack. Check crane, load, accessories, radius, boom/setup, ground bearing/mat details, method statement and risk assessment. The range chart is a planning aid only and must be checked by the appointed person against the correct manufacturer chart/spec sheet before approval. Do not unlock or approve a lift plan unless authorised.",
     results: [
       { label: "Open jobs", href: "/jobs", badge: "lift plan", description: "Open the job then select Lift Plan." },
       { label: "Open crane documents", href: "/cranes", badge: "specs", description: "Use crane records for spec sheets/load charts." },
@@ -1049,6 +1049,12 @@ function isLikelySupportQuestion(command: string) {
   const text = String(command ?? "").trim();
   const lower = text.toLowerCase();
   if (!text) return false;
+
+  // Staff often ask "add/select/put a crane onto a lift plan" as a help question.
+  // Do not treat that as "create a new crane" unless they explicitly say create a new crane record.
+  if (/\blift\s*plan\b/.test(lower) && /\b(add|put|select|choose|change|swap|remove|crane|setup|pack|print|pdf)\b/.test(lower) && !/\bcreate\s+(?:a\s+|new\s+)?crane\s+(?:record|asset)\b/.test(lower)) return true;
+  if (/\b(?:onto|on to|to|from)\s+(?:a\s+|the\s+)?lift\s*plan\b/.test(lower) && !/\bcreate\s+(?:a\s+|new\s+)?crane\b/.test(lower)) return true;
+
   if (/^(can you|could you|please)?\s*(find|open|show|search)\b/.test(lower)) return false;
   if (/^(can you|could you|please)?\s*(create|move|assign|mark|set|cancel|archive|restore|lock|unlock)\b/.test(lower)) return false;
   if (/^(how|why|what|where|when|can|should|does|do|is|are)\b/.test(lower)) return true;
