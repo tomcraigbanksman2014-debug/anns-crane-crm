@@ -48,12 +48,12 @@ type ChatMessage = {
 };
 
 const EXAMPLES = [
-  "Create crane job for Crendons on Wednesday with Grove",
-  "Find job 169",
+  "How do I upload a transport document?",
+  "Why is a job not showing on the planner?",
+  "How do staff holidays work?",
+  "How do I print a hire agreement?",
+  "Find transport job TR-20260602-1259",
   "Show jobs needing lift plans this week",
-  "Move job 169 to Friday",
-  "Add Shaun as operator on job 169",
-  "Mark today's visit on job 169 as invoiced",
 ];
 
 function supportsSpeechRecognition() {
@@ -80,7 +80,7 @@ export default function CrmAssistant() {
     {
       id: 1,
       from: "assistant",
-      text: "Ask me to find jobs, check missing info, create crane job drafts, move jobs, assign operators, or mark a visit invoiced.",
+      text: "Ask me CRM questions while Tom is away. I can explain how to use pages, find jobs, check missing info, troubleshoot planner/documents/hire agreements/holidays/LOLER, and prepare changes only behind a Confirm screen.",
       response: { examples: EXAMPLES, mode: "help" },
     },
   ]);
@@ -321,7 +321,7 @@ export default function CrmAssistant() {
           <div style={panelHeaderStyle}>
             <div>
               <div style={{ fontWeight: 1000, fontSize: 17 }}>AnnS CRM Assistant</div>
-              <div style={{ fontSize: 12, opacity: 0.72 }}>Type or speak a simple command</div>
+              <div style={{ fontSize: 12, opacity: 0.72 }}>Ask a CRM question or simple command</div>
             </div>
             <button type="button" onClick={() => setOpen(false)} style={closeBtnStyle} aria-label="Close CRM Assistant">
               ×
@@ -345,7 +345,7 @@ export default function CrmAssistant() {
               value={command}
               onChange={(event) => setCommand(event.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="e.g. Create crane job for Crendons on Wednesday with Grove"
+              placeholder="e.g. How do I print a hire agreement?"
               style={textareaStyle}
               rows={3}
             />
