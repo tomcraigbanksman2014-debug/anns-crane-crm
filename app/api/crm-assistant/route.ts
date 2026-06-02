@@ -929,7 +929,7 @@ const SUPPORT_TOPICS: SupportTopic[] = [
     title: "Hire agreements / printing",
     keywords: ["hire agreement", "agreement", "cpa", "rha", "contract lift", "terms", "print", "pdf", "blank page", "blank pages"],
     message:
-      "Hire agreements are generated from the job or transport job hire-agreement page. Check customer details, site/collection/delivery details, hire type, supply description and rates before printing. For transport, use RHA/transport terms where appropriate. If a PDF still shows blank pages, refresh the page after the latest deploy and use the browser Save as PDF option; do not edit the job data just to fix a print layout issue.",
+      "Hire agreements are generated from the job or transport job hire-agreement page. Check customer details, site/collection/delivery details, hire type, supply description and rates before printing. For transport, use RHA/transport terms where appropriate. If the print preview looks wrong, refresh the hire agreement page and try Print / Save as PDF again. Do not edit job details just to fix a printing issue. If it still looks wrong, leave the job alone and ask Tom to check the print layout.",
     results: [
       { label: "Open jobs", href: "/jobs", badge: "crane", description: "Open a crane job then use its hire agreement page." },
       { label: "Open transport jobs", href: "/transport-jobs", badge: "transport", description: "Open a transport job then use its hire agreement page." },
@@ -1007,9 +1007,9 @@ const SUPPORT_TOPICS: SupportTopic[] = [
     title: "Recent changes / something looks wrong",
     keywords: ["changed", "who changed", "audit", "history", "wrong", "broken", "mistake", "deleted", "missing", "before", "after"],
     message:
-      "If something looks wrong, do not guess or bulk-edit. Note the job/customer/page and rough time. The CRM now logs changes in crm_change_audit and status changes in crm_status_change_audit, so Tom can compare the old and new values. For urgent issues, avoid repeated edits and leave a clear note on the record.",
+      "If something looks wrong, do not guess or bulk-edit. Note the job/customer/page and rough time. The CRM records recent changes so Tom can compare what it was before and what it changed to. For urgent issues, avoid repeated edits and leave a clear note on the record.",
     results: [
-      { label: "Open admin audit", href: "/admin/audit", badge: "audit", description: "Use this if available to review recent CRM changes." },
+      { label: "Check recent changes", href: "/admin/audit", badge: "changes", description: "Use this only if you normally have access. Otherwise note the issue for Tom." },
       { label: "Open dashboard", href: "/dashboard", badge: "dashboard", description: "Start here for current operational checks." },
     ],
   },
@@ -1073,7 +1073,7 @@ async function answerSupportWithOpenAI(command: string, matchedTopics: SupportTo
           {
             role: "system",
             content:
-              "You are the built-in AnnS Crane CRM holiday support assistant for office staff. Answer CRM-use questions clearly and safely. Use only the CRM guide provided. Do not invent facts, prices, IDs, or policy. Do not tell users to run SQL. Do not perform changes. For risky actions such as deleting, cancelling, changing invoice status, changing job status, unlocking lift plans, or bulk edits, tell staff to stop, check the record, and get manager confirmation. Keep answers short and practical.",
+              "You are the built-in AnnS Crane CRM holiday support assistant for office staff. Answer CRM-use questions clearly and safely in staff-friendly language. Use only the CRM guide provided. Do not mention developer/admin-only systems such as deploys, Vercel, GitHub, Supabase, SQL, database table names, code files, logs, environment variables, or API routes. Do not invent facts, prices, IDs, or policy. Do not perform changes. For risky actions such as deleting, cancelling, changing invoice status, changing job status, unlocking lift plans, or bulk edits, tell staff to stop, check the record, and get manager confirmation. Keep answers short and practical. If something seems technical, tell them to note the job/page/time and ask Tom, not to try technical fixes.",
           },
           {
             role: "user",
