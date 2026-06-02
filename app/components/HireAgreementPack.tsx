@@ -244,7 +244,7 @@ export default function HireAgreementPack({
   .hire-print-root { display: block !important; width: 210mm !important; margin: 0 auto !important; padding: 0 !important; gap: 0 !important; }
   .hire-page {
     width: 210mm !important;
-    height: 297mm !important;
+    height: auto !important;
     min-height: 0 !important;
     margin: 0 auto !important;
     box-shadow: none !important;
@@ -280,17 +280,16 @@ export default function HireAgreementPack({
   .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
   .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
   .terms-page {
-    height: 297mm !important;
-    padding: 6mm 8mm !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 4mm 8mm !important;
+    display: block !important;
   }
   .terms-page img {
     width: auto !important;
     height: auto !important;
-    max-width: 194mm !important;
-    max-height: 283mm !important;
+    max-width: 190mm !important;
+    max-height: 250mm !important;
     object-fit: contain !important;
     display: block !important;
     margin: 0 auto !important;
@@ -777,7 +776,7 @@ const printCss = `
   }
   .hire-page {
     width: 210mm !important;
-    height: 297mm !important;
+    height: auto !important;
     min-height: 0 !important;
     margin: 0 auto !important;
     box-shadow: none !important;
@@ -813,17 +812,16 @@ const printCss = `
   .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
   .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
   .terms-page {
-    height: 297mm !important;
-    padding: 6mm 8mm !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+    height: auto !important;
+    min-height: 0 !important;
+    padding: 4mm 8mm !important;
+    display: block !important;
   }
   .terms-page img {
     width: auto !important;
     height: auto !important;
-    max-width: 194mm !important;
-    max-height: 283mm !important;
+    max-width: 190mm !important;
+    max-height: 250mm !important;
     object-fit: contain !important;
     display: block !important;
     margin: 0 auto !important;
