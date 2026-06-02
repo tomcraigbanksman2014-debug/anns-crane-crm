@@ -1,12 +1,17 @@
 "use client";
 
-import { printWithDocumentTitle } from "../../../../lib/printDocumentTitle";
+import { useEffect } from "react";
+import { printWithDocumentTitle, setPrintDocumentTitle } from "../../../../lib/printDocumentTitle";
 
 export default function PrintLiftPlanButton({ printTitle }: { printTitle?: string }) {
+  useEffect(() => {
+    setPrintDocumentTitle(printTitle || "Lift Plan");
+  }, [printTitle]);
+
   return (
     <button
       type="button"
-      onClick={() => printWithDocumentTitle(printTitle)}
+      onClick={() => printWithDocumentTitle(printTitle || "Lift Plan", { restoreAfterMs: 120000 })}
       style={{
         padding: "10px 14px",
         borderRadius: 10,
