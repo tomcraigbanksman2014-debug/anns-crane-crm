@@ -1,13 +1,24 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { countWorkingDaysInclusive } from "../lib/workingDays";
+import { countHolidayLeaveDaysInclusive } from "../lib/holidayEntitlement";
 
 type PlannerDay = {
   date: string;
   label: string;
   is_bank_holiday?: boolean;
   bank_holiday_label?: string | null;
+};
+
+type HolidayEntitlementSummary = {
+  entitlement_days: number;
+  holiday_year_start: string;
+  holiday_year_end: string;
+  booked_holiday_days: number;
+  bank_holiday_days: number;
+  used_days: number;
+  remaining_days: number;
+  unpaid_days: number;
 };
 
 type AvailabilityEntry = {
@@ -75,6 +86,7 @@ type OperatorRow = {
   assigned_jobs: AssignedJob[];
   assigned_transport_jobs: AssignedTransportJob[];
   holiday_working_days?: number | null;
+  holiday_entitlement?: HolidayEntitlementSummary | null;
 };
 
 type BoardResponse = {
@@ -82,6 +94,8 @@ type BoardResponse = {
   week_end: string;
   days: PlannerDay[];
   bank_holidays?: Array<{ date: string; label: string }>;
+  holiday_year?: { start: string; end: string };
+  holiday_entitlement_days?: number;
   operators: OperatorRow[];
 };
 
@@ -184,7 +198,7 @@ function entryMatchesDay(entry: AvailabilityEntry, dayIso: string) {
 function holidayWorkingDays(entry: AvailabilityEntry) {
   const saved = Number(entry.working_day_count ?? 0);
   if (saved > 0) return saved;
-  return countWorkingDaysInclusive(entry.start_date, entry.end_date);
+  return countHolidayLeaveDaysInclusive(entry.start_date, entry.end_date);
 }
 
 function statusLabel(value: string | null | undefined) {
@@ -238,6 +252,22 @@ function personTypeLabel(value: string | null | undefined) {
   return "Employee";
 }
 
+function holidayEntitlementText(person: OperatorRow) {
+  const summary = person.holiday_entitlement;
+  if (!summary) return null;
+  const base = `Holiday: ${summary.used_days}/${summary.entitlement_days} used`;
+  const remaining = summary.unpaid_days > 0
+    ? `${summary.unpaid_days} unpaid day${summary.unpaid_days === 1 ? "" : "s"}`
+    : `${summary.remaining_days} left`;
+  return `${base} (${remaining})`;
+}
+
+function holidayEntitlementDetailText(person: OperatorRow) {
+  const summary = person.holiday_entitlement;
+  if (!summary) return null;
+  return `Booked ${summary.booked_holiday_days} + bank holidays ${summary.bank_holiday_days}. Resets 6 April.`;
+}
+
 function emptyForm(operators: OperatorRow[], weekStart: string): FormState {
   return {
     id: null,
@@ -275,6 +305,7 @@ export default function StaffPlannerBoard() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [formError, setFormError] = useState("");
+  const [warningMessage, setWarningMessage] = useState("");
   const [form, setForm] = useState<FormState>({
     id: null,
     person_key: "",
@@ -379,6 +410,7 @@ export default function StaffPlannerBoard() {
   function resetForm() {
     setForm(emptyForm(operators, weekStart));
     setFormError("");
+    setWarningMessage("");
   }
 
   function beginEdit(entry: AvailabilityEntry) {
@@ -396,6 +428,7 @@ export default function StaffPlannerBoard() {
     });
     setFormError("");
     setMessage("");
+    setWarningMessage("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -404,6 +437,7 @@ export default function StaffPlannerBoard() {
     setSaving(true);
     setFormError("");
     setMessage("");
+    setWarningMessage("");
 
     try {
       const payload = {
@@ -428,9 +462,12 @@ export default function StaffPlannerBoard() {
       );
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Could not save availability entry.");
+      const holidayWarning = typeof json?.holiday_warning === "string" ? json.holiday_warning : "";
       setMessage(form.id ? "Availability updated." : "Availability added.");
+      setWarningMessage(holidayWarning);
       await loadBoard(weekStart);
-      resetForm();
+      setForm(emptyForm(operators, weekStart));
+      setFormError("");
     } catch (e: any) {
       setFormError(e?.message || "Could not save availability entry.");
     } finally {
@@ -442,6 +479,7 @@ export default function StaffPlannerBoard() {
     if (!window.confirm("Remove this staff availability entry?")) return;
     setFormError("");
     setMessage("");
+    setWarningMessage("");
     try {
       const res = await fetch(`/api/staff-planner/availability/${entryId}`, { method: "DELETE" });
       const json = await res.json().catch(() => ({}));
@@ -682,6 +720,7 @@ export default function StaffPlannerBoard() {
           <button type="button" style={secondaryBtn} onClick={resetForm}>Clear</button>
         </div>
         {message ? <div style={successBox}>{message}</div> : null}
+        {warningMessage ? <div style={warningBox}>{warningMessage}</div> : null}
         {formError ? <div style={errorBox}>{formError}</div> : null}
       </form>
 
@@ -698,8 +737,10 @@ export default function StaffPlannerBoard() {
 
           <div style={sectionCard}>
             <div style={summaryInline}>
-              <strong>Holiday working days this week:</strong> {weeklyHolidayWorkingDays}
-              <span style={{ opacity: 0.72 }}>Weekends are excluded from holiday totals.</span>
+              <strong>Holiday days this week:</strong> {weeklyHolidayWorkingDays}
+              <span style={{ opacity: 0.72 }}>
+                Leave year {data?.holiday_year?.start ?? "06 April"} to {data?.holiday_year?.end ?? "05 April"}. Entitlement is 28 days including bank holidays; weekends are not counted.
+              </span>
             </div>
           </div>
 
@@ -719,6 +760,11 @@ export default function StaffPlannerBoard() {
                               <div>
                                 <div style={{ fontWeight: 1000 }}>{operator.full_name || "Unnamed staff member"}</div>
                                 <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{personTypeLabel(operator.planner_person_type)}{operator.status ? ` • ${operator.status}` : ""}</div>
+                                {holidayEntitlementText(operator) ? (
+                                  <div style={{ marginTop: 4, fontSize: 12, fontWeight: 900, color: operator.holiday_entitlement?.unpaid_days ? "#8b0000" : "#111" }}>
+                                    {holidayEntitlementText(operator)}
+                                  </div>
+                                ) : null}
                               </div>
                               <div style={{ fontSize: 12, opacity: 0.72, textAlign: "right" }}>
                                 <div>{activeDay.label}</div>
@@ -757,6 +803,16 @@ export default function StaffPlannerBoard() {
                           <div key={`${personKey(operator)}-header`} style={rowHeaderCell}>
                             <div style={{ fontWeight: 900 }}>{operator.full_name || "Unnamed staff member"}</div>
                             <div style={{ marginTop: 4, fontSize: 12, opacity: 0.72 }}>{personTypeLabel(operator.planner_person_type)}{operator.status ? ` • ${operator.status}` : ""}</div>
+                            {holidayEntitlementText(operator) ? (
+                              <div style={{ marginTop: 8, fontSize: 12, fontWeight: 900, color: operator.holiday_entitlement?.unpaid_days ? "#8b0000" : "#111" }}>
+                                {holidayEntitlementText(operator)}
+                              </div>
+                            ) : null}
+                            {holidayEntitlementDetailText(operator) ? (
+                              <div style={{ marginTop: 3, fontSize: 11, opacity: 0.72 }}>
+                                {holidayEntitlementDetailText(operator)}
+                              </div>
+                            ) : null}
                             <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
                               <div>Crane jobs: {countRow?.crane ?? 0}</div>
                               <div>Transport jobs: {countRow?.transport ?? 0}</div>
@@ -890,6 +946,16 @@ const successBox: React.CSSProperties = {
   border: "1px solid rgba(0,160,80,0.18)",
   color: "#0b6b34",
   fontWeight: 700,
+};
+
+const warningBox: React.CSSProperties = {
+  marginTop: 12,
+  padding: "12px 14px",
+  borderRadius: 12,
+  background: "rgba(255,170,0,0.16)",
+  border: "1px solid rgba(255,170,0,0.28)",
+  color: "#7a4a00",
+  fontWeight: 800,
 };
 
 const legendWrap: React.CSSProperties = {
