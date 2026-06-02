@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { defaultBlocksAssignment } from "../../../lib/staffAvailability";
-import { countWorkingDaysInclusive } from "../../../lib/workingDays";
+import { countHolidayLeaveDaysInclusive, getPersonHolidayEntitlementSummary, holidayEntitlementWarning } from "../../../lib/holidayEntitlement";
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -110,7 +110,7 @@ export async function POST(req: Request) {
       status,
       notes,
       blocks_assignment: blocksAssignment,
-      working_day_count: status === "holiday" ? countWorkingDaysInclusive(startDate, endDate) : null,
+      working_day_count: status === "holiday" ? countHolidayLeaveDaysInclusive(startDate, endDate) : null,
       created_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     };
@@ -123,7 +123,14 @@ export async function POST(req: Request) {
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    return NextResponse.json({ ok: true, entry: data });
+    let holiday_summary = null;
+    let holiday_warning = null;
+    if (String(data?.status ?? "").toLowerCase() === "holiday") {
+      holiday_summary = await getPersonHolidayEntitlementSummary(supabase, data, data?.start_date);
+      holiday_warning = holidayEntitlementWarning(holiday_summary);
+    }
+
+    return NextResponse.json({ ok: true, entry: data, holiday_summary, holiday_warning });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Could not create availability entry." }, { status: 400 });
   }
