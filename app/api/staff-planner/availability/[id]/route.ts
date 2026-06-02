@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../../lib/apiAuth";
 import { defaultBlocksAssignment } from "../../../../lib/staffAvailability";
-import { countWorkingDaysInclusive } from "../../../../lib/workingDays";
+import { countHolidayLeaveDaysInclusive, getPersonHolidayEntitlementSummary, holidayEntitlementWarning } from "../../../../lib/holidayEntitlement";
 
 function clean(value: unknown) {
   const text = String(value ?? "").trim();
@@ -125,7 +125,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       return NextResponse.json({ error: "End date cannot be earlier than start date." }, { status: 400 });
     }
 
-    payload.working_day_count = status === "holiday" ? countWorkingDaysInclusive(payload.start_date, payload.end_date) : null;
+    payload.working_day_count = status === "holiday" ? countHolidayLeaveDaysInclusive(payload.start_date, payload.end_date) : null;
 
     const { data, error } = await supabase
       .from("operator_availability")
@@ -136,7 +136,14 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
-    return NextResponse.json({ ok: true, entry: data });
+    let holiday_summary = null;
+    let holiday_warning = null;
+    if (String(data?.status ?? "").toLowerCase() === "holiday") {
+      holiday_summary = await getPersonHolidayEntitlementSummary(supabase, data, data?.start_date);
+      holiday_warning = holidayEntitlementWarning(holiday_summary);
+    }
+
+    return NextResponse.json({ ok: true, entry: data, holiday_summary, holiday_warning });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message ?? "Could not update availability entry." }, { status: 400 });
   }
