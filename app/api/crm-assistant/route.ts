@@ -902,34 +902,68 @@ type SupportTopic = {
 
 const SUPPORT_TOPICS: SupportTopic[] = [
   {
-    id: "planner",
-    title: "Planner / jobs not showing",
-    keywords: ["planner", "calendar", "diary", "not showing", "disappeared", "late cancelled", "late-cancelled", "move job", "drag"],
+    id: "assistant_use",
+    title: "How to use the CRM Assistant",
+    keywords: ["assistant", "help", "what can you do", "examples", "ask", "question", "command", "talk", "voice"],
     message:
-      "For crane planner issues, first check the date/week at the top and whether the job is a crane job rather than transport. Late-cancelled jobs should still show on the planner. Do not change a job status just to make it appear. If a job has disappeared, search the job number first, then check the audit/recent changes before editing anything.",
+      "The CRM Assistant can answer normal CRM questions, explain where to click, find/open jobs and transport jobs, and prepare some changes behind a Confirm screen. For staff support, ask it in plain English. If it says a change is risky or needs manager approval, do not carry on guessing.",
     results: [
-      { label: "Open crane planner", href: "/planner", badge: "planner", description: "Use this for crane jobs and crane allocations." },
-      { label: "Open transport planner", href: "/transport-planner", badge: "planner", description: "Use this for transport jobs, vehicles and haulage movements." },
-      { label: "Open jobs list", href: "/jobs", badge: "jobs", description: "Use filters for customer, date and status." },
+      { label: "Open dashboard", href: "/dashboard", badge: "start", description: "Use the dashboard as the safest starting point." },
+    ],
+  },
+  {
+    id: "dashboard_search",
+    title: "Dashboard / search / finding things",
+    keywords: ["dashboard", "search", "find", "where is", "can't find", "cant find", "look up", "filter", "list", "open page", "menu"],
+    message:
+      "Use the dashboard for day-to-day actions and the search/jobs lists to find records. Search by job number, transport number, customer, site, collection address or delivery address. If you cannot find something, check filters/date/status before creating a duplicate record.",
+    results: [
+      { label: "Open dashboard", href: "/dashboard", badge: "dashboard", description: "Main CRM start page." },
+      { label: "Open jobs", href: "/jobs", badge: "jobs", description: "Crane jobs list with filters." },
+      { label: "Open transport jobs", href: "/transport-jobs", badge: "transport", description: "Transport jobs list with filters." },
+    ],
+  },
+  {
+    id: "jobs",
+    title: "Crane jobs",
+    keywords: ["crane job", "job page", "job details", "job status", "operator", "crane allocation", "site", "customer", "late cancelled", "late-cancelled", "duplicate job", "recurring job"],
+    message:
+      "Crane jobs are managed from Jobs. Check customer, site, date/time, crane/equipment, operator/labour, hire type, price, invoice status, documents and lift plan. Do not change a job status just to make it appear somewhere. Late-cancelled jobs may still show on planners because they can still need tracking/invoicing.",
+    results: [
+      { label: "Open jobs", href: "/jobs", badge: "jobs", description: "Crane jobs and filters." },
+      { label: "Open crane planner", href: "/planner", badge: "planner", description: "Crane planner view." },
     ],
   },
   {
     id: "transport",
     title: "Transport jobs",
-    keywords: ["transport", "haulage", "hiab", "vehicle", "driver", "movement order", "escort", "police", "delivery", "collection"],
+    keywords: ["transport", "transport job", "haulage", "hiab", "vehicle", "driver", "movement order", "escort", "police", "self escort", "delivery", "collection", "route", "abnormal load"],
     message:
-      "Transport jobs live under Transport Jobs and Transport Planner, not the crane planner. Check collection date/time, delivery date/time, vehicle, driver/operator, price, invoice status and document uploads. Movement order, self escort and police escort fields should remain visible when required. Do not overwrite escort or movement-order notes unless you are sure.",
+      "Transport jobs live under Transport Jobs and Transport Planner, not the crane planner. Check collection/delivery dates and times, vehicle, driver/operator, price, invoice status, documents, movement order, self escort and police escort fields. If movement order or escort is required, those details should remain visible after saving.",
     results: [
       { label: "Open transport jobs", href: "/transport-jobs", badge: "transport", description: "Search and filter transport jobs." },
       { label: "Open transport planner", href: "/transport-planner", badge: "planner", description: "Vehicle/day view for transport work." },
+      { label: "Open transport map", href: "/transport-map", badge: "map", description: "Route/map view where available." },
+    ],
+  },
+  {
+    id: "planner",
+    title: "Planners / jobs not showing",
+    keywords: ["planner", "calendar", "diary", "not showing", "disappeared", "missing from planner", "move job", "drag", "drop", "availability", "free", "booked", "today", "this week"],
+    message:
+      "For planner issues, first check the correct planner, date/week and filters. Crane jobs show on the crane planner; transport jobs show on the transport planner. Late-cancelled jobs should still show. If a job has disappeared, search the job/transport number first and do not change the status just to force it onto the planner.",
+    results: [
+      { label: "Open crane planner", href: "/planner", badge: "planner", description: "Crane jobs and crane allocations." },
+      { label: "Open transport planner", href: "/transport-planner", badge: "planner", description: "Transport jobs and vehicle allocations." },
+      { label: "Open staff planner", href: "/staff-planner", badge: "staff", description: "Staff holidays/availability and allocations." },
     ],
   },
   {
     id: "hire_agreement",
     title: "Hire agreements / printing",
-    keywords: ["hire agreement", "agreement", "cpa", "rha", "contract lift", "terms", "print", "pdf", "blank page", "blank pages"],
+    keywords: ["hire agreement", "agreement", "cpa", "rha", "contract lift", "terms", "print", "pdf", "save as pdf", "blank page", "blank pages", "filename", "file name", "mac", "safari"],
     message:
-      "Hire agreements are generated from the job or transport job hire-agreement page. Check customer details, site/collection/delivery details, hire type, supply description and rates before printing. For transport, use RHA/transport terms where appropriate. If the print preview looks wrong, refresh the hire agreement page and try Print / Save as PDF again. Do not edit job details just to fix a printing issue. If it still looks wrong, leave the job alone and ask Tom to check the print layout.",
+      "Hire agreements are generated from the job or transport job hire-agreement page. Check customer/site or collection/delivery details, hire type, supply description and rates before printing. For transport, use RHA/transport terms where appropriate. If the print preview looks wrong, refresh the hire agreement page and try Print / Save as PDF again. Do not edit job details just to fix a printing issue.",
     results: [
       { label: "Open jobs", href: "/jobs", badge: "crane", description: "Open a crane job then use its hire agreement page." },
       { label: "Open transport jobs", href: "/transport-jobs", badge: "transport", description: "Open a transport job then use its hire agreement page." },
@@ -938,11 +972,11 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   {
     id: "documents",
     title: "Documents / uploads",
-    keywords: ["document", "upload", "file", "attachment", "photo", "spec sheet", "load chart", "certificate", "pdf"],
+    keywords: ["document", "upload", "file", "attachment", "photo", "image", "spec sheet", "load chart", "certificate", "pdf", "download", "preview"],
     message:
       "For job documents, open the job or transport job and use the documents/upload area. If an upload appears to error but the file shows when you go back, do not upload it again repeatedly because duplicates may be created. Refresh the job page first, then check documents. If a document is missing, note the job number, filename and time.",
     results: [
-      { label: "Open jobs", href: "/jobs", badge: "documents", description: "Open the relevant job record first." },
+      { label: "Open jobs", href: "/jobs", badge: "documents", description: "Open the relevant crane job record first." },
       { label: "Open transport jobs", href: "/transport-jobs", badge: "documents", description: "Open the relevant transport job record first." },
       { label: "Open cranes", href: "/cranes", badge: "specs", description: "Crane spec sheets/load charts are usually attached to crane records." },
     ],
@@ -950,19 +984,19 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   {
     id: "holidays",
     title: "Staff holidays",
-    keywords: ["holiday", "holidays", "annual leave", "bank holiday", "unpaid", "entitlement", "28 days", "leave", "staff planner"],
+    keywords: ["holiday", "holidays", "annual leave", "bank holiday", "unpaid", "entitlement", "28 days", "leave", "staff planner", "absence", "sick", "working days", "6 april", "5 april"],
     message:
       "Holiday entitlement is 28 days including bank holidays. The holiday year runs from 6 April to 5 April. Weekends should not count as used days. Bank holidays are included in the 28-day allowance. If a booking takes someone over their allowance, the CRM should warn how many days are unpaid. Subcontractors should not be entitlement-tracked like employees.",
     results: [
-      { label: "Open staff planner", href: "/staff-planner", badge: "holidays", description: "Use this to view/book staff availability and holidays." },
+      { label: "Open staff planner", href: "/staff-planner", badge: "holidays", description: "View/book staff availability and holidays." },
     ],
   },
   {
     id: "loler",
     title: "LOLER inspections",
-    keywords: ["loler", "inspection", "certificate", "inspected", "done", "passed", "crane inspection"],
+    keywords: ["loler", "inspection", "certificate", "inspected", "done", "passed", "crane inspection", "next due", "report ref", "inspection run"],
     message:
-      "LOLER runs can span several days and not every crane is inspected at once. Planner badges should show across the inspection window. Use the LOLER inspection area to mark each crane completed/passed and record the completed date, certificate/report ref, next due date and notes. Only use block assignment if that crane must not be booked while inspected.",
+      "LOLER runs can span several days and not every crane is inspected at once. Planner badges should show across the inspection window. Use the LOLER inspection area to mark each crane completed/passed and record completed date, certificate/report ref, next due date and notes. Only block assignment if that crane must not be booked while inspected.",
     results: [
       { label: "Open crane planner", href: "/planner", badge: "LOLER", description: "LOLER badges appear on crane planner days." },
       { label: "Open cranes", href: "/cranes", badge: "cranes", description: "Check crane records and LOLER due dates." },
@@ -970,10 +1004,10 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   },
   {
     id: "lift_plan",
-    title: "Lift plans / range chart",
-    keywords: ["lift plan", "method statement", "risk assessment", "range chart", "ground bearing", "mat", "outrigger", "appointed person", "contract lift"],
+    title: "Lift plans / range chart / appointed person checks",
+    keywords: ["lift plan", "method statement", "risk assessment", "range chart", "ground bearing", "mat", "mats", "outrigger", "appointed person", "contract lift", "boom", "jib", "radius", "accessories", "crane setup", "load chart", "pack", "add crane", "select crane", "choose crane", "extra crane", "alternative crane"],
     message:
-      "For contract lifts, open the job and then the lift plan. To add/select a crane on a lift plan, first check the crane is selected on the job/allocation, then open the Lift Plan page and use the selected crane/crane section to choose the crane from the dropdown. If the crane is not available to pick, check the job allocation/equipment first rather than creating a new crane record. For an extra/alternative crane option, use the additional crane/options area and keep each crane option separate so the appointed person can check the correct pack. Check crane, load, accessories, radius, boom/setup, ground bearing/mat details, method statement and risk assessment. The range chart is a planning aid only and must be checked by the appointed person against the correct manufacturer chart/spec sheet before approval. Do not unlock or approve a lift plan unless authorised.",
+      "For contract lifts, open the job and then the lift plan. To add/select a crane on a lift plan, first check the crane is selected on the job/allocation, then open the Lift Plan page and use the selected crane/crane section to choose the crane from the dropdown. If the crane is not available, check job allocation/equipment first rather than creating a new crane record. For an extra/alternative crane option, use the additional crane/options area and keep each crane option separate. The range chart is a planning aid only and must be checked by the appointed person against the correct manufacturer chart/spec sheet before approval. Do not unlock or approve a lift plan unless authorised.",
     results: [
       { label: "Open jobs", href: "/jobs", badge: "lift plan", description: "Open the job then select Lift Plan." },
       { label: "Open crane documents", href: "/cranes", badge: "specs", description: "Use crane records for spec sheets/load charts." },
@@ -981,8 +1015,8 @@ const SUPPORT_TOPICS: SupportTopic[] = [
   },
   {
     id: "invoice",
-    title: "Invoices / visit invoicing",
-    keywords: ["invoice", "invoiced", "paid", "part paid", "visit invoiced", "undo visit", "outstanding", "not invoiced"],
+    title: "Invoices / visit invoicing / payments",
+    keywords: ["invoice", "invoiced", "paid", "part paid", "visit invoiced", "undo visit", "outstanding", "not invoiced", "payment", "vat", "amount paid", "completed not invoiced"],
     message:
       "Invoice status is separate from job status. Visit invoicing marks individual planner visits; full-job invoice status marks the whole job. For multi-day jobs, be careful not to mark every visit if only one visit should be invoiced. Late-cancelled jobs can still be invoiceable where applicable. If unsure, check the job page and dashboard/outstanding invoices before changing statuses.",
     results: [
@@ -992,25 +1026,80 @@ const SUPPORT_TOPICS: SupportTopic[] = [
     ],
   },
   {
+    id: "customers_quotes",
+    title: "Customers / quotes / follow-ups",
+    keywords: ["customer", "client", "contact", "quote", "quotation", "follow up", "email customer", "phone", "address", "site contact", "order"],
+    message:
+      "Customers and quotes should be checked before creating duplicates. Search by company name, contact, email, postcode or job reference. For quote follow-ups, open Quotes or Sales Hub. Do not overwrite customer contact details unless you are sure the new details are correct.",
+    results: [
+      { label: "Open customers", href: "/customers", badge: "customers", description: "Customer records and contacts." },
+      { label: "Open quotes", href: "/quotes", badge: "quotes", description: "Quote list and follow-ups." },
+      { label: "Open Sales Hub", href: "/sales-hub", badge: "sales", description: "Sales follow-up tools." },
+    ],
+  },
+  {
+    id: "suppliers_pos",
+    title: "Suppliers / subcontractors / purchase orders",
+    keywords: ["supplier", "subcontractor", "sub contractor", "cross hire", "purchase order", "po", "cost", "supplier cost", "external crane", "subbie"],
+    message:
+      "Suppliers/subcontractors are managed separately from operators and should not need normal CRM logins. Purchase orders and supplier costs should be checked carefully before saving. If adding multiple suppliers to a job, keep each supplier/cost/description separate so finance can understand what was used.",
+    results: [
+      { label: "Open suppliers", href: "/suppliers", badge: "suppliers", description: "Supplier/subcontractor records." },
+      { label: "Open purchase orders", href: "/purchase-orders", badge: "PO", description: "Purchase orders and supplier costs." },
+    ],
+  },
+  {
+    id: "assets",
+    title: "Cranes / vehicles / assets / downtime",
+    keywords: ["crane", "vehicle", "asset", "fleet", "reg", "registration", "maintenance", "downtime", "mot", "service", "repair", "breakdown", "unavailable", "location", "what3words", "asset location"],
+    message:
+      "Cranes and vehicles are managed from their asset records. Use downtime/availability where a crane or vehicle is unavailable for maintenance, MOT, service, inspection, repair or breakdown. Do not delete an asset just because it is unavailable; mark it correctly or add downtime instead.",
+    results: [
+      { label: "Open cranes", href: "/cranes", badge: "cranes", description: "Crane records, documents and LOLER dates." },
+      { label: "Open vehicles", href: "/vehicles", badge: "vehicles", description: "Vehicle records and details." },
+      { label: "Open asset availability", href: "/asset-availability", badge: "downtime", description: "Maintenance/downtime bookings." },
+      { label: "Open asset locations", href: "/equipment/locations", badge: "locations", description: "Where assets are currently recorded." },
+    ],
+  },
+  {
     id: "sales",
     title: "Sales Hub / campaigns",
-    keywords: ["sales hub", "campaign", "email", "outreach", "lead", "quote follow up", "dormant", "unsubscribe", "suppression"],
+    keywords: ["sales hub", "campaign", "email", "outreach", "lead", "quote follow up", "dormant", "unsubscribe", "suppression", "marketing", "test mode", "availability notice"],
     message:
-      "Use Sales Hub for lead follow-up, quote follow-up, dormant customer recovery and availability notices. Marketing/campaign emails must include the unsubscribe/removal wording or link, and suppressed/do-not-contact contacts must be skipped. If Microsoft sending is restricted or blocked, do not keep sending; check mailbox/Microsoft status first.",
+      "Use Sales Hub for lead follow-up, quote follow-up, dormant customer recovery and availability notices. Marketing/campaign emails must include unsubscribe/removal wording or link, and suppressed/do-not-contact contacts must be skipped. If sending looks blocked or restricted, do not keep sending repeatedly.",
     results: [
       { label: "Open Sales Hub", href: "/sales-hub", badge: "sales", description: "Campaigns, leads and outreach tools." },
       { label: "Open quotes", href: "/quotes", badge: "quotes", description: "Quote follow-up starts from quotes/customers." },
     ],
   },
   {
-    id: "changes",
-    title: "Recent changes / something looks wrong",
-    keywords: ["changed", "who changed", "audit", "history", "wrong", "broken", "mistake", "deleted", "missing", "before", "after"],
+    id: "errors",
+    title: "Errors / something looks wrong",
+    keywords: ["error", "problem", "not working", "broken", "wrong", "stuck", "failed", "won't save", "wont save", "can't save", "cant save", "loading", "blank", "crashed", "500"],
     message:
-      "If something looks wrong, do not guess or bulk-edit. Note the job/customer/page and rough time. The CRM records recent changes so Tom can compare what it was before and what it changed to. For urgent issues, avoid repeated edits and leave a clear note on the record.",
+      "If something looks wrong, do not guess or bulk-edit. Refresh once, check you are on the correct record/page, and note the job number, customer, page and rough time. If it still looks wrong, leave the record alone and report it clearly. Repeated edits can make it harder to fix later.",
     results: [
-      { label: "Check recent changes", href: "/admin/audit", badge: "changes", description: "Use this only if you normally have access. Otherwise note the issue for Tom." },
       { label: "Open dashboard", href: "/dashboard", badge: "dashboard", description: "Start here for current operational checks." },
+    ],
+  },
+  {
+    id: "changes",
+    title: "Recent changes / audit trail",
+    keywords: ["changed", "who changed", "history", "audit", "recent changes", "what changed", "before", "after", "deleted", "missing", "status changed", "wrong status"],
+    message:
+      "If something has changed unexpectedly, do not try lots of fixes. Note the record/job number and rough time. The CRM records recent changes so Tom can compare what it was before and what it changed to. Staff should not use technical screens unless they normally have access.",
+    results: [
+      { label: "Open dashboard", href: "/dashboard", badge: "dashboard", description: "Start here and note the affected job/customer." },
+    ],
+  },
+  {
+    id: "safe_working",
+    title: "Safe working while Tom is away",
+    keywords: ["tom away", "holiday", "while tom is away", "not sure", "unsure", "should i", "can this wait", "what should i do", "urgent", "emergency"],
+    message:
+      "Use the CRM as normal for everyday work. If unsure, ask the CRM Assistant first. Do not delete records, bulk change statuses, change invoice status, unlock lift plans or repeatedly re-upload documents unless you are sure. Write down the job/customer/page and leave it for Tom/admin if still unsure.",
+    results: [
+      { label: "Open dashboard", href: "/dashboard", badge: "start", description: "Start from the dashboard and avoid risky changes." },
     ],
   },
 ];
@@ -1050,16 +1139,27 @@ function isLikelySupportQuestion(command: string) {
   const lower = text.toLowerCase();
   if (!text) return false;
 
-  // Staff often ask "add/select/put a crane onto a lift plan" as a help question.
-  // Do not treat that as "create a new crane" unless they explicitly say create a new crane record.
-  if (/\blift\s*plan\b/.test(lower) && /\b(add|put|select|choose|change|swap|remove|crane|setup|pack|print|pdf)\b/.test(lower) && !/\bcreate\s+(?:a\s+|new\s+)?crane\s+(?:record|asset)\b/.test(lower)) return true;
-  if (/\b(?:onto|on to|to|from)\s+(?:a\s+|the\s+)?lift\s*plan\b/.test(lower) && !/\bcreate\s+(?:a\s+|new\s+)?crane\b/.test(lower)) return true;
+  const hasQuestionLead = /^(how|why|what|where|when|can|could|should|does|do|is|are|i need help|help me|help with)\b/.test(lower) || /[?]$/.test(text);
+  if (hasQuestionLead) return true;
 
-  if (/^(can you|could you|please)?\s*(find|open|show|search)\b/.test(lower)) return false;
-  if (/^(can you|could you|please)?\s*(create|move|assign|mark|set|cancel|archive|restore|lock|unlock)\b/.test(lower)) return false;
-  if (/^(how|why|what|where|when|can|should|does|do|is|are)\b/.test(lower)) return true;
-  if (/[?]$/.test(text)) return true;
-  if (/\b(error|issue|problem|not working|not showing|disappeared|blank page|blank pages|confused|stuck|help with|how to)\b/.test(lower)) return true;
+  const crmDomainWords = /\b(job|jobs|transport|planner|diary|calendar|lift\s*plan|range\s*chart|hire\s*agreement|agreement|document|upload|invoice|holiday|staff|loler|inspection|customer|quote|supplier|subcontractor|purchase\s*order|po|crane|vehicle|asset|sales\s*hub|campaign|route|movement\s*order|escort|operator|driver|dashboard|search|print|pdf)\b/.test(lower);
+  const issueWords = /\b(error|issue|problem|not working|not showing|disappeared|missing|blank page|blank pages|blank|confused|stuck|failed|wrong|broken|won't|wont|can't|cant|help with|how to|unsure|not sure)\b/.test(lower);
+
+  // Direct record-opening/search commands should remain actions.
+  if (/^(can you|could you|please)?\s*(find|open|show|search)\b/.test(lower) && /(\bjob\s*#?\s*\d+\b|\bTR[-\s]?[A-Z0-9-]+\b|\btransport\s*(?:job)?\s*#?\s*[A-Z0-9-]+\b)/i.test(text)) return false;
+
+  // Clear write commands with a target record should remain confirmation/draft actions.
+  const explicitWriteLead = /^(can you|could you|please)?\s*(create|move|assign|mark|set|cancel|archive|restore|lock|unlock|add\s+note|change\s+status|mark\s+.*invoiced)\b/.test(lower);
+  const hasTargetRecord = /(\bjob\s*#?\s*\d+\b|\bTR[-\s]?[A-Z0-9-]+\b|\btransport\s*(?:job)?\s*#?\s*[A-Z0-9-]+\b)/i.test(text);
+  const clearCreateJob = /^\s*(create|new|add)\s+(?:a\s+)?(?:crane\s+)?job\b/.test(lower) || /^\s*(create|new|add)\s+(?:a\s+)?transport\s+job\b/.test(lower);
+  const clearCreateRecord = /^\s*(create|new|add)\s+(?:a\s+)?(?:customer|client|supplier|subcontractor|operator|driver|vehicle|crane)\s+(?:called|named|record\b)/.test(lower);
+  if ((explicitWriteLead && hasTargetRecord) || clearCreateJob || clearCreateRecord) return false;
+
+  // Staff often write short phrases like "add a crane onto a lift plan".
+  // Treat CRM workflow phrases as help unless they clearly identify a record/action target.
+  if (crmDomainWords && (issueWords || /\b(add|put|select|choose|change|swap|remove|print|upload|book|edit|delete|mark|set|create|move|assign|open|find|show|check)\b/.test(lower))) return true;
+  if (/\b(?:onto|on to|to|from|for)\s+(?:a\s+|the\s+)?(?:lift\s*plan|planner|job|transport|invoice|holiday|document)\b/.test(lower) && !hasTargetRecord) return true;
+
   return false;
 }
 
@@ -1079,7 +1179,7 @@ async function answerSupportWithOpenAI(command: string, matchedTopics: SupportTo
           {
             role: "system",
             content:
-              "You are the built-in AnnS Crane CRM holiday support assistant for office staff. Answer CRM-use questions clearly and safely in staff-friendly language. Use only the CRM guide provided. Do not mention developer/admin-only systems such as deploys, Vercel, GitHub, Supabase, SQL, database table names, code files, logs, environment variables, or API routes. Do not invent facts, prices, IDs, or policy. Do not perform changes. For risky actions such as deleting, cancelling, changing invoice status, changing job status, unlocking lift plans, or bulk edits, tell staff to stop, check the record, and get manager confirmation. Keep answers short and practical. If something seems technical, tell them to note the job/page/time and ask Tom, not to try technical fixes.",
+              "You are the built-in AnnS Crane CRM holiday support assistant for office staff. Answer almost any CRM-use question clearly and safely in staff-friendly language. Use only the CRM guide provided and general CRM navigation common sense. Do not mention developer/admin-only systems such as deploys, Vercel, GitHub, Supabase, SQL, database table names, code files, logs, environment variables, or API routes. Do not invent facts, prices, IDs, or policy. Do not perform changes. If the question is unclear, give the most likely steps and say what information to check, such as job number, transport number, customer, page, date or status. For risky actions such as deleting, cancelling, changing invoice status, changing job status, unlocking lift plans, or bulk edits, tell staff to stop, check the record, and get manager confirmation. Keep answers short and practical. If something seems technical, tell them to note the job/page/time and ask Tom, not to try technical fixes.",
           },
           {
             role: "user",
@@ -2000,6 +2100,10 @@ export async function POST(req: Request) {
 
     const href = pageHref(parsed.page_name ?? parsed.search_query, parsed);
     if (href) return handleNavigate({ ...parsed, page_name: parsed.page_name ?? parsed.search_query });
+
+    // Final safety net: if it looks like a CRM workflow/help phrase but did not match a command, answer as support rather than asking odd follow-up questions.
+    if (supportKeywords(command).length || isLikelySupportQuestion(command)) return handleSupportQuestion(command);
+
     return handleSearch(supabase, parsed, command);
   } catch (e: any) {
     return responseJson({ error: e?.message ?? "CRM Assistant failed." }, 400);
