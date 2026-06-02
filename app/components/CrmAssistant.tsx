@@ -48,12 +48,14 @@ type ChatMessage = {
 };
 
 const EXAMPLES = [
-  "How do I upload a transport document?",
+  "Ask me anything about using the CRM",
+  "How do I add a crane onto a lift plan?",
   "Why is a job not showing on the planner?",
+  "How do I upload a transport document?",
   "How do staff holidays work?",
   "How do I print a hire agreement?",
   "Find transport job TR-20260602-1259",
-  "Show jobs needing lift plans this week",
+  "What should I do if something looks wrong?",
 ];
 
 function supportsSpeechRecognition() {
@@ -80,7 +82,7 @@ export default function CrmAssistant() {
     {
       id: 1,
       from: "assistant",
-      text: "Ask me CRM questions while Tom is away. I can explain how to use pages, find jobs, check missing info, troubleshoot planner/documents/hire agreements/holidays/LOLER, and prepare changes only behind a Confirm screen.",
+      text: "Ask me anything about using the CRM while Tom is away. I will answer how-to questions first, help find jobs/documents/planners, troubleshoot common issues, and only prepare changes behind a Confirm screen when it is clearly a command.",
       response: { examples: EXAMPLES, mode: "help" },
     },
   ]);
