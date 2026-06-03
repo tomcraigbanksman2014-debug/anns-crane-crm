@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type AppendixDocument = {
   id: string;
@@ -69,6 +69,16 @@ export default function AppendixDocumentManager({
   const [message, setMessage] = useState<string | null>(null);
 
   const imageCount = useMemo(() => docs.filter(isImageDoc).length, [docs]);
+
+  // router.refresh() gives this client component fresh server props after an upload.
+  // Without this sync, the upload succeeds but this manager keeps showing its old
+  // first-render state, which makes the new appendix images look as if they
+  // disappeared until a hard page reload. Do not overwrite a manual reordered
+  // list while the user has unsaved order changes.
+  useEffect(() => {
+    if (dirty) return;
+    setDocs(initialDocuments);
+  }, [initialDocuments, dirty]);
 
   function setOrderedDocs(next: AppendixDocument[]) {
     setDocs(next);
