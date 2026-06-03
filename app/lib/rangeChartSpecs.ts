@@ -63,6 +63,14 @@ export type RangeChartCapacityResult = {
   source: string;
   warning?: string;
   setupAdvice?: string;
+  /**
+   * True only when it is acceptable to use an explicitly entered/manual capacity value.
+   * For recognised structured cranes, this stays false when the exact chart/setup cannot
+   * be matched, so stale max-capacity values such as 4t/35t/80t cannot be used as
+   * capacity-at-radius.
+   */
+  allowManualCapacityFallback?: boolean;
+  recognisedRuleId?: string | null;
 };
 
 export type RangeChartBearingResult = {
@@ -526,13 +534,37 @@ function curveMatches({
   return true;
 }
 
-function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
-  const curves = rule.capacityCurves ?? [];
-  const matches = curves
+function matchingCapacityCurves(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
+  return (rule.capacityCurves ?? [])
     .filter((item) => curveMatches({ rule, curve: item, boomLengthM: args.boomLengthM, jibLengthM: args.jibLengthM, jibAngleDeg: args.jibAngleDeg, setupLabel: args.setupLabel, sourceLabel: args.sourceLabel }))
-    .filter((item) => conservativeCapacityFromCurve(item.points, args.radiusM) !== null)
     .sort((a, b) => boomCurveScore(a, args.boomLengthM) - boomCurveScore(b, args.boomLengthM));
+}
+
+function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
+  const matches = matchingCapacityCurves(rule, args)
+    .filter((item) => conservativeCapacityFromCurve(item.points, args.radiusM) !== null);
   return matches[0] ?? null;
+}
+
+function structuredManualWarning(rule: RangeChartSpecRule, args: { radiusM: number; setupLabel?: string | null; sourceLabel?: string | null; boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null }) {
+  const selectorText = lower(`${args.setupLabel ?? ""} ${args.sourceLabel ?? ""}`);
+  if (rule.id === "spx532" && !/\bj[567]\b|full[-\s]?stability|jib500gr|grabber/i.test(selectorText)) {
+    return "Jekko SPX532 recognised, but the exact J-rating/stability/attachment chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct SPX532 J7/J6/J5/attachment chart or check manually against the manufacturer chart.";
+  }
+  if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
+    return "Grove GMK4080-1 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
+  }
+  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
+    return "HK40 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
+  }
+  const curvesForSetup = matchingCapacityCurves(rule, args);
+  if (curvesForSetup.length) {
+    const maxRadius = Math.max(...curvesForSetup.flatMap((curve) => curve.points.map((point) => point.radiusM)));
+    if (Number.isFinite(maxRadius) && args.radiusM > maxRadius) {
+      return `${rule.title} recognised, but ${args.radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius is outside the structured curve selected in the CRM (max structured point ${maxRadius.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m). Check the exact manufacturer/supplier chart manually before approval.`;
+    }
+  }
+  return `${rule.title} recognised, but the exact selected boom/jib/counterweight/outrigger setup cannot be auto-matched to a structured load chart at this radius. Do not use crane maximum capacity as capacity at radius; check the exact manufacturer/supplier chart manually before approval.`;
 }
 
 
@@ -621,6 +653,8 @@ export function calculateRangeChartCapacity({
       method: "manual",
       source: "No recognised structured crane capacity rule found. Enter/check the capacity against the manufacturer/supplier chart.",
       warning: "Chart capacity cannot be auto-calculated until this crane/spec sheet has structured load-chart data.",
+      allowManualCapacityFallback: true,
+      recognisedRuleId: null,
     };
   }
 
@@ -646,6 +680,8 @@ export function calculateRangeChartCapacity({
           source: capped.source,
           setupAdvice: capped.setupAdvice,
           warning: capped.warning,
+          allowManualCapacityFallback: false,
+          recognisedRuleId: rule.id,
         };
       })(),
     };
@@ -672,6 +708,8 @@ export function calculateRangeChartCapacity({
           source: capped.source,
           setupAdvice: capped.setupAdvice,
           warning: capped.warning,
+          allowManualCapacityFallback: false,
+          recognisedRuleId: rule.id,
         };
       })(),
     };
@@ -681,8 +719,10 @@ export function calculateRangeChartCapacity({
     capacityKg: null,
     method: "manual",
     source: rule.capacitySource || `${rule.title} load chart`,
-    warning: `${rule.title} has geometry limits loaded, but this exact boom/jib/counterweight/outrigger setup is not covered by a structured CRM curve. Check the exact manufacturer/supplier chart before approval.`,
+    warning: structuredManualWarning(rule, { radiusM, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg }),
     setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
+    allowManualCapacityFallback: false,
+    recognisedRuleId: rule.id,
   };
 }
 
@@ -710,11 +750,11 @@ export function calculateRangeChartBearingLoad({
   const planningWeight = rule?.planningWeightKg && Number.isFinite(rule.planningWeightKg) ? rule.planningWeightKg : null;
   if (rule && planningWeight && lifted !== null) {
     const factor = rule.estimatedBearingFactor ?? 0.75;
-    const bearingLoadKg = planningWeight * factor + lifted;
+    const bearingLoadKg = (planningWeight + lifted) * factor;
     return {
       bearingLoadKg,
       method: "automatic",
-      source: `Planning estimate using appointed-person mat calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} × ${factor}) + gross lifted load. Use exact outrigger reaction chart if available.`,
+      source: `Planning estimate using appointed-person mat calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + gross lifted load) × ${factor}. Use exact outrigger reaction chart if available.`,
     };
   }
 
