@@ -167,6 +167,11 @@ const JEKKO_SPX532_MAIN_J7_LONG_BOOM = pointsT([
 const JEKKO_SPX532_MAIN_J6_LONG_BOOM = pointsT([
   [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40], [9.45, 0.32],
 ]);
+// Fallback planning curve used only when the SPX532 is recognised as main-boom work but the exact J-rating
+// has not been selected in the setup dropdown/text yet. It deliberately follows the reduced J6 long-boom line,
+// not the 3.2t maximum machine capacity, so the CRM gives a useful preliminary capacity without hiding the
+// appointed-person verification warning.
+const JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING = JEKKO_SPX532_MAIN_J6_LONG_BOOM;
 const JEKKO_SPX532_MAIN_J5 = pointsT([
   [1, 0.40], [2, 0.40], [3, 0.30], [4, 0.28], [5, 0.20],
 ]);
@@ -349,6 +354,12 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
       curve("spx532-main-j5", "SPX532 main boom J5", JEKKO_SPX532_MAIN_J5, {
         boomLengthM: 5.7, jibLengthM: 0, source: "SPX532 page 11: main boom J5 chart", setupAdvice: "Use only if the outrigger/stability area gives J5 crane performance.",
       }),
+      curve("spx532-main-pending-j-rating", "SPX532 main boom conservative planning curve pending J-rating verification", JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING, {
+        boomLengthM: 10.8,
+        jibLengthM: 0,
+        source: "SPX532 preliminary main-boom planning curve using the reduced J6 long-boom line until exact J-rating/stability is verified",
+        setupAdvice: "Preliminary only: the CRM has used the conservative SPX532 main-boom J6 planning line because the exact J-rating/stability setup has not been selected. The appointed person must verify the actual outrigger spread, stability/J-rating, boom length, hook/accessory allowance and manufacturer chart before approval.",
+      }),
       curve("spx532-jib1000-j5", "SPX532 JIB1000.2H1MX J5", JEKKO_SPX532_JIB1000_J5_51, {
         jibLengthM: 5.1, boomLengthM: 10.8, source: "SPX532 page 14: JIB1000.2H1MX J5 chart, LJ 5.1 m", setupAdvice: "Use only if the selected outrigger/stability area gives J5 crane performance.",
       }),
@@ -486,8 +497,21 @@ function textHasCounterweightSelection(text: string, counterweightT: number | nu
   return patterns.some((pattern) => pattern.test(text));
 }
 
+function hasJekkoExactStabilityOrAttachmentSelection(text: string) {
+  return /\bj[567]\b|full[-\s]?stability|jib500gr|grabber|jib1000/i.test(text);
+}
+
+function isJekkoPendingMainBoomCurve(curve: RangeChartCapacityCurve) {
+  return curve.key === "spx532-main-pending-j-rating";
+}
+
 function textHasJekkoStabilitySelection(text: string, curve: RangeChartCapacityCurve) {
   if (!/spx532|jekko|jib500gr|jib1000|main boom/i.test(`${curve.key} ${curve.label}`)) return true;
+  if (isJekkoPendingMainBoomCurve(curve)) {
+    // Allow a useful preliminary main-boom capacity when the dropdown/text only says "Main boom".
+    // Exact J7/J6/J5 selections are still preferred because those curves appear earlier and match first.
+    return !hasJekkoExactStabilityOrAttachmentSelection(text) || /main\s*boom|spx532|jekko/i.test(text);
+  }
   if (/j7/i.test(curve.key)) return /\bj7\b|full[-\s]?stability/i.test(text);
   if (/j6/i.test(curve.key)) return /\bj6\b/i.test(text);
   if (/j5/i.test(curve.key)) return /\bj5\b/i.test(text);
@@ -548,7 +572,7 @@ function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM
 
 function structuredManualWarning(rule: RangeChartSpecRule, args: { radiusM: number; setupLabel?: string | null; sourceLabel?: string | null; boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null }) {
   const selectorText = lower(`${args.setupLabel ?? ""} ${args.sourceLabel ?? ""}`);
-  if (rule.id === "spx532" && !/\bj[567]\b|full[-\s]?stability|jib500gr|grabber/i.test(selectorText)) {
+  if (rule.id === "spx532" && !hasJekkoExactStabilityOrAttachmentSelection(selectorText)) {
     return "Jekko SPX532 recognised, but the exact J-rating/stability/attachment chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct SPX532 J7/J6/J5/attachment chart or check manually against the manufacturer chart.";
   }
   if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
@@ -589,6 +613,22 @@ function applyPayloadCap(
   return { capacityKg, source, warning, setupAdvice };
 }
 
+function selectedCurveVerificationWarning(
+  rule: RangeChartSpecRule,
+  curve: RangeChartCapacityCurve,
+  setupLabel?: string | null,
+  sourceLabel?: string | null,
+) {
+  const selectorText = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
+  if (rule.id === "spx532") {
+    if (isJekkoPendingMainBoomCurve(curve) || !hasJekkoExactStabilityOrAttachmentSelection(selectorText)) {
+      return "Preliminary SPX532 capacity only: verify the exact outrigger/stability J-rating, boom length, hook block/accessories and manufacturer chart before approving the lift.";
+    }
+    return "SPX532 capacity is still subject to appointed-person verification of the actual outrigger/stability J-rating, boom length, attachment, hook block/accessories and manufacturer chart before approval.";
+  }
+  return undefined;
+}
+
 function viableSetupAdvice(
   rule: RangeChartSpecRule,
   radiusM: number,
@@ -609,8 +649,8 @@ function viableSetupAdvice(
   if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
     return "Select the exact HK40 counterweight chart before the CRM auto-fills capacity. HK40 capacity changes by counterweight.";
   }
-  if (rule.id === "spx532" && !/\bj[567]\b|full[-\s]?stability|jib500gr|grabber/i.test(selectorText)) {
-    return "Select the exact Jekko SPX532 J-rating/stability or attachment chart before the CRM auto-fills capacity. SPX532 capacity depends on outrigger/stability setup.";
+  if (rule.id === "spx532" && !hasJekkoExactStabilityOrAttachmentSelection(selectorText) && !selectedCurve) {
+    return "Select the exact Jekko SPX532 J-rating/stability or attachment chart, or use the conservative main-boom planning curve with AP verification. SPX532 capacity depends on outrigger/stability setup.";
   }
 
   const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
@@ -664,13 +704,14 @@ export function calculateRangeChartCapacity({
     const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg) || selectedCurve.setupAdvice;
     return {
       ...(() => {
+        const overloadWarning = capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
+          ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
+          : undefined;
         const capped = applyPayloadCap(
           rule,
           capacityKg,
           selectedCurve.source,
-          capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
-            ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
-            : undefined,
+          overloadWarning || selectedCurveVerificationWarning(rule, selectedCurve, setupLabel, sourceLabel),
           advice,
           { setupLabel, sourceLabel, jibLengthM, totalLiftedWeightKg }
         );
