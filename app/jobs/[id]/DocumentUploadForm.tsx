@@ -11,7 +11,9 @@ type SelectedUploadItem = {
 
 function makeItem(file: File): SelectedUploadItem {
   const id = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2)}`;
-  const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+  const fileName = file.name.toLowerCase();
+  const isImage = file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif|bmp)$/i.test(fileName);
+  const previewUrl = isImage ? URL.createObjectURL(file) : null;
   return { id, file, previewUrl };
 }
 
@@ -25,6 +27,7 @@ function formatFileSize(bytes: number) {
 function fileBadgeLabel(file: File) {
   const name = file.name.toLowerCase();
   if (file.type === "application/pdf" || name.endsWith(".pdf")) return "PDF";
+  if (file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|heic|heif|bmp)$/i.test(name)) return "IMAGE";
   if (name.endsWith(".doc") || name.endsWith(".docx")) return "WORD";
   if (name.endsWith(".xls") || name.endsWith(".xlsx") || name.endsWith(".csv")) return "EXCEL";
   if (name.endsWith(".dwg") || name.endsWith(".dxf")) return "CAD";
@@ -34,6 +37,14 @@ function fileBadgeLabel(file: File) {
 
 const acceptedUploadTypes = [
   "image/*",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".gif",
+  ".heic",
+  ".heif",
+  ".bmp",
   ".pdf",
   ".doc",
   ".docx",
@@ -46,6 +57,15 @@ const acceptedUploadTypes = [
   ".dxf",
 ].join(",");
 
+function addFilesToItems(current: SelectedUploadItem[], files: FileList | File[] | null) {
+  const incoming = Array.from(files ?? []);
+  const existingKeys = new Set(current.map((item) => `${item.file.name}-${item.file.size}-${item.file.lastModified}`));
+  const nextItems = incoming
+    .filter((file) => !existingKeys.has(`${file.name}-${file.size}-${file.lastModified}`))
+    .map(makeItem);
+  return [...current, ...nextItems];
+}
+
 export default function DocumentUploadForm({
   jobId,
   allowShareWithOperator = true,
@@ -54,11 +74,14 @@ export default function DocumentUploadForm({
   allowShareWithOperator?: boolean;
 }) {
   const router = useRouter();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [items, setItems] = useState<SelectedUploadItem[]>([]);
   const itemsRef = useRef<SelectedUploadItem[]>([]);
   const [documentType, setDocumentType] = useState("site_drawing");
   const [shareWithOperator, setShareWithOperator] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverUpload, setDragOverUpload] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -74,19 +97,23 @@ export default function DocumentUploadForm({
   }, []);
 
   function clearSelectedFiles() {
-    for (const item of items) {
+    for (const item of itemsRef.current) {
       if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
     }
     setItems([]);
-    const input = document.getElementById("job-doc-upload") as HTMLInputElement | null;
-    if (input) input.value = "";
+    if (inputRef.current) inputRef.current.value = "";
   }
 
-  function handleFileChange(files: FileList | null) {
-    clearSelectedFiles();
-    const next = Array.from(files ?? []).map(makeItem);
-    setItems(next);
-    setMessage(next.length ? "Move drawings, images and documents into the order you want them to appear before uploading." : null);
+  function handleAddFiles(files: FileList | File[] | null) {
+    setItems((prev) => {
+      const next = addFilesToItems(prev, files);
+      if (next.length) {
+        setMessage("Preview added. Drag files, or use Move up/down, to set the appendix order before uploading.");
+      } else {
+        setMessage(null);
+      }
+      return next;
+    });
   }
 
   function removeItem(id: string) {
@@ -110,12 +137,25 @@ export default function DocumentUploadForm({
     });
   }
 
+  function moveDraggedItem(targetId: string) {
+    if (!draggedItemId || draggedItemId === targetId) return;
+    setItems((prev) => {
+      const fromIndex = prev.findIndex((item) => item.id === draggedItemId);
+      const toIndex = prev.findIndex((item) => item.id === targetId);
+      if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [item] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, item);
+      return next;
+    });
+  }
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMessage(null);
 
     if (!items.length) {
-      setMessage("Please choose one or more files.");
+      setMessage("Please choose one or more files first.");
       return;
     }
 
@@ -124,7 +164,7 @@ export default function DocumentUploadForm({
     try {
       const formData = new FormData();
       items.forEach((item, index) => {
-        formData.append("files", item.file);
+        formData.append("files", item.file, item.file.name || `upload-${index + 1}`);
         formData.append("file_order", String(index + 1));
       });
       formData.append("document_type", documentType);
@@ -151,7 +191,8 @@ export default function DocumentUploadForm({
 
       setMessage(uploadedCount === 1 ? "Document uploaded." : `${uploadedCount} documents uploaded in the selected order.`);
       router.refresh();
-    } catch {
+    } catch (error) {
+      console.error("Document upload failed", error);
       setMessage("Could not upload documents.");
     } finally {
       setUploading(false);
@@ -159,15 +200,15 @@ export default function DocumentUploadForm({
   }
 
   return (
-    <form onSubmit={onSubmit}>
+    <form onSubmit={onSubmit} encType="multipart/form-data">
       <div style={{ display: "grid", gap: 10 }}>
         <div style={helperBox}>
           Upload site sketches, crane position drawings, lift diagrams, photos, RAMS, Word/Excel files, CAD files and other lift plan documents.
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.78 }}>
-            You can select multiple images, PDFs, Word/Excel files, text files or DWG/DXF drawings at the same time. Image uploads on this page are appended into the full lift plan pack as extra appendix pages.
+            Select or drag in multiple images, PDFs, Word/Excel files, text files or DWG/DXF drawings. Image uploads on this page are appended into the full lift plan pack as extra appendix pages.
           </div>
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.78 }}>
-            For site drawings/photos/documents, move them into the order you want before clicking upload. That order will be used in the lift plan appendix/document list.
+            For site drawings/photos/documents, put them in the order you want before clicking upload. That order will be used in the lift plan appendix/document list.
           </div>
         </div>
 
@@ -184,24 +225,66 @@ export default function DocumentUploadForm({
           <option value="other">Other</option>
         </select>
 
+        <div
+          style={{ ...dropZone, ...(dragOverUpload ? dropZoneActive : {}) }}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOverUpload(true);
+          }}
+          onDragLeave={() => setDragOverUpload(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOverUpload(false);
+            handleAddFiles(e.dataTransfer.files);
+          }}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") inputRef.current?.click();
+          }}
+        >
+          <strong>Click here to choose files, or drag images/documents here</strong>
+          <span style={{ fontSize: 12, opacity: 0.75 }}>Images, PDF, Word, Excel, text, DWG and DXF files are allowed.</span>
+        </div>
+
         <input
+          ref={inputRef}
           id="job-doc-upload"
           type="file"
           multiple
           accept={acceptedUploadTypes}
-          onChange={(e) => handleFileChange(e.target.files)}
+          onChange={(e) => handleAddFiles(e.target.files)}
           style={inputStyle}
         />
 
         {items.length > 0 ? (
           <div style={previewPanel}>
             <div style={previewHeader}>
-              <strong>{items.length} file{items.length === 1 ? "" : "s"} selected</strong>
+              <strong>{items.length} file{items.length === 1 ? "" : "s"} selected for upload</strong>
               <button type="button" onClick={clearSelectedFiles} disabled={uploading} style={smallGhostBtn}>Clear all</button>
             </div>
             <div style={{ display: "grid", gap: 8 }}>
               {items.map((item, index) => (
-                <div key={item.id} style={previewRow}>
+                <div
+                  key={item.id}
+                  style={{ ...previewRow, ...(draggedItemId === item.id ? draggingRow : {}) }}
+                  draggable={!uploading}
+                  onDragStart={(e) => {
+                    setDraggedItemId(item.id);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    moveDraggedItem(item.id);
+                  }}
+                  onDragEnd={() => setDraggedItemId(null)}
+                >
+                  <div style={dragHandle} title="Drag to reorder">↕</div>
                   <div style={previewThumb}>
                     {item.previewUrl ? (
                       <img src={item.previewUrl} alt={item.file.name} style={previewImage} />
@@ -211,11 +294,11 @@ export default function DocumentUploadForm({
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={fileName}>{index + 1}. {item.file.name}</div>
-                    <div style={fileMeta}>{item.file.type || "Unknown type"} {formatFileSize(item.file.size) ? `• ${formatFileSize(item.file.size)}` : ""}</div>
+                    <div style={fileMeta}>{item.file.type || fileBadgeLabel(item.file)} {formatFileSize(item.file.size) ? `• ${formatFileSize(item.file.size)}` : ""}</div>
                   </div>
                   <div style={orderButtons}>
-                    <button type="button" onClick={() => moveItem(item.id, -1)} disabled={uploading || index === 0} style={smallBtn}>Up</button>
-                    <button type="button" onClick={() => moveItem(item.id, 1)} disabled={uploading || index === items.length - 1} style={smallBtn}>Down</button>
+                    <button type="button" onClick={() => moveItem(item.id, -1)} disabled={uploading || index === 0} style={smallBtn}>Move up</button>
+                    <button type="button" onClick={() => moveItem(item.id, 1)} disabled={uploading || index === items.length - 1} style={smallBtn}>Move down</button>
                     <button type="button" onClick={() => removeItem(item.id)} disabled={uploading} style={dangerBtn}>Remove</button>
                   </div>
                 </div>
@@ -254,6 +337,22 @@ const helperBox: React.CSSProperties = {
   border: "1px solid rgba(0,0,0,0.08)",
   fontSize: 13,
   lineHeight: 1.45,
+};
+
+const dropZone: React.CSSProperties = {
+  display: "grid",
+  gap: 4,
+  padding: "18px 14px",
+  borderRadius: 12,
+  border: "2px dashed rgba(0,0,0,0.22)",
+  background: "rgba(255,255,255,0.72)",
+  cursor: "pointer",
+  textAlign: "center",
+};
+
+const dropZoneActive: React.CSSProperties = {
+  borderColor: "rgba(37,99,235,0.78)",
+  background: "rgba(219,234,254,0.72)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -346,9 +445,21 @@ const previewRow: React.CSSProperties = {
   background: "rgba(255,255,255,0.88)",
 };
 
+const draggingRow: React.CSSProperties = {
+  opacity: 0.55,
+};
+
+const dragHandle: React.CSSProperties = {
+  cursor: "grab",
+  fontWeight: 900,
+  fontSize: 18,
+  color: "#475569",
+  userSelect: "none",
+};
+
 const previewThumb: React.CSSProperties = {
-  width: 74,
-  height: 58,
+  width: 92,
+  height: 70,
   borderRadius: 9,
   overflow: "hidden",
   background: "#f3f4f6",
