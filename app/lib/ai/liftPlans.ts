@@ -68,6 +68,19 @@ function clean(value: unknown) {
   return text || "";
 }
 
+
+function isShaunRobinsonName(value: unknown) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z]+/g, " ").trim() === "shaun robinson";
+}
+
+function liftSupervisorName(...values: unknown[]) {
+  for (const value of values) {
+    const text = clean(value);
+    if (text && !isShaunRobinsonName(text)) return text;
+  }
+  return null;
+}
+
 function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -190,7 +203,7 @@ function parseCraneDraft(text: string): CraneLiftPlanDraft {
     exclusion_zone_details: clean(parsed.exclusion_zone_details) || null,
     weather_limitations: clean(parsed.weather_limitations) || null,
     emergency_procedures: clean(parsed.emergency_procedures) || null,
-    lift_supervisor: clean(parsed.lift_supervisor) || null,
+    lift_supervisor: liftSupervisorName(parsed.lift_supervisor),
     appointed_person: clean(parsed.appointed_person) || null,
     crane_operator: clean(parsed.crane_operator) || null,
     rams_complete: parsed.rams_complete === true,
@@ -227,7 +240,7 @@ function parseTransportDraft(text: string): TransportLiftPlanDraft {
     method_statement: clean(parsed.method_statement) || null,
     risk_assessment: clean(parsed.risk_assessment) || null,
     appointed_person: clean(parsed.appointed_person) || null,
-    lift_supervisor: clean(parsed.lift_supervisor) || null,
+    lift_supervisor: liftSupervisorName(parsed.lift_supervisor),
     operator_name: clean(parsed.operator_name) || null,
     rams_complete: parsed.rams_complete === true,
     lift_plan_complete: parsed.lift_plan_complete === true,
@@ -408,7 +421,7 @@ function machineSpecificExclusionZone(job: any, profile: EquipmentProfile | null
 function machineSpecificNarrative(job: any, profile: EquipmentProfile | null): CraneLiftPlanDraft {
   const operatorName = operatorNameFromJob(job);
   const appointedPerson = appointedPersonFromJob(job);
-  const liftSupervisor = clean(job?.lift_supervisor_name) || clean(job?.lift_supervisor) || appointedPerson || null;
+  const liftSupervisor = liftSupervisorName(job?.lift_supervisor_name, job?.lift_supervisor);
 
   return {
     crane_configuration: defaultCraneConfiguration(profile),
@@ -464,7 +477,7 @@ function fallbackCraneDraft(job: any, profile: EquipmentProfile | null): CraneLi
   const loadDescription = clean(job?.notes) || `${hireType} for ${clientName}`;
 
   const appointedPerson = appointedPersonFromJob(job);
-  const liftSupervisor = clean(job?.lift_supervisor_name) || clean(job?.lift_supervisor) || appointedPerson || null;
+  const liftSupervisor = liftSupervisorName(job?.lift_supervisor_name, job?.lift_supervisor);
 
   return {
     load_description: loadDescription,
@@ -538,6 +551,7 @@ function buildCranePrompt(job: any, profile: EquipmentProfile | null) {
   return `You are helping draft a crane lift plan and RAMS document for crane hire operations.
 Return ONLY valid JSON with these keys:
 load_description, load_weight, lift_radius, lift_height, crane_configuration, outrigger_setup, ground_conditions, sling_type, lifting_accessories, method_statement, risk_assessment, site_hazards, control_measures, ppe_required, exclusion_zone_details, weather_limitations, emergency_procedures, lift_supervisor, appointed_person, crane_operator, rams_complete, lift_plan_complete.
+Important: Shaun Robinson may be used as appointed_person/approved_by only. Do not put Shaun Robinson in lift_supervisor unless the job data explicitly names him as lift supervisor; if no lift supervisor is known, return null/empty for lift_supervisor.
 
 Rules:
 - This is a DRAFT only. Never say the lift is approved or fully checked.
@@ -579,6 +593,7 @@ function buildTransportPrompt(job: any, linkedJob: any, profile: EquipmentProfil
   return `You are helping draft a transport / HIAB lift plan and RAMS document for lifting and transport operations.
 Return ONLY valid JSON with these keys:
 job_summary, load_description, load_weight, lift_radius, lift_height, vehicle_configuration, hiab_configuration, outrigger_setup, ground_conditions, pickup_method, delivery_method, route_notes, access_notes, exclusion_zone_details, traffic_management, load_securing_method, lifting_accessories, site_hazards, control_measures, ppe_required, weather_limitations, emergency_procedures, method_statement, risk_assessment, appointed_person, lift_supervisor, operator_name, rams_complete, lift_plan_complete.
+Important: Shaun Robinson may be used as appointed_person/approved_by only. Do not put Shaun Robinson in lift_supervisor unless the job data explicitly names him as lift supervisor; if no lift supervisor is known, return null/empty for lift_supervisor.
 
 Rules:
 - This is a DRAFT only. Never say the lift is approved or fully checked.
