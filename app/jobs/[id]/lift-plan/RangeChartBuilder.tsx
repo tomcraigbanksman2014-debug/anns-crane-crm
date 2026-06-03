@@ -484,7 +484,8 @@ export default function RangeChartBuilder({
     sourceLabel: chart.externalSpecDocumentTitle,
     totalLiftedWeightKg: calc.totalLiftedWeight,
   });
-  const effectiveChartCapacityKg = capacityResult.capacityKg ?? numberOrNull(chart.chartCapacityKg);
+  const storedManualChartCapacityKg = numberOrNull(chart.chartCapacityKg);
+  const effectiveChartCapacityKg = capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
   const effectiveBearingLoadKg = bearingResult.bearingLoadKg ?? numberOrNull(chart.bearingLoadKg);
   const effectiveUtilisation = calc.totalLiftedWeight && effectiveChartCapacityKg ? (calc.totalLiftedWeight / effectiveChartCapacityKg) * 100 : null;
   const effectivePressureKgM2 = effectiveBearingLoadKg && calc.matArea ? effectiveBearingLoadKg / calc.matArea : null;
@@ -497,11 +498,21 @@ export default function RangeChartBuilder({
   const matPressureText = fmtPressure(effectivePressureKgM2);
   const matAreaText = fmtArea(calc.matArea);
   const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
-  const bearingFormulaBase = effectiveBearingLoadKg && limits.planningWeightKg && calc.totalLiftedWeight
-    ? `(${fmtKg(limits.planningWeightKg)} × ${estimatedBearingFactor}) + ${fmtKg(calc.totalLiftedWeight)} = ${fmtKg(effectiveBearingLoadKg)}`
-    : effectiveBearingLoadKg
-      ? `Estimated max outrigger load = ${fmtKg(effectiveBearingLoadKg)}`
-      : "Estimated max outrigger load requires crane and load details";
+  const planningEstimateKg = limits.planningWeightKg && calc.totalLiftedWeight
+    ? (limits.planningWeightKg + calc.totalLiftedWeight) * estimatedBearingFactor
+    : null;
+  const bearingSourceLower = String(bearingResult.source ?? "").toLowerCase();
+  const isPublishedBearingReference = Boolean(effectiveBearingLoadKg && /published|static outrigger|outrigger load|reaction/.test(bearingSourceLower));
+  const bearingFormulaBase = effectiveBearingLoadKg && isPublishedBearingReference
+    ? [
+        `Manufacturer/supplier outrigger reaction/load reference used: ${fmtKg(effectiveBearingLoadKg)}`,
+        planningEstimateKg ? `Planning estimate would be (${fmtKg(limits.planningWeightKg)} + ${fmtKg(calc.totalLiftedWeight)}) × ${estimatedBearingFactor} = ${fmtKg(planningEstimateKg)}` : "",
+      ].filter(Boolean).join(". ")
+    : effectiveBearingLoadKg && planningEstimateKg
+      ? `(${fmtKg(limits.planningWeightKg)} + ${fmtKg(calc.totalLiftedWeight)}) × ${estimatedBearingFactor} = ${fmtKg(effectiveBearingLoadKg)}`
+      : effectiveBearingLoadKg
+        ? `Estimated max outrigger load = ${fmtKg(effectiveBearingLoadKg)}`
+        : "Estimated max outrigger load requires crane and load details";
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
     ? `${bearingFormulaBase}. ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
     : bearingFormulaBase;
@@ -736,7 +747,7 @@ export default function RangeChartBuilder({
       range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
       range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
       range_chart_bearing_pressure_formula: effectivePressureKgM2
-        ? `${matPressureFormulaText}. Reference only — estimated max outrigger load is calculated as (crane planning/gross weight × 0.75) + gross lifted load. Mat/spreader pressure is calculated only from the dimensions entered; no standard mats are assumed.`
+        ? `${matPressureFormulaText}. Reference only — estimated max outrigger load is calculated as (crane planning/gross weight + gross lifted load) × 0.75. Mat/spreader pressure is calculated only from the dimensions entered; no standard mats are assumed.`
         : "",
       range_chart_limit_warning: chartWarnings.join(" "),
       range_chart_verification_note: chart.verificationNote,
@@ -970,7 +981,7 @@ export default function RangeChartBuilder({
             {effectivePressureKgM2 ? <Metric label="Mat/spreader pressure" value={matPressureText} /> : null}
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Estimated max outrigger load uses the appointed-person planning formula: (crane planning/gross weight × 0.75) + gross lifted load. Mat/spreader bearing pressure is only calculated where mat/spreader dimensions are entered: {matPressureFormulaText}. Final ground suitability, support area and outrigger reactions must be verified before lifting.
+            Planning sketch only. Estimated max outrigger load uses the appointed-person planning formula: (crane planning/gross weight + gross lifted load) × 0.75. Mat/spreader bearing pressure is only calculated where mat/spreader dimensions are entered: {matPressureFormulaText}. Final ground suitability, support area and outrigger reactions must be verified before lifting.
           </div>
         </div>
       </div>
