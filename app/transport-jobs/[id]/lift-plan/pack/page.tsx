@@ -48,6 +48,17 @@ function yesNo(value: boolean | null | undefined) {
   return value ? "Yes" : "No";
 }
 
+
+function defaultSectionText(
+  sections: StringMap,
+  key: keyof StringMap,
+  fallback: string
+) {
+  const value = sections[key];
+  const selected = value && String(value).trim() ? String(value).trim() : fallback;
+  return selected;
+}
+
 function shortConfig(text: string | null | undefined, fallback: string) {
   if (!text || !text.trim()) return fallback;
   const source = text.trim().toLowerCase();
