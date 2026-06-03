@@ -186,6 +186,10 @@ export async function PATCH(
         body.collection_time !== undefined
           ? clean(body.collection_time)
           : existing.collection_time,
+      delivery_date:
+        body.delivery_date !== undefined
+          ? clean(body.delivery_date) || (body.transport_date !== undefined ? clean(body.transport_date) : existing.transport_date)
+          : existing.delivery_date ?? existing.transport_date,
       delivery_time:
         body.delivery_time !== undefined
           ? clean(body.delivery_time)
@@ -596,16 +600,26 @@ export async function PATCH(
     const endMins = toMinutes(nextPayload.delivery_time);
 
     if (
+      nextPayload.transport_date &&
+      nextPayload.delivery_date &&
       nextPayload.collection_time &&
       nextPayload.delivery_time &&
       startMins !== null &&
-      endMins !== null &&
-      endMins < startMins
+      endMins !== null
     ) {
-      return NextResponse.json(
-        { error: "Delivery time cannot be earlier than collection time." },
-        { status: 400 }
-      );
+      const collectionDateTime = new Date(`${nextPayload.transport_date}T${nextPayload.collection_time}:00`);
+      const deliveryDateTime = new Date(`${nextPayload.delivery_date}T${nextPayload.delivery_time}:00`);
+
+      if (
+        Number.isNaN(collectionDateTime.getTime()) ||
+        Number.isNaN(deliveryDateTime.getTime()) ||
+        deliveryDateTime < collectionDateTime
+      ) {
+        return NextResponse.json(
+          { error: "Delivery date/time cannot be earlier than collection date/time." },
+          { status: 400 }
+        );
+      }
     }
 
     if (!nextPayload.abnormal_load_enabled) {
