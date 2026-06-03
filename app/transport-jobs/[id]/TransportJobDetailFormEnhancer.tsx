@@ -72,8 +72,17 @@ export default function TransportJobDetailFormEnhancer() {
     if (!sellRateInput || !subtotalInput || !vatInput || !totalInput) return;
 
     let lastSyncedSubtotal = roundMoney(parseValue(subtotalInput));
-    let userManuallyChangedDeliveryDate = false;
-    let userManuallyChangedDeliveryTime = false;
+    let previousCollectionDate = collectionDateInput?.value || "";
+    let userManuallyChangedDeliveryDate = Boolean(
+      deliveryDateInput?.value &&
+        collectionDateInput?.value &&
+        deliveryDateInput.value !== collectionDateInput.value
+    );
+    let userManuallyChangedDeliveryTime = Boolean(
+      deliveryTimeInput?.value &&
+        collectionTimeInput?.value &&
+        deliveryTimeInput.value !== collectionTimeInput.value
+    );
 
     function recalcFromSubtotal() {
       const subtotal = roundMoney(parseValue(subtotalInput));
@@ -125,8 +134,22 @@ export default function TransportJobDetailFormEnhancer() {
 
     function autoSyncDeliveryDate() {
       if (!collectionDateInput || !deliveryDateInput) return;
-      if (userManuallyChangedDeliveryDate && deliveryDateInput.value) return;
-      deliveryDateInput.value = collectionDateInput.value || "";
+
+      const currentCollectionDate = collectionDateInput.value || "";
+      const currentDeliveryDate = deliveryDateInput.value || "";
+
+      // Never collapse a genuine multi-day transport job just because the detail
+      // page has been opened. Only auto-sync the delivery date when it is blank
+      // or when it was still matching the previous collection date.
+      const deliveryWasAutoSynced =
+        !currentDeliveryDate ||
+        (!!previousCollectionDate && currentDeliveryDate === previousCollectionDate);
+
+      if (!userManuallyChangedDeliveryDate && deliveryWasAutoSynced) {
+        deliveryDateInput.value = currentCollectionDate;
+      }
+
+      previousCollectionDate = currentCollectionDate;
       syncSellRateFromPricingMode();
     }
 
@@ -374,7 +397,9 @@ export default function TransportJobDetailFormEnhancer() {
     });
 
     recalcFromSubtotal();
-    autoSyncDeliveryDate();
+    // Do not auto-sync delivery date on initial page load. Existing two-day
+    // transport jobs must keep their saved delivery date until the user changes
+    // the collection date or delivery date deliberately.
     autoSyncDeliveryTime();
     applyOnSiteLabels();
     syncSellRateFromPricingMode();
