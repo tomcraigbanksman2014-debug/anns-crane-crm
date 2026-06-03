@@ -334,9 +334,15 @@ export default async function TransportLiftPlanPackPage({
     "Transport Lift Plan Pack",
     (job as any)?.transport_number ? `Transport ${(job as any).transport_number}` : null,
   ].filter(Boolean).join(" - ");
+  const isShaunRobinsonName = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z]+/g, " ").trim() === "shaun robinson";
   const operatorName = liftPlan?.operator_name || operator?.full_name || "—";
   const appointedPerson = liftPlan?.appointed_person || "Shaun Robinson";
-  const supervisor = liftPlan?.lift_supervisor || appointedPerson;
+  const rawSupervisor = String(liftPlan?.lift_supervisor ?? "").trim();
+  const supervisor = isShaunRobinsonName(rawSupervisor) ? "" : rawSupervisor;
+  const supervisorValue = (key: string, fallback = supervisor) => {
+    const saved = defaultSectionText(sections, key, "");
+    return isShaunRobinsonName(saved) ? "" : saved || fallback;
+  };
   const vehicleLabel = [vehicle?.name, vehicle?.vehicle_type, vehicle?.reg_number].filter(Boolean).join(" ") || vehicle?.name || "—";
   const hiabConfig = shortConfig(sections.hiab_configuration || liftPlan?.hiab_configuration, equipmentProfile?.title || "Planned HIAB setup");
   const vehicleConfig = sections.vehicle_configuration || liftPlan?.vehicle_configuration || vehicleLabel;
