@@ -46,7 +46,14 @@ function getAdminClient() {
 }
 
 function isUploadedFile(entry: FormDataEntryValue): entry is File {
-  return typeof File !== "undefined" && entry instanceof File && entry.size > 0;
+  if (!entry || typeof entry !== "object") return false;
+  const candidate = entry as any;
+  return (
+    typeof candidate.name === "string" &&
+    typeof candidate.size === "number" &&
+    candidate.size > 0 &&
+    typeof candidate.arrayBuffer === "function"
+  );
 }
 
 function safeFileName(name: string) {
@@ -67,7 +74,8 @@ function extensionFromName(name: string) {
 }
 
 function contentTypeForFile(file: File) {
-  if (file.type) return file.type;
+  const rawType = String((file as any).type || "").trim();
+  if (rawType) return rawType;
 
   const ext = extensionFromName(file.name);
   const byExt: Record<string, string> = {
@@ -77,6 +85,7 @@ function contentTypeForFile(file: File) {
     jpeg: "image/jpeg",
     webp: "image/webp",
     gif: "image/gif",
+    bmp: "image/bmp",
     heic: "image/heic",
     heif: "image/heif",
     doc: "application/msword",
@@ -102,14 +111,19 @@ function parseOrders(formData: FormData) {
 
 function extractUploadCandidates(formData: FormData): UploadCandidate[] {
   const candidates: UploadCandidate[] = [];
-  const seen = new Set<File>();
+  const seen = new Set<string>();
   const orders = parseOrders(formData);
 
   function addFile(entry: FormDataEntryValue, index: number, fieldName: string) {
-    if (!isUploadedFile(entry) || seen.has(entry)) return;
-    seen.add(entry);
+    if (!isUploadedFile(entry)) return;
+    const file = entry as File;
+    const key = `${fieldName}:${file.name}:${file.size}:${index}`;
+    const duplicateKey = `${file.name}:${file.size}:${index}`;
+    if (seen.has(key) || seen.has(duplicateKey)) return;
+    seen.add(key);
+    seen.add(duplicateKey);
     candidates.push({
-      file: entry,
+      file,
       order: orders[index] ?? candidates.length + 1,
       fieldName,
     });
@@ -120,8 +134,6 @@ function extractUploadCandidates(formData: FormData): UploadCandidate[] {
     entries.forEach((entry, index) => addFile(entry, index, fieldName));
   }
 
-  // Fallback for older/newer forms that may post files using a different field name.
-  // This keeps the route tolerant instead of rejecting a valid FormData upload.
   if (candidates.length === 0) {
     let index = 0;
     for (const [fieldName, entry] of formData.entries()) {
@@ -201,8 +213,6 @@ export async function POST(
         });
 
       if (uploadError) {
-        // Only clean up files uploaded during this failed attempt. Existing documents already attached
-        // to the job are never removed by this upload route.
         if (uploadedPaths.length > 0) {
           await admin.storage.from("job-documents").remove(uploadedPaths);
         }
@@ -218,8 +228,6 @@ export async function POST(
         document_type: documentType,
         uploaded_by: user.id,
         share_with_operator: shareWithOperator,
-        // Keep multi-file drawings/photos/documents in the order chosen in the upload form.
-        // Supabase default timestamps can be identical for bulk inserts, so add one second per selected file.
         created_at: new Date(uploadStartedAt + (order - 1) * 1000).toISOString(),
       });
     }
@@ -227,15 +235,12 @@ export async function POST(
     const { error: insertError } = await admin.from("job_documents").insert(uploadedRows);
 
     if (insertError) {
-      // Clean only the storage objects created in this failed request. Do not touch older job documents.
       if (uploadedPaths.length > 0) {
         await admin.storage.from("job-documents").remove(uploadedPaths);
       }
       return NextResponse.json({ error: insertError.message }, { status: 400 });
     }
 
-    // The upload itself has succeeded by this point. Audit logging must not make the
-    // user see a failed upload message when the documents are already attached.
     try {
       await writeAuditLog({
         actor_user_id: user.id,
