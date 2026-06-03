@@ -63,12 +63,120 @@ function getActivityInfo(lastActivityDate: string | null | undefined) {
   };
 }
 
+type SortKey =
+  | "company"
+  | "contact"
+  | "phone"
+  | "email"
+  | "last_activity"
+  | "activity"
+  | "imported"
+  | "archived"
+  | "created";
+
+type SortDir = "asc" | "desc";
+
+const SORT_KEYS: SortKey[] = [
+  "company",
+  "contact",
+  "phone",
+  "email",
+  "last_activity",
+  "activity",
+  "imported",
+  "archived",
+  "created",
+];
+
+const ACTIVITY_ORDER: Record<string, number> = {
+  active: 1,
+  recent: 2,
+  dormant: 3,
+  no_activity: 4,
+};
+
+function normalise(value: unknown) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function includesFilter(value: unknown, filter: string) {
+  if (!filter) return true;
+  return normalise(value).includes(normalise(filter));
+}
+
+function parseDateOnly(value: string | null | undefined) {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function valueAsDate(value: string | null | undefined) {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function dateMatchesRange(
+  value: string | null | undefined,
+  from: string,
+  to: string
+) {
+  const date = valueAsDate(value);
+  const fromDate = parseDateOnly(from);
+  const toDate = parseDateOnly(to);
+
+  if (!fromDate && !toDate) return true;
+  if (!date) return false;
+
+  if (fromDate && date < fromDate) return false;
+  if (toDate) {
+    const endOfDay = new Date(toDate);
+    endOfDay.setHours(23, 59, 59, 999);
+    if (date > endOfDay) return false;
+  }
+
+  return true;
+}
+
+function compareNullable(a: unknown, b: unknown, dir: SortDir) {
+  const aBlank = a == null || String(a).trim() === "";
+  const bBlank = b == null || String(b).trim() === "";
+
+  if (aBlank && bBlank) return 0;
+  if (aBlank) return 1;
+  if (bBlank) return -1;
+
+  const aValue = typeof a === "number" ? a : String(a).toLowerCase();
+  const bValue = typeof b === "number" ? b : String(b).toLowerCase();
+
+  if (aValue < bValue) return dir === "asc" ? -1 : 1;
+  if (aValue > bValue) return dir === "asc" ? 1 : -1;
+  return 0;
+}
+
+function dateSortValue(value: string | null | undefined) {
+  const d = valueAsDate(value);
+  return d ? d.getTime() : null;
+}
+
 type CustomersPageProps = {
   searchParams?: {
     q?: string;
     view?: string;
     activity?: string;
     imported?: string;
+    company?: string;
+    contact?: string;
+    phone?: string;
+    email?: string;
+    last_from?: string;
+    last_to?: string;
+    created_from?: string;
+    created_to?: string;
+    sort?: string;
+    dir?: string;
   };
 };
 
@@ -81,6 +189,33 @@ export default async function CustomersPage({
   const view = String(searchParams?.view ?? "active").trim().toLowerCase();
   const activityFilter = String(searchParams?.activity ?? "all").trim().toLowerCase();
   const importedFilter = String(searchParams?.imported ?? "all").trim().toLowerCase();
+  const companyFilter = String(searchParams?.company ?? "").trim();
+  const contactFilter = String(searchParams?.contact ?? "").trim();
+  const phoneFilter = String(searchParams?.phone ?? "").trim();
+  const emailFilter = String(searchParams?.email ?? "").trim();
+  const lastFrom = String(searchParams?.last_from ?? "").trim();
+  const lastTo = String(searchParams?.last_to ?? "").trim();
+  const createdFrom = String(searchParams?.created_from ?? "").trim();
+  const createdTo = String(searchParams?.created_to ?? "").trim();
+  const requestedSort = String(searchParams?.sort ?? "created").trim().toLowerCase();
+  const sort: SortKey = SORT_KEYS.includes(requestedSort as SortKey)
+    ? (requestedSort as SortKey)
+    : "created";
+  const dir: SortDir = searchParams?.dir === "asc" ? "asc" : "desc";
+
+  const filtersAreActive = Boolean(
+    q ||
+      companyFilter ||
+      contactFilter ||
+      phoneFilter ||
+      emailFilter ||
+      lastFrom ||
+      lastTo ||
+      createdFrom ||
+      createdTo ||
+      activityFilter !== "all" ||
+      importedFilter !== "all"
+  );
 
   let query = supabase
     .from("clients")
@@ -112,25 +247,130 @@ export default async function CustomersPage({
     rollupByClientId[clientId] = row;
   });
 
-  const filteredCustomers = (customers ?? []).filter((customer: any) => {
-    const rollup = rollupByClientId[customer.id] ?? null;
-    const activity = getActivityInfo(rollup?.last_activity_date ?? null);
-    const importedHistoryCount = Number(rollup?.imported_history_count ?? 0);
+  const filteredCustomers = (customers ?? [])
+    .filter((customer: any) => {
+      const rollup = rollupByClientId[customer.id] ?? null;
+      const lastActivity = rollup?.last_activity_date ?? null;
+      const activity = getActivityInfo(lastActivity);
+      const importedHistoryCount = Number(rollup?.imported_history_count ?? 0);
 
-    const activityOk =
-      activityFilter === "all" ? true : activity.key === activityFilter;
+      const activityOk =
+        activityFilter === "all" ? true : activity.key === activityFilter;
 
-    const importedOk =
-      importedFilter === "all"
-        ? true
-        : importedFilter === "with_imported"
-        ? importedHistoryCount > 0
-        : importedFilter === "without_imported"
-        ? importedHistoryCount === 0
-        : true;
+      const importedOk =
+        importedFilter === "all"
+          ? true
+          : importedFilter === "with_imported"
+          ? importedHistoryCount > 0
+          : importedFilter === "without_imported"
+          ? importedHistoryCount === 0
+          : true;
 
-    return activityOk && importedOk;
-  });
+      return (
+        activityOk &&
+        importedOk &&
+        includesFilter(customer.company_name, companyFilter) &&
+        includesFilter(customer.contact_name, contactFilter) &&
+        includesFilter(customer.phone, phoneFilter) &&
+        includesFilter(customer.email, emailFilter) &&
+        dateMatchesRange(lastActivity, lastFrom, lastTo) &&
+        dateMatchesRange(customer.created_at, createdFrom, createdTo)
+      );
+    })
+    .sort((a: any, b: any) => {
+      const aRollup = rollupByClientId[a.id] ?? null;
+      const bRollup = rollupByClientId[b.id] ?? null;
+      const aActivity = getActivityInfo(aRollup?.last_activity_date ?? null);
+      const bActivity = getActivityInfo(bRollup?.last_activity_date ?? null);
+
+      if (sort === "company") return compareNullable(a.company_name, b.company_name, dir);
+      if (sort === "contact") return compareNullable(a.contact_name, b.contact_name, dir);
+      if (sort === "phone") return compareNullable(a.phone, b.phone, dir);
+      if (sort === "email") return compareNullable(a.email, b.email, dir);
+      if (sort === "last_activity") {
+        return compareNullable(
+          dateSortValue(aRollup?.last_activity_date ?? null),
+          dateSortValue(bRollup?.last_activity_date ?? null),
+          dir
+        );
+      }
+      if (sort === "activity") {
+        return compareNullable(
+          ACTIVITY_ORDER[aActivity.key] ?? 99,
+          ACTIVITY_ORDER[bActivity.key] ?? 99,
+          dir
+        );
+      }
+      if (sort === "imported") {
+        return compareNullable(
+          Number(aRollup?.imported_history_count ?? 0),
+          Number(bRollup?.imported_history_count ?? 0),
+          dir
+        );
+      }
+      if (sort === "archived") {
+        return compareNullable(a.archived ? 1 : 0, b.archived ? 1 : 0, dir);
+      }
+
+      return compareNullable(
+        dateSortValue(a.created_at),
+        dateSortValue(b.created_at),
+        dir
+      );
+    });
+
+  const buildUrl = (overrides: Record<string, string | undefined | null>) => {
+    const params = new URLSearchParams();
+    const next = {
+      view,
+      q,
+      company: companyFilter,
+      contact: contactFilter,
+      phone: phoneFilter,
+      email: emailFilter,
+      last_from: lastFrom,
+      last_to: lastTo,
+      activity: activityFilter,
+      imported: importedFilter,
+      created_from: createdFrom,
+      created_to: createdTo,
+      sort,
+      dir,
+      ...overrides,
+    };
+
+    Object.entries(next).forEach(([key, value]) => {
+      if (value == null) return;
+      const stringValue = String(value).trim();
+      if (!stringValue) return;
+      if (key === "activity" && stringValue === "all") return;
+      if (key === "imported" && stringValue === "all") return;
+      if (key === "sort" && stringValue === "created") return;
+      if (key === "dir" && stringValue === "desc") return;
+      params.set(key, stringValue);
+    });
+
+    const queryString = params.toString();
+    return queryString ? `/customers?${queryString}` : "/customers";
+  };
+
+  const sortHref = (key: SortKey) => {
+    const nextDir: SortDir = sort === key && dir === "asc" ? "desc" : "asc";
+    return buildUrl({ sort: key, dir: nextDir });
+  };
+
+  const sortArrow = (key: SortKey) => {
+    if (sort !== key) return "↕";
+    return dir === "asc" ? "↑" : "↓";
+  };
+
+  const sortableHeader = (key: SortKey, label: string) => (
+    <th align="left" style={thStyle}>
+      <a href={sortHref(key)} style={sortLinkStyle} title={`Sort by ${label}`}>
+        {label} <span style={{ opacity: 0.65 }}>{sortArrow(key)}</span>
+      </a>
+    </th>
+  );
 
   return (
     <ClientShell>
@@ -147,7 +387,7 @@ export default async function CustomersPage({
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>Customers</h1>
             <p style={{ marginTop: 6, opacity: 0.8 }}>
-              View, search and manage customer records.
+              View, search, sort and manage customer records.
             </p>
           </div>
 
@@ -158,19 +398,19 @@ export default async function CustomersPage({
 
         <div style={tabsRow}>
           <a
-            href={`/customers?view=active${q ? `&q=${encodeURIComponent(q)}` : ""}${activityFilter !== "all" ? `&activity=${encodeURIComponent(activityFilter)}` : ""}${importedFilter !== "all" ? `&imported=${encodeURIComponent(importedFilter)}` : ""}`}
+            href={buildUrl({ view: "active" })}
             style={view === "active" ? activeTabBtn : tabBtn}
           >
             Active
           </a>
           <a
-            href={`/customers?view=archived${q ? `&q=${encodeURIComponent(q)}` : ""}${activityFilter !== "all" ? `&activity=${encodeURIComponent(activityFilter)}` : ""}${importedFilter !== "all" ? `&imported=${encodeURIComponent(importedFilter)}` : ""}`}
+            href={buildUrl({ view: "archived" })}
             style={view === "archived" ? activeTabBtn : tabBtn}
           >
             Archived
           </a>
           <a
-            href={`/customers?view=all${q ? `&q=${encodeURIComponent(q)}` : ""}${activityFilter !== "all" ? `&activity=${encodeURIComponent(activityFilter)}` : ""}${importedFilter !== "all" ? `&imported=${encodeURIComponent(importedFilter)}` : ""}`}
+            href={buildUrl({ view: "all" })}
             style={view === "all" ? activeTabBtn : tabBtn}
           >
             All
@@ -178,56 +418,124 @@ export default async function CustomersPage({
         </div>
 
         <section style={{ ...cardStyle, marginTop: 16 }}>
-          <form
-            method="get"
-            action="/customers"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "minmax(220px, 1fr) minmax(180px, 220px) minmax(180px, 220px) auto auto",
-              gap: 10,
-              alignItems: "center",
-            }}
-          >
+          <form method="get" action="/customers" style={filtersGridStyle}>
             <input type="hidden" name="view" value={view} />
+            <input type="hidden" name="sort" value={sort} />
+            <input type="hidden" name="dir" value={dir} />
 
-            <input
-              type="text"
-              name="q"
-              defaultValue={q}
-              placeholder="Search by company, contact, phone or email"
-              style={inputStyle}
-            />
+            <label style={fieldLabelStyle}>
+              Quick search
+              <input
+                type="text"
+                name="q"
+                defaultValue={q}
+                placeholder="Company, contact, phone or email"
+                style={inputStyle}
+              />
+            </label>
 
-            <select name="activity" defaultValue={activityFilter} style={inputStyle}>
-              <option value="all">All activity</option>
-              <option value="active">Active</option>
-              <option value="recent">Recent</option>
-              <option value="dormant">Dormant</option>
-              <option value="no_activity">No activity</option>
-            </select>
+            <label style={fieldLabelStyle}>
+              Company
+              <input
+                type="text"
+                name="company"
+                defaultValue={companyFilter}
+                placeholder="Filter company"
+                style={inputStyle}
+              />
+            </label>
 
-            <select name="imported" defaultValue={importedFilter} style={inputStyle}>
-              <option value="all">All diary history</option>
-              <option value="with_imported">With imported history</option>
-              <option value="without_imported">Without imported history</option>
-            </select>
+            <label style={fieldLabelStyle}>
+              Contact
+              <input
+                type="text"
+                name="contact"
+                defaultValue={contactFilter}
+                placeholder="Filter contact"
+                style={inputStyle}
+              />
+            </label>
 
-            <button type="submit" style={primaryBtnStyle}>
-              Filter
-            </button>
+            <label style={fieldLabelStyle}>
+              Phone
+              <input
+                type="text"
+                name="phone"
+                defaultValue={phoneFilter}
+                placeholder="Filter phone"
+                style={inputStyle}
+              />
+            </label>
 
-            <a href={`/customers?view=${view}`} style={secondaryBtnStyle}>
-              Clear
-            </a>
+            <label style={fieldLabelStyle}>
+              Email
+              <input
+                type="text"
+                name="email"
+                defaultValue={emailFilter}
+                placeholder="Filter email"
+                style={inputStyle}
+              />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Last activity from
+              <input type="date" name="last_from" defaultValue={lastFrom} style={inputStyle} />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Last activity to
+              <input type="date" name="last_to" defaultValue={lastTo} style={inputStyle} />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Activity
+              <select name="activity" defaultValue={activityFilter} style={inputStyle}>
+                <option value="all">All activity</option>
+                <option value="active">Active</option>
+                <option value="recent">Recent</option>
+                <option value="dormant">Dormant</option>
+                <option value="no_activity">No activity</option>
+              </select>
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Historic diary
+              <select name="imported" defaultValue={importedFilter} style={inputStyle}>
+                <option value="all">All diary history</option>
+                <option value="with_imported">With imported history</option>
+                <option value="without_imported">Without imported history</option>
+              </select>
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Created from
+              <input type="date" name="created_from" defaultValue={createdFrom} style={inputStyle} />
+            </label>
+
+            <label style={fieldLabelStyle}>
+              Created to
+              <input type="date" name="created_to" defaultValue={createdTo} style={inputStyle} />
+            </label>
+
+            <div style={buttonGroupStyle}>
+              <button type="submit" style={primaryBtnStyle}>
+                Filter
+              </button>
+
+              <a href={`/customers?view=${view}`} style={secondaryBtnStyle}>
+                Clear
+              </a>
+            </div>
           </form>
 
-          {q || activityFilter !== "all" || importedFilter !== "all" ? (
+          {filtersAreActive ? (
             <p style={{ marginTop: 12, marginBottom: 0, fontSize: 14, opacity: 0.8 }}>
-              Showing filtered results.
+              Showing filtered results. Click any column heading to sort.
             </p>
           ) : (
             <p style={{ marginTop: 12, marginBottom: 0, fontSize: 14, opacity: 0.8 }}>
-              Showing {view === "active" ? "active" : view === "archived" ? "archived" : "all"} customers.
+              Showing {view === "active" ? "active" : view === "archived" ? "archived" : "all"} customers. Click any column heading to sort.
             </p>
           )}
         </section>
@@ -237,42 +545,22 @@ export default async function CustomersPage({
 
           {!filteredCustomers || filteredCustomers.length === 0 ? (
             <p style={{ margin: 0 }}>
-              {q || activityFilter !== "all" || importedFilter !== "all"
-                ? "No customers matched your filters."
-                : "No customers yet."}
+              {filtersAreActive ? "No customers matched your filters." : "No customers yet."}
             </p>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th align="left" style={thStyle}>
-                      Company
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Contact
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Phone
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Email
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Last activity
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Activity
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Historic diary
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Archived
-                    </th>
-                    <th align="left" style={thStyle}>
-                      Created
-                    </th>
+                    {sortableHeader("company", "Company")}
+                    {sortableHeader("contact", "Contact")}
+                    {sortableHeader("phone", "Phone")}
+                    {sortableHeader("email", "Email")}
+                    {sortableHeader("last_activity", "Last activity")}
+                    {sortableHeader("activity", "Activity")}
+                    {sortableHeader("imported", "Historic diary")}
+                    {sortableHeader("archived", "Archived")}
+                    {sortableHeader("created", "Created")}
                     <th align="left" style={thStyle}>
                       Actions
                     </th>
@@ -393,13 +681,36 @@ const activeTabBtn: React.CSSProperties = {
   border: "1px solid #111",
 };
 
+const filtersGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: 10,
+  alignItems: "end",
+};
+
+const fieldLabelStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 5,
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#111",
+};
+
 const inputStyle: React.CSSProperties = {
+  width: "100%",
   height: 44,
   padding: "0 14px",
   borderRadius: 10,
   border: "1px solid rgba(0,0,0,0.12)",
   background: "rgba(255,255,255,0.92)",
   boxSizing: "border-box",
+};
+
+const buttonGroupStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 10,
+  flexWrap: "wrap",
 };
 
 const primaryBtnStyle: React.CSSProperties = {
@@ -447,7 +758,14 @@ const thStyle: React.CSSProperties = {
   padding: "10px 10px",
   borderBottom: "1px solid rgba(0,0,0,0.10)",
   fontSize: 12,
-  opacity: 0.8,
+  opacity: 0.95,
+  whiteSpace: "nowrap",
+};
+
+const sortLinkStyle: React.CSSProperties = {
+  color: "#111",
+  textDecoration: "none",
+  fontWeight: 900,
 };
 
 const tdStyle: React.CSSProperties = {
