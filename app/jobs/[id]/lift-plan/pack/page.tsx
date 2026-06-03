@@ -760,8 +760,9 @@ function rangeChartCalculated(sections: StringMap) {
     totalLiftedWeightKg,
   });
   const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
-  const chartCapacityKg = capacityResult.capacityKg ?? rangeKg(sections, "range_chart_chart_capacity_kg");
-  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : parseDecimal(sections.range_chart_utilisation_percent);
+  const storedManualChartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
+  const chartCapacityKg = capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
+  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : (capacityResult.allowManualCapacityFallback ? parseDecimal(sections.range_chart_utilisation_percent) : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
@@ -773,11 +774,21 @@ function rangeChartCalculated(sections: StringMap) {
   const bearingPressureKgM2 = calculatedBearingPressureKgM2;
   const bearingPressure = bearingPressureKgM2 ? `${bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—";
   const estimatedBearingFactor = limits.estimatedBearingFactor ?? 0.75;
-  const bearingPressureFormula = bearingLoadKg && limits.planningWeightKg && totalLiftedWeightKg
-    ? `(${formatRangeKg(limits.planningWeightKg)} × ${estimatedBearingFactor}) + ${formatRangeKg(totalLiftedWeightKg)} = ${formatRangeKg(bearingLoadKg)}`
-    : bearingLoadKg
-      ? `Estimated max outrigger load = ${formatRangeKg(bearingLoadKg)}`
-      : "Estimated max outrigger load requires crane and load details";
+  const planningEstimateKg = limits.planningWeightKg && totalLiftedWeightKg
+    ? (limits.planningWeightKg + totalLiftedWeightKg) * estimatedBearingFactor
+    : null;
+  const bearingSourceLower = String(bearingResult.source ?? "").toLowerCase();
+  const isPublishedBearingReference = Boolean(bearingLoadKg && /published|static outrigger|outrigger load|reaction/.test(bearingSourceLower));
+  const bearingPressureFormula = bearingLoadKg && isPublishedBearingReference
+    ? [
+        `Manufacturer/supplier outrigger reaction/load reference used: ${formatRangeKg(bearingLoadKg)}`,
+        planningEstimateKg ? `Planning estimate would be (${formatRangeKg(limits.planningWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × ${estimatedBearingFactor} = ${formatRangeKg(planningEstimateKg)}` : "",
+      ].filter(Boolean).join(". ")
+    : bearingLoadKg && planningEstimateKg
+      ? `(${formatRangeKg(limits.planningWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × ${estimatedBearingFactor} = ${formatRangeKg(bearingLoadKg)}`
+      : bearingLoadKg
+        ? `Estimated max outrigger load = ${formatRangeKg(bearingLoadKg)}`
+        : "Estimated max outrigger load requires crane and load details";
 
   return {
     radiusM,
@@ -928,7 +939,7 @@ function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnTyp
         totalLiftedWeightKg: totalLiftedKg,
       })
     : null;
-  const chartCapacityKg = calculatedCapacity?.capacityKg ?? additionalCraneNumber(crane.chart_capacity_kg);
+  const chartCapacityKg = calculatedCapacity?.capacityKg ?? (calculatedCapacity?.allowManualCapacityFallback ? additionalCraneNumber(crane.chart_capacity_kg) : null);
   const matLengthM = additionalCraneNumber(crane.mat_length_m);
   const matWidthM = additionalCraneNumber(crane.mat_width_m);
   const matCount = Math.max(1, Math.round(additionalCraneNumber(crane.mats_under_loaded_outrigger) ?? additionalCraneNumber(crane.mat_count) ?? 1));
@@ -940,7 +951,7 @@ function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnTyp
     sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
     totalLiftedWeightKg: totalLiftedKg,
   });
-  const bearingLoadKg = bearing.bearingLoadKg ?? (grossKg ? grossKg * 0.75 + totalLiftedKg : null);
+  const bearingLoadKg = bearing.bearingLoadKg ?? (grossKg ? (grossKg + totalLiftedKg) * 0.75 : null);
   const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
   const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
   const warnings = [
@@ -1468,8 +1479,16 @@ export default async function CraneLiftPlanPackPage({
     sections.cover_project ||
     (job as any)?.site_name ||
     `Job ${(job as any)?.job_number ?? ""}`.trim();
+  const isShaunRobinsonName = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z]+/g, " ").trim() === "shaun robinson";
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
-  const liftSupervisor = liftPlan?.lift_supervisor || appointedPerson;
+  const approvedBy = liftPlan?.approved_by || appointedPerson;
+  const rawLiftSupervisor = String(liftPlan?.lift_supervisor ?? "").trim();
+  const liftSupervisor = isShaunRobinsonName(rawLiftSupervisor) ? "" : rawLiftSupervisor;
+  const liftSupervisorField = (key: string, align: "left" | "right" = "left") => {
+    const saved = defaultSectionText(sections, key, "");
+    const value = isShaunRobinsonName(saved) ? "" : saved || liftSupervisor;
+    return <EditableInput name={key} defaultValue={value} align={align} emptyPrintValue="" />;
+  };
   const craneName = craneNameForAppendix;
   const hasRangeGroundBearingData = Boolean(
     sections.range_chart_bearing_load_kg ||
@@ -1484,7 +1503,7 @@ export default async function CraneLiftPlanPackPage({
   const rangeLoadWeightKg = rangeGroundCalc?.loadWeightKg ?? parseWeightToKg(liftPlan?.load_weight);
   const rangeAccessoryWeightKg = rangeGroundCalc?.accessoryWeightKg ?? parseWeightToKg(sections.crane_lifting_accessories_weight_text);
   const rangeTotalLiftedWeightKg = rangeGroundCalc?.totalLiftedWeightKg ?? (rangeLoadWeightKg || rangeAccessoryWeightKg ? (rangeLoadWeightKg ?? 0) + (rangeAccessoryWeightKg ?? 0) : null);
-  const rangeChartCapacityKg = rangeGroundCalc?.chartCapacityKg ?? parseWeightToKg(sections.range_chart_chart_capacity_kg);
+  const rangeChartCapacityKg = rangeGroundCalc?.chartCapacityKg ?? null;
   const rangeUtilisationPercent = rangeGroundCalc?.utilisationPercent ?? (rangeTotalLiftedWeightKg && rangeChartCapacityKg ? (rangeTotalLiftedWeightKg / rangeChartCapacityKg) * 100 : null);
   const rangeBearingLoadKg = rangeGroundCalc?.bearingLoadKg ?? null;
   const rangeBearingSource = String(rangeGroundCalc?.bearingSource ?? "").toLowerCase();
@@ -1493,14 +1512,19 @@ export default async function CraneLiftPlanPackPage({
     rangeBearingSource.includes("planning estimate") ||
     rangeBearingSource.includes("planning/gross weight") ||
     rangeBearingSource.includes("existing lift-plan formula") ||
-    rangeBearingSource.includes("appointed-person mat calculation")
+    rangeBearingSource.includes("appointed-person mat calculation") ||
+    rangeBearingSource.includes("gross lifted load) ×")
   );
   const rangePlanningGrossWeightKg = rangeBearingUsesPlanningFormula && rangeBearingLoadKg && rangeTotalLiftedWeightKg !== null
-    ? Math.max(0, (rangeBearingLoadKg - rangeTotalLiftedWeightKg) / 0.75)
+    ? Math.max(0, (rangeBearingLoadKg / 0.75) - rangeTotalLiftedWeightKg)
     : null;
   const rangeSpecPlanningWeightKg = rangeGroundCalc?.limits?.planningWeightKg ?? null;
 
-  const craneCapacity = rangeChartCapacityKg ? formatKgAndTonnes(rangeChartCapacityKg) : formatCapacity(equipmentProfile, crane);
+  const craneCapacity = rangeChartCapacityKg
+    ? formatKgAndTonnes(rangeChartCapacityKg)
+    : rangeTotalLiftedWeightKg
+      ? "Manual chart check required"
+      : formatCapacity(equipmentProfile, crane);
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
   const boomConfig = shortBoomConfiguration(
@@ -1511,15 +1535,17 @@ export default async function CraneLiftPlanPackPage({
   const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
   const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
     ? formatPercentValue(rangeUtilisationPercent)
-    : percentageUtilisation(liftPlan?.load_weight, equipmentProfile?.maxCapacityKg);
+    : "Manual check required";
   const primaryCapacityWarning = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined && rangeUtilisationPercent > 100
     ? `CAPACITY REVIEW REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} is over the selected chart capacity ${formatKgAndTonnes(rangeChartCapacityKg)} (${formatPercentValue(rangeUtilisationPercent)}). Select a stronger setup/crane, reduce radius/load, or do not approve until the appointed person has corrected the plan.`
-    : "";
+    : rangeTotalLiftedWeightKg && !rangeChartCapacityKg
+      ? `MANUAL CHART CHECK REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} has been entered, but the CRM has not matched a safe structured chart capacity at this radius/setup. Do not approve using the crane maximum capacity; check the exact manufacturer/supplier chart and enter/select the correct chart setup first.`
+      : "";
 
   const craneMaxWeightKg = rangePlanningGrossWeightKg ?? rangeSpecPlanningWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
   const combinedMaxWeightKg = craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg + loadMaxWeightKg : null;
-  const estimatedGroundBearingKg = rangeBearingLoadKg ?? (craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg * 0.75 + loadMaxWeightKg : null);
+  const estimatedGroundBearingKg = rangeBearingLoadKg ?? (craneMaxWeightKg && loadMaxWeightKg ? (craneMaxWeightKg + loadMaxWeightKg) * 0.75 : null);
   const matLengthM = (rangeGroundCalc?.matLengthM && rangeGroundCalc.matLengthM > 0 ? rangeGroundCalc.matLengthM : null) ?? parseDecimal(sections.ground_bearing_mat_length_m);
   const matWidthM = (rangeGroundCalc?.matWidthM && rangeGroundCalc.matWidthM > 0 ? rangeGroundCalc.matWidthM : null) ?? parseDecimal(sections.ground_bearing_mat_width_m);
   const matCount = Math.max(1, Math.round((rangeGroundCalc?.matCount && rangeGroundCalc.matCount > 0 ? rangeGroundCalc.matCount : null) ?? parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
@@ -1530,7 +1556,7 @@ export default async function CraneLiftPlanPackPage({
   const bearingPressure = rangeGroundCalc?.bearingPressure && rangeGroundCalc.bearingPressure !== "—" ? rangeGroundCalc.bearingPressure : formatBearingPressure(bearingLoadKg, matAreaM2);
   const matSizeText = enteredMatSpread && matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount} under worst-case loaded outrigger` : "Mat/spreader dimensions not entered";
   const primaryGroundLoadingFormula = rangeGroundCalc?.bearingPressureFormula || (bearingLoadKg && craneMaxWeightKg && loadMaxWeightKg
-    ? `(${formatRangeKg(craneMaxWeightKg)} × 0.75) + ${formatRangeKg(loadMaxWeightKg)} = ${formatRangeKg(bearingLoadKg)}`
+    ? `(${formatRangeKg(craneMaxWeightKg)} + ${formatRangeKg(loadMaxWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}`
     : "Estimated max outrigger load requires crane and load details");
   const primaryAdditionalSpreaderFormula = enteredMatSpread && bearingLoadKg && matAreaM2 && bearingPressure !== "—"
     ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} = ${bearingPressure}`
@@ -1968,7 +1994,7 @@ export default async function CraneLiftPlanPackPage({
             [inputField("ap_decl_label_name", "Name"), inputField("ap_decl_name", appointedPerson)],
             [inputField("ap_decl_label_prepared_for", "Prepared for job"), inputField("ap_decl_prepared_for_job", `#${(job as any)?.job_number ?? "—"}`)],
             [inputField("cover_label_prepared_by", "Prepared by"), inputField("cover_prepared_by_value", "ANNS CRANE HIRE LTD")],
-            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", liftPlan?.approved_by || "—")],
+            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", approvedBy)],
             [inputField("ap_decl_label_approved_at", "Approved at"), inputField("ap_decl_approved_at_value", fmtDateTime(liftPlan?.approved_at))],
           ]}
         />
@@ -2000,7 +2026,7 @@ export default async function CraneLiftPlanPackPage({
         <InfoTable
           rows={[
             [inputField("cover_label_appointed_person", "Appointed Person"), inputField("personnel_appointed_person", appointedPerson)],
-            [inputField("personnel_label_ls", "Lift Supervisor"), inputField("personnel_lift_supervisor", liftSupervisor)],
+            [inputField("personnel_label_ls", "Lift Supervisor"), liftSupervisorField("personnel_lift_supervisor")],
             [inputField("personnel_label_operator", "Crane Operator"), inputField("personnel_crane_operator", liftPlan?.crane_operator || operator?.full_name || "—")],
             [inputField("personnel_label_client_contact", "Client / Site Contact"), inputField("personnel_client_contact", (job as any)?.contact_name || "—")],
           ]}
@@ -2089,7 +2115,7 @@ export default async function CraneLiftPlanPackPage({
               [inputField("ground_bearing_label_crane_max", "Crane planning / gross weight"), calculatedInputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
               [inputField("ground_bearing_label_load_max", "Total lifted load"), calculatedInputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
               [inputField("ground_bearing_label_combined", "Crane + lifted load reference"), calculatedInputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
-              [inputField("ground_bearing_label_factor", "Crane weight factor"), calculatedInputField("ground_bearing_factor", "0.75")],
+              [inputField("ground_bearing_label_factor", "Crane + lifted load factor"), calculatedInputField("ground_bearing_factor", "0.75")],
               [inputField("ground_bearing_label_result", "Estimated max outrigger load"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
               [inputField("ground_bearing_label_mat_size", "Mat / spreader dimensions"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
               [inputField("ground_bearing_label_bearing_load", "Max outrigger load used for AnnS ground-loading check"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
@@ -2306,7 +2332,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           rows={[
             [inputField("signoff_label_lift_plan_complete", "Lift plan complete"), inputField("signoff_lift_plan_complete", yesNo(liftPlan?.lift_plan_complete))],
             [inputField("signoff_label_rams_complete", "RAMS complete"), inputField("signoff_rams_complete", yesNo(liftPlan?.rams_complete))],
-            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", liftPlan?.approved_by || "—")],
+            [inputField("ap_decl_label_approved_by", "Approved by"), inputField("ap_decl_approved_by_value", approvedBy)],
             [inputField("ap_decl_label_approved_at", "Approved at"), inputField("ap_decl_approved_at_value", fmtDateTime(liftPlan?.approved_at))],
             [inputField("signoff_label_approval_notes", "Approval notes"), areaField("signoff_approval_notes", liftPlan?.approval_notes || "—", 3, true)],
           ]}
@@ -2322,7 +2348,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           <InfoTable
             rows={[
               [inputField("delegation_label_ap", "Appointed Person"), inputField("delegation_appointed_person", appointedPerson)],
-              [inputField("delegation_label_ls", "Lift Supervisor"), inputField("delegation_lift_supervisor", liftSupervisor)],
+              [inputField("delegation_label_ls", "Lift Supervisor"), liftSupervisorField("delegation_lift_supervisor")],
               [inputField("delegation_label_operator", "Crane Operator"), inputField("delegation_crane_operator", liftPlan?.crane_operator || operator?.full_name || "—")],
             ]}
           />
@@ -2330,7 +2356,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
 
         <div style={signatureGrid}>
           <SignatureRow title={inputField("signature_title_ap", "Appointed Person signature")} name={appointedPerson} nameField="signature_ap_name" dateField="signature_ap_date" sections={sections} />
-          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} nameField="signature_ls_name" dateField="signature_ls_date" sections={sections} />
+          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} nameField="signature_ls_name" dateField="signature_ls_date" sections={{ ...sections, signature_ls_name: isShaunRobinsonName(sections.signature_ls_name) ? "" : sections.signature_ls_name }} />
           <SignatureRow title={inputField("signature_title_operator", "Crane Operator signature")} name={liftPlan?.crane_operator || operator?.full_name} nameField="signature_operator_name" dateField="signature_operator_date" sections={sections} />
           <SignatureRow title={inputField("signature_title_client", "Client completion sign-off")} name={(job as any)?.contact_name} nameField="signature_client_name" dateField="signature_client_date" sections={sections} />
         </div>
@@ -2360,7 +2386,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         <InfoTable
           rows={[
             [inputField("wind_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
-            [inputField("wind_label_lift_supervisor", "Lift Supervisor"), inputField("wind_lift_supervisor", liftSupervisor)],
+            [inputField("wind_label_lift_supervisor", "Lift Supervisor"), liftSupervisorField("wind_lift_supervisor")],
             [inputField("wind_label_date", "Date"), inputField("wind_date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date))],
           ]}
         />
