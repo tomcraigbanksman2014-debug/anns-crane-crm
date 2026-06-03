@@ -1,6 +1,24 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
+
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function cleanNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -107,19 +125,19 @@ export async function GET(
 
 
 async function safeCreateLiftPlanVersion({
-  supabase,
+  admin,
   existing,
   user,
   reason,
 }: {
-  supabase: ReturnType<typeof createSupabaseServerClient>;
+  admin: ReturnType<typeof getAdminClient>;
   existing: any;
   user: any;
   reason: string;
 }) {
-  if (!existing?.id) return;
+  if (!existing?.id) return false;
   try {
-    await supabase.from("lift_plan_versions").insert({
+    const { error } = await admin.from("lift_plan_versions").insert({
       lift_plan_id: existing.id,
       job_id: existing.job_id,
       snapshot_data: existing,
@@ -127,9 +145,12 @@ async function safeCreateLiftPlanVersion({
       created_by_email: user?.email ?? null,
       reason,
     });
+    if (error) return false;
+    return true;
   } catch {
     // Version history is a safety feature. If the migration has not been run yet,
     // do not block saving the lift plan.
+    return false;
   }
 }
 
@@ -139,6 +160,7 @@ export async function POST(
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
 
     const {
       data: { user },
@@ -207,13 +229,15 @@ export async function POST(
       updated_at: new Date().toISOString(),
     };
 
+    let versionSaved = false;
+
     if (existing?.id) {
       const mergedPackSections = {
         ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
         ...packSectionsFromPayload,
       };
 
-      await safeCreateLiftPlanVersion({ supabase, existing, user, reason: "before_save_draft" });
+      versionSaved = await safeCreateLiftPlanVersion({ admin, existing, user, reason: "before_save_draft" });
 
       const { error: updateError } = await supabase
         .from("lift_plans")
@@ -260,7 +284,7 @@ export async function POST(
       });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, previous_version_saved: typeof versionSaved === "boolean" ? versionSaved : false });
   } catch (e: any) {
     return NextResponse.json(
       { error: e?.message ?? "Could not save lift plan." },
