@@ -1,6 +1,24 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../../lib/audit";
+
+
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    throw new Error("Server missing Supabase env vars");
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+}
 
 function cleanUuid(value: unknown) {
   const s = String(value ?? "").trim();
@@ -9,10 +27,10 @@ function cleanUuid(value: unknown) {
     : null;
 }
 
-async function safeSnapshotCurrent({ supabase, liftPlan, user }: { supabase: ReturnType<typeof createSupabaseServerClient>; liftPlan: any; user: any }) {
+async function safeSnapshotCurrent({ admin, liftPlan, user }: { admin: ReturnType<typeof getAdminClient>; liftPlan: any; user: any }) {
   if (!liftPlan?.id) return;
   try {
-    await supabase.from("lift_plan_versions").insert({
+    await admin.from("lift_plan_versions").insert({
       lift_plan_id: liftPlan.id,
       job_id: liftPlan.job_id,
       snapshot_data: liftPlan,
@@ -31,10 +49,11 @@ export async function GET(
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-    const { data, error } = await supabase
+    const { data, error } = await admin
       .from("lift_plan_versions")
       .select("id, created_at, created_by_email, reason")
       .eq("job_id", params.id)
@@ -54,6 +73,7 @@ export async function POST(
 ) {
   try {
     const supabase = createSupabaseServerClient();
+    const admin = getAdminClient();
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     if (userError || !user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
@@ -63,7 +83,7 @@ export async function POST(
 
     const [{ data: current, error: currentError }, { data: version, error: versionError }] = await Promise.all([
       supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
-      supabase.from("lift_plan_versions").select("id, job_id, snapshot_data").eq("id", versionId).eq("job_id", params.id).maybeSingle(),
+      admin.from("lift_plan_versions").select("id, job_id, snapshot_data").eq("id", versionId).eq("job_id", params.id).maybeSingle(),
     ]);
 
     if (currentError) return NextResponse.json({ error: currentError.message }, { status: 400 });
@@ -71,7 +91,7 @@ export async function POST(
     if (!version?.snapshot_data) return NextResponse.json({ error: "Selected previous draft was not found." }, { status: 404 });
     if (current?.paperwork_locked) return NextResponse.json({ error: "Paperwork is locked. Unlock it before restoring a previous draft." }, { status: 403 });
 
-    await safeSnapshotCurrent({ supabase, liftPlan: current, user });
+    await safeSnapshotCurrent({ admin, liftPlan: current, user });
 
     const snapshot = { ...(version.snapshot_data as Record<string, any>) };
     delete snapshot.id;
