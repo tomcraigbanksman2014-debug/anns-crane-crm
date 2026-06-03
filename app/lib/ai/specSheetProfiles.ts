@@ -86,6 +86,20 @@ function parseCapacityKgFromText(...values: unknown[]) {
   return Math.max(...candidates);
 }
 
+
+function isJekkoSpx532Text(...values: unknown[]) {
+  const text = values.map((value) => String(value ?? "")).join(" ").toLowerCase();
+  return /\bspx\s*532\b/.test(text) || /\bspx532\b/.test(text) || (text.includes("jekko") && text.includes("532"));
+}
+
+function normaliseKnownMaxCapacityKg(parsedKg: number | null, ...identity: unknown[]) {
+  // The SPX532 spec sheet includes 4,000 kg chart/load values in the load chart,
+  // but the crane/hook-block maximum capacity is 3,200 kg. Do not let generic
+  // extraction promote chart values into the machine max capacity.
+  if (isJekkoSpx532Text(...identity)) return 3200;
+  return parsedKg;
+}
+
 function parseLargestMetres(regexes: RegExp[], text: string, min = 1, max = 150) {
   const values: number[] = [];
   for (const re of regexes) {
@@ -459,7 +473,8 @@ export function buildExtractedCraneProfileJson({
   if (!combined) return null;
 
   const low = combined.toLowerCase();
-  const maxCapacityKg = parseCapacityKgFromText(crane?.capacity, combined);
+  const parsedMaxCapacityKg = parseCapacityKgFromText(crane?.capacity, combined);
+  const maxCapacityKg = normaliseKnownMaxCapacityKg(parsedMaxCapacityKg, crane?.name, crane?.make, crane?.model, crane?.capacity, title, combined);
   const maxCapacityTonnes = maxCapacityKg ? Number((maxCapacityKg / 1000).toFixed(2)) : null;
   const maxBoomLengthM = parseBoomLengthM(low);
   const maxRadiusM = parseRadiusM(low);
@@ -515,8 +530,9 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
   if (!generated) return null;
 
   const title = clean(generated.title) || [crane.name, crane.make, crane.model].filter(Boolean).join(" ") || "Uploaded crane specification";
-  const maxCapacityKg = numberOrNull(generated.maxCapacityKg) ?? parseCapacityKgFromText(crane.capacity, allText);
-  const maxCapacityTonnes = numberOrNull(generated.maxCapacityTonnes) ?? (maxCapacityKg ? Number((maxCapacityKg / 1000).toFixed(2)) : null);
+  const parsedStoredCapacityKg = numberOrNull(generated.maxCapacityKg) ?? parseCapacityKgFromText(crane.capacity, allText);
+  const maxCapacityKg = normaliseKnownMaxCapacityKg(parsedStoredCapacityKg, crane.name, crane.make, crane.model, crane.capacity, title, allText);
+  const maxCapacityTonnes = maxCapacityKg ? Number((maxCapacityKg / 1000).toFixed(2)) : null;
   const maxBoomLengthM = numberOrNull(generated.maxBoomLengthM) ?? parseBoomLengthM(lower(allText));
   const maxRadiusM = numberOrNull(generated.maxRadiusM) ?? parseRadiusM(lower(allText));
   const maxTipHeightM = numberOrNull(generated.maxTipHeightM) ?? parseTipHeightM(lower(allText));
