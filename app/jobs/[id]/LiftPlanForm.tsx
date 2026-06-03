@@ -861,7 +861,11 @@ export default function LiftPlanForm({
       load_share_kg: crane.load_share_kg || formatAutoKgInput(loadKg),
       accessory_weight_kg: crane.accessory_weight_kg || formatAutoKgInput(accessoryKg),
       crane_gross_weight_kg: limits.planningWeightKg ? formatAutoKgInput(limits.planningWeightKg) : crane.crane_gross_weight_kg,
-      chart_capacity_kg: capacity?.capacityKg ? formatAutoKgInput(capacity.capacityKg) : crane.chart_capacity_kg,
+      chart_capacity_kg: capacity?.capacityKg
+        ? formatAutoKgInput(capacity.capacityKg)
+        : capacity?.allowManualCapacityFallback
+          ? crane.chart_capacity_kg
+          : "",
     };
 
     if (!next.verification_notes && (capacity?.setupAdvice || capacity?.source || bearing?.source)) {
