@@ -22,9 +22,29 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function isPdf(file: File) {
-  return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+function fileBadgeLabel(file: File) {
+  const name = file.name.toLowerCase();
+  if (file.type === "application/pdf" || name.endsWith(".pdf")) return "PDF";
+  if (name.endsWith(".doc") || name.endsWith(".docx")) return "WORD";
+  if (name.endsWith(".xls") || name.endsWith(".xlsx") || name.endsWith(".csv")) return "EXCEL";
+  if (name.endsWith(".dwg") || name.endsWith(".dxf")) return "CAD";
+  if (name.endsWith(".txt") || name.endsWith(".rtf")) return "TEXT";
+  return "FILE";
 }
+
+const acceptedUploadTypes = [
+  "image/*",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".csv",
+  ".txt",
+  ".rtf",
+  ".dwg",
+  ".dxf",
+].join(",");
 
 export default function DocumentUploadForm({
   jobId,
@@ -66,7 +86,7 @@ export default function DocumentUploadForm({
     clearSelectedFiles();
     const next = Array.from(files ?? []).map(makeItem);
     setItems(next);
-    setMessage(next.length ? "Move drawings/images into the order you want them to appear before uploading." : null);
+    setMessage(next.length ? "Move drawings, images and documents into the order you want them to appear before uploading." : null);
   }
 
   function removeItem(id: string) {
@@ -142,12 +162,12 @@ export default function DocumentUploadForm({
     <form onSubmit={onSubmit}>
       <div style={{ display: "grid", gap: 10 }}>
         <div style={helperBox}>
-          Upload site sketches, crane position drawings, lift diagrams, photos, RAMS, and other lift plan documents.
+          Upload site sketches, crane position drawings, lift diagrams, photos, RAMS, Word/Excel files, CAD files and other lift plan documents.
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.78 }}>
-            You can select multiple drawings/images/PDFs at the same time. Image uploads on this page are appended into the full lift plan pack as extra appendix pages.
+            You can select multiple images, PDFs, Word/Excel files, text files or DWG/DXF drawings at the same time. Image uploads on this page are appended into the full lift plan pack as extra appendix pages.
           </div>
           <div style={{ marginTop: 6, fontSize: 12, opacity: 0.78 }}>
-            For site drawings/photos, move them into the order you want before clicking upload. That order will be used in the lift plan appendix.
+            For site drawings/photos/documents, move them into the order you want before clicking upload. That order will be used in the lift plan appendix/document list.
           </div>
         </div>
 
@@ -168,7 +188,7 @@ export default function DocumentUploadForm({
           id="job-doc-upload"
           type="file"
           multiple
-          accept="image/*,.pdf"
+          accept={acceptedUploadTypes}
           onChange={(e) => handleFileChange(e.target.files)}
           style={inputStyle}
         />
@@ -186,7 +206,7 @@ export default function DocumentUploadForm({
                     {item.previewUrl ? (
                       <img src={item.previewUrl} alt={item.file.name} style={previewImage} />
                     ) : (
-                      <div style={fileBadge}>{isPdf(item.file) ? "PDF" : "FILE"}</div>
+                      <div style={fileBadge}>{fileBadgeLabel(item.file)}</div>
                     )}
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
