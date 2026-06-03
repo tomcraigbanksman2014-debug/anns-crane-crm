@@ -10,6 +10,7 @@ import DocumentUploadForm from "../DocumentUploadForm";
 import AssetDocumentManager from "../../../components/AssetDocumentManager";
 import LiftPlanAppendixSelector from "./LiftPlanAppendixSelector";
 import LiftPlanArchiveManager from "./LiftPlanArchiveManager";
+import AppendixDocumentManager from "./AppendixDocumentManager";
 import {
   getCraneAppendixAssetsForPack,
   getJobSpecAppendixAssetsForPack,
@@ -91,6 +92,14 @@ function documentTypeLabel(value: string | null | undefined) {
     default:
       return "Other";
   }
+}
+
+function publicJobDocumentUrl(filePath: unknown) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const path = String(filePath ?? "").trim();
+  if (!supabaseUrl || !path) return null;
+  const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+  return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/job-documents/${encodedPath}`;
 }
 
 function isAppendixImageDoc(doc: any) {
@@ -312,9 +321,9 @@ export default async function JobLiftPlanPage({
       supabase.from("lift_plans").select("*").eq("job_id", params.id).maybeSingle(),
       supabase
         .from("job_documents")
-        .select("id, file_name, file_type, document_type, created_at, share_with_operator")
+        .select("id, file_name, file_path, file_type, document_type, created_at, share_with_operator")
         .eq("job_id", params.id)
-        .order("created_at", { ascending: false }),
+        .order("created_at", { ascending: true }),
       supabase
         .from("operators")
         .select("id, full_name, status, archived")
@@ -467,6 +476,16 @@ export default async function JobLiftPlanPage({
   })).filter((doc) => doc.id);
 
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
+  const appendixDocsForManager = appendixDocs.map((doc: any) => ({
+    id: String(doc.id ?? ""),
+    file_name: doc.file_name ?? null,
+    file_path: doc.file_path ?? null,
+    file_type: doc.file_type ?? null,
+    document_type: doc.document_type ?? null,
+    created_at: doc.created_at ?? null,
+    share_with_operator: Boolean(doc.share_with_operator),
+    public_url: publicJobDocumentUrl(doc.file_path),
+  })).filter((doc: any) => doc.id);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
   const { archives: liftPlanPdfArchives, error: archiveError } = await loadLiftPlanPdfArchives(supabase, params.id);
   const errorMessage = baseErrorMessage || archiveError || "";
@@ -543,30 +562,10 @@ export default async function JobLiftPlanPage({
           <DocumentUploadForm jobId={params.id} />
 
           <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
-            {appendixDocs.length ? (
-              <>
-                <div style={listTitle}>Appendix image pages that will be added to the full pack</div>
-                <div style={docGrid}>
-                  {appendixDocs.map((doc: any) => (
-                    <div key={doc.id} style={docCard}>
-                      <div style={{ fontWeight: 900 }}>{doc.file_name ?? "Untitled file"}</div>
-                      <div style={docMeta}>
-                        {documentTypeLabel(doc.document_type)} • Uploaded {fmtDateTime(doc.created_at)}
-                      </div>
-                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8, alignItems: "center" }}>
-                        <span style={appendixPill}>Pack appendix page</span>
-                        {doc.share_with_operator ? <span style={neutralPill}>Shared with operator</span> : null}
-                        <form action={`/api/jobs/${params.id}/documents/${doc.id}/delete`} method="post" style={{ marginLeft: "auto" }}>
-                          <button type="submit" style={dangerBtn}>Remove</button>
-                        </form>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </>
-            ) : (
-              <div style={emptyBox}>No appendix image uploads yet.</div>
-            )}
+            <AppendixDocumentManager
+              jobId={params.id}
+              initialDocuments={appendixDocsForManager}
+            />
 
             {otherDocs.length ? (
               <>
