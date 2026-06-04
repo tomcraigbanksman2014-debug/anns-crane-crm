@@ -136,6 +136,31 @@ function fmtMoney(value: number | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
+function cleanPlannerText(value: string | null | undefined, fallback: string) {
+  let text = String(value ?? "").trim();
+  if (!text) return fallback;
+
+  // Planner cards need to stay compact. Full map links and raw pasted URLs are
+  // kept on the job record, but hidden from the planner card so one long link
+  // cannot force a card across the next day/vehicle column.
+  text = text
+    .replace(/https?:\/\/\S+/gi, "")
+    .replace(/www\.\S+/gi, "")
+    .replace(/maps\.app\.goo\.gl\/\S+/gi, "")
+    .replace(/goo\.gl\/maps\/\S+/gi, "")
+    .replace(/ /g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return text || fallback;
+}
+
+function routeSummary(item: PlannerItem) {
+  const collection = cleanPlannerText(item.collection_address, "No collection");
+  const delivery = cleanPlannerText(item.delivery_address, "No delivery");
+  return `${collection} → ${delivery}`;
+}
+
 function statusTone(status: string | null | undefined): React.CSSProperties {
   const s = String(status ?? "").toLowerCase();
 
@@ -889,7 +914,7 @@ export default function TransportPlannerBoard() {
       >
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontWeight: 1000 }}>{item.transport_number ?? "Transport job"}</div>
+            <div style={{ fontWeight: 1000, overflowWrap: "anywhere", wordBreak: "break-word" }}>{item.transport_number ?? "Transport job"}</div>
             <div style={{ marginTop: 4, fontSize: compact ? 12 : 13, opacity: 0.82 }}>
               {item.client_name ?? "No customer"}
             </div>
@@ -900,8 +925,8 @@ export default function TransportPlannerBoard() {
         <div style={{ marginTop: 4, fontSize: compact ? 11 : 12, opacity: 0.82 }}>
           {item.job_type ?? "—"}
         </div>
-        <div style={{ marginTop: 4, fontSize: compact ? 11 : 12, opacity: 0.78 }}>
-          {item.collection_address ?? "No collection"} → {item.delivery_address ?? "No delivery"}
+        <div style={compact ? compactRouteText : routeText} title={routeSummary(item)}>
+          {routeSummary(item)}
         </div>
         <div style={{ marginTop: 6, fontSize: compact ? 11 : 12, opacity: 0.72 }}>
           {item.collection_time ?? "—"} → {item.delivery_time ?? "—"}
@@ -1033,7 +1058,7 @@ export default function TransportPlannerBoard() {
         {items.length === 0 ? (
           showEmptyCrossHire ? <div style={emptyState}>No cross-hired transport jobs</div> : availabilityEntries.length ? <div style={emptyState}>No jobs</div> : <div style={emptyState}>Free</div>
         ) : (
-          <div style={{ display: "grid", gap: 8 }}>{items.map((item) => renderJobCard(item, true, target.dayIso))}</div>
+          <div style={{ display: "grid", gap: 8, minWidth: 0 }}>{items.map((item) => renderJobCard(item, true, target.dayIso))}</div>
         )}
       </div>
     );
@@ -1359,7 +1384,7 @@ function MobileDayCell({
           })}
         </div>
       ) : null}
-      {items.length === 0 ? <div style={emptyState}>{availabilityEntries.length ? "No jobs" : "Free"}</div> : <div style={{ display: "grid", gap: 8 }}>{items.map(renderItem)}</div>}
+      {items.length === 0 ? <div style={emptyState}>{availabilityEntries.length ? "No jobs" : "Free"}</div> : <div style={{ display: "grid", gap: 8, minWidth: 0 }}>{items.map(renderItem)}</div>}
     </div>
   );
 }
@@ -1392,9 +1417,10 @@ const viewToggleActive: React.CSSProperties = {
 function desktopGrid(dayCount: number): React.CSSProperties {
   return {
     display: "grid",
-    gridTemplateColumns: `220px repeat(${dayCount}, minmax(160px, 1fr))`,
+    gridTemplateColumns: `220px repeat(${dayCount}, minmax(150px, 1fr))`,
     gap: 10,
     alignItems: "stretch",
+    minWidth: 0,
   };
 }
 
@@ -1505,6 +1531,7 @@ const crossHireSideCell: React.CSSProperties = {
 
 const dayCell: React.CSSProperties = {
   minHeight: 120,
+  minWidth: 0,
   padding: 10,
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
@@ -1571,6 +1598,7 @@ const crossHireMobileHeader: React.CSSProperties = {
 
 const mobileDayCell: React.CSSProperties = {
   minHeight: 100,
+  minWidth: 0,
   padding: 10,
   borderRadius: 12,
   background: "rgba(255,255,255,0.42)",
@@ -1583,11 +1611,35 @@ const jobCardStyle: React.CSSProperties = {
   textDecoration: "none",
   color: "#111",
   boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+  minWidth: 0,
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
 };
 
 const miniJobCard: React.CSSProperties = {
   ...jobCardStyle,
   padding: 10,
+};
+
+const routeText: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 12,
+  opacity: 0.78,
+  lineHeight: 1.28,
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
+  display: "-webkit-box",
+  WebkitLineClamp: 4,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
+};
+
+const compactRouteText: React.CSSProperties = {
+  ...routeText,
+  fontSize: 11,
+  WebkitLineClamp: 3,
 };
 
 const tagWrap: React.CSSProperties = {
