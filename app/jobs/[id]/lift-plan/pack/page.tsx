@@ -218,9 +218,9 @@ function defaultRangeSetupForCurrentCrane(currentCraneName: unknown) {
   if (currentCraneIsAk46(currentCraneName)) {
     return {
       setupKey: "profile:ak46-crane-operation",
-      setupLabel: "AK46 crane-operation range table / main boom",
+      setupLabel: "AK46 crane-operation range table / total boom-extension up to 46 m",
       jibKey: "none",
-      jibLabel: "No jib / main boom only",
+      jibLabel: "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension",
       jibLength: "0",
       jibAngle: "0",
     };
@@ -231,7 +231,7 @@ function defaultRangeSetupForCurrentCrane(currentCraneName: unknown) {
       setupKey: "profile:spx532-main-j7",
       setupLabel: "Main boom — J7/full-stability planning chart",
       jibKey: "none",
-      jibLabel: "No jib / main boom only",
+      jibLabel: "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension",
       jibLength: "0",
       jibAngle: "0",
     };
@@ -314,8 +314,13 @@ function sanitisePackSectionsForCurrentCrane(rawSections: StringMap, currentCran
 
     // Clear stale calculated outputs from a previous crane/setup. They will be recalculated
     // from the current crane rules during this render.
+    out.boom_configuration = "Main boom";
+    out.boom_length = "";
+    out.crane_jib_reference = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
     out.range_chart_boom_length_m = "";
     out.range_chart_boom_angle_deg = "";
+    out.range_chart_jib_length_m = defaults?.jibLength ?? "0";
+    out.range_chart_jib_angle_deg = defaults?.jibAngle ?? "0";
     out.range_chart_chart_capacity_kg = "";
     out.range_chart_capacity_source = "";
     out.range_chart_utilisation_percent = "";
@@ -323,6 +328,7 @@ function sanitisePackSectionsForCurrentCrane(rawSections: StringMap, currentCran
     out.range_chart_bearing_method = "";
     out.range_chart_bearing_load_kg = "";
     out.range_chart_bearing_pressure_formula = "";
+    out.range_chart_limit_warning = "";
   }
 
   return out;
@@ -961,6 +967,17 @@ function formatRangeClearance(value: number) {
   return value >= 0 ? formatRangeNumber(value) : `${formatRangeNumber(Math.abs(value))} low`;
 }
 
+function formatRangeBoomLength(calc: ReturnType<typeof rangeChartCalculated> | null) {
+  if (!calc?.boomLengthM) return "—";
+  const maxBoom = calc.limits?.maxBoomLengthM ?? null;
+  const boom = calc.boomLengthM;
+  const boomText = formatRangeNumber(boom);
+  if (maxBoom && boom > maxBoom + 0.01) {
+    return `${boomText} required (${formatRangeNumber(maxBoom)} max — manual check)`;
+  }
+  return boomText;
+}
+
 
 function inferRangePhysicalJibLengthFromText(value: unknown) {
   const text = String(value ?? "").trim().toLowerCase();
@@ -1343,7 +1360,7 @@ function RangeChartPackPage({
         <div><strong>Client:</strong> {clientName}</div>
         <div><strong>Crane:</strong> {craneName}</div>
         <div><strong>Main boom/profile:</strong> {selectedSetup}</div>
-        <div><strong>Fly jib/extension:</strong> {selectedJibOption || (calc.jibLengthM > 0 ? `${formatRangeNumber(calc.jibLengthM)} physical jib` : "No jib / main boom only")}</div>
+        <div><strong>Fly jib/extension:</strong> {selectedJibOption || (calc.jibLengthM > 0 ? `${formatRangeNumber(calc.jibLengthM)} physical jib` : "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension")}</div>
         <div><strong>Spec source:</strong> {sourceLabel}</div>
         <div style={{ gridColumn: "1 / -1" }}><strong>Notes:</strong> {notes}</div>
       </div>
@@ -1397,7 +1414,7 @@ function RangeChartPackPage({
 
 
       <div style={rangeMetricGrid}>
-        <MetricBox label="Boom Length" value={formatRangeNumber(calc.boomLengthM)} />
+        <MetricBox label="Boom Length" value={formatRangeBoomLength(calc)} />
         <MetricBox label="Boom Angle" value={formatRangeNumber(calc.boomAngleDeg, "°")} />
         <MetricBox label="Radius" value={formatRangeNumber(calc.radiusM)} />
         <MetricBox label="Tip Height" value={formatRangeNumber(calc.tipHeightM)} />
@@ -1552,16 +1569,18 @@ function isAppendixImageDocument(doc: any) {
   const name = String(doc?.file_name ?? "").toLowerCase();
   const documentType = String(doc?.document_type ?? "").toLowerCase();
 
-  return (
+  const looksLikeImage =
     mime.startsWith("image/") ||
     name.endsWith(".png") ||
     name.endsWith(".jpg") ||
     name.endsWith(".jpeg") ||
     name.endsWith(".webp") ||
-    name.endsWith(".gif") ||
-    documentType === "site_drawing" ||
-    documentType === "photo"
-  );
+    name.endsWith(".gif");
+
+  // Site drawings can be PDFs. Do not render a PDF through an <img> tag because it creates
+  // blank/broken appendix pages in the printed lift-plan pack. PDF/spec pages should only be
+  // included through generated preview images from asset_document_previews.
+  return looksLikeImage || (documentType === "photo" && !name.endsWith(".pdf"));
 }
 
 function parseSelectedAppendixKeys(value: unknown): string[] | null {
@@ -1966,7 +1985,7 @@ export default async function CraneLiftPlanPackPage({
       : "Main boom + jib / extension"
     : "";
   const boomConfigurationText = rangeBoomConfiguration || currentCraneSectionText(sections, "boom_configuration", boomConfig, craneName);
-  const boomLengthText = rangeGroundCalc?.boomLengthM ? `${rangeGroundCalc.boomLengthM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : currentCraneSectionText(sections, "boom_length", boomLength, craneName);
+  const boomLengthText = rangeGroundCalc?.boomLengthM ? formatRangeBoomLength(rangeGroundCalc) : currentCraneSectionText(sections, "boom_length", boomLength, craneName);
   const introductionText = defaultSectionText(
     sections,
     "introduction",
@@ -2131,7 +2150,7 @@ export default async function CraneLiftPlanPackPage({
     : formatOutreachReference(equipmentProfile);
   const jibRef = rangeGroundCalc
     ? rangeHasNoJib || !rangeSelectedJibLabel
-      ? "No jib / main boom only"
+      ? "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension"
       : rangeSelectedJibLabel
     : formatJibReference(equipmentProfile);
 
