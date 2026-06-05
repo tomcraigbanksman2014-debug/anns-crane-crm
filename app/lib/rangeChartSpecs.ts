@@ -251,8 +251,9 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     planningWeightSource: "AK 46/6000 spec: permissible gross vehicle weight up to 26 t",
     estimatedBearingFactor: 0.75,
     profileOptions: [
-      profile("ak46-main-44", "Main boom / extension up to 44 m", 44, 44, 38, 43.3, "AK 46/6000 technical information"),
-      profile("ak46-main-46", "Optional max extension up to 46 m", 46, 46, 39, 46, "AK 46/6000 technical information"),
+      profile("ak46-crane-operation", "AK46 crane-operation range table / main boom", null, 46, 39, 46, "AK 46/6000 crane-operation range/load table"),
+      profile("ak46-main-44", "Main boom / extension up to 44 m", null, 44, 38, 43.3, "AK 46/6000 technical information"),
+      profile("ak46-main-46", "Optional max extension up to 46 m", null, 46, 39, 46, "AK 46/6000 technical information"),
     ],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
