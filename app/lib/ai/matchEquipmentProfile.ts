@@ -399,44 +399,28 @@ function applyPackSectionProfileOverrides(profile: EquipmentProfile, sections: R
 export function getPrimaryCraneContext(job: any) {
   const sections = getLiftPlanPackSections(job);
   const jobCraneList = flatten(job?.cranes);
-  const currentJobCrane = jobCraneList[0] ?? job?.crane ?? null;
-  const currentJobCraneId = cleanText(currentJobCrane?.id);
+  const legacyJobCrane = jobCraneList[0] ?? job?.crane ?? null;
 
   const selectedAllocation = findSelectedCraneAllocation(job);
   const fallbackAllocation = firstMatchingCraneAllocation(job);
-  const selectedAllocationCrane = firstObject(selectedAllocation?.cranes);
-  const fallbackAllocationCrane = firstObject(fallbackAllocation?.cranes);
 
-  // A saved lift-plan draft can contain an old selected crane/allocation after the job has been
-  // edited.  For live job paperwork, the current job crane is the safe default; otherwise a stale
-  // draft can make the lift plan show the wrong crane (for example Jekko instead of Bocker).
-  const selectedMatchesCurrentJobCrane =
-    !!currentJobCraneId &&
-    !!selectedAllocation &&
-    (cleanText(selectedAllocation?.crane_id) === currentJobCraneId || cleanText(selectedAllocationCrane?.id) === currentJobCraneId);
-  const fallbackMatchesCurrentJobCrane =
-    !!currentJobCraneId &&
-    !!fallbackAllocation &&
-    (cleanText(fallbackAllocation?.crane_id) === currentJobCraneId || cleanText(fallbackAllocationCrane?.id) === currentJobCraneId);
-
-  const allocation =
-    selectedMatchesCurrentJobCrane
-      ? selectedAllocation
-      : fallbackMatchesCurrentJobCrane
-      ? fallbackAllocation
-      : currentJobCraneId
-      ? null
-      : selectedAllocation ?? fallbackAllocation;
+  // The live allocated crane lines on the job are the safest source of truth for paperwork.
+  // The old jobs.crane_id field and saved lift_plans.selected_crane_id can both be stale after
+  // staff edit the job allocation/commercial breakdown. That was what made a Bocker job still
+  // open the lift plan as Jekko. Use the current crane allocation first, and only fall back to
+  // the legacy job crane if no crane allocation is present.
+  const allocation = selectedAllocation ?? fallbackAllocation ?? null;
 
   const selCraneId = selectedCraneId(job);
   const craneFromAllocation = firstObject(allocation?.cranes);
-  const craneFromSelection = selCraneId
-    ? jobCraneList.find((item) => cleanText(item?.id) === selCraneId) ?? null
-    : null;
+  const craneFromSelection =
+    !allocation && selCraneId
+      ? jobCraneList.find((item) => cleanText(item?.id) === selCraneId) ?? null
+      : null;
   const manualCrane = syntheticCraneFromSections(sections);
   const externalCrane = syntheticCraneFromAllocation(allocation, sections);
 
-  const crane = currentJobCrane ?? craneFromSelection ?? craneFromAllocation ?? externalCrane ?? manualCrane ?? null;
+  const crane = craneFromAllocation ?? externalCrane ?? legacyJobCrane ?? craneFromSelection ?? manualCrane ?? null;
 
   const operator =
     firstObject(allocation?.operators) ??
