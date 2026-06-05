@@ -155,6 +155,36 @@ function tidyDisplayLabel(value: unknown) {
   return result.join(" ").trim();
 }
 
+function normaliseCraneForCompare(value: unknown) {
+  return tidyDisplayLabel(value)
+    .toLowerCase()
+    .replace(/böcker/g, "bocker")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:crane|mobile|spider|truck|mounted|gt|cdh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unknown) {
+  const text = normaliseCraneForCompare(value);
+  const current = normaliseCraneForCompare(currentCraneName);
+  if (!text || !current) return false;
+  const known = [
+    { key: "bocker", aliases: ["bocker", "ak46", "ak 46"] },
+    { key: "jekko", aliases: ["jekko", "spx532", "spx 532"] },
+    { key: "grove", aliases: ["grove", "gmk4080", "gmk 4080"] },
+    { key: "mtk35", aliases: ["marchetti", "mtk35", "mtk 35"] },
+    { key: "hk40", aliases: ["tadano", "faun", "hk40", "hk 40"] },
+  ];
+  const currentKeys = new Set(known.filter((item) => item.aliases.some((alias) => current.includes(alias.replace(/\s+/g, " ")))).map((item) => item.key));
+  if (!currentKeys.size) return false;
+  return known.some((item) => !currentKeys.has(item.key) && item.aliases.some((alias) => text.includes(alias.replace(/\s+/g, " "))));
+}
+
+function currentCraneSafeText(value: unknown, currentCraneName: unknown) {
+  return textMentionsDifferentKnownCrane(value, currentCraneName) ? "" : String(value ?? "").trim();
+}
+
 function normaliseDuplicateKey(value: string) {
   return value
     .toLowerCase()
@@ -1492,7 +1522,7 @@ export default async function CraneLiftPlanPackPage({
     craneModel: (crane as any)?.model ?? null,
     craneCapacity: (crane as any)?.capacity ?? null,
     liftType: (job as any)?.lift_type ?? (job as any)?.hire_type ?? null,
-    craneConfiguration: String(sections.range_chart_selected_setup_label ?? sections.boom_configuration ?? liftPlan?.crane_configuration ?? ""),
+    craneConfiguration: currentCraneSafeText(sections.range_chart_selected_setup_label, craneNameForAppendix) || currentCraneSafeText(sections.boom_configuration, craneNameForAppendix) || currentCraneSafeText(liftPlan?.crane_configuration, craneNameForAppendix),
     loadDescription: String(liftPlan?.method_statement ?? (job as any)?.notes ?? ""),
     notes: [
       (job as any)?.notes,
@@ -1550,6 +1580,9 @@ export default async function CraneLiftPlanPackPage({
     return <EditableInput name={key} defaultValue={value} align={align} emptyPrintValue="" />;
   };
   const craneName = craneNameForAppendix;
+  const safeLiftPlanCraneConfiguration = currentCraneSafeText(liftPlan?.crane_configuration, craneName);
+  const safeBoomConfigurationSection = currentCraneSafeText(sections.boom_configuration, craneName);
+  const safeCraneSetupProcedureSection = currentCraneSafeText(sections.crane_setup_procedure, craneName);
   const hasRangeGroundBearingData = Boolean(
     sections.range_chart_bearing_load_kg ||
     sections.range_chart_total_lifted_weight_kg ||
@@ -1588,8 +1621,8 @@ export default async function CraneLiftPlanPackPage({
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
   const boomConfig = shortBoomConfiguration(
-    sections.boom_configuration,
-    liftPlan?.crane_configuration,
+    safeBoomConfigurationSection,
+    safeLiftPlanCraneConfiguration,
     equipmentProfile
   );
   const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
@@ -1712,10 +1745,11 @@ export default async function CraneLiftPlanPackPage({
     "crane_details",
     equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."
   );
-  const craneSetupText = defaultSectionText(
-    sections,
-    "crane_setup_procedure",
-    sections.crane_setup_procedure || liftPlan?.crane_configuration || equipmentProfile?.configurationNote || `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
+  const craneSetupText = tidyRepeatedTextBlock(
+    safeCraneSetupProcedureSection ||
+      safeLiftPlanCraneConfiguration ||
+      equipmentProfile?.configurationNote ||
+      `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
   );
   const liftingProcedureText = defaultSectionText(
     sections,
