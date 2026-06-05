@@ -93,7 +93,8 @@ function craneLabel(crane: any, allocation: any) {
   const model = tidyWhitespace(crane?.model);
   const capacity = tidyWhitespace(crane?.capacity);
   const base = tidyDisplayLabel([name, make, model].filter(Boolean).join(" ")) || tidyWhitespace(allocation?.item_name);
-  return [base, capacity && !base.toLowerCase().includes(capacity.toLowerCase()) ? capacity : ""].filter(Boolean).join(" ").trim() || "—";
+  const joined = [base, capacity && !base.toLowerCase().includes(capacity.toLowerCase()) ? capacity : ""].filter(Boolean).join(" ").trim();
+  return tidyCraneLabel(joined) || "—";
 }
 
 function formatCapacity(profile: any, crane: any) {
@@ -153,6 +154,21 @@ function tidyDisplayLabel(value: unknown) {
     result.push(word);
   }
   return result.join(" ").trim();
+}
+
+function tidyCraneLabel(value: unknown) {
+  let text = tidyDisplayLabel(value);
+  if (!text) return "";
+  // Fix common duplicated crane names created when make/model are concatenated with an already-complete name.
+  text = text
+    .replace(/\b(BOCKER|BÖCKER)\s+AK\s+46\/6000\s+\1\s+AK\s+46\/6000\b/gi, "$1 AK 46/6000")
+    .replace(/\b(JEKKO)\s+SPX\s*532\s+\1\s+SPX\s*532\b/gi, "$1 SPX532")
+    .replace(/\b(GROVE)\s+GMK\s*4080-?1\s+\1\s+GMK\s*4080-?1\b/gi, "$1 GMK4080-1")
+    .replace(/\b(MARCHETTI)\s+MTK\s*35\s+\1\s+MTK\s*35\b/gi, "$1 MTK35")
+    .replace(/\b(TADANO)\s+FAUN\s+HK\s*40\s+\1\s+FAUN\s+HK\s*40\b/gi, "$1 FAUN HK40")
+    .replace(/\s+/g, " ")
+    .trim();
+  return text;
 }
 
 function normaliseCraneForCompare(value: unknown) {
@@ -507,6 +523,9 @@ function fixScopeOfWorksForCurrentCrane({
     .replace(/\s*(?:[A-Z0-9 /-]+\s+)?planning\s*\/\s*gross\s+weight\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
     .replace(/\s*Gross\s+lifted\s+load\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
     .replace(/\s*Estimated\s+maximum\s+outrigger\s+load\s+for\s+the\s+basic\s+ground[- ]bearing\s+check\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*(?:×|x)\s*0\.75\s*=\s*[0-9,]+(?:\s*kg)?\.?/gi, " ")
+    .replace(/\s*\b75\s*=\s*[0-9,]+\s*kg\.?/gi, " ")
+    .replace(/\s*\b[0-9,]+\s*=\s*[0-9,]+\s*kg\.?/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -1015,7 +1034,7 @@ function rangeChartCalculated(sections: StringMap) {
   const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
   const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
   const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
-  const craneName = tidyDisplayLabel(rangeText(sections, "range_chart_crane_name", ""));
+  const craneName = tidyCraneLabel(rangeText(sections, "range_chart_crane_name", ""));
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
   const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
@@ -1048,9 +1067,22 @@ function rangeChartCalculated(sections: StringMap) {
     totalLiftedWeightKg,
   });
   const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
+  const requiredBoomExceededForCapacity = Boolean(limits.maxBoomLengthM && boomLengthM > limits.maxBoomLengthM + 0.01);
+  const radiusExceededForCapacity = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.01);
+  const tipHeightExceededForCapacity = Boolean(limits.maxTipHeightM && tipHeightM > limits.maxTipHeightM + 0.01);
+  const jibExceededForCapacity = Boolean(limits.maxPhysicalJibLengthM && jibLengthM > limits.maxPhysicalJibLengthM + 0.01);
+  const geometryInvalidForAutoCapacity = requiredBoomExceededForCapacity || radiusExceededForCapacity || tipHeightExceededForCapacity || jibExceededForCapacity;
   const storedManualChartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
-  const chartCapacityKg = capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
-  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : (capacityResult.allowManualCapacityFallback ? parseDecimal(sections.range_chart_utilisation_percent) : null);
+  const chartCapacityKg = geometryInvalidForAutoCapacity ? null : capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
+  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : (!geometryInvalidForAutoCapacity && capacityResult.allowManualCapacityFallback ? parseDecimal(sections.range_chart_utilisation_percent) : null);
+  const geometryCapacityWarning = geometryInvalidForAutoCapacity
+    ? [
+        requiredBoomExceededForCapacity ? `Required boom length ${formatRangeNumber(boomLengthM)} is over the ${formatRangeNumber(limits.maxBoomLengthM)} maximum for this crane/setup.` : "",
+        radiusExceededForCapacity ? `Radius ${formatRangeNumber(radiusM)} is over the ${formatRangeNumber(limits.maxRadiusM)} structured maximum for this crane/setup.` : "",
+        tipHeightExceededForCapacity ? `Tip/hook height ${formatRangeNumber(tipHeightM)} is over the ${formatRangeNumber(limits.maxTipHeightM)} structured maximum for this crane/setup.` : "",
+        jibExceededForCapacity ? `Physical jib length ${formatRangeNumber(jibLengthM)} is over the ${formatRangeNumber(limits.maxPhysicalJibLengthM)} maximum for this crane/setup.` : "",
+      ].filter(Boolean).join(" ") + " Manual manufacturer/supplier chart check required before approval."
+    : "";
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
@@ -1113,7 +1145,7 @@ function rangeChartCalculated(sections: StringMap) {
     bearingMethod: rangeText(sections, "range_chart_bearing_method", bearingResult.method),
     bearingSource: rangeText(sections, "range_chart_bearing_source", bearingResult.source),
     limitWarning: rangeText(sections, "range_chart_limit_warning", ""),
-    capacityWarning: capacityResult.warning || "",
+    capacityWarning: geometryCapacityWarning || capacityResult.warning || "",
     bearingWarning: bearingResult.warning || "",
     limits,
   };
@@ -1298,7 +1330,7 @@ function RangeChartPackPage({
 }) {
   const calc = rangeChartCalculated(sections);
   const clientName = rangeText(sections, "range_chart_client", "—");
-  const craneName = tidyDisplayLabel(rangeText(sections, "range_chart_crane_name", "—"));
+  const craneName = tidyCraneLabel(rangeText(sections, "range_chart_crane_name", "—"));
   const notes = rangeText(sections, "range_chart_notes", "Lift sketch");
   const selectedSetup = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", "—"));
   const selectedJibOption = rangeText(sections, "range_chart_selected_jib_option_label", "");
@@ -1931,11 +1963,13 @@ export default async function CraneLiftPlanPackPage({
   const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
     ? formatPercentValue(rangeUtilisationPercent)
     : "Manual check required";
-  const primaryCapacityWarning = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined && rangeUtilisationPercent > 100
-    ? `CAPACITY REVIEW REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} is over the selected chart capacity ${formatKgAndTonnes(rangeChartCapacityKg)} (${formatPercentValue(rangeUtilisationPercent)}). Select a stronger setup/crane, reduce radius/load, or do not approve until the appointed person has corrected the plan.`
-    : rangeTotalLiftedWeightKg && !rangeChartCapacityKg
-      ? `MANUAL CHART CHECK REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} has been entered, but the CRM has not matched a safe structured chart capacity at this radius/setup. Do not approve using the crane maximum capacity; check the exact manufacturer/supplier chart and enter/select the correct chart setup first.`
-      : "";
+  const primaryCapacityWarning = rangeGroundCalc?.capacityWarning
+    ? `MANUAL CHART CHECK REQUIRED: ${rangeGroundCalc.capacityWarning}`
+    : rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined && rangeUtilisationPercent > 100
+      ? `CAPACITY REVIEW REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} is over the selected chart capacity ${formatKgAndTonnes(rangeChartCapacityKg)} (${formatPercentValue(rangeUtilisationPercent)}). Select a stronger setup/crane, reduce radius/load, or do not approve until the appointed person has corrected the plan.`
+      : rangeTotalLiftedWeightKg && !rangeChartCapacityKg
+        ? `MANUAL CHART CHECK REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} has been entered, but the CRM has not matched a safe structured chart capacity at this radius/setup. Do not approve using the crane maximum capacity; check the exact manufacturer/supplier chart and enter/select the correct chart setup first.`
+        : "";
 
   const enteredCraneWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const craneMaxWeightKg = currentCranePlanningWeightKg ?? rangeSpecPlanningWeightKg ?? enteredCraneWeightKg ?? rangePlanningGrossWeightKg;
