@@ -1707,6 +1707,8 @@ export default async function CraneLiftPlanPackPage({
     ? Math.max(0, (rangeBearingLoadKg / 0.75) - rangeTotalLiftedWeightKg)
     : null;
   const rangeSpecPlanningWeightKg = rangeGroundCalc?.limits?.planningWeightKg ?? null;
+  const rangeSelectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
+  const rangeSelectedSetupLabel = String(sections.range_chart_selected_setup_label ?? "").trim();
   const currentCraneWeightLimits = getRangeChartLimits({
     craneName,
     setupLabel: [rangeSelectedSetupLabel, rangeSelectedJibLabel].filter(Boolean).join(" / "),
@@ -1777,8 +1779,6 @@ export default async function CraneLiftPlanPackPage({
     "lift_classification",
     (job as any)?.hire_type || "Basic"
   );
-  const rangeSelectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
-  const rangeSelectedSetupLabel = String(sections.range_chart_selected_setup_label ?? "").trim();
   const rangeHasNoJib = /^no jib|main boom only/i.test(rangeSelectedJibLabel);
   const rangeBoomConfiguration = rangeGroundCalc
     ? rangeHasNoJib || !rangeSelectedJibLabel
