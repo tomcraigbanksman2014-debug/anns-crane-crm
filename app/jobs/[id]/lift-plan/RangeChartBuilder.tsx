@@ -164,6 +164,15 @@ function fmtLimit(value: number | null | undefined, suffix = "m") {
   return value !== null && value !== undefined && Number.isFinite(value) ? fmt(value, suffix) : "No structured limit";
 }
 
+function fmtBoomLengthWithLimit(value: number | null | undefined, maxValue: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  const valueText = fmt(value);
+  if (maxValue && value > maxValue + 0.01) {
+    return `${valueText} required (${fmt(maxValue)} max — manual check)`;
+  }
+  return valueText;
+}
+
 function formatComputedSource(method: string, source: string) {
   return `${method === "automatic" ? "Auto" : "Manual check"}: ${source}`;
 }
@@ -281,9 +290,9 @@ function ak46SavedSetupShouldBeReset({
   const setupText = clean([selectedSetupKey, selectedSetupLabel, selectedJibKey, selectedJibLabel].filter(Boolean).join(" ")).toLowerCase();
   if (!setupText) return false;
 
-  // Older emergency builds auto-saved the AK46 as the optional 46 m + 11 m hydraulic-jib setup.
-  // That made normal Böcker jobs jump out to a huge radius and show 500 kg capacity.
-  // Treat those saved selector values as stale defaults and return to the AK46 crane-operation table.
+  // Older emergency builds treated the AK46 as 46 m plus a separate 11 m hydraulic jib.
+  // The AK46 spec uses 46 m as the total boom-extension length including the hydraulic extension.
+  // Treat those old selector values as stale and return to the AK46 crane-operation total-extension table.
   return /ak46-main-46|optional\s+max\s+extension|max\s+extension\s+up\s+to\s+46|ak46-jib-|hydraulic\s+jib|11\.0\s*m\s+hydraulic\s+jib/.test(setupText);
 }
 
@@ -398,7 +407,7 @@ function defaultRangeState({
         : normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
       setupJibLength ? String(setupJibLength) : "0"
     ),
-    jibAngleDeg: clearBoomGeometry ? "20" : numberForInput(sections.range_chart_jib_angle_deg, "20"),
+    jibAngleDeg: clearBoomGeometry ? (activeStructuredJib?.lengthM ? "20" : "0") : numberForInput(sections.range_chart_jib_angle_deg, "20"),
     objectDistanceM: numberForInput(objectDistance, "8"),
     objectHeightM: numberForInput(objectHeight, "4"),
     objectWidthM: numberForInput(sections.range_chart_object_width_m, "8"),
@@ -1222,7 +1231,7 @@ export default function RangeChartBuilder({
             </div>
           ) : null}
           <div style={metricGridStyle}>
-            <Metric label="Boom length" value={fmt(displayedBoomLength)} />
+            <Metric label="Boom length" value={fmtBoomLengthWithLimit(displayedBoomLength, limits.maxBoomLengthM)} />
             <Metric label="Boom angle" value={fmt(displayedBoomAngle, "°")} />
             <Metric label="Radius" value={fmt(numbers.radiusM)} />
             <Metric label="Tip height" value={fmt(numbers.tipHeightM)} />
