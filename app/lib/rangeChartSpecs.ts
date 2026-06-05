@@ -699,6 +699,25 @@ export function calculateRangeChartCapacity({
     };
   }
 
+  const limits = getRangeChartLimits({ craneName, setupLabel, sourceLabel });
+  const boomLimitExceeded = Boolean(limits.maxBoomLengthM && boomLengthM && boomLengthM > limits.maxBoomLengthM + 0.1);
+  const radiusLimitExceeded = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.1);
+  if (boomLimitExceeded || radiusLimitExceeded) {
+    const parts = [
+      boomLimitExceeded ? `required boom length ${Number(boomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxBoomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
+      radiusLimitExceeded ? `radius ${Number(radiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxRadiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
+    ].filter(Boolean).join(" and ");
+    return {
+      capacityKg: null,
+      method: "manual",
+      source: rule.capacitySource || `${rule.title} load chart`,
+      warning: `${rule.title} cannot be auto-cleared because ${parts}. Check the exact manufacturer/supplier chart and crane configuration manually before approval.`,
+      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
+      allowManualCapacityFallback: false,
+      recognisedRuleId: rule.id,
+    };
+  }
+
   const selectedCurve = bestMatchingCapacityCurve(rule, { radiusM, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel });
   if (selectedCurve) {
     const capacityKg = conservativeCapacityFromCurve(selectedCurve.points, radiusM);
