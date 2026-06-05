@@ -161,6 +161,78 @@ function clearMachineNarrativeFields<T extends Record<string, any>>(prev: T) {
   return next as T;
 }
 
+function normaliseCraneTextForCompare(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/böcker/g, "bocker")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:crane|mobile|spider|truck|mounted|gt|cdh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unknown) {
+  const text = normaliseCraneTextForCompare(value);
+  const current = normaliseCraneTextForCompare(currentCraneName);
+  if (!text || !current) return false;
+
+  const known = [
+    { key: "bocker", aliases: ["bocker", "ak46", "ak 46"] },
+    { key: "jekko", aliases: ["jekko", "spx532", "spx 532"] },
+    { key: "grove", aliases: ["grove", "gmk4080", "gmk 4080"] },
+    { key: "mtk35", aliases: ["marchetti", "mtk35", "mtk 35"] },
+    { key: "hk40", aliases: ["tadano", "faun", "hk40", "hk 40"] },
+  ];
+
+  const currentKeys = new Set(
+    known
+      .filter((item) => item.aliases.some((alias) => current.includes(alias.replace(/\s+/g, " "))))
+      .map((item) => item.key)
+  );
+  if (!currentKeys.size) return false;
+
+  return known.some((item) => {
+    if (currentKeys.has(item.key)) return false;
+    return item.aliases.some((alias) => text.includes(alias.replace(/\s+/g, " ")));
+  });
+}
+
+function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T, currentCraneName: unknown): T {
+  const machineText = [
+    draft.crane_configuration,
+    draft.outrigger_setup,
+    draft.method_statement,
+    draft.risk_assessment,
+    draft.exclusion_zone_details,
+    draft.weather_limitations,
+    draft.emergency_procedures,
+    draft.selected_crane_setup_key,
+    draft.selected_crane_setup_label,
+    draft.boom_configuration,
+    draft.crane_details,
+    draft.configuration_outrigger_note,
+    draft.load_chart_note,
+  ].filter(Boolean).join("\n");
+
+  if (!textMentionsDifferentKnownCrane(machineText, currentCraneName)) return draft;
+
+  const next: Record<string, any> = clearMachineNarrativeFields(draft as Record<string, any>);
+  next.selected_crane_setup_key = "";
+  next.selected_crane_setup_label = "";
+  next.boom_configuration = "";
+  next.boom_length = "";
+  next.crane_outreach_reference = "";
+  next.crane_jib_reference = "";
+  next.crane_details = "";
+  next.configuration_outrigger_note = "";
+  next.load_chart_note = "";
+  next.custom_crane_boom_length_m = "";
+  next.custom_crane_hydraulic_outreach_m = "";
+  next.custom_crane_jib_outreach_m = "";
+  next.custom_crane_max_radius_m = "";
+  return next as T;
+}
+
 const TIDY_LONG_TEXT_KEYS: Array<keyof LiftPlanData> = [
   "crane_configuration",
   "outrigger_setup",
@@ -501,8 +573,10 @@ export default function LiftPlanForm({
   alternativeCraneOptions?: CraneOption[];
 }) {
   const initialPackSections = (initial?.pack_sections ?? {}) as Record<string, string | null>;
+  const initialSelectedAllocationId = initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "";
+  const initialSelectedCraneLabel = craneOptions.find((option) => option.value === initialSelectedAllocationId)?.label ?? craneOptions[0]?.label ?? "";
 
-  const [form, setForm] = useState<LiftPlanData>(() => tidyLiftPlanTextFields({
+  const [form, setForm] = useState<LiftPlanData>(() => sanitiseInitialLiftPlanForCurrentCrane(tidyLiftPlanTextFields({
     selected_job_equipment_id: initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
     selected_crane_id: initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
     load_description: initial?.load_description ?? "",
@@ -563,7 +637,7 @@ export default function LiftPlanForm({
     range_chart_tip_height_m: initialPackSections.range_chart_tip_height_m ?? "",
     range_chart_load_weight_kg: initialPackSections.range_chart_load_weight_kg ?? "",
     range_chart_accessory_weight_kg: initialPackSections.range_chart_accessory_weight_kg ?? "",
-  }));
+  }), initialSelectedCraneLabel));
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
