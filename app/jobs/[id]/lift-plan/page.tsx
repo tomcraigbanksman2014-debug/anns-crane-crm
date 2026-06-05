@@ -94,9 +94,54 @@ function documentTypeLabel(value: string | null | undefined) {
   }
 }
 
+function storagePathCandidates(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return [] as string[];
+
+  const candidates: string[] = [];
+
+  function add(candidate: string) {
+    const cleaned = String(candidate ?? "")
+      .trim()
+      .split("?")[0]
+      .replace(/^\/+/, "")
+      .replace(/^job-documents\//i, "");
+    if (!cleaned || /^https?:\/\//i.test(cleaned)) return;
+    if (!candidates.includes(cleaned)) candidates.push(cleaned);
+    try {
+      const decoded = decodeURIComponent(cleaned);
+      if (decoded && !candidates.includes(decoded)) candidates.push(decoded);
+    } catch {
+      // Keep the original path if it is not URI encoded.
+    }
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const markers = [
+        "/storage/v1/object/public/job-documents/",
+        "/storage/v1/object/sign/job-documents/",
+        "/storage/v1/object/authenticated/job-documents/",
+      ];
+      for (const marker of markers) {
+        const index = url.pathname.indexOf(marker);
+        if (index >= 0) {
+          add(url.pathname.slice(index + marker.length));
+        }
+      }
+    } catch {
+      // Fall through to raw path handling below.
+    }
+  }
+
+  add(raw);
+  return candidates;
+}
+
 function publicJobDocumentUrl(filePath: unknown) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const path = String(filePath ?? "").trim();
+  const path = storagePathCandidates(filePath)[0];
   if (!supabaseUrl || !path) return null;
   const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
   return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/job-documents/${encodedPath}`;
@@ -194,6 +239,31 @@ function getArchiveAdminClient() {
       autoRefreshToken: false,
     },
   });
+}
+
+async function signedJobDocumentUrlMap(rows: any[]) {
+  const archiveClient = getArchiveAdminClient() ?? createSupabaseServerClient();
+  const rowCandidates = rows.map((row) => ({
+    id: String(row?.id ?? ""),
+    candidates: storagePathCandidates(row?.file_path),
+  })).filter((row) => row.id && row.candidates.length);
+
+  const paths = Array.from(new Set(rowCandidates.flatMap((row) => row.candidates)));
+  if (!paths.length) return new Map<string, string>();
+
+  const { data } = await archiveClient.storage.from("job-documents").createSignedUrls(paths, 60 * 60);
+  const signedByPath = new Map<string, string>();
+  for (const item of data ?? []) {
+    if (item?.path && item?.signedUrl) signedByPath.set(String(item.path), String(item.signedUrl));
+  }
+
+  const out = new Map<string, string>();
+  for (const row of rowCandidates) {
+    const signed = row.candidates.map((candidate) => signedByPath.get(candidate)).find(Boolean);
+    if (signed) out.set(row.id, signed);
+  }
+
+  return out;
 }
 
 async function loadLiftPlanPdfArchives(supabase: ReturnType<typeof createSupabaseServerClient>, jobId: string) {
@@ -491,6 +561,7 @@ export default async function JobLiftPlanPage({
   })).filter((doc) => doc.id);
 
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
+  const signedAppendixUrls = await signedJobDocumentUrlMap(appendixDocs);
   const appendixDocsForManager = appendixDocs.map((doc: any) => ({
     id: String(doc.id ?? ""),
     file_name: doc.file_name ?? null,
@@ -499,7 +570,7 @@ export default async function JobLiftPlanPage({
     document_type: doc.document_type ?? null,
     created_at: doc.created_at ?? null,
     share_with_operator: Boolean(doc.share_with_operator),
-    public_url: publicJobDocumentUrl(doc.file_path),
+    public_url: signedAppendixUrls.get(String(doc.id ?? "")) ?? publicJobDocumentUrl(doc.file_path),
   })).filter((doc: any) => doc.id);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
   const { archives: liftPlanPdfArchives, error: archiveError } = await loadLiftPlanPdfArchives(supabase, params.id);
