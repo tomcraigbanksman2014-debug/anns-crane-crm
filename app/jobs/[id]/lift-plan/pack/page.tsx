@@ -2174,7 +2174,13 @@ export default async function CraneLiftPlanPackPage({
     craneName
   );
 
-  const packMonthLabel = fmtMonthYear((job as any)?.start_date ?? (job as any)?.job_date ?? new Date());
+  const displayStartDate =
+    (allocation as any)?.start_date ??
+    (job as any)?.start_date ??
+    (job as any)?.job_date ??
+    null;
+
+  const packMonthLabel = fmtMonthYear(displayStartDate ?? new Date());
   const fieldText = (key: string, fallback: string) => defaultSectionText(sections, key, fallback);
   const packMonthText = (key: string) => {
     const saved = defaultSectionText(sections, key, "");
