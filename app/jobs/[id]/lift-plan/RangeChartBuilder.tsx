@@ -471,6 +471,7 @@ export default function RangeChartBuilder({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSyncStartedRef = useRef(false);
+  const lastAutoSyncPayloadRef = useRef("");
   const currentJobCraneKey = useMemo(() => normaliseCraneForCompare(defaultCraneName), [defaultCraneName]);
 
   useEffect(() => {
