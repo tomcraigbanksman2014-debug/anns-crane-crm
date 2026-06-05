@@ -222,6 +222,25 @@ function currentCraneIsJekko(value: unknown) {
   return /(?:^| )(?:jekko|spx532|spx 532)(?: |$)/.test(current);
 }
 
+function sanitiseCurrentCranePackText(value: unknown, currentCraneName: unknown) {
+  let text = tidyRepeatedTextBlock(String(value ?? ""));
+  if (!text) return "";
+
+  if (currentCraneIsAk46(currentCraneName)) {
+    text = text
+      // The AK46 spec lists 18t / 26t as gross vehicle weight. It must not be printed as lifting capacity.
+      .replace(/max\s+capacity\s+26\s*t/gi, "max lifting capacity 6 t")
+      .replace(/max\s+capacity\s+26,?000\s*kg/gi, "max lifting capacity 6,000 kg")
+      .replace(/maximum\s+capacity\s+26\s*t/gi, "maximum lifting capacity 6 t")
+      .replace(/maximum\s+capacity\s+26,?000\s*kg/gi, "maximum lifting capacity 6,000 kg")
+      // On the AK46, the hydraulic extension is included in the total 46m boom-extension figure.
+      .replace(/Main\s+boom\s*\+\s*jib\s*\/\s*extension/gi, "Main boom / total boom-extension")
+      .replace(/jib\s*\/\s*max\s+outreach\s+39\s*m/gi, "crane-operation radius up to 39 m");
+  }
+
+  return tidyRepeatedTextBlock(text);
+}
+
 function ak46SavedSetupShouldBeResetInPack(sections: StringMap, currentCraneName: unknown) {
   if (!currentCraneIsAk46(currentCraneName)) return false;
   const setupText = [
@@ -258,7 +277,7 @@ function defaultRangeSetupForCurrentCrane(currentCraneName: unknown) {
       setupKey: "profile:spx532-main-j7",
       setupLabel: "Main boom — J7/full-stability planning chart",
       jibKey: "none",
-      jibLabel: "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension",
+      jibLabel: "No jib / main boom only",
       jibLength: "0",
       jibAngle: "0",
     };
@@ -1511,7 +1530,7 @@ function currentCraneSectionText(
   const saved = sections[key];
   const safeSaved = currentCraneSafeText(saved, currentCraneName);
   const selected = safeSaved || fallback;
-  return tidyRepeatedTextBlock(selected);
+  return sanitiseCurrentCranePackText(selected, currentCraneName);
 }
 
 function currentCraneFieldText(
@@ -1522,7 +1541,7 @@ function currentCraneFieldText(
 ) {
   const saved = sections[key];
   const safeSaved = currentCraneSafeText(saved, currentCraneName);
-  return tidyRepeatedTextBlock(safeSaved || fallback);
+  return sanitiseCurrentCranePackText(safeSaved || fallback, currentCraneName);
 }
 
 function safeAppendixTitleForCurrentCrane(asset: PackAppendixAssetItem, currentCraneName: unknown, index: number) {
@@ -2030,11 +2049,13 @@ export default async function CraneLiftPlanPackPage({
   );
   const rangeHasNoJib = /^no jib|main boom only/i.test(rangeSelectedJibLabel);
   const rangeBoomConfiguration = rangeGroundCalc
-    ? rangeHasNoJib || !rangeSelectedJibLabel
-      ? "Main boom"
-      : "Main boom + jib / extension"
+    ? currentCraneIsAk46(craneName)
+      ? "Main boom / total boom-extension"
+      : rangeHasNoJib || !rangeSelectedJibLabel
+        ? "Main boom"
+        : "Main boom + jib / extension"
     : "";
-  const boomConfigurationText = rangeBoomConfiguration || currentCraneSectionText(sections, "boom_configuration", boomConfig, craneName);
+  const boomConfigurationText = sanitiseCurrentCranePackText(rangeBoomConfiguration || currentCraneSectionText(sections, "boom_configuration", boomConfig, craneName), craneName);
   const boomLengthText = rangeGroundCalc?.boomLengthM ? formatRangeBoomLength(rangeGroundCalc) : currentCraneSectionText(sections, "boom_length", boomLength, craneName);
   const introductionText = defaultSectionText(
     sections,
@@ -2175,9 +2196,9 @@ export default async function CraneLiftPlanPackPage({
   );
 
   const displayStartDate =
-    (allocation as any)?.start_date ??
     (job as any)?.start_date ??
     (job as any)?.job_date ??
+    (allocation as any)?.start_date ??
     null;
 
   const packMonthLabel = fmtMonthYear(displayStartDate ?? new Date());
