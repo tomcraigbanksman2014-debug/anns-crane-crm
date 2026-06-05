@@ -88,6 +88,34 @@ function tidyDisplayLabel(value: unknown) {
   }
   return result.join(" ").trim();
 }
+function normaliseCraneForCompare(value: unknown) {
+  return tidyDisplayLabel(value)
+    .toLowerCase()
+    .replace(/böcker/g, "bocker")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:crane|mobile|spider|truck|mounted|gt|cdh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function savedCraneLooksStale(savedCraneName: unknown, defaultCraneName: unknown) {
+  const saved = normaliseCraneForCompare(savedCraneName);
+  const current = normaliseCraneForCompare(defaultCraneName);
+  if (!saved || !current) return false;
+  if (saved === current) return false;
+  if (saved.includes(current) || current.includes(saved)) return false;
+  return true;
+}
+
+function findFirstSetup(setupOptions: CraneSetupOption[], selectedKey: string) {
+  const selected = clean(selectedKey);
+  if (selected) {
+    const exact = setupOptions.find((setup) => setup.key === selected);
+    if (exact) return exact;
+  }
+  return setupOptions[0] ?? null;
+}
+
 
 function numberOrNull(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -211,8 +239,10 @@ function defaultRangeState({
   loadWeightKg?: number | null;
   setupOptions: CraneSetupOption[];
 }): RangeChartState {
-  const selectedSetupFromPack = clean(sections.range_chart_selected_setup_key || sections.selected_crane_setup_key);
-  const firstSetup = setupOptions.find((setup) => setup.key === selectedSetupFromPack) ?? setupOptions[0] ?? null;
+  const savedCraneName = firstText(sections.range_chart_crane_name, sections.custom_crane_name);
+  const forceCurrentJobCrane = savedCraneLooksStale(savedCraneName, defaultCraneName);
+  const selectedSetupFromPack = forceCurrentJobCrane ? "" : clean(sections.range_chart_selected_setup_key || sections.selected_crane_setup_key);
+  const firstSetup = findFirstSetup(setupOptions, selectedSetupFromPack);
   const setupBoomLength = numberOrNull(firstSetup?.boomLengthM);
   const setupJibLength = inferPhysicalJibLength(firstSetup);
 
@@ -224,15 +254,15 @@ function defaultRangeState({
   return {
     enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
     clientName: firstText(sections.range_chart_client, defaultClientName),
-    craneName: tidyDisplayLabel(firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
+    craneName: tidyDisplayLabel(forceCurrentJobCrane ? defaultCraneName : firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
-    craneSourceMode: firstText(sections.range_chart_crane_source_mode, "selected_crm_crane"),
-    externalSpecDocumentId: firstText(sections.range_chart_external_spec_document_id),
-    externalSpecDocumentTitle: firstText(sections.range_chart_external_spec_document_title),
-    selectedSetupKey: firstText(sections.range_chart_selected_setup_key, sections.selected_crane_setup_key, firstSetup?.key),
-    selectedSetupLabel: firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
-    selectedJibOptionKey: firstText(sections.range_chart_selected_jib_option_key),
-    selectedJibOptionLabel: firstText(sections.range_chart_selected_jib_option_label),
+    craneSourceMode: forceCurrentJobCrane ? "selected_crm_crane" : firstText(sections.range_chart_crane_source_mode, "selected_crm_crane"),
+    externalSpecDocumentId: forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_id),
+    externalSpecDocumentTitle: forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_title),
+    selectedSetupKey: forceCurrentJobCrane ? firstText(firstSetup?.key) : firstText(sections.range_chart_selected_setup_key, sections.selected_crane_setup_key, firstSetup?.key),
+    selectedSetupLabel: forceCurrentJobCrane ? firstText(firstSetup?.label) : firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
+    selectedJibOptionKey: forceCurrentJobCrane ? "" : firstText(sections.range_chart_selected_jib_option_key),
+    selectedJibOptionLabel: forceCurrentJobCrane ? "" : firstText(sections.range_chart_selected_jib_option_label),
     boomLengthM: numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
     boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
     radiusM: numberForInput(radius, "12"),
@@ -247,14 +277,14 @@ function defaultRangeState({
     objectWidthM: numberForInput(sections.range_chart_object_width_m, "8"),
     loadWeightKg: numberForInput(sections.range_chart_load_weight_kg, loadWeightKg ? String(loadWeightKg) : ""),
     accessoryWeightKg: numberForInput(sections.range_chart_accessory_weight_kg, ""),
-    chartCapacityKg: numberForInput(sections.range_chart_chart_capacity_kg, ""),
+    chartCapacityKg: forceCurrentJobCrane ? "" : numberForInput(sections.range_chart_chart_capacity_kg, ""),
     matLengthM: numberForInput(sections.range_chart_mat_length_m, numberForInput(sections.ground_bearing_mat_length_m, "")),
     matWidthM: numberForInput(sections.range_chart_mat_width_m, numberForInput(sections.ground_bearing_mat_width_m, "")),
     matCount: numberForInput(
       sections.range_chart_mats_under_loaded_outrigger,
       numberForInput(sections.ground_bearing_mats_under_loaded_outrigger, "1")
     ),
-    bearingLoadKg: numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
+    bearingLoadKg: forceCurrentJobCrane ? "" : numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
     verificationNote: firstText(
       sections.range_chart_verification_note,
       "Planning sketch only. Appointed person must verify the manufacturer/supplier load chart, exact radius, boom/jib configuration, counterweight/ballast, outrigger setup, accessories and ground bearing before approval."
@@ -417,6 +447,11 @@ export default function RangeChartBuilder({
     });
   }, [setupOptions]);
 
+  const initialSavedCraneWasStale = useMemo(
+    () => savedCraneLooksStale(firstText(initialSections.range_chart_crane_name, initialSections.custom_crane_name), defaultCraneName),
+    [initialSections, defaultCraneName]
+  );
+
   const [chart, setChart] = useState<RangeChartState>(() =>
     defaultRangeState({
       sections: initialSections,
@@ -436,7 +471,33 @@ export default function RangeChartBuilder({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSyncStartedRef = useRef(false);
-  const lastAutoSyncPayloadRef = useRef("");
+  const currentJobCraneKey = useMemo(() => normaliseCraneForCompare(defaultCraneName), [defaultCraneName]);
+
+  useEffect(() => {
+    if (!currentJobCraneKey) return;
+    if (!savedCraneLooksStale(chart.craneName, defaultCraneName)) return;
+
+    setChart((prev) => {
+      const firstSetup = normalisedSetups[0] ?? null;
+      return {
+        ...prev,
+        craneName: tidyDisplayLabel(defaultCraneName),
+        craneSourceMode: "selected_crm_crane",
+        externalSpecDocumentId: "",
+        externalSpecDocumentTitle: "",
+        selectedSetupKey: firstSetup?.key ?? "",
+        selectedSetupLabel: firstSetup?.label ?? "",
+        selectedJibOptionKey: "",
+        selectedJibOptionLabel: "",
+        chartCapacityKg: "",
+        bearingLoadKg: "",
+        verificationNote:
+          firstSetup?.chartNote ||
+          prev.verificationNote ||
+          "Planning sketch only. Appointed person must verify the manufacturer/supplier load chart, exact radius, boom/jib configuration, counterweight/ballast, outrigger setup, accessories and ground bearing before approval.",
+      };
+    });
+  }, [currentJobCraneKey, defaultCraneName, normalisedSetups, chart.craneName]);
 
   const activeSetup = normalisedSetups.find((item) => item.key === chart.selectedSetupKey) ?? null;
   const cleanCraneName = tidyDisplayLabel(chart.craneName);
@@ -781,10 +842,10 @@ export default function RangeChartBuilder({
     if (!autoSyncStartedRef.current) {
       autoSyncStartedRef.current = true;
       lastAutoSyncPayloadRef.current = payloadKey;
-      return;
+      if (!initialSavedCraneWasStale) return;
     }
 
-    if (lastAutoSyncPayloadRef.current === payloadKey) return;
+    if (!initialSavedCraneWasStale && lastAutoSyncPayloadRef.current === payloadKey) return;
 
     if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
     setAutoSyncMessage("Lift plan data syncing…");
@@ -824,6 +885,7 @@ export default function RangeChartBuilder({
     matPressureText,
     matPressureFormulaText,
     chartWarnings,
+    initialSavedCraneWasStale,
   ]);
 
   async function saveRangeChart() {
