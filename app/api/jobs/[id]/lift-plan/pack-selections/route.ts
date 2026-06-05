@@ -129,6 +129,130 @@ function normaliseText(key: string, value: unknown) {
   return text.length ? text : null;
 }
 
+
+function tidyDisplayLabel(value: unknown) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const word of text.split(" ")) {
+    const key = word.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(word);
+  }
+  return out.join(" ").trim();
+}
+
+function normaliseCraneForCompare(value: unknown) {
+  return tidyDisplayLabel(value)
+    .toLowerCase()
+    .replace(/böcker/g, "bocker")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:crane|mobile|spider|truck|mounted|gt|cdh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function currentCraneIsAk46(value: unknown) {
+  const current = normaliseCraneForCompare(value);
+  return /(?:^| )(?:bocker|ak46|ak 46)(?: |$)/.test(current);
+}
+
+function ak46SavedSetupShouldBeReset(sections: DynamicPackSectionsPayload) {
+  const setupText = [
+    sections.range_chart_selected_setup_key,
+    sections.range_chart_selected_setup_label,
+    sections.range_chart_selected_jib_option_key,
+    sections.range_chart_selected_jib_option_label,
+    sections.selected_crane_setup_key,
+    sections.selected_crane_setup_label,
+    sections.crane_jib_reference,
+    sections.boom_configuration,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return /ak46-main-46|optional\s+max\s+extension|max\s+extension\s+up\s+to\s+46|ak46-jib-|hydraulic\s+jib|11\.0\s*m\s+hydraulic\s+jib/.test(setupText);
+}
+
+function normaliseForCurrentCrane(sections: DynamicPackSectionsPayload, currentCraneName: unknown) {
+  const currentCrane = tidyDisplayLabel(currentCraneName);
+  const next: DynamicPackSectionsPayload = { ...sections };
+  if (!currentCrane) return next;
+
+  next.range_chart_crane_name = currentCrane;
+  next.cover_cranes = currentCrane;
+  next.crane_type_value = currentCrane;
+
+  if (currentCraneIsAk46(currentCrane) && ak46SavedSetupShouldBeReset(next)) {
+    next.range_chart_selected_setup_key = "profile:ak46-crane-operation";
+    next.range_chart_selected_setup_label = "AK46 crane-operation range table / total boom-extension up to 46 m";
+    next.selected_crane_setup_key = "profile:ak46-crane-operation";
+    next.selected_crane_setup_label = "AK46 crane-operation range table / total boom-extension up to 46 m";
+    next.range_chart_selected_jib_option_key = "none";
+    next.range_chart_selected_jib_option_label = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
+    next.range_chart_jib_length_m = "0";
+    next.range_chart_jib_angle_deg = "0";
+    next.boom_configuration = "AK46 total boom-extension up to 46 m";
+    next.crane_jib_reference = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
+    next.boom_length = null;
+    next.range_chart_boom_length_m = null;
+    next.range_chart_boom_angle_deg = null;
+    next.range_chart_chart_capacity_kg = null;
+    next.range_chart_capacity_source = null;
+    next.range_chart_utilisation_percent = null;
+    next.range_chart_limit_warning = null;
+  }
+
+  return next;
+}
+
+function buildCraneLabel(crane: any, allocation?: any) {
+  const name = tidyDisplayLabel([crane?.name, crane?.make, crane?.model].filter(Boolean).join(" ")) || tidyDisplayLabel(allocation?.item_name);
+  const capacity = String(crane?.capacity ?? "").trim();
+  return [name, capacity && name && !name.toLowerCase().includes(capacity.toLowerCase()) ? capacity : ""].filter(Boolean).join(" ").trim() || null;
+}
+
+async function resolveCurrentJobCraneName(supabase: any, jobId: string, selectedJobEquipmentId?: string | null) {
+  try {
+    const { data } = await supabase
+      .from("jobs")
+      .select(`
+        id,
+        cranes:crane_id (id, name, make, model, capacity),
+        job_equipment (
+          id,
+          crane_id,
+          item_name,
+          start_date,
+          created_at,
+          cranes:crane_id (id, name, make, model, capacity)
+        )
+      `)
+      .eq("id", jobId)
+      .maybeSingle();
+
+    const rows = Array.isArray(data?.job_equipment) ? data.job_equipment : [];
+    const selectedId = String(selectedJobEquipmentId ?? "").trim();
+    const selected = selectedId ? rows.find((row: any) => String(row?.id ?? "") === selectedId) : null;
+    const selectedCrane = Array.isArray(selected?.cranes) ? selected.cranes[0] : selected?.cranes;
+    const selectedLabel = buildCraneLabel(selectedCrane, selected);
+    if (selectedLabel) return selectedLabel;
+
+    const firstWithCrane = rows.find((row: any) => row?.crane_id || row?.cranes);
+    const firstCrane = Array.isArray(firstWithCrane?.cranes) ? firstWithCrane.cranes[0] : firstWithCrane?.cranes;
+    const firstLabel = buildCraneLabel(firstCrane, firstWithCrane);
+    if (firstLabel) return firstLabel;
+
+    const jobCrane = Array.isArray(data?.cranes) ? data.cranes[0] : data?.cranes;
+    return buildCraneLabel(jobCrane) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitiseSections(input: Record<string, unknown>) {
   const next: DynamicPackSectionsPayload = {};
 
@@ -177,11 +301,25 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   if (sections.range_chart_selected_setup_key) next.selected_crane_setup_key = sections.range_chart_selected_setup_key;
   if (sections.range_chart_selected_setup_label) next.selected_crane_setup_label = sections.range_chart_selected_setup_label;
   if (boomLength !== null) next.boom_length = `${boomLength} m boom`;
-  if (jibLength !== null && jibLength > 0) next.crane_jib_reference = `${jibLength} m physical jib / extension`;
+  const selectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
+  if (jibLength !== null && jibLength > 0) {
+    next.crane_jib_reference = `${jibLength} m physical jib / extension`;
+  } else if (/no\s+jib|main\s+boom\s+only/i.test(selectedJibLabel)) {
+    next.crane_jib_reference = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
+  }
+  if (/no\s+jib|main\s+boom\s+only/i.test(selectedJibLabel)) next.boom_configuration = "AK46 total boom-extension up to 46 m";
   if (loadWeight !== null) next.crane_load_weight = formatKgOnly(loadWeight);
   if (accessoryWeight !== null) next.crane_lifting_accessories_weight_text = formatKgOnly(accessoryWeight);
-  if (chartCapacity !== null) next.crane_max_capacity = formatKgAndTonnes(chartCapacity);
-  if (utilisationPercent !== null) next.crane_utilisation = formatPercent(utilisationPercent);
+  if (chartCapacity !== null) {
+    next.crane_max_capacity = formatKgAndTonnes(chartCapacity);
+  } else if (totalLiftedWeight !== null) {
+    next.crane_max_capacity = "Manual chart check required";
+  }
+  if (utilisationPercent !== null) {
+    next.crane_utilisation = formatPercent(utilisationPercent);
+  } else if (totalLiftedWeight !== null) {
+    next.crane_utilisation = "Manual check required";
+  }
   if (planningGrossWeight !== null) next.crane_gross_weight = formatKgAndTonnes(planningGrossWeight);
 
   // Keep the older pack table fields in step with the range-chart calculation so stale/manual
@@ -204,11 +342,10 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
 
 async function saveSections(jobId: string, sections: DynamicPackSectionsPayload) {
   const supabase = createSupabaseServerClient();
-  const syncedSections = withRangeChartPackSync(sections);
 
   const { data: existing, error: existingError } = await supabase
     .from("lift_plans")
-    .select("id, pack_sections, paperwork_locked")
+    .select("id, pack_sections, paperwork_locked, selected_job_equipment_id")
     .eq("job_id", jobId)
     .maybeSingle();
 
@@ -220,11 +357,15 @@ async function saveSections(jobId: string, sections: DynamicPackSectionsPayload)
     throw new Error("This lift plan is locked and cannot be edited.");
   }
 
-  const mergedSections = {
+  const currentCraneName = await resolveCurrentJobCraneName(supabase, jobId, (existing as any)?.selected_job_equipment_id ?? null);
+  const incomingSafeSections = normaliseForCurrentCrane(sections, currentCraneName ?? sections.range_chart_crane_name);
+  const syncedSections = withRangeChartPackSync(incomingSafeSections);
+  const mergedRawSections = {
     ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
     ...syncedSections,
   };
-  const liftPlanPatch = liftPlanColumnPatchFromRangeChart(syncedSections);
+  const mergedSections = withRangeChartPackSync(normaliseForCurrentCrane(mergedRawSections as DynamicPackSectionsPayload, currentCraneName ?? syncedSections.range_chart_crane_name ?? (mergedRawSections as any).range_chart_crane_name));
+  const liftPlanPatch = liftPlanColumnPatchFromRangeChart(mergedSections);
 
   if (existing?.id) {
     const { error } = await supabase
