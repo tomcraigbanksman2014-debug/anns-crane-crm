@@ -185,6 +185,147 @@ function currentCraneSafeText(value: unknown, currentCraneName: unknown) {
   return textMentionsDifferentKnownCrane(value, currentCraneName) ? "" : String(value ?? "").trim();
 }
 
+function currentCraneIsAk46(value: unknown) {
+  const current = normaliseCraneForCompare(value);
+  return /(?:^| )(?:bocker|ak46|ak 46)(?: |$)/.test(current);
+}
+
+function currentCraneIsJekko(value: unknown) {
+  const current = normaliseCraneForCompare(value);
+  return /(?:^| )(?:jekko|spx532|spx 532)(?: |$)/.test(current);
+}
+
+function ak46SavedSetupShouldBeResetInPack(sections: StringMap, currentCraneName: unknown) {
+  if (!currentCraneIsAk46(currentCraneName)) return false;
+  const setupText = [
+    sections.range_chart_selected_setup_key,
+    sections.range_chart_selected_setup_label,
+    sections.range_chart_selected_jib_option_key,
+    sections.range_chart_selected_jib_option_label,
+    sections.selected_crane_setup_key,
+    sections.selected_crane_setup_label,
+    sections.boom_configuration,
+    sections.crane_jib_reference,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return /ak46-main-46|optional\s+max\s+extension|max\s+extension\s+up\s+to\s+46|ak46-jib-|hydraulic\s+jib|11\.0\s*m\s+hydraulic\s+jib/.test(setupText);
+}
+
+function defaultRangeSetupForCurrentCrane(currentCraneName: unknown) {
+  if (currentCraneIsAk46(currentCraneName)) {
+    return {
+      setupKey: "profile:ak46-crane-operation",
+      setupLabel: "AK46 crane-operation range table / main boom",
+      jibKey: "none",
+      jibLabel: "No jib / main boom only",
+      jibLength: "0",
+      jibAngle: "0",
+    };
+  }
+
+  if (currentCraneIsJekko(currentCraneName)) {
+    return {
+      setupKey: "profile:spx532-main-j7",
+      setupLabel: "Main boom — J7/full-stability planning chart",
+      jibKey: "none",
+      jibLabel: "No jib / main boom only",
+      jibLength: "0",
+      jibAngle: "0",
+    };
+  }
+
+  return null;
+}
+
+function sanitisePackSectionsForCurrentCrane(rawSections: StringMap, currentCraneName: unknown) {
+  const currentCrane = tidyDisplayLabel(currentCraneName);
+  const out: StringMap = { ...(rawSections ?? {}) };
+  if (!currentCrane) return out;
+
+  const staleProbe = [
+    out.range_chart_crane_name,
+    out.custom_crane_name,
+    out.cover_cranes,
+    out.crane_type_value,
+    out.range_chart_selected_setup_label,
+    out.selected_crane_setup_label,
+    out.range_chart_selected_jib_option_label,
+    out.boom_configuration,
+    out.crane_configuration,
+    out.crane_setup_procedure,
+    out.lifting_procedure,
+    out.emergency_procedure,
+    out.risk_assessment_summary,
+    out.traffic_pedestrian_management,
+  ].filter(Boolean).join("\n");
+  const staleCrane = textMentionsDifferentKnownCrane(staleProbe, currentCrane);
+  const staleAk46Setup = ak46SavedSetupShouldBeResetInPack(out, currentCrane);
+
+  out.range_chart_crane_name = currentCrane;
+  out.cover_cranes = currentCrane;
+  out.crane_type_value = currentCrane;
+
+  const keysThatMustNotCarryAnotherCrane = [
+    "cover_cranes",
+    "crane_type_value",
+    "cover_boom_configuration",
+    "cover_boom_length",
+    "boom_configuration",
+    "boom_length",
+    "crane_outreach_reference",
+    "crane_jib_reference",
+    "crane_details",
+    "configuration_outrigger_note",
+    "load_chart_note",
+    "crane_setup_procedure",
+    "lifting_procedure",
+    "emergency_procedure",
+    "risk_assessment_summary",
+    "control_measures",
+    "traffic_pedestrian_management",
+    "exclusion_zone_details",
+    "job_planning_snapshot_text",
+    "selected_crane_setup_label",
+    "selected_crane_setup_key",
+    "range_chart_verification_note",
+    "range_chart_capacity_source",
+    "range_chart_bearing_source",
+  ];
+
+  for (const key of keysThatMustNotCarryAnotherCrane) {
+    if (textMentionsDifferentKnownCrane(out[key], currentCrane)) out[key] = "";
+  }
+
+  if (staleCrane || staleAk46Setup) {
+    const defaults = defaultRangeSetupForCurrentCrane(currentCrane);
+    if (defaults) {
+      out.range_chart_selected_setup_key = defaults.setupKey;
+      out.range_chart_selected_setup_label = defaults.setupLabel;
+      out.selected_crane_setup_key = defaults.setupKey;
+      out.selected_crane_setup_label = defaults.setupLabel;
+      out.range_chart_selected_jib_option_key = defaults.jibKey;
+      out.range_chart_selected_jib_option_label = defaults.jibLabel;
+      out.range_chart_jib_length_m = defaults.jibLength;
+      out.range_chart_jib_angle_deg = defaults.jibAngle;
+    }
+
+    // Clear stale calculated outputs from a previous crane/setup. They will be recalculated
+    // from the current crane rules during this render.
+    out.range_chart_chart_capacity_kg = "";
+    out.range_chart_capacity_source = "";
+    out.range_chart_utilisation_percent = "";
+    out.range_chart_bearing_source = "";
+    out.range_chart_bearing_method = "";
+    out.range_chart_bearing_load_kg = "";
+    out.range_chart_bearing_pressure_formula = "";
+  }
+
+  return out;
+}
+
 function normaliseDuplicateKey(value: string) {
   return value
     .toLowerCase()
@@ -1294,6 +1435,42 @@ function defaultSectionText(
   return tidyRepeatedTextBlock(selected);
 }
 
+function currentCraneSectionText(
+  sections: StringMap,
+  key: keyof StringMap,
+  fallback: string,
+  currentCraneName: unknown
+) {
+  const saved = sections[key];
+  const safeSaved = currentCraneSafeText(saved, currentCraneName);
+  const selected = safeSaved || fallback;
+  return tidyRepeatedTextBlock(selected);
+}
+
+function currentCraneFieldText(
+  sections: StringMap,
+  key: keyof StringMap,
+  fallback: string,
+  currentCraneName: unknown
+) {
+  const saved = sections[key];
+  const safeSaved = currentCraneSafeText(saved, currentCraneName);
+  return tidyRepeatedTextBlock(safeSaved || fallback);
+}
+
+function safeAppendixTitleForCurrentCrane(asset: PackAppendixAssetItem, currentCraneName: unknown, index: number) {
+  const rawTitle = String(asset.title ?? "").trim();
+  if (rawTitle && !textMentionsDifferentKnownCrane(rawTitle, currentCraneName)) return rawTitle;
+  const craneName = tidyDisplayLabel(currentCraneName) || "Selected crane";
+  const pageNumber = asset.page_number ? `page ${asset.page_number}` : `appendix ${index}`;
+  return `${craneName} specification / chart ${pageNumber}`;
+}
+
+function safeAppendixDescriptionForCurrentCrane(asset: PackAppendixAssetItem, currentCraneName: unknown) {
+  const raw = String(asset.description ?? "").trim();
+  return textMentionsDifferentKnownCrane(raw, currentCraneName) ? "Specification / chart page" : raw;
+}
+
 function EditableInput({
   name,
   defaultValue,
@@ -1580,7 +1757,7 @@ export default async function CraneLiftPlanPackPage({
       .order("created_at", { ascending: true }),
   ]);
 
-  const sections: StringMap =
+  let sections: StringMap =
     ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
   const includeRangeChartPage = rangeChartIsEnabled(sections);
   const additionalCraneEntries = parseAdditionalCraneEntries(sections.additional_cranes_json);
@@ -1611,6 +1788,7 @@ export default async function CraneLiftPlanPackPage({
 
   const linkedCraneIdForAppendix = realLinkedCraneId(job, liftPlan, primary, crane);
   const craneNameForAppendix = craneLabel(crane, allocation);
+  sections = sanitisePackSectionsForCurrentCrane(sections, craneNameForAppendix);
   const craneAppendixContext = {
     craneName: craneNameForAppendix,
     craneMake: (crane as any)?.make ?? null,
@@ -1785,8 +1963,8 @@ export default async function CraneLiftPlanPackPage({
       ? "Main boom"
       : "Main boom + jib / extension"
     : "";
-  const boomConfigurationText = rangeBoomConfiguration || defaultSectionText(sections, "boom_configuration", boomConfig);
-  const boomLengthText = rangeGroundCalc?.boomLengthM ? `${rangeGroundCalc.boomLengthM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : defaultSectionText(sections, "boom_length", boomLength);
+  const boomConfigurationText = rangeBoomConfiguration || currentCraneSectionText(sections, "boom_configuration", boomConfig, craneName);
+  const boomLengthText = rangeGroundCalc?.boomLengthM ? `${rangeGroundCalc.boomLengthM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : currentCraneSectionText(sections, "boom_length", boomLength, craneName);
   const introductionText = defaultSectionText(
     sections,
     "introduction",
@@ -1840,20 +2018,24 @@ export default async function CraneLiftPlanPackPage({
     "overhead_obstructions",
     sections.overhead_obstructions || liftPlan?.site_hazards || `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
   );
-  const trafficText = defaultSectionText(
+  const trafficText = currentCraneSectionText(
     sections,
     "traffic_pedestrian_management",
-    sections.traffic_pedestrian_management || liftPlan?.exclusion_zone_details || `The lifting area is to be clearly cordoned off using barriers and signage. Only authorised personnel are permitted within the lifting zone during operations.`
+    liftPlan?.exclusion_zone_details && !textMentionsDifferentKnownCrane(liftPlan.exclusion_zone_details, craneName)
+      ? liftPlan.exclusion_zone_details
+      : `Barrier off the lifting area, slewing area and landing zone for ${craneName}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`,
+    craneName
   );
   const liftingEquipmentText = defaultSectionText(
     sections,
     "lifting_equipment_certification",
     sections.lifting_equipment_certification || "All lifting tackle must hold current certification and be inspected before use."
   );
-  const craneDetailsText = defaultSectionText(
+  const craneDetailsText = currentCraneSectionText(
     sections,
     "crane_details",
-    equipmentProfile?.summary || "Selected crane profile to be checked against the current manufacturer specification and load chart."
+    equipmentProfile?.summary || `${craneName} to be checked against the current manufacturer specification and load chart.`,
+    craneName
   );
   const craneSetupText = tidyRepeatedTextBlock(
     safeCraneSetupProcedureSection ||
@@ -1861,37 +2043,47 @@ export default async function CraneLiftPlanPackPage({
       equipmentProfile?.configurationNote ||
       `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
   );
-  const liftingProcedureText = defaultSectionText(
+  const liftingProcedureText = currentCraneSectionText(
     sections,
     "lifting_procedure",
-    sections.lifting_procedure ||
-      (methodStatementLines.length
-        ? methodStatementLines.join("\n")
-        : "1. Brief all personnel and confirm communication method.\n2. Establish exclusion zone and position the crane.\n3. Inspect lifting accessories and connect as planned.\n4. Take up slack and complete a controlled test lift.\n5. Hoist, slew and land the load under the direction of the designated signaller.\n6. Remove lifting accessories and prepare for the next operation.")
+    methodStatementLines.length && !textMentionsDifferentKnownCrane(methodStatementLines.join("\n"), craneName)
+      ? methodStatementLines.join("\n")
+      : [
+          `Attend site at ${projectName} and complete the pre-lift briefing with all involved personnel before lifting starts.`,
+          `Establish the exclusion zone, confirm the load details, lift route, landing area and communication method.`,
+          `Position ${craneName} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm level, support and final setup before load is taken.`,
+          `Crane configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`,
+          `Inspect all lifting accessories, connect the load using the planned certified arrangement, complete a controlled test lift if required and then carry out the lift under the direction of the lift supervisor using the agreed signalling method.`,
+          `Land the load safely, remove lifting accessories, de-rig the crane in accordance with the manufacturer instructions and leave the work area safe and tidy.`,
+        ].join(" "),
+    craneName
   );
   const deRigText = defaultSectionText(
     sections,
     "de_rig_procedure",
     `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
   );
-  const emergencyProcedureText = defaultSectionText(
+  const emergencyProcedureText = currentCraneSectionText(
     sections,
     "emergency_procedure",
-    sections.emergency_procedure || liftPlan?.emergency_procedures || `In the event of an emergency, lifting operations are to stop immediately. The load must be made safe where possible, the exclusion zone maintained, and the site emergency procedures followed. No lifting operation is to recommence until the situation has been resolved and the area declared safe.`
+    liftPlan?.emergency_procedures && !textMentionsDifferentKnownCrane(liftPlan.emergency_procedures, craneName)
+      ? liftPlan.emergency_procedures
+      : `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${craneName} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`,
+    craneName
   );
-  const riskSummaryText = defaultSectionText(
+  const riskSummaryText = currentCraneSectionText(
     sections,
     "risk_assessment_summary",
-    sections.risk_assessment_summary ||
-      (riskLines.length
-        ? riskLines.join("\n")
-        : "Key risks include load drop, crane instability, collision with structures or persons, communication failure, ground failure, adverse weather and unauthorised access to the lifting zone.")
+    riskLines.length && !textMentionsDifferentKnownCrane(riskLines.join("\n"), craneName)
+      ? riskLines.join("\n")
+      : "Main risks include load drop due to sling / accessory failure, crane instability due to poor ground or incorrect setup, collision with structures or personnel, incorrect chart or setup selection, glass breakage, weather impacts and unauthorised access to the exclusion zone. Final capacity and configuration must be checked against the current applicable chart before approval.",
+    craneName
   );
   const emergencyContactsText = defaultSectionText(sections, "emergency_contacts", emergencyContacts);
   const equipmentListText = defaultSectionText(sections, "equipment_list", equipmentList);
   const toolboxNotesText = defaultSectionText(sections, "toolbox_notes", toolboxNotes);
 
-  const jobPlanningSnapshotText = defaultSectionText(
+  const jobPlanningSnapshotText = currentCraneSectionText(
     sections,
     "job_planning_snapshot_text",
     [
@@ -1901,7 +2093,8 @@ export default async function CraneLiftPlanPackPage({
       `Lift Type: ${(job as any)?.lift_type || "—"}`,
       `Site Contact: ${(job as any)?.contact_name || "—"}`,
       `Job Notes: ${(job as any)?.notes || "—"}`,
-    ].join("\n")
+    ].join("\n"),
+    craneName
   );
 
   const packMonthLabel = fmtMonthYear((job as any)?.start_date ?? (job as any)?.job_date ?? new Date());
@@ -1913,6 +2106,9 @@ export default async function CraneLiftPlanPackPage({
   };
   const inputField = (key: string, fallback: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={fieldText(key, fallback)} align={align} />
+  );
+  const currentCraneInputField = (key: string, fallback: string, align: "left" | "right" = "left") => (
+    <EditableInput name={key} defaultValue={currentCraneFieldText(sections, key, fallback, craneName)} align={align} />
   );
   const calculatedInputField = (key: string, value: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={value} align={align} />
@@ -2108,9 +2304,9 @@ export default async function CraneLiftPlanPackPage({
               inputField("cover_label_lift_classification", "Lift Classification"),
               inputField("lift_classification", liftClassificationText),
             ],
-            [inputField("cover_label_cranes", "Crane(s)"), inputField("cover_cranes", craneName)],
-            [inputField("cover_label_boom_configuration", "Boom configuration"), areaField("boom_configuration", boomConfigurationText, 3, true)],
-            [inputField("cover_label_boom_length", "Boom length"), inputField("boom_length", boomLengthText)],
+            [inputField("cover_label_cranes", "Crane(s)"), calculatedInputField("cover_cranes", craneName)],
+            [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
+            [inputField("cover_label_boom_length", "Boom length"), calculatedInputField("boom_length", boomLengthText)],
           ]}
         />
       </PageShell>
@@ -2291,7 +2487,7 @@ export default async function CraneLiftPlanPackPage({
         <SectionTitle>{inputField("section_title_14", "14. Crane Details")}</SectionTitle>
         <InfoTable
           rows={[
-            [inputField("crane_label_type", "Crane type"), inputField("crane_type_value", craneName)],
+            [inputField("crane_label_type", "Crane type"), calculatedInputField("crane_type_value", craneName)],
             [
               inputField("crane_label_gross_weight", "Crane gross weight"),
               calculatedInputField("crane_gross_weight", formatKgAndTonnes(craneMaxWeightKg)),
@@ -2302,8 +2498,8 @@ export default async function CraneLiftPlanPackPage({
               calculatedInputField("crane_lifting_accessories_weight_text", accessoryWeight),
             ],
             [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
-            [inputField("crane_label_outreach_reference", "Boom / outreach reference"), inputField("crane_outreach_reference", outreachRef)],
-            [inputField("crane_label_jib_reference", "Jib / max outreach"), inputField("crane_jib_reference", jibRef)],
+            [inputField("crane_label_outreach_reference", "Boom / outreach reference"), calculatedInputField("crane_outreach_reference", outreachRef)],
+            [inputField("crane_label_jib_reference", "Jib / max outreach"), calculatedInputField("crane_jib_reference", jibRef)],
             [inputField("crane_label_max_capacity", "Chart capacity at radius"), calculatedInputField("crane_max_capacity", craneCapacity)],
             [inputField("crane_label_utilisation", "Crane utilisation %"), calculatedInputField("crane_utilisation", utilisation)],
           ]}
@@ -2332,7 +2528,7 @@ export default async function CraneLiftPlanPackPage({
             ]}
           />
           <div style={{ marginTop: 8 }}>
-            {areaField("ground_bearing_notes", [primaryGroundLoadingFormula, primaryAdditionalSpreaderFormula].filter(Boolean).join("\n"), 3, true)}
+            {<EditableTextarea name="ground_bearing_notes" defaultValue={[primaryGroundLoadingFormula, primaryAdditionalSpreaderFormula].filter(Boolean).join("\n")} rows={3} compact />}
           </div>
         </BoxedParagraph>
 
@@ -2613,8 +2809,8 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           key={`${asset.title}-${asset.page_number}-${index}`}
           asset={asset}
           index={index + 1}
-          titleNode={inputField(`appendix_${index + 1}_title`, asset.title || `Appendix ${index + 1}`)}
-          captionNode={areaField(`appendix_${index + 1}_caption`, asset.description || "", 2, true)}
+          titleNode={currentCraneInputField(`appendix_${index + 1}_title`, safeAppendixTitleForCurrentCrane(asset, craneName, index + 1))}
+          captionNode={<EditableTextarea name={`appendix_${index + 1}_caption`} defaultValue={safeAppendixDescriptionForCurrentCrane(asset, craneName)} rows={2} compact />}
           headerMonth={monthInputField("page_header_month", "right")}
           headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
           headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
