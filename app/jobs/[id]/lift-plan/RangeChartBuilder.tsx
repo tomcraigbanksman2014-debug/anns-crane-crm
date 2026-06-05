@@ -258,6 +258,35 @@ function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unkno
   });
 }
 
+function currentCraneIsAk46(value: unknown) {
+  const current = normaliseCraneForCompare(value);
+  return /(?:^| )(?:bocker|ak46|ak 46)(?: |$)/.test(current);
+}
+
+function ak46SavedSetupShouldBeReset({
+  defaultCraneName,
+  selectedSetupKey,
+  selectedSetupLabel,
+  selectedJibKey,
+  selectedJibLabel,
+}: {
+  defaultCraneName: unknown;
+  selectedSetupKey: unknown;
+  selectedSetupLabel: unknown;
+  selectedJibKey: unknown;
+  selectedJibLabel: unknown;
+}) {
+  if (!currentCraneIsAk46(defaultCraneName)) return false;
+
+  const setupText = clean([selectedSetupKey, selectedSetupLabel, selectedJibKey, selectedJibLabel].filter(Boolean).join(" ")).toLowerCase();
+  if (!setupText) return false;
+
+  // Older emergency builds auto-saved the AK46 as the optional 46 m + 11 m hydraulic-jib setup.
+  // That made normal Böcker jobs jump out to a huge radius and show 500 kg capacity.
+  // Treat those saved selector values as stale defaults and return to the AK46 crane-operation table.
+  return /ak46-main-46|optional\s+max\s+extension|max\s+extension\s+up\s+to\s+46|ak46-jib-|hydraulic\s+jib|11\.0\s*m\s+hydraulic\s+jib/.test(setupText);
+}
+
 function defaultRangeState({
   sections,
   defaultClientName,
@@ -295,15 +324,24 @@ function defaultRangeState({
     structuredProfiles.find((profile) => profileMatchesKey(profile.key, rawSelectedSetupKey)) ?? null;
   const selectedStructuredJib = structuredJibs.find((jib) => clean(jib.key) === rawJibKey) ?? null;
 
-  const selectedSetupFromPack = forceCurrentJobCrane ? "" : rawSelectedSetupKey;
+  const recognisedStructuredCrane = Boolean(currentSpecOptions.rule);
+  const ak46SavedExtensionSetup = ak46SavedSetupShouldBeReset({
+    defaultCraneName,
+    selectedSetupKey: rawSelectedSetupKey,
+    selectedSetupLabel: rawSelectedSetupLabel,
+    selectedJibKey: rawJibKey,
+    selectedJibLabel: rawJibLabel,
+  });
+
+  const selectedSetupFromPack = forceCurrentJobCrane || ak46SavedExtensionSetup ? "" : rawSelectedSetupKey;
   const firstSetup = findFirstSetup(setupOptions, selectedSetupFromPack);
   const selectedSetupStillValid =
     Boolean(selectedStructuredProfile) ||
     (!structuredProfiles.length && Boolean(firstSetup && (!rawSelectedSetupKey || firstSetup.key === rawSelectedSetupKey)));
 
-  const recognisedStructuredCrane = Boolean(currentSpecOptions.rule);
   const staleSavedSetup =
     forceCurrentJobCrane ||
+    ak46SavedExtensionSetup ||
     textMentionsDifferentKnownCrane(rawSelectedSetupLabel || rawSelectedSetupKey, defaultCraneName) ||
     textMentionsDifferentKnownCrane(rawJibLabel || rawJibKey, defaultCraneName) ||
     (recognisedStructuredCrane && structuredProfiles.length > 0 && !selectedSetupStillValid) ||
@@ -319,11 +357,12 @@ function defaultRangeState({
 
   const setupBoomLength = activeStructuredProfile ? null : numberOrNull(firstSetup?.boomLengthM);
   const setupJibLength = activeStructuredJib ? activeStructuredJib.lengthM : inferPhysicalJibLength(firstSetup);
+  const resetRangeGeometry = staleSavedSetup || forceCurrentJobCrane || ak46SavedExtensionSetup;
 
-  const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12;
-  const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75);
-  const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6));
-  const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4);
+  const radius = resetRangeGeometry ? (liftRadiusM ?? 8) : (numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12);
+  const tipHeight = resetRangeGeometry ? (liftHeightM ?? Math.max(6, radius * 0.75)) : (numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75));
+  const objectHeight = resetRangeGeometry ? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6)) : (numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6)));
+  const objectDistance = resetRangeGeometry ? Math.max(1, radius - 4) : (numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4));
 
   const selectedSetupKey = activeStructuredProfile
     ? `profile:${activeStructuredProfile.key}`
@@ -334,8 +373,8 @@ function defaultRangeState({
   const selectedJibOptionKey = activeStructuredJib ? activeStructuredJib.key : (staleSavedSetup ? "" : rawJibKey);
   const selectedJibOptionLabel = activeStructuredJib ? activeStructuredJib.label : (staleSavedSetup ? "" : rawJibLabel);
 
-  const clearStoredComputedValues = recognisedStructuredCrane || staleSavedSetup || forceCurrentJobCrane;
-  const clearBoomGeometry = staleSavedSetup || forceCurrentJobCrane;
+  const clearStoredComputedValues = recognisedStructuredCrane || staleSavedSetup || forceCurrentJobCrane || resetRangeGeometry;
+  const clearBoomGeometry = staleSavedSetup || forceCurrentJobCrane || resetRangeGeometry;
 
   return {
     enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
@@ -540,6 +579,16 @@ export default function RangeChartBuilder({
   const initialSavedCraneWasStale = useMemo(
     () => savedCraneLooksStale(firstText(initialSections.range_chart_crane_name, initialSections.custom_crane_name), defaultCraneName),
     [initialSections, defaultCraneName]
+  );
+  const initialRangeDataNeedsReset = useMemo(
+    () => initialSavedCraneWasStale || ak46SavedSetupShouldBeReset({
+      defaultCraneName,
+      selectedSetupKey: initialSections.range_chart_selected_setup_key || initialSections.selected_crane_setup_key,
+      selectedSetupLabel: initialSections.range_chart_selected_setup_label || initialSections.selected_crane_setup_label,
+      selectedJibKey: initialSections.range_chart_selected_jib_option_key,
+      selectedJibLabel: initialSections.range_chart_selected_jib_option_label,
+    }),
+    [initialSavedCraneWasStale, initialSections, defaultCraneName]
   );
 
   const [chart, setChart] = useState<RangeChartState>(() =>
@@ -939,10 +988,10 @@ export default function RangeChartBuilder({
     if (!autoSyncStartedRef.current) {
       autoSyncStartedRef.current = true;
       lastAutoSyncPayloadRef.current = payloadKey;
-      if (!initialSavedCraneWasStale) return;
+      if (!initialRangeDataNeedsReset) return;
     }
 
-    if (!initialSavedCraneWasStale && lastAutoSyncPayloadRef.current === payloadKey) return;
+    if (!initialRangeDataNeedsReset && lastAutoSyncPayloadRef.current === payloadKey) return;
 
     if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
     setAutoSyncMessage("Lift plan data syncing…");
@@ -982,7 +1031,7 @@ export default function RangeChartBuilder({
     matPressureText,
     matPressureFormulaText,
     chartWarnings,
-    initialSavedCraneWasStale,
+    initialRangeDataNeedsReset,
   ]);
 
   async function saveRangeChart() {
