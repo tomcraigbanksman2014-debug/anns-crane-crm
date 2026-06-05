@@ -806,13 +806,11 @@ export default function RangeChartBuilder({
     setChart((prev) => ({ ...prev, [key]: nextValue }));
   }
 
-  function limitedValueForKey(key: keyof RangeChartState, value: string) {
-    let nextValue = value;
-    if (key === "boomLengthM") nextValue = clampNumberForInput(value, limits.maxBoomLengthM);
-    if (key === "jibLengthM") nextValue = clampNumberForInput(value, limits.maxPhysicalJibLengthM);
-    if (key === "radiusM") nextValue = clampNumberForInput(value, limits.maxRadiusM);
-    if (key === "tipHeightM") nextValue = clampNumberForInput(value, limits.maxTipHeightM);
-    return nextValue;
+  function limitedValueForKey(_key: keyof RangeChartState, value: string) {
+    // Do not clamp entered geometry to the crane limits. If the planned radius/height needs
+    // more boom than the selected setup allows, the chart must show the true required length
+    // and force manual chart check instead of silently capping it and showing a false capacity.
+    return value;
   }
 
   function syncHookFromBoom(next: RangeChartState) {
@@ -838,9 +836,9 @@ export default function RangeChartBuilder({
       jibLengthM: numberOrNull(next.jibLengthM) ?? 0,
       jibAngleDeg: numberOrNull(next.jibAngleDeg) ?? 0,
     });
-    const limitedBoomLength = clampNumber(derived.boomLengthM, limits.maxBoomLengthM);
-    const afterBoom = { ...next, boomLengthM: String(limitedBoomLength), boomAngleDeg: String(derived.boomAngleDeg) };
-    return limitedBoomLength !== derived.boomLengthM ? syncHookFromBoom(afterBoom) : afterBoom;
+    // Keep the true required boom length. Do not cap it to the setup maximum here; the warning
+    // and capacity logic will clear auto capacity when it exceeds the crane/setup limit.
+    return { ...next, boomLengthM: String(derived.boomLengthM), boomAngleDeg: String(derived.boomAngleDeg) };
   }
 
   function updateLimitedNumber(key: keyof RangeChartState, value: string) {
