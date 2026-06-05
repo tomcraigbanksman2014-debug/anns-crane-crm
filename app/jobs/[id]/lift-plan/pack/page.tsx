@@ -978,7 +978,10 @@ function AppendixPage({
 
 function rangeChartIsEnabled(sections: StringMap) {
   const enabled = String(sections.range_chart_enabled ?? "").trim().toLowerCase();
-  return ["1", "true", "yes", "on", "enabled"].includes(enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m);
+  // The pack page must follow the user's Include in pack checkbox exactly.
+  // Old saved range-chart dimensions should keep the lift data available,
+  // but must not force the sketch page into the pack when the checkbox is unticked.
+  return ["1", "true", "yes", "on", "enabled"].includes(enabled);
 }
 
 function rangeText(sections: StringMap, key: string, fallback = "—") {
