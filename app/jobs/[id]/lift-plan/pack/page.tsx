@@ -1707,6 +1707,12 @@ export default async function CraneLiftPlanPackPage({
     ? Math.max(0, (rangeBearingLoadKg / 0.75) - rangeTotalLiftedWeightKg)
     : null;
   const rangeSpecPlanningWeightKg = rangeGroundCalc?.limits?.planningWeightKg ?? null;
+  const currentCraneWeightLimits = getRangeChartLimits({
+    craneName,
+    setupLabel: [rangeSelectedSetupLabel, rangeSelectedJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: sections.range_chart_external_spec_document_title || sections.selected_crane_spec_source || "",
+  });
+  const currentCranePlanningWeightKg = currentCraneWeightLimits.planningWeightKg ?? null;
 
   const craneCapacity = rangeChartCapacityKg
     ? formatKgAndTonnes(rangeChartCapacityKg)
@@ -1730,7 +1736,8 @@ export default async function CraneLiftPlanPackPage({
       ? `MANUAL CHART CHECK REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} has been entered, but the CRM has not matched a safe structured chart capacity at this radius/setup. Do not approve using the crane maximum capacity; check the exact manufacturer/supplier chart and enter/select the correct chart setup first.`
       : "";
 
-  const craneMaxWeightKg = rangePlanningGrossWeightKg ?? rangeSpecPlanningWeightKg ?? parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
+  const enteredCraneWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
+  const craneMaxWeightKg = currentCranePlanningWeightKg ?? rangeSpecPlanningWeightKg ?? enteredCraneWeightKg ?? rangePlanningGrossWeightKg;
   const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
   const combinedMaxWeightKg = craneMaxWeightKg && loadMaxWeightKg ? craneMaxWeightKg + loadMaxWeightKg : null;
   const estimatedGroundBearingKg = rangeBearingLoadKg ?? (craneMaxWeightKg && loadMaxWeightKg ? (craneMaxWeightKg + loadMaxWeightKg) * 0.75 : null);
