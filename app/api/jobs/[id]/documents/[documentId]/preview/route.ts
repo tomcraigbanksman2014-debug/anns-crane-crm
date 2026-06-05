@@ -50,6 +50,28 @@ function safeFileName(value: unknown) {
     .slice(0, 180);
 }
 
+
+function contentTypeFromName(value: unknown) {
+  const name = String(value ?? "").toLowerCase().split("?")[0];
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".jfif") || name.endsWith(".pjpeg") || name.endsWith(".pjp")) return "image/jpeg";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".gif")) return "image/gif";
+  if (name.endsWith(".bmp")) return "image/bmp";
+  if (name.endsWith(".svg")) return "image/svg+xml";
+  if (name.endsWith(".heic")) return "image/heic";
+  if (name.endsWith(".heif")) return "image/heif";
+  if (name.endsWith(".pdf")) return "application/pdf";
+  return "";
+}
+
+function normaliseStoredContentType(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw || raw === "application/octet-stream" || raw === "binary/octet-stream") return "";
+  if (raw === "image/jpg" || raw === "image/pjpeg") return "image/jpeg";
+  return raw;
+}
+
 function unique(values: string[]) {
   return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
 }
@@ -211,11 +233,23 @@ async function fetchHistoricPublicUrl(rawPath: string) {
 }
 
 function responseForFile(row: JobDocumentRow, data: Blob, contentTypeOverride?: string | null) {
-  const contentType = contentTypeOverride || row.file_type || data.type || "application/octet-stream";
+  // Some older WhatsApp/site-photo uploads were saved with file_type as
+  // application/octet-stream even though the filename is .jpg/.jpeg. Chrome will
+  // then treat the <img> preview as a broken file. For preview responses, infer
+  // an image MIME type from the stored filename/path before falling back to the
+  // database MIME value.
+  const inferredFromName = contentTypeFromName(row.file_name) || contentTypeFromName(row.file_path);
+  const contentType =
+    normaliseStoredContentType(contentTypeOverride) ||
+    inferredFromName ||
+    normaliseStoredContentType(row.file_type) ||
+    normaliseStoredContentType(data.type) ||
+    "application/octet-stream";
+
   return new Response(data, {
     headers: {
       "content-type": contentType,
-      "cache-control": "private, max-age=300",
+      "cache-control": "no-store, max-age=0",
       "content-disposition": `inline; filename="${safeInlineFileName(row.file_name)}"`,
       "x-robots-tag": "noindex",
     },
