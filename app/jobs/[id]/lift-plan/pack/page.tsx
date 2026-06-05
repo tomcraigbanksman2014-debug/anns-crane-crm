@@ -314,6 +314,8 @@ function sanitisePackSectionsForCurrentCrane(rawSections: StringMap, currentCran
 
     // Clear stale calculated outputs from a previous crane/setup. They will be recalculated
     // from the current crane rules during this render.
+    out.range_chart_boom_length_m = "";
+    out.range_chart_boom_angle_deg = "";
     out.range_chart_chart_capacity_kg = "";
     out.range_chart_capacity_source = "";
     out.range_chart_utilisation_percent = "";
