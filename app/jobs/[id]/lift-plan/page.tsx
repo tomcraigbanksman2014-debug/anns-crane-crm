@@ -117,8 +117,19 @@ function isAppendixImageDoc(doc: any) {
 
 
 function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
-  const fromSelectedCrane = String(liftPlan?.selected_crane_id ?? "").trim();
-  if (fromSelectedCrane) return fromSelectedCrane;
+  // Use the crane actually being displayed/planned first.  Saved lift-plan drafts can contain
+  // an old selected_crane_id after the job crane has been edited, and using that stale value
+  // pulls the wrong crane spec/load-chart pages into the pack.
+  const fromDisplayedCrane = String(crane?.id ?? "").trim();
+  if (fromDisplayedCrane) return fromDisplayedCrane;
+
+  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
+  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
+  if (fromPrimaryAllocation) return fromPrimaryAllocation;
+
+  const firstJobCrane = one((job as any)?.cranes) as any;
+  const fromJobCrane = String(firstJobCrane?.id ?? "").trim();
+  if (fromJobCrane) return fromJobCrane;
 
   const allocations = flatten((job as any)?.job_equipment);
   const selectedAllocationId = String(liftPlan?.selected_job_equipment_id ?? "").trim();
@@ -129,15 +140,7 @@ function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
     if (selectedAllocationCraneId) return selectedAllocationCraneId;
   }
 
-  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
-  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
-  if (fromPrimaryAllocation) return fromPrimaryAllocation;
-
-  const fromDisplayedCrane = String(crane?.id ?? "").trim();
-  if (fromDisplayedCrane) return fromDisplayedCrane;
-
-  const firstJobCrane = one((job as any)?.cranes) as any;
-  return String(firstJobCrane?.id ?? "").trim() || null;
+  return String(liftPlan?.selected_crane_id ?? "").trim() || null;
 }
 
 function fmtDateTime(value: string | null | undefined) {
@@ -427,8 +430,9 @@ export default async function JobLiftPlanPage({
       };
     });
 
-  if (craneOptions.length === 0 && crane?.id) {
-    craneOptions.push({ value: `fallback:${crane.id}`, craneId: String(crane.id), label: craneLabel });
+  const displayedCraneIdForOption = String((crane as any)?.id ?? "").trim();
+  if (displayedCraneIdForOption && !craneOptions.some((option) => String(option.craneId ?? "").trim() === displayedCraneIdForOption)) {
+    craneOptions.unshift({ value: `fallback:${displayedCraneIdForOption}`, craneId: displayedCraneIdForOption, label: craneLabel });
   }
 
   const alternativeCraneOptions = Array.from(
@@ -445,6 +449,17 @@ export default async function JobLiftPlanPage({
         .map((option) => [String(option.craneId || option.label).toLowerCase(), option])
     ).values()
   );
+
+  const currentCraneOptionForForm = displayedCraneIdForOption
+    ? craneOptions.find((option) => String(option.craneId ?? "").trim() === displayedCraneIdForOption) ?? null
+    : null;
+  const liftPlanInitialForForm = liftPlan
+    ? {
+        ...(liftPlan as any),
+        selected_job_equipment_id: currentCraneOptionForForm?.value ?? (liftPlan as any)?.selected_job_equipment_id ?? "",
+        selected_crane_id: currentCraneOptionForForm?.craneId ?? displayedCraneIdForOption ?? (liftPlan as any)?.selected_crane_id ?? "",
+      }
+    : null;
 
   const craneSetupOptionsByAllocation = Object.fromEntries(
     craneOptions.map((option) => {
@@ -655,7 +670,7 @@ export default async function JobLiftPlanPage({
 
         <LiftPlanForm
           jobId={params.id}
-          initial={(liftPlan as any) ?? null}
+          initial={liftPlanInitialForForm}
           equipmentProfile={equipmentProfile ?? null}
           craneOptions={craneOptions}
           alternativeCraneOptions={alternativeCraneOptions}
