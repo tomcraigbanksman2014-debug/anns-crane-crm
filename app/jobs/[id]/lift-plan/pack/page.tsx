@@ -275,6 +275,101 @@ function fallbackScope(clientName: string, projectName: string, liftPlan: any, l
   return `Works comprise the lifting operation for ${clientName} at ${projectName}. The planned load is ${loadText} with a stated load weight of ${loadWeight}. All lifting activities are to be carried out under the control of the appointed lifting team in accordance with the approved lift plan, site controls and current legislation.`;
 }
 
+
+function normaliseScopeWeightText(value: unknown) {
+  return String(value ?? "").toLowerCase().replace(/,/g, "").replace(/\s+/g, " ").trim();
+}
+
+function scopeWeightLooksStale(
+  value: unknown,
+  currentCraneName: unknown,
+  craneWeightKg: number | null | undefined
+) {
+  const text = normaliseScopeWeightText(value);
+  if (!text || !craneWeightKg || !Number.isFinite(craneWeightKg) || craneWeightKg <= 0) return false;
+
+  if (textMentionsDifferentKnownCrane(text, currentCraneName)) return true;
+
+  const currentKg = Math.round(craneWeightKg);
+  const explicitWeights = Array.from(text.matchAll(/(?:crane|machine|gross|planning)[^\n.]{0,80}?(?:weight|mass)[^0-9]{0,20}([0-9]+(?:\.[0-9]+)?)/g))
+    .map((match) => Number(match[1]))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  return explicitWeights.some((weight) => Math.abs(weight - currentKg) > Math.max(250, currentKg * 0.05));
+}
+
+function currentCraneScopeWeightText({
+  craneName,
+  craneWeightKg,
+  totalLiftedWeightKg,
+  bearingLoadKg,
+}: {
+  craneName: string;
+  craneWeightKg: number | null | undefined;
+  totalLiftedWeightKg: number | null | undefined;
+  bearingLoadKg: number | null | undefined;
+}) {
+  if (!craneWeightKg || !Number.isFinite(craneWeightKg) || craneWeightKg <= 0) return "";
+  const craneText = `${craneName || "Selected crane"} planning/gross weight is ${formatRangeKg(craneWeightKg)}`;
+  if (!totalLiftedWeightKg || !Number.isFinite(totalLiftedWeightKg) || totalLiftedWeightKg <= 0) {
+    return `${craneText}.`;
+  }
+  const liftedText = `Gross lifted load is ${formatRangeKg(totalLiftedWeightKg)}`;
+  if (bearingLoadKg && Number.isFinite(bearingLoadKg) && bearingLoadKg > 0) {
+    return `${craneText}. ${liftedText}. Estimated maximum outrigger load for the basic ground-bearing check is (${formatRangeKg(craneWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}.`;
+  }
+  return `${craneText}. ${liftedText}.`;
+}
+
+function fixScopeOfWorksForCurrentCrane({
+  value,
+  fallback,
+  currentCraneName,
+  craneWeightKg,
+  totalLiftedWeightKg,
+  bearingLoadKg,
+}: {
+  value: string;
+  fallback: string;
+  currentCraneName: string;
+  craneWeightKg: number | null | undefined;
+  totalLiftedWeightKg: number | null | undefined;
+  bearingLoadKg: number | null | undefined;
+}) {
+  const selected = String(value || fallback || "").trim();
+  const currentWeightText = currentCraneScopeWeightText({
+    craneName: currentCraneName,
+    craneWeightKg,
+    totalLiftedWeightKg,
+    bearingLoadKg,
+  });
+
+  if (!selected) return currentWeightText;
+  if (!currentWeightText) return selected;
+
+  const stale = scopeWeightLooksStale(selected, currentCraneName, craneWeightKg);
+  const hasGeneratedWeightLine = /crane\s*\/\s*machine\s+weight\s+is|total\s+weight\s+used\s+for\s+basic\s+ground\s+bearing\s+calculation|planning\s*\/\s*gross\s+weight\s+is|estimated\s+maximum\s+outrigger\s+load/i.test(selected);
+
+  if (!stale && !hasGeneratedWeightLine) return selected;
+
+  let cleaned = selected
+    .replace(/\s*Crane\s*\/\s*machine\s+weight\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*Total\s+weight\s+used\s+for\s+basic\s+ground\s+bearing\s+calculation\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*(?:[A-Z0-9 /-]+\s+)?planning\s*\/\s*gross\s+weight\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*Gross\s+lifted\s+load\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*Estimated\s+maximum\s+outrigger\s+load\s+for\s+the\s+basic\s+ground[- ]bearing\s+check\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (textMentionsDifferentKnownCrane(cleaned, currentCraneName)) {
+    cleaned = fallback.trim();
+  }
+
+  if (!cleaned) return currentWeightText;
+  return tidyRepeatedTextBlock(`${cleaned}\n\n${currentWeightText}`);
+}
+
 function fallbackCommunication(siteContact: string) {
   return `Communication will be maintained using clear agreed hand signals in accordance with BS 7121, with two-way radio communication used if visibility or site layout requires it. The designated signaller will remain in control of crane movements and liaise with ${siteContact || "the site representative"} where necessary.`;
 }
@@ -1700,11 +1795,19 @@ export default async function CraneLiftPlanPackPage({
     "contract_lift_arrival",
     `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
   );
-  const scopeOfWorksText = defaultSectionText(
+  const rawScopeOfWorksText = defaultSectionText(
     sections,
     "scope_of_works",
     sections.scope_of_works || liftPlan?.load_description || scopeFallback
   );
+  const scopeOfWorksText = fixScopeOfWorksForCurrentCrane({
+    value: rawScopeOfWorksText,
+    fallback: scopeFallback,
+    currentCraneName: craneName,
+    craneWeightKg: craneMaxWeightKg,
+    totalLiftedWeightKg: loadMaxWeightKg,
+    bearingLoadKg,
+  });
   const communicationText = defaultSectionText(
     sections,
     "communication",
