@@ -734,8 +734,15 @@ export default function RangeChartBuilder({
     sourceLabel: chart.externalSpecDocumentTitle,
     totalLiftedWeightKg: calc.totalLiftedWeight,
   });
+  const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
+  const displayedMaxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
+  const requiredBoomExceededEarly = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
+  const maxJibExceededEarly = limits.maxPhysicalJibLengthM ? numbers.jibLengthM > limits.maxPhysicalJibLengthM + 0.01 : false;
+  const maxRadiusExceededEarly = limits.maxRadiusM ? numbers.radiusM > limits.maxRadiusM + 0.01 : false;
+  const maxTipHeightExceededEarly = limits.maxTipHeightM ? numbers.tipHeightM > limits.maxTipHeightM + 0.01 : false;
+  const geometryInvalidForAutoCapacity = displayedMaxBoomExceeded || requiredBoomExceededEarly || maxJibExceededEarly || maxRadiusExceededEarly || maxTipHeightExceededEarly || calc.clearance < 0 || horizontalGapM < 0;
   const storedManualChartCapacityKg = numberOrNull(chart.chartCapacityKg);
-  const effectiveChartCapacityKg = capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
+  const effectiveChartCapacityKg = geometryInvalidForAutoCapacity ? null : capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
   const effectiveBearingLoadKg = bearingResult.bearingLoadKg ?? numberOrNull(chart.bearingLoadKg);
   const effectiveUtilisation = calc.totalLiftedWeight && effectiveChartCapacityKg ? (calc.totalLiftedWeight / effectiveChartCapacityKg) * 100 : null;
   const effectivePressureKgM2 = effectiveBearingLoadKg && calc.matArea ? effectiveBearingLoadKg / calc.matArea : null;
@@ -766,12 +773,11 @@ export default function RangeChartBuilder({
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
     ? `${bearingFormulaBase}. ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
     : bearingFormulaBase;
-  const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
-  const maxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
-  const requiredBoomExceeded = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
-  const maxJibExceeded = limits.maxPhysicalJibLengthM ? numbers.jibLengthM > limits.maxPhysicalJibLengthM + 0.01 : false;
-  const maxRadiusExceeded = limits.maxRadiusM ? numbers.radiusM > limits.maxRadiusM + 0.01 : false;
-  const maxTipHeightExceeded = limits.maxTipHeightM ? numbers.tipHeightM > limits.maxTipHeightM + 0.01 : false;
+  const maxBoomExceeded = displayedMaxBoomExceeded;
+  const requiredBoomExceeded = requiredBoomExceededEarly;
+  const maxJibExceeded = maxJibExceededEarly;
+  const maxRadiusExceeded = maxRadiusExceededEarly;
+  const maxTipHeightExceeded = maxTipHeightExceededEarly;
   const chartDangerWarnings = [
     calc.clearance < 0 ? `Hook/tip point is ${fmt(Math.abs(calc.clearance))} below the top of the object. Raise the hook point, lower the object height, or choose another crane/setup.` : "",
     horizontalGapM < 0 ? `Hook/radius is ${fmt(Math.abs(horizontalGapM))} short of the object face. Increase radius/reposition the crane, or reduce the object distance.` : "",
@@ -789,6 +795,7 @@ export default function RangeChartBuilder({
     capacityResult.setupAdvice || "",
     capacityResult.warning && !(effectiveUtilisation && effectiveUtilisation > 100) ? capacityResult.warning : "",
     bearingResult.warning || "",
+    geometryInvalidForAutoCapacity ? "Geometry is outside the structured crane/setup limits, so chart capacity has been cleared. Check the exact manufacturer/supplier chart and correct the setup before approval." : "",
     calc.totalLiftedWeight && !effectiveChartCapacityKg ? "Total lifted weight is entered, but chart capacity at radius is not available automatically for this setup. Check the exact load chart before approval." : "",
   ].filter(Boolean);
 
