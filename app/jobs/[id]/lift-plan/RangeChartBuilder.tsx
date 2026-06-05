@@ -386,7 +386,9 @@ function defaultRangeState({
   const clearBoomGeometry = staleSavedSetup || forceCurrentJobCrane || resetRangeGeometry;
 
   return {
-    enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
+    // Keep the checkbox controlled only by the saved Include in pack flag.
+    // Existing radius/height values should not automatically re-tick it.
+    enabled: parseBool(sections.range_chart_enabled),
     clientName: firstText(sections.range_chart_client, defaultClientName),
     craneName: tidyDisplayLabel(forceCurrentJobCrane ? defaultCraneName : firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
