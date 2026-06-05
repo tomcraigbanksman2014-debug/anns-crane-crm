@@ -220,6 +220,44 @@ function parseBool(value: unknown) {
   return ["1", "true", "yes", "on", "enabled"].includes(text);
 }
 
+function firstNoneOrFirstJib(jibOptions: ReturnType<typeof getRangeChartSpecOptions>["jibOptions"]) {
+  return jibOptions.find((item) => item.key === "none" || /no\s+jib|main\s+boom\s+only/i.test(item.label)) ?? jibOptions[0] ?? null;
+}
+
+function profileMatchesKey(profileKey: string | null | undefined, selectedKey: string) {
+  const cleanProfile = clean(profileKey);
+  const cleanSelected = clean(selectedKey);
+  if (!cleanProfile || !cleanSelected) return false;
+  return cleanSelected === cleanProfile || cleanSelected === `profile:${cleanProfile}`;
+}
+
+function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unknown) {
+  const text = normaliseCraneForCompare(value);
+  const current = normaliseCraneForCompare(currentCraneName);
+  if (!text || !current) return false;
+
+  const known = [
+    { key: "bocker", aliases: ["bocker", "ak46", "ak 46"] },
+    { key: "jekko", aliases: ["jekko", "spx532", "spx 532"] },
+    { key: "grove", aliases: ["grove", "gmk4080", "gmk 4080"] },
+    { key: "mtk35", aliases: ["marchetti", "mtk35", "mtk 35"] },
+    { key: "hk40", aliases: ["tadano", "faun", "hk40", "hk 40"] },
+  ];
+
+  const currentKeys = new Set(
+    known
+      .filter((item) => item.aliases.some((alias) => current.includes(alias.replace(/\s+/g, " "))))
+      .map((item) => item.key)
+  );
+
+  if (!currentKeys.size) return false;
+
+  return known.some((item) => {
+    if (currentKeys.has(item.key)) return false;
+    return item.aliases.some((alias) => text.includes(alias.replace(/\s+/g, " ")));
+  });
+}
+
 function defaultRangeState({
   sections,
   defaultClientName,
@@ -239,53 +277,105 @@ function defaultRangeState({
   loadWeightKg?: number | null;
   setupOptions: CraneSetupOption[];
 }): RangeChartState {
+  const currentSpecOptions = getRangeChartSpecOptions({ craneName: defaultCraneName });
+  const structuredProfiles = currentSpecOptions.profileOptions;
+  const structuredJibs = currentSpecOptions.jibOptions;
+  const firstStructuredProfile = structuredProfiles[0] ?? null;
+  const firstStructuredJib = firstNoneOrFirstJib(structuredJibs);
+
   const savedCraneName = firstText(sections.range_chart_crane_name, sections.custom_crane_name);
   const forceCurrentJobCrane = savedCraneLooksStale(savedCraneName, defaultCraneName);
-  const selectedSetupFromPack = forceCurrentJobCrane ? "" : clean(sections.range_chart_selected_setup_key || sections.selected_crane_setup_key);
+
+  const rawSelectedSetupKey = clean(sections.range_chart_selected_setup_key || sections.selected_crane_setup_key);
+  const rawSelectedSetupLabel = firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label);
+  const rawJibKey = clean(sections.range_chart_selected_jib_option_key);
+  const rawJibLabel = firstText(sections.range_chart_selected_jib_option_label);
+
+  const selectedStructuredProfile =
+    structuredProfiles.find((profile) => profileMatchesKey(profile.key, rawSelectedSetupKey)) ?? null;
+  const selectedStructuredJib = structuredJibs.find((jib) => clean(jib.key) === rawJibKey) ?? null;
+
+  const selectedSetupFromPack = forceCurrentJobCrane ? "" : rawSelectedSetupKey;
   const firstSetup = findFirstSetup(setupOptions, selectedSetupFromPack);
-  const setupBoomLength = numberOrNull(firstSetup?.boomLengthM);
-  const setupJibLength = inferPhysicalJibLength(firstSetup);
+  const selectedSetupStillValid =
+    Boolean(selectedStructuredProfile) ||
+    (!structuredProfiles.length && Boolean(firstSetup && (!rawSelectedSetupKey || firstSetup.key === rawSelectedSetupKey)));
+
+  const recognisedStructuredCrane = Boolean(currentSpecOptions.rule);
+  const staleSavedSetup =
+    forceCurrentJobCrane ||
+    textMentionsDifferentKnownCrane(rawSelectedSetupLabel || rawSelectedSetupKey, defaultCraneName) ||
+    textMentionsDifferentKnownCrane(rawJibLabel || rawJibKey, defaultCraneName) ||
+    (recognisedStructuredCrane && structuredProfiles.length > 0 && !selectedSetupStillValid) ||
+    (recognisedStructuredCrane && rawJibKey && structuredJibs.length > 0 && !selectedStructuredJib);
+
+  const useStructuredDefaults = recognisedStructuredCrane && (staleSavedSetup || !rawSelectedSetupKey || structuredProfiles.length > 0);
+  const activeStructuredProfile = useStructuredDefaults
+    ? (selectedStructuredProfile && !staleSavedSetup ? selectedStructuredProfile : firstStructuredProfile)
+    : null;
+  const activeStructuredJib = useStructuredDefaults
+    ? (selectedStructuredJib && !staleSavedSetup ? selectedStructuredJib : firstStructuredJib)
+    : null;
+
+  const setupBoomLength = activeStructuredProfile ? null : numberOrNull(firstSetup?.boomLengthM);
+  const setupJibLength = activeStructuredJib ? activeStructuredJib.lengthM : inferPhysicalJibLength(firstSetup);
 
   const radius = numberOrNull(sections.range_chart_radius_m) ?? liftRadiusM ?? 12;
   const tipHeight = numberOrNull(sections.range_chart_tip_height_m) ?? liftHeightM ?? Math.max(6, radius * 0.75);
   const objectHeight = numberOrNull(sections.range_chart_object_height_m) ?? Math.max(1, Math.min(tipHeight - 1, liftHeightM ?? tipHeight * 0.6));
   const objectDistance = numberOrNull(sections.range_chart_object_distance_m) ?? Math.max(1, radius - 4);
 
+  const selectedSetupKey = activeStructuredProfile
+    ? `profile:${activeStructuredProfile.key}`
+    : firstText(staleSavedSetup ? "" : rawSelectedSetupKey, firstSetup?.key);
+  const selectedSetupLabel = activeStructuredProfile
+    ? activeStructuredProfile.label
+    : firstText(staleSavedSetup ? "" : rawSelectedSetupLabel, firstSetup?.label);
+  const selectedJibOptionKey = activeStructuredJib ? activeStructuredJib.key : (staleSavedSetup ? "" : rawJibKey);
+  const selectedJibOptionLabel = activeStructuredJib ? activeStructuredJib.label : (staleSavedSetup ? "" : rawJibLabel);
+
+  const clearStoredComputedValues = recognisedStructuredCrane || staleSavedSetup || forceCurrentJobCrane;
+  const clearBoomGeometry = staleSavedSetup || forceCurrentJobCrane;
+
   return {
     enabled: parseBool(sections.range_chart_enabled) || Boolean(sections.range_chart_radius_m || sections.range_chart_tip_height_m),
     clientName: firstText(sections.range_chart_client, defaultClientName),
     craneName: tidyDisplayLabel(forceCurrentJobCrane ? defaultCraneName : firstText(sections.range_chart_crane_name, sections.custom_crane_name, defaultCraneName)),
     notes: firstText(sections.range_chart_notes, defaultNotes),
-    craneSourceMode: forceCurrentJobCrane ? "selected_crm_crane" : firstText(sections.range_chart_crane_source_mode, "selected_crm_crane"),
-    externalSpecDocumentId: forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_id),
-    externalSpecDocumentTitle: forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_title),
-    selectedSetupKey: forceCurrentJobCrane ? firstText(firstSetup?.key) : firstText(sections.range_chart_selected_setup_key, sections.selected_crane_setup_key, firstSetup?.key),
-    selectedSetupLabel: forceCurrentJobCrane ? firstText(firstSetup?.label) : firstText(sections.range_chart_selected_setup_label, sections.selected_crane_setup_label, firstSetup?.label),
-    selectedJibOptionKey: forceCurrentJobCrane ? "" : firstText(sections.range_chart_selected_jib_option_key),
-    selectedJibOptionLabel: forceCurrentJobCrane ? "" : firstText(sections.range_chart_selected_jib_option_label),
-    boomLengthM: numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
-    boomAngleDeg: numberForInput(sections.range_chart_boom_angle_deg, ""),
+    craneSourceMode: recognisedStructuredCrane || forceCurrentJobCrane ? "selected_crm_crane" : firstText(sections.range_chart_crane_source_mode, "selected_crm_crane"),
+    externalSpecDocumentId: recognisedStructuredCrane || forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_id),
+    externalSpecDocumentTitle: recognisedStructuredCrane || forceCurrentJobCrane ? "" : firstText(sections.range_chart_external_spec_document_title),
+    selectedSetupKey,
+    selectedSetupLabel,
+    selectedJibOptionKey,
+    selectedJibOptionLabel,
+    boomLengthM: clearBoomGeometry ? "" : numberForInput(sections.range_chart_boom_length_m, setupBoomLength ? String(setupBoomLength) : ""),
+    boomAngleDeg: clearBoomGeometry ? "" : numberForInput(sections.range_chart_boom_angle_deg, ""),
     radiusM: numberForInput(radius, "12"),
     tipHeightM: numberForInput(tipHeight, "10"),
     jibLengthM: numberForInput(
-      normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
+      clearBoomGeometry
+        ? (activeStructuredJib?.lengthM ?? 0)
+        : normalisePhysicalJibLength(numberOrNull(sections.range_chart_jib_length_m), radius, setupBoomLength, setupJibLength),
       setupJibLength ? String(setupJibLength) : "0"
     ),
-    jibAngleDeg: numberForInput(sections.range_chart_jib_angle_deg, "20"),
+    jibAngleDeg: clearBoomGeometry ? "20" : numberForInput(sections.range_chart_jib_angle_deg, "20"),
     objectDistanceM: numberForInput(objectDistance, "8"),
     objectHeightM: numberForInput(objectHeight, "4"),
     objectWidthM: numberForInput(sections.range_chart_object_width_m, "8"),
     loadWeightKg: numberForInput(sections.range_chart_load_weight_kg, loadWeightKg ? String(loadWeightKg) : ""),
     accessoryWeightKg: numberForInput(sections.range_chart_accessory_weight_kg, ""),
-    chartCapacityKg: forceCurrentJobCrane ? "" : numberForInput(sections.range_chart_chart_capacity_kg, ""),
+    chartCapacityKg: clearStoredComputedValues ? "" : numberForInput(sections.range_chart_chart_capacity_kg, ""),
     matLengthM: numberForInput(sections.range_chart_mat_length_m, numberForInput(sections.ground_bearing_mat_length_m, "")),
     matWidthM: numberForInput(sections.range_chart_mat_width_m, numberForInput(sections.ground_bearing_mat_width_m, "")),
     matCount: numberForInput(
       sections.range_chart_mats_under_loaded_outrigger,
       numberForInput(sections.ground_bearing_mats_under_loaded_outrigger, "1")
     ),
-    bearingLoadKg: forceCurrentJobCrane ? "" : numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
+    bearingLoadKg: clearStoredComputedValues ? "" : numberForInput(sections.range_chart_bearing_load_kg, numberForInput(sections.ground_bearing_bearing_load, "")),
     verificationNote: firstText(
+      activeStructuredProfile?.source,
+      firstSetup?.chartNote,
       sections.range_chart_verification_note,
       "Planning sketch only. Appointed person must verify the manufacturer/supplier load chart, exact radius, boom/jib configuration, counterweight/ballast, outrigger setup, accessories and ground bearing before approval."
     ),
@@ -668,8 +758,14 @@ export default function RangeChartBuilder({
           ...prev,
           selectedSetupKey: `profile:${profile.key}`,
           selectedSetupLabel: profile.label,
-          craneSourceMode: prev.craneSourceMode || "selected_crm_crane",
-          boomLengthM: profile.defaultBoomLengthM ? String(profile.defaultBoomLengthM) : prev.boomLengthM,
+          craneSourceMode: "selected_crm_crane",
+          externalSpecDocumentId: "",
+          externalSpecDocumentTitle: "",
+          chartCapacityKg: "",
+          bearingLoadKg: "",
+          // Selecting a profile sets the limit/chart family only. Do not force the actual boom length to the profile maximum,
+          // otherwise small lifts jump to a huge radius/height and the sketch becomes unusable.
+          boomLengthM: prev.boomLengthM,
           verificationNote:
             profile.source ||
             prev.verificationNote ||
