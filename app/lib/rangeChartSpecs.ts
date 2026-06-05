@@ -244,21 +244,21 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     match: [/\bak\s*46(?:\/6000)?\b/i, /\bbocker\b.*\bak\s*46/i, /\bböcker\b.*\bak\s*46/i, /\bak46\b/i],
     maxCapacityKg: 6000,
     maxBoomLengthM: 46,
-    maxPhysicalJibLengthM: 11,
+    // AK46 maximum extension/boom length is the total crane extension, including the hydraulic 11 m extension.
+    // Do not add a separate 11 m jib on top of 46 m in the range sketch.
+    maxPhysicalJibLengthM: 0,
     maxRadiusM: 39,
     maxTipHeightM: 46,
     planningWeightKg: 26000,
     planningWeightSource: "AK 46/6000 spec: permissible gross vehicle weight up to 26 t",
     estimatedBearingFactor: 0.75,
     profileOptions: [
-      profile("ak46-main-44", "Main boom / extension up to 44 m", 44, 44, 38, 43.3, "AK 46/6000 technical information"),
-      profile("ak46-main-46", "Optional max extension up to 46 m", 46, 46, 39, 46, "AK 46/6000 technical information"),
+      profile("ak46-crane-operation", "AK46 crane-operation range table / total boom-extension up to 46 m", null, 46, 39, 46, "AK 46/6000 crane-operation range/load table"),
+      profile("ak46-total-44", "AK46 total boom-extension up to 44 m", null, 44, 38, 43.3, "AK 46/6000 technical information"),
+      profile("ak46-total-46", "AK46 optional total boom-extension up to 46 m", null, 46, 39, 46, "AK 46/6000 technical information"),
     ],
     jibOptions: [
-      jib("none", "No jib / main boom only", 0),
-      jib("ak46-jib-5-3", "5.3 m hydraulic jib", 5.3, 38, 43.3, "AK 46/6000: jib extendable 5.3 / 8.1 / 11.0 m"),
-      jib("ak46-jib-8-1", "8.1 m hydraulic jib", 8.1, 39, 43.3, "AK 46/6000: jib extendable 5.3 / 8.1 / 11.0 m"),
-      jib("ak46-jib-11", "11.0 m hydraulic jib", 11, 39, 46, "AK 46/6000: jib extendable 5.3 / 8.1 / 11.0 m"),
+      jib("none", "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension", 0, 39, 46, "AK 46/6000: 5.3 m / 8.1 m / 11.0 m hydraulic extension is included within the 44 m / optional 46 m total extension length"),
     ],
     capacitySource: "AK 46/6000 spec: crane-operation range/load table",
     capacityPoints: AK46_MAIN,
@@ -267,10 +267,10 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
         jibLengthM: null,
         boomLengthM: 46,
         source: "AK 46/6000 spec: 6t at 8m, 4t at 11m, 2t at 17.7m, 1t at 26m, 500kg at 34.5m, 250kg at 39m",
-        setupAdvice: "AK46 preliminary check: use the published crane-operation range/load table for capacity at radius. The 5.3m / 8.1m / 11.0m hydraulic fly/extension selection is used for geometry and verification notes only; do not apply the 800kg extension marker as a hard cap where the crane-operation chart gives 1,000kg up to 26m. Confirm single/two-fall operation, exact boom/extension configuration and LMI before approval.",
+        setupAdvice: "AK46 preliminary check: use the published crane-operation range/load table for capacity at radius. The 44 m / optional 46 m maximum is the total boom-extension length and already includes the hydraulic extension; do not add an extra 11 m jib on top of the 46 m total. Do not apply the 800 kg extension marker as a hard cap where the crane-operation chart gives 1,000 kg up to 26 m. Confirm single/two-fall operation, exact boom/extension configuration and LMI before approval.",
       }),
     ],
-    notes: "Uses the published AK 46/6000 range/load points as a conservative planning curve. Final duty must still be checked on the supplier/manufacturer chart.",
+    notes: "Uses the published AK 46/6000 range/load points as a conservative planning curve. The 46 m maximum is treated as total boom-extension length including the hydraulic extension, not 46 m plus a separate 11 m jib. Final duty must still be checked on the supplier/manufacturer chart.",
   },
   {
     id: "gmk4080-1",
@@ -603,11 +603,10 @@ function applyPayloadCap(
   // Important AK46 correction:
   // The Böcker AK46/6000 spec gives crane-operation capacity by radius:
   // 6t @ 8m, 4t @ 11m, 2t @ 17.7m, 1t @ 26m, 500kg @ 34.5m, 250kg @ 38-39m.
-  // The 5.3m / 8.1m / 11.0m hydraulic fly/extension labels must NOT be treated as a
-  // hard global 3000kg / 1500kg / 800kg cap at every radius. Doing that incorrectly
-  // makes the real 1,000kg-at-26m crane-operation point fail as 800kg/overloaded.
-  // Keep the extension selection for geometry/verification notes, but let the
-  // structured crane-operation radius table decide the automatic planning capacity.
+  // The 5.3m / 8.1m / 11.0m hydraulic extension is included within the 44 m / optional
+  // 46 m total extension length. It must NOT be added as a separate physical jib on top
+  // of 46 m, and its 3000kg / 1500kg / 800kg labels must NOT be treated as hard global
+  // caps where the crane-operation table gives the applicable capacity by radius.
   void rule;
   void args;
   return { capacityKg, source, warning, setupAdvice };
@@ -695,6 +694,25 @@ export function calculateRangeChartCapacity({
       warning: "Chart capacity cannot be auto-calculated until this crane/spec sheet has structured load-chart data.",
       allowManualCapacityFallback: true,
       recognisedRuleId: null,
+    };
+  }
+
+  const limits = getRangeChartLimits({ craneName, setupLabel, sourceLabel });
+  const boomLimitExceeded = Boolean(limits.maxBoomLengthM && boomLengthM && boomLengthM > limits.maxBoomLengthM + 0.1);
+  const radiusLimitExceeded = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.1);
+  if (boomLimitExceeded || radiusLimitExceeded) {
+    const parts = [
+      boomLimitExceeded ? `required boom length ${Number(boomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxBoomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
+      radiusLimitExceeded ? `radius ${Number(radiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxRadiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
+    ].filter(Boolean).join(" and ");
+    return {
+      capacityKg: null,
+      method: "manual",
+      source: rule.capacitySource || `${rule.title} load chart`,
+      warning: `${rule.title} cannot be auto-cleared because ${parts}. Check the exact manufacturer/supplier chart and crane configuration manually before approval.`,
+      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
+      allowManualCapacityFallback: false,
+      recognisedRuleId: rule.id,
     };
   }
 
