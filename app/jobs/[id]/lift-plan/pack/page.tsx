@@ -2196,9 +2196,9 @@ export default async function CraneLiftPlanPackPage({
   );
 
   const displayStartDate =
+    (allocation as any)?.start_date ??
     (job as any)?.start_date ??
     (job as any)?.job_date ??
-    (allocation as any)?.start_date ??
     null;
 
   const packMonthLabel = fmtMonthYear(displayStartDate ?? new Date());
@@ -2388,7 +2388,7 @@ export default async function CraneLiftPlanPackPage({
             [inputField("cover_label_project", "Project"), inputField("cover_project", coverProjectText)],
             [
               inputField("cover_label_start_date", "Start Date"),
-              inputField("cover_start_date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date)),
+              inputField("cover_start_date", fmtDate(displayStartDate ?? (job as any)?.start_date ?? (job as any)?.job_date)),
             ],
             [
               inputField("cover_label_duration", "Duration"),
@@ -2891,7 +2891,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           rows={[
             [inputField("wind_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
             [inputField("wind_label_lift_supervisor", "Lift Supervisor"), liftSupervisorField("wind_lift_supervisor")],
-            [inputField("wind_label_date", "Date"), inputField("wind_date", fmtDate(displayStartDate ?? (job as any)?.start_date ?? (job as any)?.job_date))],
+            [inputField("wind_label_date", "Date"), calculatedInputField("wind_date", fieldText("cover_start_date", fmtDate(displayStartDate ?? (job as any)?.start_date ?? (job as any)?.job_date)))],
           ]}
         />
         <div style={{ height: 8 }} />
