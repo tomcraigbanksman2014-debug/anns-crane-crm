@@ -628,8 +628,12 @@ export default function RangeChartBuilder({
         externalSpecDocumentTitle: "",
         selectedSetupKey: firstSetup?.key ?? "",
         selectedSetupLabel: firstSetup?.label ?? "",
-        selectedJibOptionKey: "",
-        selectedJibOptionLabel: "",
+        selectedJibOptionKey: "none",
+        selectedJibOptionLabel: "No jib / main boom only",
+        jibLengthM: "0",
+        jibAngleDeg: "0",
+        boomLengthM: "",
+        boomAngleDeg: "",
         chartCapacityKg: "",
         bearingLoadKg: "",
         verificationNote:
@@ -681,10 +685,12 @@ export default function RangeChartBuilder({
       externalSpecDocumentTitle: "",
       selectedSetupKey: firstProfile ? `profile:${firstProfile.key}` : "",
       selectedSetupLabel: firstProfile?.label ?? "",
-      selectedJibOptionKey: noJib?.key ?? "",
-      selectedJibOptionLabel: noJib?.label ?? "",
+      selectedJibOptionKey: noJib?.key ?? "none",
+      selectedJibOptionLabel: noJib?.label ?? "No jib / main boom only",
       jibLengthM: String(noJib?.lengthM ?? 0),
       jibAngleDeg: "0",
+      boomLengthM: "",
+      boomAngleDeg: "",
       chartCapacityKg: "",
       bearingLoadKg: "",
     }));
@@ -846,15 +852,17 @@ export default function RangeChartBuilder({
           externalSpecDocumentTitle: "",
           chartCapacityKg: "",
           bearingLoadKg: "",
-          // Selecting a profile sets the limit/chart family only. Do not force the actual boom length to the profile maximum,
-          // otherwise small lifts jump to a huge radius/height and the sketch becomes unusable.
-          boomLengthM: prev.boomLengthM,
+          // Selecting a profile sets the limit/chart family only. Clear any previously stored boom geometry
+          // so the chart and pack recalculate from the current hook/radius position instead of keeping
+          // a stale max-extension/Jekko boom length.
+          boomLengthM: "",
+          boomAngleDeg: "",
           verificationNote:
             profile.source ||
             prev.verificationNote ||
             "Planning sketch only. Appointed person must verify the exact manufacturer/supplier chart before approval.",
         };
-        return syncHookFromBoom(next);
+        return next;
       }
       if (!setup) {
         return { ...prev, selectedSetupKey: "", selectedSetupLabel: "" };
@@ -869,8 +877,11 @@ export default function RangeChartBuilder({
         selectedSetupKey: setup.key,
         selectedSetupLabel: setup.label,
         craneSourceMode: prev.craneSourceMode || "selected_crm_crane",
-        boomLengthM: setup.boomLengthM ? String(setup.boomLengthM) : prev.boomLengthM,
+        boomLengthM: setup.boomLengthM ? String(setup.boomLengthM) : "",
+        boomAngleDeg: setup.boomLengthM ? prev.boomAngleDeg : "",
         jibLengthM: inferredJibLength ? String(inferredJibLength) : prev.jibLengthM,
+        chartCapacityKg: "",
+        bearingLoadKg: "",
         verificationNote:
           setup.chartNote ||
           (setupLimits ? `Selected setup/profile limits: ${setupLimits}. Enter the actual planned radius and hook height for this lift, then verify against the manufacturer/supplier chart.` : "") ||
@@ -884,15 +895,20 @@ export default function RangeChartBuilder({
   function applyJibOption(jibKey: string) {
     const option = structuredJibOptions.find((item) => item.key === jibKey) ?? null;
     setChart((prev) => {
-      if (!option) return { ...prev, selectedJibOptionKey: "", selectedJibOptionLabel: "" };
+      if (!option) return { ...prev, selectedJibOptionKey: "none", selectedJibOptionLabel: "No jib / main boom only", jibLengthM: "0", jibAngleDeg: "0", boomLengthM: "", boomAngleDeg: "", chartCapacityKg: "", bearingLoadKg: "" };
       const next = {
         ...prev,
         selectedJibOptionKey: option.key,
         selectedJibOptionLabel: option.label,
         jibLengthM: String(option.lengthM),
+        jibAngleDeg: option.lengthM > 0 ? (prev.jibAngleDeg || "20") : "0",
+        boomLengthM: "",
+        boomAngleDeg: "",
+        chartCapacityKg: "",
+        bearingLoadKg: "",
         verificationNote: option.source || prev.verificationNote,
       };
-      return syncHookFromBoom(next);
+      return next;
     });
   }
 
