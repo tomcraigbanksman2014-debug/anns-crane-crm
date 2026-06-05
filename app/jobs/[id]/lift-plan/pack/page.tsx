@@ -97,7 +97,13 @@ function craneLabel(crane: any, allocation: any) {
   return tidyCraneLabel(joined) || "—";
 }
 
-function formatCapacity(profile: any, crane: any) {
+function formatCapacity(profile: any, crane: any, craneName?: string) {
+  const label = `${craneName ?? ""} ${crane?.name ?? ""} ${crane?.make ?? ""} ${crane?.model ?? ""}`;
+  // AK46: 26 t is the gross vehicle weight, not lifting capacity. The uploaded spec gives
+  // max payload 3,000 kg, optional 6,000 kg. Use 6,000 kg / 6 t where the spec profile has
+  // accidentally extracted the 26 t truck weight as a capacity.
+  if (currentCraneIsAk46(label)) return "6,000 kg / 6 t";
+
   if (profile?.maxCapacityKg) {
     const kg = Number(profile.maxCapacityKg);
     const tonnes =
@@ -159,8 +165,14 @@ function tidyDisplayLabel(value: unknown) {
 function tidyCraneLabel(value: unknown) {
   let text = tidyDisplayLabel(value);
   if (!text) return "";
-  // Fix common duplicated crane names created when make/model are concatenated with an already-complete name.
-  text = text
+  text = tidyRepeatedCraneNames(text);
+  return text;
+}
+
+function tidyRepeatedCraneNames(value: unknown) {
+  return String(value ?? "")
+    // Fix common duplicated crane names created when make/model are concatenated with an already-complete name.
+    .replace(/\b(BOCKER|BÖCKER)\s+AK\s+46\/6000\s+(?:6T\s+)?\1\s+AK\s+46\/6000(?:\s+6T)?\b/gi, "$1 AK 46/6000 6T")
     .replace(/\b(BOCKER|BÖCKER)\s+AK\s+46\/6000\s+\1\s+AK\s+46\/6000\b/gi, "$1 AK 46/6000")
     .replace(/\b(JEKKO)\s+SPX\s*532\s+\1\s+SPX\s*532\b/gi, "$1 SPX532")
     .replace(/\b(GROVE)\s+GMK\s*4080-?1\s+\1\s+GMK\s*4080-?1\b/gi, "$1 GMK4080-1")
@@ -168,7 +180,6 @@ function tidyCraneLabel(value: unknown) {
     .replace(/\b(TADANO)\s+FAUN\s+HK\s*40\s+\1\s+FAUN\s+HK\s*40\b/gi, "$1 FAUN HK40")
     .replace(/\s+/g, " ")
     .trim();
-  return text;
 }
 
 function normaliseCraneForCompare(value: unknown) {
@@ -361,7 +372,7 @@ function normaliseDuplicateKey(value: string) {
 }
 
 function tidyRepeatedTextBlock(value: unknown) {
-  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  const text = tidyRepeatedCraneNames(String(value ?? "").replace(/\r\n/g, "\n")).trim();
   if (!text) return "";
   const paragraphs = text.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
   const seenParagraphs = new Set<string>();
@@ -387,7 +398,7 @@ function tidyRepeatedTextBlock(value: unknown) {
     seenParagraphs.add(paragraphKey);
     uniqueParagraphs.push(cleanedParagraph);
   }
-  return uniqueParagraphs.join("\n\n").trim();
+  return tidyRepeatedCraneNames(uniqueParagraphs.join("\n\n")).trim();
 }
 
 function shortBoomConfiguration(
@@ -1037,10 +1048,10 @@ function rangeChartCalculated(sections: StringMap) {
   const craneName = tidyCraneLabel(rangeText(sections, "range_chart_crane_name", ""));
   const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
   const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
-  const storedBoomLengthM = parseDecimal(sections.range_chart_boom_length_m);
+  const savedBoomLengthMForJib = parseDecimal(sections.range_chart_boom_length_m);
   const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedSetupLabel);
   const rawJibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
-  const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, radiusM, storedBoomLengthM, inferredJibLengthM);
+  const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, radiusM, savedBoomLengthMForJib, inferredJibLengthM);
   const jibAngleDeg = rangeNumber(sections, "range_chart_jib_angle_deg", 0);
   const pivotHeight = 1.1;
   const jibAngleRad = (jibAngleDeg * Math.PI) / 180;
@@ -1050,8 +1061,13 @@ function rangeChartCalculated(sections: StringMap) {
   const boomEndY = Math.max(pivotHeight, hookY - (jibLengthM > 0 ? jibLengthM * Math.sin(jibAngleRad) : 0));
   const calculatedBoomLength = Math.sqrt(Math.pow(boomEndX, 2) + Math.pow(boomEndY - pivotHeight, 2));
   const calculatedBoomAngle = (Math.atan2(boomEndY - pivotHeight, boomEndX) * 180) / Math.PI;
-  const boomLengthM = rangeNumber(sections, "range_chart_boom_length_m", calculatedBoomLength);
-  const boomAngleDeg = rangeNumber(sections, "range_chart_boom_angle_deg", calculatedBoomAngle);
+  const storedBoomLengthM = rangeNumber(sections, "range_chart_boom_length_m", calculatedBoomLength);
+  const storedBoomAngleDeg = rangeNumber(sections, "range_chart_boom_angle_deg", calculatedBoomAngle);
+  // If old saved data capped the boom at a crane maximum but the saved radius/tip height actually
+  // requires more, use the true required length for the check/pack. Otherwise the pack can falsely
+  // show 46 m and still auto-clear capacity when the geometry really needs more than 46 m.
+  const boomLengthM = Math.max(storedBoomLengthM || 0, calculatedBoomLength || 0) || calculatedBoomLength;
+  const boomAngleDeg = Math.abs(boomLengthM - calculatedBoomLength) <= 0.1 ? calculatedBoomAngle : storedBoomAngleDeg;
   const clearanceM = rangeNumber(sections, "range_chart_clearance_m", hookY - objectHeightM);
   const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
   const accessoryWeightKg = rangeKg(sections, "range_chart_accessory_weight_kg");
@@ -1951,7 +1967,7 @@ export default async function CraneLiftPlanPackPage({
     ? formatKgAndTonnes(rangeChartCapacityKg)
     : rangeTotalLiftedWeightKg
       ? "Manual chart check required"
-      : formatCapacity(equipmentProfile, crane);
+      : formatCapacity(equipmentProfile, crane, craneName);
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
   const boomConfig = shortBoomConfiguration(
@@ -2078,7 +2094,7 @@ export default async function CraneLiftPlanPackPage({
     "traffic_pedestrian_management",
     liftPlan?.exclusion_zone_details && !textMentionsDifferentKnownCrane(liftPlan.exclusion_zone_details, craneName)
       ? liftPlan.exclusion_zone_details
-      : `Barrier off the lifting area, slewing area and landing zone for ${craneName}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`,
+      : `Barrier off the lifting area, slewing area and landing zone for ${tidyCraneLabel(craneName)}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`,
     craneName
   );
   const liftingEquipmentText = defaultSectionText(
@@ -2086,10 +2102,16 @@ export default async function CraneLiftPlanPackPage({
     "lifting_equipment_certification",
     sections.lifting_equipment_certification || "All lifting tackle must hold current certification and be inspected before use."
   );
+  const rawCraneDetailsFallback = equipmentProfile?.summary || `${craneName} to be checked against the current manufacturer specification and load chart.`;
+  const craneDetailsFallback = currentCraneIsAk46(craneName)
+    ? tidyRepeatedTextBlock(String(rawCraneDetailsFallback)
+        .replace(/max\s+capacity\s+26\s*t/gi, "max lifting capacity 6 t")
+        .replace(/max\s+capacity\s+26,?000\s*kg/gi, "max lifting capacity 6,000 kg"))
+    : rawCraneDetailsFallback;
   const craneDetailsText = currentCraneSectionText(
     sections,
     "crane_details",
-    equipmentProfile?.summary || `${craneName} to be checked against the current manufacturer specification and load chart.`,
+    craneDetailsFallback,
     craneName
   );
   const craneSetupText = tidyRepeatedTextBlock(
@@ -2106,7 +2128,7 @@ export default async function CraneLiftPlanPackPage({
       : [
           `Attend site at ${projectName} and complete the pre-lift briefing with all involved personnel before lifting starts.`,
           `Establish the exclusion zone, confirm the load details, lift route, landing area and communication method.`,
-          `Position ${craneName} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm level, support and final setup before load is taken.`,
+          `Position ${tidyCraneLabel(craneName)} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm level, support and final setup before load is taken.`,
           `Crane configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`,
           `Inspect all lifting accessories, connect the load using the planned certified arrangement, complete a controlled test lift if required and then carry out the lift under the direction of the lift supervisor using the agreed signalling method.`,
           `Land the load safely, remove lifting accessories, de-rig the crane in accordance with the manufacturer instructions and leave the work area safe and tidy.`,
@@ -2123,7 +2145,7 @@ export default async function CraneLiftPlanPackPage({
     "emergency_procedure",
     liftPlan?.emergency_procedures && !textMentionsDifferentKnownCrane(liftPlan.emergency_procedures, craneName)
       ? liftPlan.emergency_procedures
-      : `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${craneName} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`,
+      : `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${tidyCraneLabel(craneName)} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`,
     craneName
   );
   const riskSummaryText = currentCraneSectionText(
@@ -2842,7 +2864,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           rows={[
             [inputField("wind_label_project", "Project"), <EditableInput name="cover_project" defaultValue={coverProjectText} />],
             [inputField("wind_label_lift_supervisor", "Lift Supervisor"), liftSupervisorField("wind_lift_supervisor")],
-            [inputField("wind_label_date", "Date"), inputField("wind_date", fmtDate((job as any)?.start_date ?? (job as any)?.job_date))],
+            [inputField("wind_label_date", "Date"), inputField("wind_date", fmtDate(displayStartDate ?? (job as any)?.start_date ?? (job as any)?.job_date))],
           ]}
         />
         <div style={{ height: 8 }} />
