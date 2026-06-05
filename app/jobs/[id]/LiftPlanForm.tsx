@@ -217,6 +217,7 @@ function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T
   if (!textMentionsDifferentKnownCrane(machineText, currentCraneName)) return draft;
 
   const next: Record<string, any> = clearMachineNarrativeFields(draft as Record<string, any>);
+  const currentCrane = String(currentCraneName ?? "").trim() || "selected crane";
   next.selected_crane_setup_key = "";
   next.selected_crane_setup_label = "";
   next.boom_configuration = "";
@@ -230,6 +231,10 @@ function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T
   next.custom_crane_hydraulic_outreach_m = "";
   next.custom_crane_jib_outreach_m = "";
   next.custom_crane_max_radius_m = "";
+  next.crane_configuration = `${currentCrane} configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`;
+  next.outrigger_setup = "Outrigger, support and mat arrangement must be checked against the uploaded specification / load chart and the actual ground conditions before lifting.";
+  next.exclusion_zone_details = `Barrier off the lifting area, slewing area and landing zone for ${currentCrane}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`;
+  next.emergency_procedures = `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${currentCrane} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`;
   return next as T;
 }
 
