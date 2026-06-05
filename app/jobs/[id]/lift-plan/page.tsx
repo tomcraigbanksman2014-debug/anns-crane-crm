@@ -561,17 +561,22 @@ export default async function JobLiftPlanPage({
   })).filter((doc) => doc.id);
 
   const appendixDocs = ((documents as any[]) ?? []).filter(isAppendixImageDoc);
-  const signedAppendixUrls = await signedJobDocumentUrlMap(appendixDocs);
-  const appendixDocsForManager = appendixDocs.map((doc: any) => ({
-    id: String(doc.id ?? ""),
-    file_name: doc.file_name ?? null,
-    file_path: doc.file_path ?? null,
-    file_type: doc.file_type ?? null,
-    document_type: doc.document_type ?? null,
-    created_at: doc.created_at ?? null,
-    share_with_operator: Boolean(doc.share_with_operator),
-    public_url: signedAppendixUrls.get(String(doc.id ?? "")) ?? publicJobDocumentUrl(doc.file_path),
-  })).filter((doc: any) => doc.id);
+  const appendixDocsForManager = appendixDocs.map((doc: any) => {
+    const documentId = String(doc.id ?? "").trim();
+    return {
+      id: documentId,
+      file_name: doc.file_name ?? null,
+      file_path: doc.file_path ?? null,
+      file_type: doc.file_type ?? null,
+      document_type: doc.document_type ?? null,
+      created_at: doc.created_at ?? null,
+      share_with_operator: Boolean(doc.share_with_operator),
+      // Use a CRM proxy route rather than embedding raw Supabase URLs. Some older
+      // uploads stored encoded/public URL paths, which made browser previews break
+      // even though the documents existed. The proxy resolves the stored path safely.
+      public_url: documentId ? `/api/jobs/${params.id}/documents/${documentId}/preview` : publicJobDocumentUrl(doc.file_path),
+    };
+  }).filter((doc: any) => doc.id);
   const otherDocs = ((documents as any[]) ?? []).filter((doc) => !isAppendixImageDoc(doc));
   const { archives: liftPlanPdfArchives, error: archiveError } = await loadLiftPlanPdfArchives(supabase, params.id);
   const errorMessage = baseErrorMessage || archiveError || "";
