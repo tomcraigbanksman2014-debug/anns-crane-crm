@@ -251,9 +251,8 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     planningWeightSource: "AK 46/6000 spec: permissible gross vehicle weight up to 26 t",
     estimatedBearingFactor: 0.75,
     profileOptions: [
-      profile("ak46-crane-operation", "AK46 crane-operation range table / main boom", null, 46, 39, 46, "AK 46/6000 crane-operation range/load table"),
-      profile("ak46-main-44", "Main boom / extension up to 44 m", null, 44, 38, 43.3, "AK 46/6000 technical information"),
-      profile("ak46-main-46", "Optional max extension up to 46 m", null, 46, 39, 46, "AK 46/6000 technical information"),
+      profile("ak46-main-44", "Main boom / extension up to 44 m", 44, 44, 38, 43.3, "AK 46/6000 technical information"),
+      profile("ak46-main-46", "Optional max extension up to 46 m", 46, 46, 39, 46, "AK 46/6000 technical information"),
     ],
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
@@ -696,25 +695,6 @@ export function calculateRangeChartCapacity({
       warning: "Chart capacity cannot be auto-calculated until this crane/spec sheet has structured load-chart data.",
       allowManualCapacityFallback: true,
       recognisedRuleId: null,
-    };
-  }
-
-  const limits = getRangeChartLimits({ craneName, setupLabel, sourceLabel });
-  const boomLimitExceeded = Boolean(limits.maxBoomLengthM && boomLengthM && boomLengthM > limits.maxBoomLengthM + 0.1);
-  const radiusLimitExceeded = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.1);
-  if (boomLimitExceeded || radiusLimitExceeded) {
-    const parts = [
-      boomLimitExceeded ? `required boom length ${Number(boomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxBoomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
-      radiusLimitExceeded ? `radius ${Number(radiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxRadiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
-    ].filter(Boolean).join(" and ");
-    return {
-      capacityKg: null,
-      method: "manual",
-      source: rule.capacitySource || `${rule.title} load chart`,
-      warning: `${rule.title} cannot be auto-cleared because ${parts}. Check the exact manufacturer/supplier chart and crane configuration manually before approval.`,
-      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
-      allowManualCapacityFallback: false,
-      recognisedRuleId: rule.id,
     };
   }
 
