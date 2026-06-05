@@ -1277,21 +1277,78 @@ function appendixKey(asset: PackAppendixAssetItem, index: number) {
   return asset.key || `${asset.source_type ?? "appendix"}:${asset.source_document_id ?? asset.title}:${asset.page_number}:${index}`;
 }
 
+function storagePathCandidates(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return [] as string[];
+
+  const candidates: string[] = [];
+
+  function add(candidate: string) {
+    const cleaned = String(candidate ?? "")
+      .trim()
+      .split("?")[0]
+      .replace(/^\/+/, "")
+      .replace(/^job-documents\//i, "");
+    if (!cleaned || /^https?:\/\//i.test(cleaned)) return;
+    if (!candidates.includes(cleaned)) candidates.push(cleaned);
+    try {
+      const decoded = decodeURIComponent(cleaned);
+      if (decoded && !candidates.includes(decoded)) candidates.push(decoded);
+    } catch {
+      // Keep the original path if it is not URI encoded.
+    }
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      const markers = [
+        "/storage/v1/object/public/job-documents/",
+        "/storage/v1/object/sign/job-documents/",
+        "/storage/v1/object/authenticated/job-documents/",
+      ];
+      for (const marker of markers) {
+        const index = url.pathname.indexOf(marker);
+        if (index >= 0) {
+          add(url.pathname.slice(index + marker.length));
+        }
+      }
+    } catch {
+      // Fall through to raw path handling below.
+    }
+  }
+
+  add(raw);
+  return candidates;
+}
+
 async function signedJobDocumentMap(paths: string[]) {
   const supabase = createSupabaseServerClient();
-  if (!paths.length) return new Map<string, string>();
+  const pathCandidates = paths.map((path) => ({
+    raw: String(path ?? ""),
+    candidates: storagePathCandidates(path),
+  })).filter((item) => item.raw && item.candidates.length);
+
+  const candidatePaths = Array.from(new Set(pathCandidates.flatMap((item) => item.candidates)));
+  if (!candidatePaths.length) return new Map<string, string>();
 
   const { data, error } = await supabase.storage
     .from("job-documents")
-    .createSignedUrls(paths, 60 * 60);
+    .createSignedUrls(candidatePaths, 60 * 60);
 
   if (error || !data) return new Map<string, string>();
 
-  const out = new Map<string, string>();
+  const signedByCandidate = new Map<string, string>();
   for (const row of data) {
     if (row.path && row.signedUrl) {
-      out.set(row.path, row.signedUrl);
+      signedByCandidate.set(String(row.path), String(row.signedUrl));
     }
+  }
+
+  const out = new Map<string, string>();
+  for (const item of pathCandidates) {
+    const signed = item.candidates.map((candidate) => signedByCandidate.get(candidate)).find(Boolean);
+    if (signed) out.set(item.raw, signed);
   }
   return out;
 }
