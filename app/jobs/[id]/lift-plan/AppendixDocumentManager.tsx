@@ -52,6 +52,13 @@ function isImageDoc(doc: AppendixDocument) {
     /\.(png|jpe?g|webp|gif|heic|heif|bmp)$/i.test(fileName)
   );
 }
+function previewUrlForDoc(doc: AppendixDocument) {
+  if (!doc.public_url) return "";
+  const separator = doc.public_url.includes("?") ? "&" : "?";
+  const version = encodeURIComponent(`${doc.id}-${doc.created_at ?? ""}-${doc.file_name ?? ""}`);
+  return `${doc.public_url}${separator}v=${version}`;
+}
+
 
 export default function AppendixDocumentManager({
   jobId,
@@ -67,6 +74,7 @@ export default function AppendixDocumentManager({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [failedPreviewIds, setFailedPreviewIds] = useState<Set<string>>(() => new Set());
 
   const imageCount = useMemo(() => docs.filter(isImageDoc).length, [docs]);
 
@@ -78,6 +86,7 @@ export default function AppendixDocumentManager({
   useEffect(() => {
     if (dirty) return;
     setDocs(initialDocuments);
+    setFailedPreviewIds(new Set());
   }, [initialDocuments, dirty]);
 
   function setOrderedDocs(next: AppendixDocument[]) {
@@ -203,9 +212,24 @@ export default function AppendixDocumentManager({
             onDragEnd={() => setDraggedId(null)}
           >
             <div style={previewBox}>
-              {doc.public_url && isImageDoc(doc) ? (
-                <a href={doc.public_url} target="_blank" rel="noreferrer" style={previewLink}>
-                  <img src={doc.public_url} alt={doc.file_name ?? "Uploaded appendix page"} style={previewImage} />
+              {doc.public_url && isImageDoc(doc) && !failedPreviewIds.has(doc.id) ? (
+                <a href={previewUrlForDoc(doc)} target="_blank" rel="noreferrer" style={previewLink}>
+                  <img
+                    src={previewUrlForDoc(doc)}
+                    alt={doc.file_name ?? "Uploaded appendix page"}
+                    style={previewImage}
+                    onError={() => {
+                      setFailedPreviewIds((prev) => {
+                        const next = new Set(prev);
+                        next.add(doc.id);
+                        return next;
+                      });
+                    }}
+                  />
+                </a>
+              ) : doc.public_url && isImageDoc(doc) ? (
+                <a href={previewUrlForDoc(doc)} target="_blank" rel="noreferrer" style={previewUnavailable}>
+                  Preview not loaded — open file
                 </a>
               ) : (
                 <div style={fileBadge}>FILE</div>
@@ -302,6 +326,20 @@ const previewImage: React.CSSProperties = {
   height: "100%",
   objectFit: "contain",
   background: "#fff",
+};
+
+const previewUnavailable: React.CSSProperties = {
+  display: "flex",
+  width: "100%",
+  height: "100%",
+  alignItems: "center",
+  justifyContent: "center",
+  padding: 12,
+  textAlign: "center",
+  color: "#075985",
+  fontWeight: 900,
+  background: "#f8fafc",
+  textDecoration: "none",
 };
 
 const fileBadge: React.CSSProperties = {
