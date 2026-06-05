@@ -23,8 +23,19 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 }
 
 function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
-  const fromSelectedCrane = String(liftPlan?.selected_crane_id ?? "").trim();
-  if (fromSelectedCrane) return fromSelectedCrane;
+  // Use the crane actually being displayed/planned first.  Saved lift-plan drafts can contain
+  // an old selected_crane_id after the job crane has been edited, and using that stale value
+  // pulls the wrong crane spec/load-chart pages into the pack.
+  const fromDisplayedCrane = String(crane?.id ?? "").trim();
+  if (fromDisplayedCrane) return fromDisplayedCrane;
+
+  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
+  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
+  if (fromPrimaryAllocation) return fromPrimaryAllocation;
+
+  const firstJobCrane = one((job as any)?.cranes) as any;
+  const fromJobCrane = String(firstJobCrane?.id ?? "").trim();
+  if (fromJobCrane) return fromJobCrane;
 
   const allocations = flatten((job as any)?.job_equipment);
   const selectedAllocationId = String(liftPlan?.selected_job_equipment_id ?? "").trim();
@@ -35,15 +46,7 @@ function realLinkedCraneId(job: any, liftPlan: any, primary: any, crane: any) {
     if (selectedAllocationCraneId) return selectedAllocationCraneId;
   }
 
-  const primaryAllocationCrane = one(primary?.allocation?.cranes) as any;
-  const fromPrimaryAllocation = String(primary?.allocation?.crane_id ?? primaryAllocationCrane?.id ?? "").trim();
-  if (fromPrimaryAllocation) return fromPrimaryAllocation;
-
-  const fromDisplayedCrane = String(crane?.id ?? "").trim();
-  if (fromDisplayedCrane) return fromDisplayedCrane;
-
-  const firstJobCrane = one((job as any)?.cranes) as any;
-  return String(firstJobCrane?.id ?? "").trim() || null;
+  return String(liftPlan?.selected_crane_id ?? "").trim() || null;
 }
 
 function fmtDate(value: string | null | undefined) {
