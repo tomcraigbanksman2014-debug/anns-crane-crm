@@ -455,8 +455,22 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
   const specSheetProfile = buildSpecSheetEquipmentProfile(craneWithJobSpecs);
   if (specSheetProfile) return applyPackSectionProfileOverrides(specSheetProfile, sections);
 
+  // Match the current live crane/allocation before looking at saved pack sections.
+  // Saved range chart fields can be stale after a job is changed from one crane to another
+  // (for example Jekko -> Bocker), and must not pull the old crane profile back into
+  // the lift plan/range chart.
+  const currentCraneText = joinBits([
+    primary.allocation,
+    primary.crane,
+    primary.crane?.name,
+    primary.crane?.make,
+    primary.crane?.model,
+    primary.crane?.capacity,
+  ]);
+  const currentCraneMatched = matchByAliases(currentCraneText);
+  if (currentCraneMatched) return applyPackSectionProfileOverrides(currentCraneMatched, sections);
+
   const text = joinBits([
-    sections,
     primary.allocation,
     primary.crane,
     primary.crane?.name,
@@ -467,6 +481,7 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
     job?.lift_type,
     job?.notes,
     job?.site_name,
+    sections,
   ]);
 
   const matched = matchByAliases(text);
