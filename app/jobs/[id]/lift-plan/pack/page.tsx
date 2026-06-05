@@ -1506,17 +1506,17 @@ export default async function CraneLiftPlanPackPage({
     getJobSpecAppendixAssetsForPack(params.id),
   ]);
   const appendixImageDocs = ((jobDocuments as any[]) ?? []).filter(isAppendixImageDocument);
-  const signedJobDocs = await signedJobDocumentMap(
-    appendixImageDocs.map((doc: any) => String(doc?.file_path ?? "")).filter(Boolean)
-  );
   const jobAppendixAssets: PackAppendixAssetItem[] = appendixImageDocs
     .map((doc: any) => {
-      const imageUrl = signedJobDocs.get(String(doc?.file_path ?? ""));
-      if (!imageUrl) return null;
+      const documentId = String(doc?.id ?? "").trim();
+      if (!documentId) return null;
       return {
         title: doc?.file_name || "Uploaded appendix",
         description: String(doc?.document_type ?? "").split("_").join(" "),
-        image_url: imageUrl,
+        // Use the same CRM proxy route as the lift-plan page. This avoids broken
+        // pack images for older WhatsApp/site drawing uploads whose stored paths
+        // are encoded or saved as public storage URLs.
+        image_url: `/api/jobs/${params.id}/documents/${documentId}/preview`,
         page_number: null,
       } as PackAppendixAssetItem;
     })
