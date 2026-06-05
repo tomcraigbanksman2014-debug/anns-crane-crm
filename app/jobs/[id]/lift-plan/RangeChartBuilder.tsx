@@ -611,6 +611,7 @@ export default function RangeChartBuilder({
   const autoSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSyncStartedRef = useRef(false);
   const lastAutoSyncPayloadRef = useRef("");
+  const initialStaleSetupCleanupDoneRef = useRef(false);
   const currentJobCraneKey = useMemo(() => normaliseCraneForCompare(defaultCraneName), [defaultCraneName]);
 
   useEffect(() => {
@@ -656,6 +657,39 @@ export default function RangeChartBuilder({
   const setupSelectOptions = structuredProfileOptions.length
     ? structuredProfileOptions.map((profile) => ({ value: `profile:${profile.key}`, label: profile.label }))
     : normalisedSetups.map((setup) => ({ value: setup.key, label: setup.label }));
+
+  useEffect(() => {
+    if (initialStaleSetupCleanupDoneRef.current) return;
+    const shouldReset = ak46SavedSetupShouldBeReset({
+      defaultCraneName,
+      selectedSetupKey: chart.selectedSetupKey,
+      selectedSetupLabel: chart.selectedSetupLabel,
+      selectedJibKey: chart.selectedJibOptionKey,
+      selectedJibLabel: chart.selectedJibOptionLabel,
+    });
+
+    initialStaleSetupCleanupDoneRef.current = true;
+    if (!shouldReset) return;
+
+    const firstProfile = structuredProfileOptions[0] ?? null;
+    const noJib = structuredJibOptions.find((item) => item.key === "none") ?? structuredJibOptions[0] ?? null;
+    setChart((prev) => ({
+      ...prev,
+      craneName: tidyDisplayLabel(defaultCraneName || prev.craneName),
+      craneSourceMode: "selected_crm_crane",
+      externalSpecDocumentId: "",
+      externalSpecDocumentTitle: "",
+      selectedSetupKey: firstProfile ? `profile:${firstProfile.key}` : "",
+      selectedSetupLabel: firstProfile?.label ?? "",
+      selectedJibOptionKey: noJib?.key ?? "",
+      selectedJibOptionLabel: noJib?.label ?? "",
+      jibLengthM: String(noJib?.lengthM ?? 0),
+      jibAngleDeg: "0",
+      chartCapacityKg: "",
+      bearingLoadKg: "",
+    }));
+  }, [chart.selectedSetupKey, chart.selectedSetupLabel, chart.selectedJibOptionKey, chart.selectedJibOptionLabel, defaultCraneName, structuredProfileOptions, structuredJibOptions]);
+
   const limits = getRangeChartLimits({
     craneName: cleanCraneName,
     setupLabel: chart.selectedSetupLabel,
