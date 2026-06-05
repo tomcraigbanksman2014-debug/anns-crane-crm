@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +10,11 @@ type JobDocumentRow = {
   file_name: string | null;
   file_path: string | null;
   file_type: string | null;
+};
+
+type DownloadResult = {
+  data: Blob;
+  path: string;
 };
 
 function getAdminClient() {
@@ -35,76 +40,207 @@ function safeInlineFileName(value: unknown) {
     .slice(0, 180) || "document";
 }
 
-function storagePathCandidates(value: unknown) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return [] as string[];
+function safeFileName(value: unknown) {
+  return String(value ?? "")
+    .replace(/[/\\]/g, "_")
+    .replace(/[^a-zA-Z0-9._ -]/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 180);
+}
 
+function unique(values: string[]) {
+  return Array.from(new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean)));
+}
+
+function normaliseForMatch(value: unknown) {
+  const raw = String(value ?? "").trim();
+  let decoded = raw;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+
+  return decoded
+    .toLowerCase()
+    .replace(/\.[a-z0-9]{1,10}$/i, "")
+    .replace(/^\d{10,}-\d+-[a-z0-9]+[-_]/i, "")
+    .replace(/^\d{10,}[-_]/i, "")
+    .replace(/[^a-z0-9]+/g, "")
+    .trim();
+}
+
+function extractStoragePathFromUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const decodedPath = decodeURIComponent(url.pathname);
+    const pathsToCheck = [url.pathname, decodedPath];
+    const markers = [
+      "/storage/v1/object/public/job-documents/",
+      "/storage/v1/object/sign/job-documents/",
+      "/storage/v1/object/authenticated/job-documents/",
+      "/object/public/job-documents/",
+      "/object/sign/job-documents/",
+      "/object/authenticated/job-documents/",
+    ];
+
+    for (const pathToCheck of pathsToCheck) {
+      for (const marker of markers) {
+        const index = pathToCheck.indexOf(marker);
+        if (index >= 0) {
+          return pathToCheck.slice(index + marker.length);
+        }
+      }
+    }
+  } catch {
+    // Not a valid URL. The caller will handle it as a raw storage path.
+  }
+
+  return "";
+}
+
+function storagePathCandidates(row: JobDocumentRow) {
+  const rawPath = String(row.file_path ?? "").trim();
+  const rawName = String(row.file_name ?? "").trim();
+  const jobId = String(row.job_id ?? "").trim();
   const candidates: string[] = [];
 
-  function add(candidate: string) {
-    const withoutQuery = String(candidate ?? "").trim().split("?")[0];
-    const cleaned = withoutQuery
+  function add(candidate: unknown) {
+    const raw = String(candidate ?? "").trim();
+    if (!raw) return;
+
+    const withoutQuery = raw.split("?")[0].trim();
+    const fromUrl = /^https?:\/\//i.test(withoutQuery) ? extractStoragePathFromUrl(withoutQuery) : "";
+    const source = fromUrl || withoutQuery;
+
+    const stripped = source
       .replace(/^https?:\/\/[^/]+/i, "")
-      .replace(/^\/+/g, "")
+      .replace(/^\/+/, "")
       .replace(/^storage\/v1\/object\/(public|sign|authenticated)\/job-documents\//i, "")
       .replace(/^object\/(public|sign|authenticated)\/job-documents\//i, "")
       .replace(/^job-documents\//i, "")
       .trim();
 
-    if (!cleaned || /^https?:\/\//i.test(cleaned)) return;
+    if (!stripped || /^https?:\/\//i.test(stripped)) return;
 
-    // Prefer the decoded storage object path. Supabase public/signed URLs encode
-    // spaces and brackets in the URL, but the storage object path normally uses
-    // the decoded filename. Keep the encoded form as a fallback for older rows.
+    candidates.push(stripped);
     try {
-      const decoded = decodeURIComponent(cleaned);
-      if (decoded && !candidates.includes(decoded)) candidates.push(decoded);
+      candidates.push(decodeURIComponent(stripped));
     } catch {
-      // Ignore malformed encoding and keep the cleaned value below.
+      // Keep stripped path only.
     }
 
-    if (!candidates.includes(cleaned)) candidates.push(cleaned);
-  }
-
-  if (/^https?:\/\//i.test(raw)) {
     try {
-      const url = new URL(raw);
-      const markers = [
-        "/storage/v1/object/public/job-documents/",
-        "/storage/v1/object/sign/job-documents/",
-        "/storage/v1/object/authenticated/job-documents/",
-      ];
-      for (const marker of markers) {
-        const index = url.pathname.indexOf(marker);
-        if (index >= 0) {
-          add(url.pathname.slice(index + marker.length));
-        }
-      }
+      candidates.push(stripped.split("/").map((part) => encodeURIComponent(part)).join("/"));
     } catch {
-      // Fall through to raw path handling below.
+      // Keep stripped path only.
     }
   }
 
-  add(raw);
-  return candidates;
+  add(rawPath);
+
+  if (rawName && jobId) {
+    add(`${jobId}/${rawName}`);
+    add(`${jobId}/${safeFileName(rawName)}`);
+  }
+
+  return unique(candidates);
+}
+
+async function tryDownload(admin: SupabaseClient, candidates: string[]) {
+  for (const candidate of unique(candidates)) {
+    const { data, error } = await admin.storage.from("job-documents").download(candidate);
+    if (!error && data) {
+      return { data, path: candidate } as DownloadResult;
+    }
+  }
+
+  return null;
+}
+
+async function findByListing(admin: SupabaseClient, row: JobDocumentRow) {
+  const jobId = String(row.job_id ?? "").trim();
+  const fileName = String(row.file_name ?? "").trim();
+  if (!jobId || !fileName) return null;
+
+  const target = normaliseForMatch(fileName);
+  const safeTarget = normaliseForMatch(safeFileName(fileName));
+  if (!target && !safeTarget) return null;
+
+  const { data: files, error } = await admin.storage.from("job-documents").list(jobId, {
+    limit: 1000,
+    sortBy: { column: "name", order: "asc" },
+  });
+
+  if (error || !files?.length) return null;
+
+  const possible = files
+    .filter((file: any) => file && !file.id?.endsWith("/"))
+    .map((file: any) => String(file.name ?? "").trim())
+    .filter(Boolean);
+
+  const matches = possible.filter((name) => {
+    const candidate = normaliseForMatch(name);
+    if (!candidate) return false;
+    return (
+      candidate === target ||
+      candidate === safeTarget ||
+      candidate.endsWith(target) ||
+      candidate.endsWith(safeTarget) ||
+      target.endsWith(candidate) ||
+      safeTarget.endsWith(candidate)
+    );
+  });
+
+  return tryDownload(admin, matches.map((name) => `${jobId}/${name}`));
+}
+
+async function fetchHistoricPublicUrl(rawPath: string) {
+  if (!/^https?:\/\//i.test(rawPath)) return null;
+
+  try {
+    const response = await fetch(rawPath, { cache: "no-store" });
+    if (!response.ok) return null;
+    const data = await response.blob();
+    return { data, contentType: response.headers.get("content-type") || data.type || null };
+  } catch {
+    return null;
+  }
+}
+
+function responseForFile(row: JobDocumentRow, data: Blob, contentTypeOverride?: string | null) {
+  const contentType = contentTypeOverride || row.file_type || data.type || "application/octet-stream";
+  return new Response(data, {
+    headers: {
+      "content-type": contentType,
+      "cache-control": "private, max-age=300",
+      "content-disposition": `inline; filename="${safeInlineFileName(row.file_name)}"`,
+      "x-robots-tag": "noindex",
+    },
+  });
 }
 
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: { id: string; documentId: string } }
 ) {
   try {
-    const supabase = createSupabaseServerClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
+    const admin = getAdminClient();
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Not signed in" }, { status: 401 });
+    // Job documents are already stored in the public job-documents bucket in this
+    // CRM. Do not make the thumbnail depend on Supabase auth cookies: browsers can
+    // request <img> tags without the same auth context as the page, which caused
+    // valid uploaded appendix images to show as broken thumbnails.
+    try {
+      const supabase = createSupabaseServerClient();
+      await supabase.auth.getUser();
+    } catch {
+      // Preview still uses the service-role lookup below. This route requires the
+      // job id and document id and returns only the matching job document.
     }
 
-    const admin = getAdminClient();
     const { data: doc, error: docError } = await admin
       .from("job_documents")
       .select("id, job_id, file_name, file_path, file_type")
@@ -117,27 +253,21 @@ export async function GET(
     }
 
     const row = doc as JobDocumentRow;
-    const candidates = storagePathCandidates(row.file_path);
 
-    for (const candidate of candidates) {
-      const { data, error } = await admin.storage.from("job-documents").download(candidate);
-      if (!error && data) {
-        const contentType = row.file_type || data.type || "application/octet-stream";
-        return new Response(data, {
-          headers: {
-            "content-type": contentType,
-            "cache-control": "private, max-age=300",
-            "content-disposition": `inline; filename="${safeInlineFileName(row.file_name)}"`,
-          },
-        });
-      }
+    const directDownload = await tryDownload(admin, storagePathCandidates(row));
+    if (directDownload) {
+      return responseForFile(row, directDownload.data);
     }
 
-    // Final fallback for historic rows that stored a complete public URL and no
-    // longer match the storage object path parser above.
+    const listedDownload = await findByListing(admin, row);
+    if (listedDownload) {
+      return responseForFile(row, listedDownload.data);
+    }
+
     const rawPath = String(row.file_path ?? "").trim();
-    if (/^https?:\/\//i.test(rawPath)) {
-      return NextResponse.redirect(rawPath, { status: 302 });
+    const historicPublicUrl = await fetchHistoricPublicUrl(rawPath);
+    if (historicPublicUrl) {
+      return responseForFile(row, historicPublicUrl.data, historicPublicUrl.contentType);
     }
 
     return NextResponse.json({ error: "Could not load document preview." }, { status: 404 });
