@@ -229,13 +229,13 @@ function sanitiseCurrentCranePackText(value: unknown, currentCraneName: unknown)
   if (currentCraneIsAk46(currentCraneName)) {
     text = text
       // The AK46 spec lists 18t / 26t as gross vehicle weight. It must not be printed as lifting capacity.
-      .replace(/max\s+capacity\s+26\s*t/gi, "max lifting capacity 6 t")
-      .replace(/max\s+capacity\s+26,?000\s*kg/gi, "max lifting capacity 6,000 kg")
-      .replace(/maximum\s+capacity\s+26\s*t/gi, "maximum lifting capacity 6 t")
-      .replace(/maximum\s+capacity\s+26,?000\s*kg/gi, "maximum lifting capacity 6,000 kg")
+      .replace(/\bmax\s+capacity\s+26\s*t\b/gi, "max lifting capacity 6 t")
+      .replace(/\bmax\s+capacity\s+26,?000\s*kg\b/gi, "max lifting capacity 6,000 kg")
+      .replace(/\bmaximum\s+capacity\s+26\s*t\b/gi, "maximum lifting capacity 6 t")
+      .replace(/\bmaximum\s+capacity\s+26,?000\s*kg\b/gi, "maximum lifting capacity 6,000 kg")
       // On the AK46, the hydraulic extension is included in the total 46m boom-extension figure.
-      .replace(/Main\s+boom\s*\+\s*jib\s*\/\s*extension/gi, "Main boom / total boom-extension")
-      .replace(/jib\s*\/\s*max\s+outreach\s+39\s*m/gi, "crane-operation radius up to 39 m");
+      .replace(/\bMain\s+boom\s*\+\s*jib\s*\/\s*extension\b/gi, "Main boom / total boom-extension")
+      .replace(/\bjib\s*\/\s*max\s+outreach\s+39\s*m\b/gi, "crane-operation radius up to 39 m");
   }
 
   return tidyRepeatedTextBlock(text);
