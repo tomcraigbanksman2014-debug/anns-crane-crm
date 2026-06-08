@@ -322,7 +322,7 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
   {
     id: "spx532",
     title: "Jekko SPX532",
-    match: [/\bspx\s*532\b/i, /\bspx532\b/i, /\bjekko\b.*\b532\b/i],
+    match: [/\bspx\s*532[a-z0-9-]*\b/i, /\bspx532[a-z0-9-]*\b/i, /\bjekko\b.*\b532[a-z0-9-]*\b/i],
     maxCapacityKg: 3200,
     maxBoomLengthM: 10.8,
     maxPhysicalJibLengthM: 5.1,
