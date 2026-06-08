@@ -159,6 +159,16 @@ function currentCraneIsAk46(value: unknown) {
   return /(?:^| )(?:bocker|ak46|ak 46)(?: |$)/.test(current);
 }
 
+function noJibLabelForCrane(value: unknown) {
+  return currentCraneIsAk46(value)
+    ? "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension"
+    : "No jib / main boom only";
+}
+
+function noJibBoomConfigurationForCrane(value: unknown) {
+  return currentCraneIsAk46(value) ? "AK46 total boom-extension up to 46 m" : "Main boom";
+}
+
 function ak46SavedSetupShouldBeReset(sections: DynamicPackSectionsPayload) {
   const setupText = [
     sections.range_chart_selected_setup_key,
@@ -288,6 +298,7 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   const next: DynamicPackSectionsPayload = { ...sections };
   const boomLength = cleanNumber(sections.range_chart_boom_length_m);
   const jibLength = cleanNumber(sections.range_chart_jib_length_m);
+  const syncedCraneName = sections.range_chart_crane_name || sections.cover_cranes || sections.crane_type_value;
   const loadWeight = cleanNumber(sections.range_chart_load_weight_kg);
   const accessoryWeight = cleanNumber(sections.range_chart_accessory_weight_kg);
   const totalLiftedWeight = inferredRangeTotalLiftedWeight(sections);
@@ -304,10 +315,16 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   const selectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
   if (jibLength !== null && jibLength > 0) {
     next.crane_jib_reference = `${jibLength} m physical jib / extension`;
-  } else if (/no\s+jib|main\s+boom\s+only/i.test(selectedJibLabel)) {
-    next.crane_jib_reference = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
+  } else if (/no\s+jib|main\s+boom\s+only|no\s+separate\s+additive\s+jib/i.test(selectedJibLabel)) {
+    next.crane_jib_reference = noJibLabelForCrane(syncedCraneName);
   }
-  if (/no\s+jib|main\s+boom\s+only/i.test(selectedJibLabel)) next.boom_configuration = "AK46 total boom-extension up to 46 m";
+  if (/no\s+jib|main\s+boom\s+only|no\s+separate\s+additive\s+jib/i.test(selectedJibLabel)) next.boom_configuration = noJibBoomConfigurationForCrane(syncedCraneName);
+
+  if (!currentCraneIsAk46(syncedCraneName)) {
+    const staleAk46NoJibText = /no\s+separate\s+additive\s+jib|46\s*m\s+total\s+boom-extension|ak46\s+total\s+boom-extension/i;
+    if (staleAk46NoJibText.test(String(next.crane_jib_reference ?? ""))) next.crane_jib_reference = "No jib / main boom only";
+    if (staleAk46NoJibText.test(String(next.boom_configuration ?? ""))) next.boom_configuration = "Main boom";
+  }
   if (loadWeight !== null) next.crane_load_weight = formatKgOnly(loadWeight);
   if (accessoryWeight !== null) next.crane_lifting_accessories_weight_text = formatKgOnly(accessoryWeight);
   if (chartCapacity !== null) {
