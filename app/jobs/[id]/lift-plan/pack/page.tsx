@@ -222,6 +222,12 @@ function currentCraneIsJekko(value: unknown) {
   return /(?:^| )(?:jekko|spx532|spx 532)(?: |$)/.test(current);
 }
 
+function noJibLabelForCrane(value: unknown) {
+  return currentCraneIsAk46(value)
+    ? "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension"
+    : "No jib / main boom only";
+}
+
 function sanitiseCurrentCranePackText(value: unknown, currentCraneName: unknown) {
   let text = tidyRepeatedTextBlock(String(value ?? ""));
   if (!text) return "";
@@ -236,6 +242,12 @@ function sanitiseCurrentCranePackText(value: unknown, currentCraneName: unknown)
       // On the AK46, the hydraulic extension is included in the total 46m boom-extension figure.
       .replace(/\bMain\s+boom\s*\+\s*jib\s*\/\s*extension\b/gi, "Main boom / total boom-extension")
       .replace(/\bjib\s*\/\s*max\s+outreach\s+39\s*m\b/gi, "crane-operation radius up to 39 m");
+  } else {
+    // Do not let AK46-only wording leak into packs for Jekko, Grove, HK40, MTK35 or external cranes.
+    text = text
+      .replace(/No\s+separate\s+additive\s+jib\s+—\s+hydraulic\s+extension\s+is\s+included\s+in\s+the\s+46\s*m\s+total\s+boom-extension/gi, "No jib / main boom only")
+      .replace(/AK46\s+total\s+boom-extension\s+up\s+to\s+46\s*m/gi, "Main boom")
+      .replace(/Main\s+boom\s*\/\s*total\s+boom-extension/gi, "Main boom");
   }
 
   return tidyRepeatedTextBlock(text);
@@ -360,9 +372,9 @@ function sanitisePackSectionsForCurrentCrane(rawSections: StringMap, currentCran
 
     // Clear stale calculated outputs from a previous crane/setup. They will be recalculated
     // from the current crane rules during this render.
-    out.boom_configuration = "Main boom";
+    out.boom_configuration = currentCraneIsAk46(currentCrane) ? "Main boom / total boom-extension" : "Main boom";
     out.boom_length = "";
-    out.crane_jib_reference = "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension";
+    out.crane_jib_reference = noJibLabelForCrane(currentCrane);
     out.range_chart_boom_length_m = "";
     out.range_chart_boom_angle_deg = "";
     out.range_chart_jib_length_m = defaults?.jibLength ?? "0";
@@ -1371,7 +1383,10 @@ function RangeChartPackPage({
   const craneName = tidyCraneLabel(rangeText(sections, "range_chart_crane_name", "—"));
   const notes = rangeText(sections, "range_chart_notes", "Lift sketch");
   const selectedSetup = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", "—"));
-  const selectedJibOption = rangeText(sections, "range_chart_selected_jib_option_label", "");
+  const rawSelectedJibOption = rangeText(sections, "range_chart_selected_jib_option_label", "");
+  const selectedJibOption = /no\s+jib|main\s+boom\s+only|no\s+separate\s+additive\s+jib/i.test(rawSelectedJibOption)
+    ? noJibLabelForCrane(craneName)
+    : rawSelectedJibOption;
   const sourceMode = rangeText(sections, "range_chart_crane_source_mode", "selected_crm_crane");
   const sourceLabel = sourceMode === "external_spec_sheet"
     ? rangeText(sections, "range_chart_external_spec_document_title", "External / job-specific crane spec sheet")
@@ -1430,7 +1445,7 @@ function RangeChartPackPage({
         <div><strong>Client:</strong> {clientName}</div>
         <div><strong>Crane:</strong> {craneName}</div>
         <div><strong>Main boom/profile:</strong> {selectedSetup}</div>
-        <div><strong>Fly jib/extension:</strong> {selectedJibOption || (calc.jibLengthM > 0 ? `${formatRangeNumber(calc.jibLengthM)} physical jib` : "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension")}</div>
+        <div><strong>Fly jib/extension:</strong> {selectedJibOption || (calc.jibLengthM > 0 ? `${formatRangeNumber(calc.jibLengthM)} physical jib` : noJibLabelForCrane(craneName))}</div>
         <div><strong>Spec source:</strong> {sourceLabel}</div>
         <div style={{ gridColumn: "1 / -1" }}><strong>Notes:</strong> {notes}</div>
       </div>
@@ -2050,7 +2065,7 @@ export default async function CraneLiftPlanPackPage({
     "lift_classification",
     (job as any)?.hire_type || "Basic"
   );
-  const rangeHasNoJib = /^no jib|main boom only/i.test(rangeSelectedJibLabel);
+  const rangeHasNoJib = /^(?:no\s+jib|main\s+boom\s+only|no\s+separate\s+additive\s+jib)/i.test(rangeSelectedJibLabel);
   const rangeBoomConfiguration = rangeGroundCalc
     ? currentCraneIsAk46(craneName)
       ? "Main boom / total boom-extension"
@@ -2236,7 +2251,7 @@ export default async function CraneLiftPlanPackPage({
     : formatOutreachReference(equipmentProfile);
   const jibRef = rangeGroundCalc
     ? rangeHasNoJib || !rangeSelectedJibLabel
-      ? "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension"
+      ? noJibLabelForCrane(craneName)
       : rangeSelectedJibLabel
     : formatJibReference(equipmentProfile);
 
