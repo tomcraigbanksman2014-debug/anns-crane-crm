@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { createSupabaseBrowserClient } from "./lib/supabase/browser";
+import { displayUserNameFromEmail } from "./lib/displayUserName";
 import CrmAssistant from "../components/CrmAssistant";
 
 type NavItem = {
@@ -186,7 +187,7 @@ export default function ClientShell({
         return;
       }
 
-      setUsername(usernameFromEmail);
+      setUsername(displayUserNameFromEmail(user.email ?? null) || usernameFromEmail);
       setRole(resolvedRole);
       setIsMasterAdmin(isMaster);
       setLoading(false);
