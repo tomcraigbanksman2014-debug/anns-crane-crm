@@ -555,6 +555,32 @@ async function updateJobRequirementFlags(formData: FormData) {
   redirect(`/jobs/${jobId}?success=${encodeURIComponent("Allocation requirements updated.")}`);
 }
 
+async function updateJobInternalNotes(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const jobId = cleanText(formData.get("job_id"));
+  const internalNotes = cleanText(formData.get("internal_notes"));
+
+  if (!jobId) {
+    redirect(`/jobs?error=${encodeURIComponent("Job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({
+      internal_notes: internalNotes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", jobId);
+
+  if (error) {
+    redirect(`/jobs/${jobId}?error=${encodeURIComponent(error.message || "Could not save internal job notes.")}`);
+  }
+
+  redirect(`/jobs/${jobId}?success=${encodeURIComponent("Internal job notes updated.")}`);
+}
+
 export default async function JobDetailPage({
   params,
   searchParams,
@@ -1225,6 +1251,28 @@ export default async function JobDetailPage({
                     ))}
                   </div>
                 )}
+              </section>
+
+              <section style={{ ...cardStyle, border: "1px solid rgba(59,130,246,0.28)" }}>
+                <h2 style={sectionTitle}>Internal job notes</h2>
+                <div style={{ ...noteBox, marginBottom: 12, fontSize: 13, opacity: 0.82 }}>
+                  Internal only for this crane job. These notes are not copied into lift plans, hire agreements, RAMS or customer-facing documents.
+                </div>
+                <form action={updateJobInternalNotes} style={{ display: "grid", gap: 10 }}>
+                  <input type="hidden" name="job_id" value={(job as any).id} />
+                  <textarea
+                    name="internal_notes"
+                    rows={7}
+                    defaultValue={(job as any)?.internal_notes ?? ""}
+                    placeholder="Add private notes for this job only..."
+                    style={textareaStyle}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Saving notes…">
+                      Save internal notes
+                    </ServerSubmitButton>
+                  </div>
+                </form>
               </section>
 
               <section style={cardStyle}>
