@@ -2,6 +2,7 @@ import ClientShell from "../../ClientShell";
 import ServerSubmitButton from "../../components/ServerSubmitButton";
 import PreviousPageBackButton from "../../components/PreviousPageBackButton";
 import TransportJobFormEnhancer from "./TransportJobFormEnhancer";
+import DuplicateJobWarningGuard from "../../components/DuplicateJobWarningGuard";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
 import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
 import {
@@ -629,6 +630,7 @@ async function createTransportJob(formData: FormData) {
     checklist_movement_order_submitted: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_movement_order_submitted")) : false,
     checklist_approval_received: abnormalLoadEnabled ? checkboxValue(formData.get("checklist_approval_received")) : false,
     notes: clean(formData.get("notes")) || null,
+    created_by: user?.id ?? null,
     archived: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -746,7 +748,9 @@ export default async function NewTransportJobPage({
 
           <TransportJobFormEnhancer />
 
-          <form action={createTransportJob} style={{ marginTop: 18, display: "grid", gap: 18 }}>
+          <DuplicateJobWarningGuard type="transport" />
+
+          <form action={createTransportJob} data-duplicate-check="transport" style={{ marginTop: 18, display: "grid", gap: 18 }}>
             <section style={sectionCard}>
               <div style={sectionTitle}>Transport job details</div>
 
