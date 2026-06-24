@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
+import { hasRequiredCraneJobSiteContact, CRANE_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 const WEEKDAY_META: Record<string, { label: string; shortLabel: string; index: number }> = {
   monday: { label: "Monday", shortLabel: "Mon", index: 0 },
@@ -175,6 +176,13 @@ export async function POST(req: Request) {
 
     if (readError || !job) {
       return NextResponse.json({ error: readError?.message || "Job not found." }, { status: 404 });
+    }
+
+    if (!hasRequiredCraneJobSiteContact(job)) {
+      return NextResponse.json(
+        { error: `${CRANE_JOB_SITE_CONTACT_ERROR} Add the site contact to the source job before creating repeat jobs.` },
+        { status: 400 }
+      );
     }
 
     const sourceStart = parseDateOnly(job.start_date ?? job.job_date) ?? new Date();
