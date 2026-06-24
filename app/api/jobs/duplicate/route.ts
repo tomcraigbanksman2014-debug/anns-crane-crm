@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { hasRequiredCraneJobSiteContact, CRANE_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 function makeJobTimestamp() {
   const d = new Date();
@@ -35,6 +36,13 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: readError?.message || "Job not found." },
         { status: 404 }
+      );
+    }
+
+    if (!hasRequiredCraneJobSiteContact(job)) {
+      return NextResponse.json(
+        { error: `${CRANE_JOB_SITE_CONTACT_ERROR} Add the site contact to the original job before duplicating it.` },
+        { status: 400 }
       );
     }
 
