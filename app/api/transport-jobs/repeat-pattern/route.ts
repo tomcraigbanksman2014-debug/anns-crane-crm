@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
+import { hasRequiredTransportJobSiteContact, TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 const WEEKDAY_META: Record<string, { label: string; shortLabel: string; index: number }> = {
   monday: { label: "Monday", shortLabel: "Mon", index: 0 },
@@ -180,6 +181,13 @@ export async function POST(req: Request) {
 
     if (readError || !job) {
       return NextResponse.json({ error: readError?.message || "Transport job not found." }, { status: 404 });
+    }
+
+    if (!hasRequiredTransportJobSiteContact(job)) {
+      return NextResponse.json(
+        { error: `${TRANSPORT_JOB_SITE_CONTACT_ERROR} Add the pickup / site contact to the source transport job before creating repeat transport jobs.` },
+        { status: 400 }
+      );
     }
 
     const sourceStart = parseDateOnly(job.transport_date ?? job.delivery_date) ?? new Date();
