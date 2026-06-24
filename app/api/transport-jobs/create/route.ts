@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -136,6 +137,12 @@ export async function POST(req: Request) {
         : null;
 
     const abnormalLoadEnabled = checkboxValue(body.abnormal_load_enabled);
+    const collectionContactName = clean(body.collection_contact_name);
+    const collectionContactPhone = clean(body.collection_contact_phone);
+
+    if (!collectionContactName || !collectionContactPhone) {
+      return NextResponse.json({ error: TRANSPORT_JOB_SITE_CONTACT_ERROR }, { status: 400 });
+    }
 
     const payload: Record<string, any> = {
       transport_number: clean(body.transport_number) || `TR-${stamp}`,
@@ -176,10 +183,10 @@ export async function POST(req: Request) {
       transport_height_m: abnormalLoadEnabled ? numberOrNull(body.transport_height_m) : null,
       transport_gross_weight_t: abnormalLoadEnabled ? numberOrNull(body.transport_gross_weight_t) : null,
       axle_weight_notes: abnormalLoadEnabled ? clean(body.axle_weight_notes) : null,
-      collection_contact_name: abnormalLoadEnabled ? clean(body.collection_contact_name) : null,
-      collection_contact_phone: abnormalLoadEnabled ? clean(body.collection_contact_phone) : null,
-      delivery_contact_name: abnormalLoadEnabled ? clean(body.delivery_contact_name) : null,
-      delivery_contact_phone: abnormalLoadEnabled ? clean(body.delivery_contact_phone) : null,
+      collection_contact_name: collectionContactName,
+      collection_contact_phone: collectionContactPhone,
+      delivery_contact_name: clean(body.delivery_contact_name),
+      delivery_contact_phone: clean(body.delivery_contact_phone),
       preferred_move_window: abnormalLoadEnabled ? clean(body.preferred_move_window) : null,
       trailer_type: abnormalLoadEnabled ? clean(body.trailer_type) : null,
       tractor_unit_type: abnormalLoadEnabled ? clean(body.tractor_unit_type) : null,
