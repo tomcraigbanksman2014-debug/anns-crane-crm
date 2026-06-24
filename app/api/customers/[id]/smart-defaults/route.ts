@@ -94,8 +94,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     };
 
     const transportSuggestions = {
-      contact_name: clean(client.contact_name) || latestNonEmpty(transports, "contact_name"),
-      contact_phone: clean(client.phone) || latestNonEmpty(transports, "contact_phone"),
+      collection_contact_name: clean(client.contact_name) || latestNonEmpty(transports, "collection_contact_name"),
+      collection_contact_phone: clean(client.phone) || latestNonEmpty(transports, "collection_contact_phone"),
+      delivery_contact_name: latestNonEmpty(transports, "delivery_contact_name"),
+      delivery_contact_phone: latestNonEmpty(transports, "delivery_contact_phone"),
       invoice_email: clean(client.email) || latestNonEmpty(transports, "invoice_email"),
       collection_address: mostCommon(transports.map((row: any) => row.collection_address)),
       delivery_address: mostCommon(transports.map((row: any) => row.delivery_address)),
