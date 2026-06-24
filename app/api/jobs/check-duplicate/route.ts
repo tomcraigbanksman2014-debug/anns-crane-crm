@@ -35,6 +35,34 @@ function parsePrimarySelection(value: string) {
   return { kind: "", id: "" };
 }
 
+function selectionHasUsableAsset(selection: { kind: string; id: string }, body: any) {
+  if (selection.kind === "crane" || selection.kind === "equipment") {
+    return !!clean(selection.id);
+  }
+
+  if (selection.kind === "cross_hire") {
+    return !!clean(body?.cross_hire_item_name);
+  }
+
+  if (selection.kind === "other") {
+    return !!clean(body?.other_item_name);
+  }
+
+  return false;
+}
+
+function rowHasUsableAssetAllocation(row: any) {
+  const allocations = Array.isArray(row?.job_equipment) ? row.job_equipment : [];
+  return allocations.some((item: any) => {
+    return (
+      !!clean(item?.crane_id) ||
+      !!clean(item?.equipment_id) ||
+      !!clean(item?.vehicle_id) ||
+      !!clean(item?.item_name)
+    );
+  });
+}
+
 function allocationMatches(row: any, selection: { kind: string; id: string }, body: any) {
   const allocations = Array.isArray(row?.job_equipment) ? row.job_equipment : [];
 
@@ -112,8 +140,9 @@ export async function POST(req: Request) {
     const clientId = clean(body?.client_id);
     const startDate = clean(body?.start_date);
     const selection = parsePrimarySelection(clean(body?.primary_equipment_selection));
+    const currentHasAsset = selectionHasUsableAsset(selection, body);
 
-    if (!clientId || clientId === "other" || !startDate || !selection.kind) {
+    if (!clientId || clientId === "other" || !startDate) {
       return NextResponse.json({ duplicate: false });
     }
 
@@ -167,27 +196,51 @@ export async function POST(req: Request) {
       return NextResponse.json({ duplicate: false, error: error.message }, { status: 200 });
     }
 
-    const duplicate = ((data ?? []) as any[]).find((row) => {
+    const activeRows = ((data ?? []) as any[]).filter((row) => {
       const status = clean(row?.status).toLowerCase();
-      if (status === "cancelled" || status === "late_cancelled") return false;
-      return allocationMatches(row, selection, body);
+      return status !== "cancelled" && status !== "late_cancelled";
     });
 
-    if (!duplicate) {
-      return NextResponse.json({ duplicate: false });
+    const strongDuplicate = currentHasAsset
+      ? activeRows.find((row) => allocationMatches(row, selection, body))
+      : null;
+
+    if (strongDuplicate) {
+      const customer = first((strongDuplicate as any)?.clients)?.company_name || "this customer";
+      const asset = assetLabel(strongDuplicate, selection);
+      const createdBy = await creatorNameFor(supabase, strongDuplicate);
+      const jobDate = fmtDate(strongDuplicate?.start_date ?? strongDuplicate?.job_date ?? startDate);
+
+      return NextResponse.json({
+        duplicate: true,
+        duplicate_type: "strong",
+        duplicate_job_id: strongDuplicate.id,
+        duplicate_job_number: strongDuplicate.job_number ?? null,
+        message: `A crane job has already been created by ${createdBy} for ${customer} on ${jobDate} using ${asset}. This may be a duplicate. Are you sure you wish to save?`,
+      });
     }
 
-    const customer = first((duplicate as any)?.clients)?.company_name || "this customer";
-    const asset = assetLabel(duplicate, selection);
-    const createdBy = await creatorNameFor(supabase, duplicate);
-    const jobDate = fmtDate(duplicate?.start_date ?? duplicate?.job_date ?? startDate);
-
-    return NextResponse.json({
-      duplicate: true,
-      duplicate_job_id: duplicate.id,
-      duplicate_job_number: duplicate.job_number ?? null,
-      message: `A crane job has already been created by ${createdBy} for ${customer} on ${jobDate} using ${asset}. This may be a duplicate. Are you sure you wish to save?`,
+    const possibleDuplicate = activeRows.find((row) => {
+      const existingHasAsset = rowHasUsableAssetAllocation(row);
+      return !currentHasAsset || !existingHasAsset;
     });
+
+    if (possibleDuplicate) {
+      const customer = first((possibleDuplicate as any)?.clients)?.company_name || "this customer";
+      const createdBy = await creatorNameFor(supabase, possibleDuplicate);
+      const jobDate = fmtDate(possibleDuplicate?.start_date ?? possibleDuplicate?.job_date ?? startDate);
+      const jobRef = possibleDuplicate.job_number ? ` job ${possibleDuplicate.job_number}` : " job";
+
+      return NextResponse.json({
+        duplicate: true,
+        duplicate_type: "possible_missing_asset",
+        duplicate_job_id: possibleDuplicate.id,
+        duplicate_job_number: possibleDuplicate.job_number ?? null,
+        message: `A crane${jobRef} has already been created by ${createdBy} for ${customer} on ${jobDate}, but one of the jobs has no crane/equipment allocated yet. This may be a duplicate. Are you sure you wish to save?`,
+      });
+    }
+
+    return NextResponse.json({ duplicate: false });
   } catch (error: any) {
     return NextResponse.json({ duplicate: false, error: error?.message || "Duplicate check failed." }, { status: 200 });
   }
