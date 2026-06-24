@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { geocodeAddress } from "../../../lib/geocode";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { hasRequiredCraneJobSiteContact, TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 function makeTransportNumber() {
   const d = new Date();
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
         end_time,
         site_name,
         site_address,
+        contact_name,
+        contact_phone,
         notes
       `)
       .eq("id", jobId)
@@ -46,6 +49,13 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: readError?.message || "Crane job not found." },
         { status: 404 }
+      );
+    }
+
+    if (!hasRequiredCraneJobSiteContact(job)) {
+      return NextResponse.json(
+        { error: `${TRANSPORT_JOB_SITE_CONTACT_ERROR} Add the site contact to the crane job before creating linked transport.` },
+        { status: 400 }
       );
     }
 
@@ -74,6 +84,10 @@ export async function POST(req: Request) {
       job_type: "crane_support",
       collection_address: pickupAddress || null,
       delivery_address: deliveryAddress || null,
+      collection_contact_name: job.contact_name ?? null,
+      collection_contact_phone: job.contact_phone ?? null,
+      delivery_contact_name: job.contact_name ?? null,
+      delivery_contact_phone: job.contact_phone ?? null,
       collection_lat: pickupCoords?.lat ?? null,
       collection_lng: pickupCoords?.lng ?? null,
       delivery_lat: deliveryCoords?.lat ?? null,
