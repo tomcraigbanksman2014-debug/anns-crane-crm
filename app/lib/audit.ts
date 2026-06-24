@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { displayUserName } from "./displayUserName";
 
 function getServiceClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,7 +25,7 @@ export async function writeAuditLog(input: {
     await admin.from("audit_log").insert([
       {
         actor_user_id: input.actor_user_id ?? null,
-        actor_username: input.actor_username ?? null,
+        actor_username: displayUserName(input.actor_username) || null,
         action: input.action,
         entity_type: input.entity_type,
         entity_id: input.entity_id ?? null,
