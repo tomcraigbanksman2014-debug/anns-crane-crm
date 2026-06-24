@@ -48,8 +48,10 @@ const JOB_LABELS: Record<string, string> = {
 };
 
 const TRANSPORT_LABELS: Record<string, string> = {
-  contact_name: "usual site contact",
-  contact_phone: "usual site phone",
+  collection_contact_name: "usual pickup / site contact",
+  collection_contact_phone: "usual pickup / site number",
+  delivery_contact_name: "usual delivery contact",
+  delivery_contact_phone: "usual delivery number",
   invoice_email: "usual invoice email",
   collection_address: "usual collection address",
   delivery_address: "usual delivery address",
