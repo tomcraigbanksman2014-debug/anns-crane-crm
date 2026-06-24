@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
 import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
+import DuplicateJobWarningGuard from "../../components/DuplicateJobWarningGuard";
 import { CRANE_JOB_SITE_CONTACT_ERROR } from "../../lib/jobContactValidation";
 import {
   buildFallbackSupplierLink,
@@ -209,6 +210,9 @@ async function createJob(formData: FormData) {
   "use server";
 
   const supabase = createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const primarySelection = clean(formData.get("primary_equipment_selection"));
   const otherItemName = clean(formData.get("other_item_name"));
@@ -366,6 +370,7 @@ async function createJob(formData: FormData) {
     invoice_subtotal: calculatedSubtotal,
     cross_hire_cost_total: allocationSourceType === "cross_hire" ? allocationSupplierCost : 0,
     equipment_count: allocationAssetType ? 1 : 0,
+    created_by: user?.id ?? null,
     archived: false,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -562,7 +567,9 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
           {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
-          <form action={createJob} style={{ display: "grid", gap: 14, marginTop: 18 }}>
+          <DuplicateJobWarningGuard type="crane" />
+
+          <form action={createJob} data-duplicate-check="crane" style={{ display: "grid", gap: 14, marginTop: 18 }}>
             <div style={fieldWrap}>
               <label style={labelStyle}>Customer *</label>
               <select
