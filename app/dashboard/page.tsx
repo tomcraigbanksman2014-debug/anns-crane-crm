@@ -8,6 +8,7 @@ import StatusPill from "../components/StatusPill";
 import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
 import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
+import { displayUserNameFromEmail } from "../lib/displayUserName";
 
 const INVOICE_STATUSES = ["Not Invoiced", "Invoiced", "Part Paid", "Paid"];
 
@@ -185,7 +186,7 @@ export default function DashboardPage() {
         }
       }
 
-      setUsername(fromAuthEmail(user.email ?? null));
+      setUsername(displayUserNameFromEmail(user.email ?? null) || fromAuthEmail(user.email ?? null));
       const rawRole = String((user.user_metadata?.role as any) ?? "staff").toLowerCase();
       setRole(isMaster ? "admin" : rawRole === "admin" ? "admin" : "staff");
 
