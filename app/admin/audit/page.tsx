@@ -1,4 +1,5 @@
 import ClientShell from "../../ClientShell";
+import { displayUserName } from "../../lib/displayUserName";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 
 type AuditRow = {
@@ -325,7 +326,7 @@ export default async function AuditPage({ searchParams }: AuditPageProps) {
 
                           <td style={tdStyle}>
                             <div style={{ fontWeight: 800 }}>
-                              {row.actor_username ?? "—"}
+                              {displayUserName(row.actor_username) || "—"}
                             </div>
                             <div
                               style={{
