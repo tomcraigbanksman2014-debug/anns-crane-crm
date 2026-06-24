@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiUser } from "../../../lib/apiAuth";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { hasRequiredTransportJobSiteContact, TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 function makeTransportNumber() {
   const d = new Date();
@@ -35,6 +36,13 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: readError?.message || "Transport job not found." },
         { status: 404 }
+      );
+    }
+
+    if (!hasRequiredTransportJobSiteContact(job)) {
+      return NextResponse.json(
+        { error: `${TRANSPORT_JOB_SITE_CONTACT_ERROR} Add the pickup / site contact to the original transport job before duplicating it.` },
+        { status: 400 }
       );
     }
 
