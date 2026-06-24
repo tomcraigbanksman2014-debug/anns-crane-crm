@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { writeAuditLog } from "../../../lib/audit";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
+import { CRANE_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 type Payload = {
   client_id?: string | null;
@@ -74,6 +75,13 @@ export async function POST(req: Request) {
       );
     }
 
+    const siteContactName = norm(body.contact_name);
+    const siteContactPhone = norm(body.contact_phone);
+
+    if (!siteContactName || !siteContactPhone) {
+      return NextResponse.json({ error: CRANE_JOB_SITE_CONTACT_ERROR }, { status: 400 });
+    }
+
     const payload = {
       client_id: norm(body.client_id),
       equipment_id: norm(body.equipment_id),
@@ -81,8 +89,8 @@ export async function POST(req: Request) {
       booking_id: norm(body.booking_id),
       site_name: norm(body.site_name),
       site_address: norm(body.site_address),
-      contact_name: norm(body.contact_name),
-      contact_phone: norm(body.contact_phone),
+      contact_name: siteContactName,
+      contact_phone: siteContactPhone,
       job_date: startDate,
       start_date: startDate,
       end_date: endDate,
