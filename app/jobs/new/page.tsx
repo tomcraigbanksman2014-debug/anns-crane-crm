@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../lib/timeOptions";
 import MultiSupplierFields from "../../components/MultiSupplierFields";
 import SmartCustomerSuggestions from "../../components/SmartCustomerSuggestions";
+import { CRANE_JOB_SITE_CONTACT_ERROR } from "../../lib/jobContactValidation";
 import {
   buildFallbackSupplierLink,
   parseSupplierLinksFromFormData,
@@ -287,6 +288,13 @@ async function createJob(formData: FormData) {
     );
   }
 
+  const siteContactName = clean(formData.get("contact_name")) || otherCustomerContactName || null;
+  const siteContactPhone = clean(formData.get("contact_phone")) || otherCustomerPhone || null;
+
+  if (!siteContactName || !siteContactPhone) {
+    redirect(`/jobs/new?error=${encodeURIComponent(CRANE_JOB_SITE_CONTACT_ERROR)}`);
+  }
+
   if (primarySelection === "other" && !otherItemName) {
     redirect(
       `/jobs/new?error=${encodeURIComponent(
@@ -341,8 +349,8 @@ async function createJob(formData: FormData) {
     supplier_id: allocationSourceType === "cross_hire" ? allocationSupplierId : null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
-    contact_name: clean(formData.get("contact_name")) || otherCustomerContactName || null,
-    contact_phone: clean(formData.get("contact_phone")) || otherCustomerPhone || null,
+    contact_name: siteContactName,
+    contact_phone: siteContactPhone,
     job_date: startDate,
     start_date: startDate,
     end_date: endDate,
@@ -662,20 +670,22 @@ export default async function NewJobPage({ searchParams }: PageProps) {
 
             <div style={twoCol}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Contact name</label>
+                <label style={labelStyle}>Site contact name *</label>
                 <input
                   name="contact_name"
                   style={inputStyle}
                   defaultValue={prefilledContactName}
+                  required
                 />
               </div>
 
               <div style={fieldWrap}>
-                <label style={labelStyle}>Contact phone</label>
+                <label style={labelStyle}>Site contact number *</label>
                 <input
                   name="contact_phone"
                   style={inputStyle}
                   defaultValue={prefilledContactPhone}
+                  required
                 />
               </div>
             </div>
