@@ -4,6 +4,7 @@ import { getAccessContext } from "../../lib/access";
 import { runGlobalSearch } from "../../lib/global-search";
 import { writeAuditLog } from "../../lib/audit";
 import { assertOperatorAvailable } from "../../lib/staffAvailability";
+import { CRANE_JOB_SITE_CONTACT_ERROR, TRANSPORT_JOB_SITE_CONTACT_ERROR, assertRequiredCraneJobSiteContact, assertRequiredTransportJobSiteContact } from "../../lib/jobContactValidation";
 
 type RiskLevel = "low" | "medium" | "high";
 
@@ -1446,10 +1447,13 @@ async function handleCreateCraneJobDraft(supabase: any, parsed: ParsedCommand, c
   const crane = await resolveCrane(supabase, parsed.crane_name);
   const operator = await resolveOperator(supabase, parsed.operator_name);
   const warnings = [customer.warning, crane.warning, operator.warning].filter(Boolean).join(" ") || null;
+  const siteContactName = clean(parsed.contact_name) ?? clean(customer.selected?.contact_name);
+  const siteContactPhone = clean(parsed.phone) ?? clean(customer.selected?.phone);
 
   const missing: string[] = [];
   if (!customer.selected) missing.push(parsed.customer_name ? `Customer not found: ${parsed.customer_name}` : "Customer missing");
   if (!date) missing.push(parsed.date_text ? `I could not understand the date: ${parsed.date_text}` : "Date missing");
+  if (!siteContactName || !siteContactPhone) missing.push(CRANE_JOB_SITE_CONTACT_ERROR);
   if (missing.length) {
     return needMore("I need a bit more information", missing.join(". "), [
       ...customer.matches.slice(0, 5).map((row: any) => ({ label: row.company_name ?? "Customer", href: `/customers/${row.id}`, badge: "customer", description: `${row.contact_name ?? "—"} • ${row.phone ?? row.email ?? "—"}` })),
@@ -1469,8 +1473,10 @@ async function handleCreateCraneJobDraft(supabase: any, parsed: ParsedCommand, c
       { label: "Operator", value: operator.selected?.full_name ?? "Not allocated" },
       { label: "Status", value: "Provisional" },
       { label: "Times", value: "08:00 → 16:00" },
+      { label: "Site contact", value: siteContactName ?? "—" },
+      { label: "Site number", value: siteContactPhone ?? "—" },
     ],
-    payload: { client_id: customer.selected.id, crane_id: crane.selected?.id ?? null, operator_id: operator.selected?.id ?? null, job_date: date, start_date: date, end_date: clean(parsed.end_date) ?? date, start_time: "08:00", end_time: "16:00", status: "provisional", site_name: clean(parsed.site_name), site_address: clean(parsed.site_address), notes: `Created by AnnS CRM Assistant from command: ${command}` },
+    payload: { client_id: customer.selected.id, crane_id: crane.selected?.id ?? null, operator_id: operator.selected?.id ?? null, job_date: date, start_date: date, end_date: clean(parsed.end_date) ?? date, start_time: "08:00", end_time: "16:00", status: "provisional", site_name: clean(parsed.site_name), site_address: clean(parsed.site_address), contact_name: siteContactName, contact_phone: siteContactPhone, notes: `Created by AnnS CRM Assistant from command: ${command}` },
   };
   return draftResponse(draft, "I have prepared this job. Check it, then confirm to save it.");
 }
@@ -1480,11 +1486,14 @@ async function handleCreateTransportJobDraft(supabase: any, parsed: ParsedComman
   const customer = await resolveCustomer(supabase, parsed.customer_name);
   const vehicle = await resolveVehicle(supabase, parsed.vehicle_name);
   const operator = await resolveOperator(supabase, parsed.operator_name);
+  const collectionContactName = clean(parsed.contact_name) ?? clean(customer.selected?.contact_name);
+  const collectionContactPhone = clean(parsed.phone) ?? clean(customer.selected?.phone);
   const missing: string[] = [];
   if (!customer.selected) missing.push(parsed.customer_name ? `Customer not found: ${parsed.customer_name}` : "Customer missing");
   if (!date) missing.push("Transport date missing");
   if (!clean(parsed.collection_address)) missing.push("Collection address missing");
   if (!clean(parsed.delivery_address)) missing.push("Delivery address missing");
+  if (!collectionContactName || !collectionContactPhone) missing.push(TRANSPORT_JOB_SITE_CONTACT_ERROR);
   if (missing.length) return needMore("Transport job needs more details", missing.join(". "), customer.matches.slice(0, 5).map((row: any) => ({ label: row.company_name, href: `/customers/${row.id}`, badge: "customer", description: row.phone ?? row.email ?? "" })));
 
   const draft: DraftAction = {
@@ -1497,10 +1506,12 @@ async function handleCreateTransportJobDraft(supabase: any, parsed: ParsedComman
       { label: "Date", value: formatDate(date) },
       { label: "Collection", value: clean(parsed.collection_address) ?? "—" },
       { label: "Delivery", value: clean(parsed.delivery_address) ?? "—" },
+      { label: "Pickup / site contact", value: collectionContactName ?? "—" },
+      { label: "Pickup / site number", value: collectionContactPhone ?? "—" },
       { label: "Vehicle", value: vehicle.selected?.name ?? "Not allocated" },
       { label: "Driver", value: operator.selected?.full_name ?? "Not allocated" },
     ],
-    payload: { client_id: customer.selected.id, vehicle_id: vehicle.selected?.id ?? null, operator_id: operator.selected?.id ?? null, transport_date: date, delivery_date: clean(parsed.end_date) ?? date, collection_time: "08:00", delivery_time: "16:00", collection_address: clean(parsed.collection_address), delivery_address: clean(parsed.delivery_address), load_description: clean(parsed.load_description), status: "planned", notes: `Created by AnnS CRM Assistant from command: ${command}` },
+    payload: { client_id: customer.selected.id, vehicle_id: vehicle.selected?.id ?? null, operator_id: operator.selected?.id ?? null, transport_date: date, delivery_date: clean(parsed.end_date) ?? date, collection_time: "08:00", delivery_time: "16:00", collection_address: clean(parsed.collection_address), delivery_address: clean(parsed.delivery_address), collection_contact_name: collectionContactName, collection_contact_phone: collectionContactPhone, load_description: clean(parsed.load_description), status: "planned", notes: `Created by AnnS CRM Assistant from command: ${command}` },
   };
   return draftResponse(draft);
 }
@@ -1754,8 +1765,9 @@ async function executeCreateCraneJob(supabase: any, user: any, draft: DraftActio
   const startDate = clean(p.start_date) ?? clean(p.job_date);
   const endDate = clean(p.end_date) ?? startDate;
   if (!p.client_id || !startDate || !endDate) throw new Error("Customer and date are required before creating the job.");
+  assertRequiredCraneJobSiteContact(p);
   if (p.operator_id) await assertOperatorAvailable(supabase, { operatorId: p.operator_id, startDate, endDate, startTime: clean(p.start_time), endTime: clean(p.end_time) });
-  const jobPayload: Record<string, any> = { client_id: clean(p.client_id), operator_id: clean(p.operator_id), site_name: clean(p.site_name), site_address: clean(p.site_address), job_date: startDate, start_date: startDate, end_date: endDate, start_time: clean(p.start_time) ?? "08:00", end_time: clean(p.end_time) ?? "16:00", status: clean(p.status) ?? "provisional", hire_type: clean(p.hire_type), lift_type: clean(p.lift_type), notes: clean(p.notes), equipment_count: p.crane_id ? 1 : 0, archived: false, created_by: user.id, updated_at: new Date().toISOString() };
+  const jobPayload: Record<string, any> = { client_id: clean(p.client_id), operator_id: clean(p.operator_id), site_name: clean(p.site_name), site_address: clean(p.site_address), contact_name: clean(p.contact_name), contact_phone: clean(p.contact_phone), job_date: startDate, start_date: startDate, end_date: endDate, start_time: clean(p.start_time) ?? "08:00", end_time: clean(p.end_time) ?? "16:00", status: clean(p.status) ?? "provisional", hire_type: clean(p.hire_type), lift_type: clean(p.lift_type), notes: clean(p.notes), equipment_count: p.crane_id ? 1 : 0, archived: false, created_by: user.id, updated_at: new Date().toISOString() };
   const { data: job, error } = await supabase.from("jobs").insert(jobPayload).select("id, job_number").single();
   if (error || !job?.id) throw new Error(error?.message ?? "Could not create job.");
   if (p.crane_id || p.operator_id) {
@@ -1774,10 +1786,11 @@ async function executeCreateTransportJob(supabase: any, user: any, draft: DraftA
   const p = draft.payload ?? {};
   const date = clean(p.transport_date);
   if (!p.client_id || !date || !clean(p.collection_address) || !clean(p.delivery_address)) throw new Error("Customer, date, collection and delivery are required before creating transport.");
+  assertRequiredTransportJobSiteContact(p);
   if (p.operator_id) await assertOperatorAvailable(supabase, { operatorId: p.operator_id, startDate: date, endDate: clean(p.delivery_date) ?? date, startTime: clean(p.collection_time), endTime: clean(p.delivery_time) });
   const now = new Date();
   const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
-  const payload: Record<string, any> = { transport_number: `TR-${stamp}`, client_id: clean(p.client_id), vehicle_id: clean(p.vehicle_id), operator_id: clean(p.operator_id), collection_address: clean(p.collection_address), delivery_address: clean(p.delivery_address), transport_date: date, delivery_date: clean(p.delivery_date) ?? date, collection_time: clean(p.collection_time) ?? "08:00", delivery_time: clean(p.delivery_time) ?? "16:00", load_description: clean(p.load_description), notes: clean(p.notes), price: 0, agreed_sell_rate: 0, invoice_status: "Not Invoiced", invoice_subtotal: 0, invoice_vat: 0, total_invoice: 0, status: clean(p.status) ?? "planned", archived: false, updated_at: new Date().toISOString() };
+  const payload: Record<string, any> = { transport_number: `TR-${stamp}`, client_id: clean(p.client_id), vehicle_id: clean(p.vehicle_id), operator_id: clean(p.operator_id), collection_address: clean(p.collection_address), delivery_address: clean(p.delivery_address), collection_contact_name: clean(p.collection_contact_name), collection_contact_phone: clean(p.collection_contact_phone), delivery_contact_name: clean(p.delivery_contact_name), delivery_contact_phone: clean(p.delivery_contact_phone), transport_date: date, delivery_date: clean(p.delivery_date) ?? date, collection_time: clean(p.collection_time) ?? "08:00", delivery_time: clean(p.delivery_time) ?? "16:00", load_description: clean(p.load_description), notes: clean(p.notes), price: 0, agreed_sell_rate: 0, invoice_status: "Not Invoiced", invoice_subtotal: 0, invoice_vat: 0, total_invoice: 0, status: clean(p.status) ?? "planned", archived: false, updated_at: new Date().toISOString() };
   const { data, error } = await supabase.from("transport_jobs").insert(payload).select("id, transport_number").single();
   if (error) throw new Error(error.message);
   await audit(user, "crm_assistant_transport_created", "transport_job", data.id, payload);
