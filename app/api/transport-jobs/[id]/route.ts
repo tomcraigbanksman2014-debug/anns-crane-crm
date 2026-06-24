@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { geocodeAddress } from "../../../lib/geocode";
 import { assertOperatorAvailable } from "../../../lib/staffAvailability";
 import { writeJobStatusAudit } from "../../../lib/jobStatusAudit";
+import { TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 
 function clean(value: unknown) {
   const v = String(value ?? "").trim();
@@ -633,10 +634,6 @@ export async function PATCH(
       nextPayload.transport_height_m = null;
       nextPayload.transport_gross_weight_t = null;
       nextPayload.axle_weight_notes = null;
-      nextPayload.collection_contact_name = null;
-      nextPayload.collection_contact_phone = null;
-      nextPayload.delivery_contact_name = null;
-      nextPayload.delivery_contact_phone = null;
       nextPayload.preferred_move_window = null;
       nextPayload.trailer_type = null;
       nextPayload.tractor_unit_type = null;
@@ -707,6 +704,10 @@ export async function PATCH(
       nextPayload.checklist_supplier_booked = false;
       nextPayload.checklist_movement_order_submitted = false;
       nextPayload.checklist_approval_received = false;
+    }
+
+    if (!clean(nextPayload.collection_contact_name) || !clean(nextPayload.collection_contact_phone)) {
+      return NextResponse.json({ error: TRANSPORT_JOB_SITE_CONTACT_ERROR }, { status: 400 });
     }
 
     const subtotal =
