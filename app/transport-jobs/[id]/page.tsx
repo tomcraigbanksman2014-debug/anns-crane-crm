@@ -19,7 +19,6 @@ import {
   replaceTransportSupplierLinks,
 } from "../../lib/jobSupplierLinks";
 import { isAbnormalLoadTransport } from "../../lib/transportAbnormal";
-import { TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../lib/jobContactValidation";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -752,15 +751,6 @@ async function updateTransportJob(formData: FormData) {
   const totalInvoice = money(invoiceSubtotal + invoiceVat);
 
   const invoiceStatus = clean(formData.get("invoice_status")) || "Not Invoiced";
-  const collectionContactName = clean(formData.get("collection_contact_name")) || null;
-  const collectionContactPhone = clean(formData.get("collection_contact_phone")) || null;
-  const deliveryContactName = clean(formData.get("delivery_contact_name")) || null;
-  const deliveryContactPhone = clean(formData.get("delivery_contact_phone")) || null;
-
-  if (!collectionContactName || !collectionContactPhone) {
-    redirect(`/transport-jobs/${id}?error=${encodeURIComponent(TRANSPORT_JOB_SITE_CONTACT_ERROR)}`);
-  }
-
   const abnormalLoadEnabled = checkboxValue(formData.get("abnormal_load_enabled"));
   const movementOrderRequired = abnormalLoadEnabled ? checkboxValue(formData.get("movement_order_required")) : false;
   const movementOrderStatus = abnormalLoadEnabled ? normaliseMovementOrderStatus(formData.get("movement_order_status"), movementOrderRequired) : "not_required";
@@ -830,10 +820,10 @@ async function updateTransportJob(formData: FormData) {
     transport_height_m: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_height_m")) : null,
     transport_gross_weight_t: checkboxValue(formData.get("abnormal_load_enabled")) ? numberOrNull(formData.get("transport_gross_weight_t")) : null,
     axle_weight_notes: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("axle_weight_notes")) || null : null,
-    collection_contact_name: collectionContactName,
-    collection_contact_phone: collectionContactPhone,
-    delivery_contact_name: deliveryContactName,
-    delivery_contact_phone: deliveryContactPhone,
+    collection_contact_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("collection_contact_name")) || null : null,
+    collection_contact_phone: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("collection_contact_phone")) || null : null,
+    delivery_contact_name: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_name")) || null : null,
+    delivery_contact_phone: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("delivery_contact_phone")) || null : null,
     preferred_move_window: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("preferred_move_window")) || null : null,
     movement_start_time: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("movement_start_time")) || null : null,
     movement_finish_time: checkboxValue(formData.get("abnormal_load_enabled")) ? clean(formData.get("movement_finish_time")) || null : null,
@@ -1763,35 +1753,6 @@ export default async function TransportJobDetailPage({
                     address for the working area or secondary location if needed.
                   </div>
 
-                  <div style={{ ...gridStyle, marginTop: 12 }}>
-                    <Field
-                      id="collection_contact_name"
-                      label="Pickup / site contact name *"
-                      name="collection_contact_name"
-                      defaultValue={(item as any)?.collection_contact_name ?? ""}
-                      required
-                    />
-                    <Field
-                      id="collection_contact_phone"
-                      label="Pickup / site contact number *"
-                      name="collection_contact_phone"
-                      defaultValue={(item as any)?.collection_contact_phone ?? ""}
-                      required
-                    />
-                    <Field
-                      id="delivery_contact_name"
-                      label="Delivery / work area contact name"
-                      name="delivery_contact_name"
-                      defaultValue={(item as any)?.delivery_contact_name ?? ""}
-                    />
-                    <Field
-                      id="delivery_contact_phone"
-                      label="Delivery / work area contact number"
-                      name="delivery_contact_phone"
-                      defaultValue={(item as any)?.delivery_contact_phone ?? ""}
-                    />
-                  </div>
-
                   <div style={{ marginTop: 12 }}>
                     <label id="load_description_label" htmlFor="load_description" style={labelStyle}>
                       Load / task description
@@ -2441,7 +2402,6 @@ function Field({
   type = "text",
   step,
   placeholder,
-  required = false,
 }: {
   id?: string;
   label: string;
@@ -2450,7 +2410,6 @@ function Field({
   type?: string;
   step?: string;
   placeholder?: string;
-  required?: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
@@ -2464,7 +2423,6 @@ function Field({
         type={type}
         step={step}
         placeholder={placeholder}
-        required={required}
         style={inputStyle}
       />
     </div>
