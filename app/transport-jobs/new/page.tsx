@@ -14,9 +14,19 @@ import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { geocodeAddress } from "../../lib/geocode";
 import { writeAuditLog } from "../../lib/audit";
+import { TRANSPORT_JOB_SITE_CONTACT_ERROR } from "../../lib/jobContactValidation";
 
 function clean(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
+}
+
+function safeDecode(value: string | undefined) {
+  const raw = String(value ?? "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 }
 
 function numberOrZero(value: FormDataEntryValue | null) {
@@ -425,6 +435,15 @@ async function createTransportJob(formData: FormData) {
     );
   }
 
+  const collectionContactName = clean(formData.get("collection_contact_name")) || otherCustomerContactName || null;
+  const collectionContactPhone = clean(formData.get("collection_contact_phone")) || otherCustomerPhone || null;
+  const deliveryContactName = clean(formData.get("delivery_contact_name")) || null;
+  const deliveryContactPhone = clean(formData.get("delivery_contact_phone")) || null;
+
+  if (!collectionContactName || !collectionContactPhone) {
+    redirect(`/transport-jobs/new?error=${encodeURIComponent(TRANSPORT_JOB_SITE_CONTACT_ERROR)}`);
+  }
+
   if (rawSupplierId === "other" && !otherSupplierName) {
     redirect(
       `/transport-jobs/new?error=${encodeURIComponent(
@@ -524,10 +543,10 @@ async function createTransportJob(formData: FormData) {
     transport_height_m: abnormalLoadEnabled ? numberOrNull(formData.get("transport_height_m")) : null,
     transport_gross_weight_t: abnormalLoadEnabled ? numberOrNull(formData.get("transport_gross_weight_t")) : null,
     axle_weight_notes: abnormalLoadEnabled ? clean(formData.get("axle_weight_notes")) || null : null,
-    collection_contact_name: abnormalLoadEnabled ? clean(formData.get("collection_contact_name")) || null : null,
-    collection_contact_phone: abnormalLoadEnabled ? clean(formData.get("collection_contact_phone")) || null : null,
-    delivery_contact_name: abnormalLoadEnabled ? clean(formData.get("delivery_contact_name")) || null : null,
-    delivery_contact_phone: abnormalLoadEnabled ? clean(formData.get("delivery_contact_phone")) || null : null,
+    collection_contact_name: collectionContactName,
+    collection_contact_phone: collectionContactPhone,
+    delivery_contact_name: deliveryContactName,
+    delivery_contact_phone: deliveryContactPhone,
     preferred_move_window: abnormalLoadEnabled ? clean(formData.get("preferred_move_window")) || null : null,
     movement_start_time: abnormalLoadEnabled ? clean(formData.get("movement_start_time")) || null : null,
     movement_finish_time: abnormalLoadEnabled ? clean(formData.get("movement_finish_time")) || null : null,
@@ -684,10 +703,12 @@ async function createTransportJob(formData: FormData) {
 export default async function NewTransportJobPage({
   searchParams,
 }: {
-  searchParams?: { error?: string };
+  searchParams?: { error?: string; contact_name?: string; contact_phone?: string };
 }) {
   const supabase = createSupabaseServerClient();
   const errorMessage = String(searchParams?.error ?? "");
+  const prefilledContactName = safeDecode(searchParams?.contact_name);
+  const prefilledContactPhone = safeDecode(searchParams?.contact_phone);
   const timeOptions = buildTimeOptions();
 
   const [
@@ -877,6 +898,36 @@ export default async function NewTransportJobPage({
                   <label style={labelStyle}>Delivery / work area address</label>
                   <textarea id="delivery_address" name="delivery_address" rows={3} style={textareaStyle} />
                 </div>
+              </div>
+
+              <div style={twoCol}>
+                <Field
+                  id="collection_contact_name"
+                  label="Pickup / site contact name *"
+                  name="collection_contact_name"
+                  defaultValue={prefilledContactName}
+                  required
+                />
+                <Field
+                  id="collection_contact_phone"
+                  label="Pickup / site contact number *"
+                  name="collection_contact_phone"
+                  defaultValue={prefilledContactPhone}
+                  required
+                />
+              </div>
+
+              <div style={twoCol}>
+                <Field
+                  id="delivery_contact_name"
+                  label="Delivery / work area contact name"
+                  name="delivery_contact_name"
+                />
+                <Field
+                  id="delivery_contact_phone"
+                  label="Delivery / work area contact number"
+                  name="delivery_contact_phone"
+                />
               </div>
 
               <div style={fieldWrap}>
@@ -1144,6 +1195,7 @@ function Field({
   type = "text",
   step,
   placeholder,
+  required = false,
 }: {
   id?: string;
   label: string;
@@ -1152,11 +1204,12 @@ function Field({
   type?: string;
   step?: string;
   placeholder?: string;
+  required?: boolean;
 }) {
   return (
     <div style={fieldWrap}>
       <label htmlFor={id} style={labelStyle}>{label}</label>
-      <input id={id} name={name} defaultValue={defaultValue} type={type} step={step} placeholder={placeholder} style={inputStyle} />
+      <input id={id} name={name} defaultValue={defaultValue} type={type} step={step} placeholder={placeholder} required={required} style={inputStyle} />
     </div>
   );
 }
