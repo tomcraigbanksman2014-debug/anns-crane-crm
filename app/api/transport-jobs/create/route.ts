@@ -261,6 +261,7 @@ export async function POST(req: Request) {
       collection_lng: collectionLng ?? collectionCoords?.lng ?? null,
       delivery_lat: deliveryLat ?? deliveryCoords?.lat ?? null,
       delivery_lng: deliveryLng ?? deliveryCoords?.lng ?? null,
+      created_by: user.id,
       archived: false,
       updated_at: new Date().toISOString(),
     };
