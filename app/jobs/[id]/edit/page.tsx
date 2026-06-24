@@ -5,7 +5,6 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { redirect } from "next/navigation";
 import { buildQuarterHourOptions } from "../../../lib/timeOptions";
 import MultiSupplierFields from "../../../components/MultiSupplierFields";
-import { CRANE_JOB_SITE_CONTACT_ERROR } from "../../../lib/jobContactValidation";
 import {
   buildFallbackSupplierLink,
   normaliseSupplierLinks,
@@ -84,13 +83,6 @@ async function updateJob(formData: FormData) {
     redirect(`/jobs/${id}/edit?error=${encodeURIComponent("End date cannot be earlier than start date.")}`);
   }
 
-  const siteContactName = clean(formData.get("contact_name")) || null;
-  const siteContactPhone = clean(formData.get("contact_phone")) || null;
-
-  if (!siteContactName || !siteContactPhone) {
-    redirect(`/jobs/${id}/edit?error=${encodeURIComponent(CRANE_JOB_SITE_CONTACT_ERROR)}`);
-  }
-
   const priceMode = clean(formData.get("price_mode")) || "full_job";
   const excludeWeekends = clean(formData.get("exclude_weekends")) === "on";
   const fullJobPrice = numberOrZero(formData.get("full_job_price"));
@@ -117,8 +109,8 @@ async function updateJob(formData: FormData) {
     supplier_id: (primarySupplierLink?.supplier_id ?? clean(formData.get("supplier_id"))) || null,
     site_name: clean(formData.get("site_name")) || null,
     site_address: clean(formData.get("site_address")) || null,
-    contact_name: siteContactName,
-    contact_phone: siteContactPhone,
+    contact_name: clean(formData.get("contact_name")) || null,
+    contact_phone: clean(formData.get("contact_phone")) || null,
     start_date: startDate,
     end_date: endDate,
     job_date: startDate,
@@ -404,13 +396,13 @@ export default async function EditJobPage({
 
             <div style={grid2}>
               <div style={fieldWrap}>
-                <label style={labelStyle}>Site contact name *</label>
-                <input name="contact_name" defaultValue={job.contact_name ?? ""} style={inputStyle} required />
+                <label style={labelStyle}>Site contact name</label>
+                <input name="contact_name" defaultValue={job.contact_name ?? ""} style={inputStyle} />
               </div>
 
               <div style={fieldWrap}>
-                <label style={labelStyle}>Site contact number *</label>
-                <input name="contact_phone" defaultValue={job.contact_phone ?? ""} style={inputStyle} required />
+                <label style={labelStyle}>Site contact phone</label>
+                <input name="contact_phone" defaultValue={job.contact_phone ?? ""} style={inputStyle} />
               </div>
             </div>
 
