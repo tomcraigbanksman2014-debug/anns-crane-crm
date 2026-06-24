@@ -623,6 +623,32 @@ async function updateTransportRequirementFlags(formData: FormData) {
   redirect(`/transport-jobs/${transportJobId}?success=${encodeURIComponent("Allocation requirements updated.")}`);
 }
 
+async function updateTransportInternalNotes(formData: FormData) {
+  "use server";
+
+  const supabase = createSupabaseServerClient();
+  const transportJobId = clean(formData.get("transport_job_id"));
+  const internalNotes = clean(formData.get("internal_notes"));
+
+  if (!transportJobId) {
+    redirect(`/transport-jobs?error=${encodeURIComponent("Transport job id missing.")}`);
+  }
+
+  const { error } = await supabase
+    .from("transport_jobs")
+    .update({
+      internal_notes: internalNotes || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", transportJobId);
+
+  if (error) {
+    redirect(`/transport-jobs/${transportJobId}?error=${encodeURIComponent(error.message || "Could not save internal transport notes.")}`);
+  }
+
+  redirect(`/transport-jobs/${transportJobId}?success=${encodeURIComponent("Internal transport notes updated.")}`);
+}
+
 async function updateTransportJob(formData: FormData) {
   "use server";
 
@@ -1365,6 +1391,28 @@ export default async function TransportJobDetailPage({
                     ))}
                   </div>
                 )}
+              </section>
+
+              <section style={{ ...sectionCard, marginTop: 18, border: "1px solid rgba(59,130,246,0.28)" }}>
+                <div style={sectionTitle}>Internal transport notes</div>
+                <div style={{ ...softPanel, marginTop: 12, marginBottom: 12, fontSize: 13, opacity: 0.82 }}>
+                  Internal only for this transport job. These notes are not copied into lift plans, hire agreements, RAMS or customer-facing documents.
+                </div>
+                <form action={updateTransportInternalNotes} style={{ display: "grid", gap: 10 }}>
+                  <input type="hidden" name="transport_job_id" value={(item as any).id} />
+                  <textarea
+                    name="internal_notes"
+                    rows={7}
+                    defaultValue={(item as any)?.internal_notes ?? ""}
+                    placeholder="Add private notes for this transport job only..."
+                    style={textareaStyle}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                    <ServerSubmitButton style={primaryBtn} pendingText="Saving notes…">
+                      Save internal notes
+                    </ServerSubmitButton>
+                  </div>
+                </form>
               </section>
 
               <section style={{ ...sectionCard, marginTop: 18 }}>
