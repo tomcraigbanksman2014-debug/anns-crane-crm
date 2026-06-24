@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { assertOperatorAvailable } from "../../../../lib/staffAvailability";
+import { CRANE_JOB_SITE_CONTACT_ERROR } from "../../../../lib/jobContactValidation";
 
 function toTimeOnly(value: string | null | undefined) {
   if (!value) return null;
@@ -167,7 +168,11 @@ export async function POST(
     };
 
     if (!jobPayload.job_date) {
-      return NextResponse.redirect(new URL(`/bookings/${params.id}`, req.url));
+      return NextResponse.redirect(new URL(`/bookings/${params.id}?error=${encodeURIComponent("Job date is required before converting to a job.")}`, req.url));
+    }
+
+    if (!jobPayload.contact_name || !jobPayload.contact_phone) {
+      return NextResponse.redirect(new URL(`/bookings/${params.id}?error=${encodeURIComponent(CRANE_JOB_SITE_CONTACT_ERROR + " Add Site contact and Site phone to the booking driver notes before converting.")}`, req.url));
     }
 
     if (jobPayload.operator_id) {
