@@ -33,6 +33,10 @@ function toStringArray(value: unknown) {
   return safeArrayOfText(value);
 }
 
+function truthyFormValue(value: FormDataEntryValue | null) {
+  return ["1", "true", "yes", "on", "full"].includes(String(value ?? "").trim().toLowerCase());
+}
+
 async function transcribeAudio(audio: File) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
@@ -262,6 +266,7 @@ export async function POST(req: Request) {
     const phoneNumber = cleanText(formData.get("phone_number"));
     const pagePath = cleanText(formData.get("page_path"));
     const sourceContext = cleanText(formData.get("source_context"));
+    const saveFullTranscript = truthyFormValue(formData.get("save_full_transcript"));
 
     const transcript = await transcribeAudio(audio);
     const extracted = await summariseTranscript(transcript, phoneNumber, direction);
@@ -280,7 +285,7 @@ export async function POST(req: Request) {
       phone_number_digits: phoneDigits(phoneNumber),
       page_path: pagePath,
       source_context: sourceContext,
-      transcript,
+      transcript: saveFullTranscript ? transcript : null,
       summary: extracted.summary,
       job_requirements: extracted.job_requirements,
       action_points: extracted.action_points,
@@ -296,7 +301,7 @@ export async function POST(req: Request) {
       matched_transport_job_id: match.transportJobId,
       match_confidence: match.confidence,
       match_reason: match.reason,
-      status: "transcribed",
+      status: saveFullTranscript ? "transcribed" : "summary_only",
     };
 
     const { data, error } = await auth.admin
