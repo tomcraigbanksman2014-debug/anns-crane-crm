@@ -190,6 +190,72 @@ function buildCallAngle(company: string, normalHire: string, lastJobDate: string
   return `${last} Just checking in with ${company} to see if you've got ${focus}.`;
 }
 
+type JobContactOption = {
+  contact_name_snapshot: string | null;
+  phone_snapshot: string | null;
+  contact_source: string | null;
+  contact_source_detail: string | null;
+  contact_last_used_on: string | null;
+};
+
+function addContactOption(contacts: Map<string, JobContactOption>, option: JobContactOption) {
+  const name = clean(option.contact_name_snapshot);
+  const phone = clean(option.phone_snapshot);
+
+  if (!name && !phone) return;
+
+  const phoneKey = normalisePhone(phone);
+  const key = phoneKey
+    ? `phone:${phoneKey}`
+    : `name:${name.toLowerCase()}|source:${clean(option.contact_source).toLowerCase()}`;
+
+  const next: JobContactOption = {
+    contact_name_snapshot: name || null,
+    phone_snapshot: phone || null,
+    contact_source: clean(option.contact_source) || null,
+    contact_source_detail: clean(option.contact_source_detail) || null,
+    contact_last_used_on: dateOnly(option.contact_last_used_on) || null,
+  };
+
+  const existing = contacts.get(key);
+  if (!existing) {
+    contacts.set(key, next);
+    return;
+  }
+
+  const existingDate = dateOnly(existing.contact_last_used_on);
+  const nextDate = dateOnly(next.contact_last_used_on);
+
+  if (nextDate && (!existingDate || nextDate >= existingDate)) {
+    contacts.set(key, {
+      ...existing,
+      ...next,
+      contact_name_snapshot: next.contact_name_snapshot || existing.contact_name_snapshot,
+      phone_snapshot: next.phone_snapshot || existing.phone_snapshot,
+    });
+  }
+}
+
+function craneJobContactDetail(job: any) {
+  return [
+    clean(job?.job_number) ? `Job ${job.job_number}` : null,
+    clean(job?.site_name) || clean(job?.site_address) || null,
+    fmtDate(craneJobDate(job)),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+}
+
+function transportJobContactDetail(job: any) {
+  return [
+    clean(job?.transport_number) ? `Transport ${job.transport_number}` : null,
+    [clean(job?.collection_address), clean(job?.delivery_address)].filter(Boolean).join(" → ") || null,
+    fmtDate(transportJobDate(job)),
+  ]
+    .filter(Boolean)
+    .join(" • ");
+}
+
 function serviceMatches(filter: string, normalHire: string, craneCount: number, transportCount: number) {
   const lower = normalHire.toLowerCase();
   if (filter === "all") return true;
@@ -211,6 +277,9 @@ type CampaignCandidate = {
   contact_name_snapshot: string | null;
   phone_snapshot: string | null;
   email_snapshot: string | null;
+  contact_source: string | null;
+  contact_source_detail: string | null;
+  contact_last_used_on: string | null;
   last_job_date: string | null;
   last_job_type: string | null;
   last_site_area: string | null;
@@ -268,6 +337,8 @@ async function generateCallCampaign(formData: FormData) {
         end_date,
         site_name,
         site_address,
+        contact_name,
+        contact_phone,
         hire_type,
         lift_type,
         status,
@@ -299,6 +370,10 @@ async function generateCallCampaign(formData: FormData) {
         delivery_date,
         collection_address,
         delivery_address,
+        collection_contact_name,
+        collection_contact_phone,
+        delivery_contact_name,
+        delivery_contact_phone,
         job_type,
         load_description,
         trailer_type,
@@ -399,7 +474,6 @@ async function generateCallCampaign(formData: FormData) {
     const jobCount = craneJobs.length + transportJobs.length;
 
     if (jobCount === 0 || !lastJobDate) continue;
-    if (!includeNoPhone && !normalisePhone(client?.phone)) continue;
     if (cutoffDate && lastJobDate > cutoffDate) continue;
     if (recentlyCalledClientIds.has(clientId)) continue;
 
@@ -413,24 +487,75 @@ async function generateCallCampaign(formData: FormData) {
     const lastValue = rowValue(lastCrane) ?? rowValue(lastTransport) ?? rowValue(lastQuote);
     const company = clean(client?.company_name) || "Customer";
 
-    candidates.push({
-      client_id: clientId,
-      company_name_snapshot: company,
+    const contactOptions = new Map<string, JobContactOption>();
+
+    addContactOption(contactOptions, {
       contact_name_snapshot: clean(client?.contact_name) || null,
       phone_snapshot: clean(client?.phone) || null,
-      email_snapshot: clean(client?.email) || null,
-      last_job_date: lastJobDate,
-      last_job_type: latestJobType(lastCrane, lastTransport),
-      last_site_area: latestSiteArea(lastCrane, lastTransport),
-      normal_hire: normalHire,
-      suggested_call_angle: buildCallAngle(company, normalHire, lastJobDate, serviceFocus),
-      crane_job_count: craneJobs.length,
-      transport_job_count: transportJobs.length,
-      total_job_count: jobCount,
-      last_quote_date: dateOnly(lastQuote?.quote_date || lastQuote?.created_at) || null,
-      last_value: lastValue,
-      sort_order: 0,
+      contact_source: "Customer profile",
+      contact_source_detail: "Main customer contact",
+      contact_last_used_on: lastJobDate,
     });
+
+    for (const job of craneJobs) {
+      addContactOption(contactOptions, {
+        contact_name_snapshot: clean(job?.contact_name) || null,
+        phone_snapshot: clean(job?.contact_phone) || null,
+        contact_source: "Crane job contact",
+        contact_source_detail: craneJobContactDetail(job),
+        contact_last_used_on: craneJobDate(job),
+      });
+    }
+
+    for (const job of transportJobs) {
+      addContactOption(contactOptions, {
+        contact_name_snapshot: clean(job?.collection_contact_name) || null,
+        phone_snapshot: clean(job?.collection_contact_phone) || null,
+        contact_source: "Transport pickup contact",
+        contact_source_detail: transportJobContactDetail(job),
+        contact_last_used_on: transportJobDate(job),
+      });
+
+      addContactOption(contactOptions, {
+        contact_name_snapshot: clean(job?.delivery_contact_name) || null,
+        phone_snapshot: clean(job?.delivery_contact_phone) || null,
+        contact_source: "Transport delivery contact",
+        contact_source_detail: transportJobContactDetail(job),
+        contact_last_used_on: transportJobDate(job),
+      });
+    }
+
+    const contactsToCall = Array.from(contactOptions.values())
+      .filter((contact) => includeNoPhone || Boolean(normalisePhone(contact.phone_snapshot)))
+      .sort((a, b) => {
+        const aPhone = normalisePhone(a.phone_snapshot) ? 0 : 1;
+        const bPhone = normalisePhone(b.phone_snapshot) ? 0 : 1;
+        return aPhone - bPhone || String(b.contact_last_used_on ?? "").localeCompare(String(a.contact_last_used_on ?? ""));
+      });
+
+    for (const contact of contactsToCall) {
+      candidates.push({
+        client_id: clientId,
+        company_name_snapshot: company,
+        contact_name_snapshot: contact.contact_name_snapshot,
+        phone_snapshot: contact.phone_snapshot,
+        email_snapshot: clean(client?.email) || null,
+        contact_source: contact.contact_source,
+        contact_source_detail: contact.contact_source_detail,
+        contact_last_used_on: contact.contact_last_used_on,
+        last_job_date: lastJobDate,
+        last_job_type: latestJobType(lastCrane, lastTransport),
+        last_site_area: latestSiteArea(lastCrane, lastTransport),
+        normal_hire: normalHire,
+        suggested_call_angle: buildCallAngle(company, normalHire, lastJobDate, serviceFocus),
+        crane_job_count: craneJobs.length,
+        transport_job_count: transportJobs.length,
+        total_job_count: jobCount,
+        last_quote_date: dateOnly(lastQuote?.quote_date || lastQuote?.created_at) || null,
+        last_value: lastValue,
+        sort_order: 0,
+      });
+    }
   }
 
   candidates.sort((a, b) => {
@@ -499,7 +624,7 @@ async function generateCallCampaign(formData: FormData) {
     },
   });
 
-  redirect(`/sales-hub/call-campaigns/${campaign.id}?success=${encodeURIComponent(`Campaign created with ${selected.length} customers.`)}`);
+  redirect(`/sales-hub/call-campaigns/${campaign.id}?success=${encodeURIComponent(`Campaign created with ${selected.length} contacts.`)}`);
 }
 
 type CallCampaignsPageProps = {
@@ -560,7 +685,7 @@ export default async function CallCampaignsPage({ searchParams }: CallCampaignsP
         <section style={cardStyle}>
           <h2 style={sectionTitle}>Generate call campaign</h2>
           <p style={{ marginTop: -6, opacity: 0.75 }}>
-            This pulls company name, contact, clickable phone number, last job date and normal hire from crane and transport history.
+            This pulls customer-level contacts and job-level contacts/numbers used on crane and transport jobs.
           </p>
 
           <form action={generateCallCampaign} style={{ display: "grid", gap: 14 }}>
@@ -607,14 +732,14 @@ export default async function CallCampaignsPage({ searchParams }: CallCampaignsP
                 </select>
               </label>
               <label style={labelStyle}>
-                Max customers
+                Max contacts
                 <input name="limit" type="number" min="10" max="500" defaultValue="100" style={inputStyle} />
               </label>
             </div>
 
             <label style={{ display: "flex", gap: 8, alignItems: "center", fontWeight: 800 }}>
               <input type="checkbox" name="include_no_phone" />
-              Include customers with no phone number
+              Include contacts/customers with no phone number
             </label>
 
             <label style={labelStyle}>
