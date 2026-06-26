@@ -19,8 +19,11 @@ type TranscriptRow = {
   detected_job_type?: string | null;
   matched_client_id?: string | null;
   matched_client_name?: string | null;
+  matched_job_id?: string | null;
+  matched_transport_job_id?: string | null;
   match_confidence?: string | null;
   match_reason?: string | null;
+  status?: string | null;
 };
 
 type CustomerRow = {
@@ -56,11 +59,7 @@ function bestMimeType() {
   if (typeof window === "undefined") return "";
   const MediaRecorderCtor = (window as any).MediaRecorder;
   if (!MediaRecorderCtor?.isTypeSupported) return "";
-  const options = [
-    "audio/webm;codecs=opus",
-    "audio/webm",
-    "audio/mp4",
-  ];
+  const options = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
   return options.find((type) => MediaRecorderCtor.isTypeSupported(type)) || "";
 }
 
@@ -95,9 +94,7 @@ function createAudioRecorder(stream: MediaStream) {
     }
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new Error("Could not start the audio recorder for the selected source.");
+  throw lastError instanceof Error ? lastError : new Error("Could not start the audio recorder for the selected source.");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -119,6 +116,35 @@ function secondsLabel(total: number) {
   const minutes = Math.floor(total / 60);
   const seconds = total % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function actionSuggestion(row: TranscriptRow | null) {
+  const text = [row?.detected_job_type, row?.job_requirements, row?.summary]
+    .join(" ")
+    .toLowerCase();
+
+  if (!text.trim()) return "Review call and choose an action.";
+
+  if (/(transport|haulage|hiab|low loader|lowloader|trailer|collect|collection|deliver|delivery|move|machine|forklift|container|cabin)/i.test(text)) {
+    return "Suggested action: create a transport job.";
+  }
+
+  if (/(crane|lift|lifting|contract lift|cpa|spider|jekko|40\s*t|40 ton|60\s*t|60 ton|80\s*t|80 ton|ton crane)/i.test(text)) {
+    return "Suggested action: create a crane job.";
+  }
+
+  if (/(quote|price|cost|rate|enquiry|requirement)/i.test(text)) {
+    return "Suggested action: review and create the right job/quote from the call.";
+  }
+
+  return "Suggested action: review call and add a follow-up note.";
+}
+
+function defaultJobType(row: TranscriptRow | null) {
+  const text = [row?.detected_job_type, row?.job_requirements, row?.summary].join(" ").toLowerCase();
+  if (/(transport|haulage|hiab|low loader|trailer|collect|collection|deliver|delivery|move|container|cabin|forklift)/i.test(text)) return "transport";
+  if (/(crane|lift|spider|jekko|contract lift|cpa|ton crane|40 ton|60 ton|80 ton)/i.test(text)) return "crane";
+  return "unknown";
 }
 
 export default function FloatingCallTranscriber() {
@@ -145,6 +171,17 @@ export default function FloatingCallTranscriber() {
   const [newContactName, setNewContactName] = useState("");
   const [newCustomerPhone, setNewCustomerPhone] = useState("");
   const [newCustomerEmail, setNewCustomerEmail] = useState("");
+  const [savingEdits, setSavingEdits] = useState(false);
+  const [creatingAction, setCreatingAction] = useState<"crane" | "transport" | null>(null);
+
+  const [editSummary, setEditSummary] = useState("");
+  const [editRequirements, setEditRequirements] = useState("");
+  const [editActions, setEditActions] = useState("");
+  const [editContactName, setEditContactName] = useState("");
+  const [editContactPhone, setEditContactPhone] = useState("");
+  const [editSiteAddress, setEditSiteAddress] = useState("");
+  const [editJobDate, setEditJobDate] = useState("");
+  const [editJobType, setEditJobType] = useState("");
 
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -184,6 +221,18 @@ export default function FloatingCallTranscriber() {
       // ignore storage issues
     }
   }, []);
+
+  useEffect(() => {
+    if (!result) return;
+    setEditSummary(result.summary || "");
+    setEditRequirements(result.job_requirements || "");
+    setEditActions(Array.isArray(result.action_points) ? result.action_points.join("\n") : "");
+    setEditContactName(result.detected_contact_name || "");
+    setEditContactPhone(result.phone_number || result.detected_phone_numbers?.[0] || "");
+    setEditSiteAddress(result.detected_site_address || "");
+    setEditJobDate(result.detected_job_date || "");
+    setEditJobType(result.detected_job_type || defaultJobType(result));
+  }, [result?.id]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -270,7 +319,7 @@ export default function FloatingCallTranscriber() {
     streamRef.current = null;
   }
 
-  async function startRecording(mode: "mic" | "screen") {
+  async function startRecording() {
     setError(null);
     setNotice(null);
     setResult(null);
@@ -282,55 +331,29 @@ export default function FloatingCallTranscriber() {
     }
 
     try {
-      let captureStream: MediaStream;
-      let recordingStream: MediaStream;
-
-      if (mode === "screen") {
-        const mediaDevices = navigator.mediaDevices as any;
-        captureStream = await mediaDevices.getDisplayMedia({
-          video: true,
-          audio: true,
-        });
-
-        const audioTracks = captureStream.getAudioTracks();
-        if (audioTracks.length === 0) {
-          captureStream.getTracks().forEach((track) => track.stop());
-          setError("No audio was shared. Choose the Evonex window/tab and keep the audio sharing option switched on.");
-          return;
-        }
-
-        // Record only the audio tracks. Recording the full screen/window stream with an audio-only
-        // MIME type can cause Chrome to throw: Failed to execute 'start' on 'MediaRecorder'.
-        recordingStream = new MediaStream(audioTracks);
-      } else {
-        captureStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          },
-          video: false,
-        });
-        recordingStream = captureStream;
-      }
+      const captureStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      });
 
       cleanupStream();
       streamRef.current = captureStream;
       chunksRef.current = [];
 
-      const { recorder, mimeType } = createAudioRecorder(recordingStream);
+      const { recorder, mimeType } = createAudioRecorder(captureStream);
 
       recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
+        if (event.data && event.data.size > 0) chunksRef.current.push(event.data);
       };
 
       recorder.onstop = () => {
         const chunks = [...chunksRef.current];
         chunksRef.current = [];
         cleanupStream();
-
         const blob = new Blob(chunks, { type: mimeType || "audio/webm" });
         void submitRecording(blob);
       };
@@ -339,24 +362,13 @@ export default function FloatingCallTranscriber() {
       recorder.start(1000);
       setRecording(true);
       setSeconds(0);
-      timerRef.current = window.setInterval(() => {
-        setSeconds((value) => value + 1);
-      }, 1000);
-
-      if (mode === "screen") {
-        setNotice("Recording shared screen/system audio. Keep the call audio playing while recording.");
-      } else {
-        setNotice("Recording call audio from your selected microphone input. With Voicemeeter Out 1 selected, this should capture both sides.");
-      }
+      timerRef.current = window.setInterval(() => setSeconds((value) => value + 1), 1000);
+      setNotice("Recording call audio from your selected Chrome microphone. With Voicemeeter Out 1 selected, this should capture both sides.");
     } catch (err: any) {
       setError(err?.message || "Could not start recording.");
       cleanupStream();
       setRecording(false);
     }
-  }
-
-  function startDefaultRecording() {
-    void startRecording("mic");
   }
 
   function stopRecording() {
@@ -382,9 +394,7 @@ export default function FloatingCallTranscriber() {
 
   async function submitRecording(blob: Blob) {
     try {
-      if (!blob.size) {
-        throw new Error("Recording was empty.");
-      }
+      if (!blob.size) throw new Error("Recording was empty.");
 
       const context = clickedContextRef.current;
       const form = new FormData();
@@ -396,16 +406,10 @@ export default function FloatingCallTranscriber() {
       form.append("source_context", context?.sourceText || "");
       form.append("save_full_transcript", saveFullTranscriptRef.current ? "true" : "false");
 
-      const res = await fetch("/api/call-transcripts/transcribe", {
-        method: "POST",
-        body: form,
-      });
-
+      const res = await fetch("/api/call-transcripts/transcribe", { method: "POST", body: form });
       const data = await res.json().catch(() => ({}));
 
-      if (!res.ok) {
-        throw new Error(data?.error || "Could not transcribe call.");
-      }
+      if (!res.ok) throw new Error(data?.error || "Could not transcribe call.");
 
       const next = data.transcript as TranscriptRow;
       setResult(next);
@@ -418,6 +422,82 @@ export default function FloatingCallTranscriber() {
       setError(err?.message || "Could not transcribe recording.");
     } finally {
       setProcessing(false);
+    }
+  }
+
+  function editablePayload() {
+    return {
+      summary: editSummary,
+      job_requirements: editRequirements,
+      action_points: editActions
+        .split("\n")
+        .map((item) => item.trim())
+        .filter(Boolean),
+      detected_contact_name: editContactName,
+      detected_phone_numbers: editContactPhone ? [editContactPhone] : [],
+      detected_site_address: editSiteAddress,
+      detected_job_date: editJobDate,
+      detected_job_type: editJobType,
+    };
+  }
+
+  async function saveTranscriptEdits(showSavedNotice = true) {
+    if (!result?.id) return null;
+    setSavingEdits(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/call-transcripts/${result.id}/update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editablePayload()),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not save edited call details.");
+      setResult(data.transcript);
+      if (showSavedNotice) setNotice("Call summary/details saved.");
+      await loadRecent();
+      return data.transcript as TranscriptRow;
+    } catch (err: any) {
+      setError(err?.message || "Could not save edited call details.");
+      return null;
+    } finally {
+      setSavingEdits(false);
+    }
+  }
+
+  async function createFromTranscript(kind: "crane" | "transport") {
+    if (!result?.id) return;
+    if (!result.matched_client_id) {
+      setError("Link or create a customer before creating a job from the call.");
+      return;
+    }
+
+    setCreatingAction(kind);
+    setError(null);
+
+    try {
+      const saved = await saveTranscriptEdits(false);
+      if (!saved?.id) return;
+
+      const res = await fetch(`/api/call-transcripts/${saved.id}/create-${kind}-job`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || `Could not create ${kind} job.`);
+
+      setResult(data.transcript || saved);
+      setNotice(data.message || `${kind === "crane" ? "Crane" : "Transport"} job created from call summary.`);
+      await loadRecent();
+
+      const href = kind === "crane" ? `/jobs/${data.job_id}` : `/transport-jobs/${data.transport_job_id}`;
+      if (data.job_id || data.transport_job_id) window.location.href = href;
+    } catch (err: any) {
+      setError(err?.message || `Could not create ${kind} job.`);
+    } finally {
+      setCreatingAction(null);
     }
   }
 
@@ -486,7 +566,7 @@ export default function FloatingCallTranscriber() {
           contact_name: newContactName,
           phone: newCustomerPhone,
           email: newCustomerEmail,
-          notes: result.summary ? `Created from call transcript.\n\n${result.summary}` : "Created from call transcript.",
+          notes: result.summary ? `Created from call summary.\n\n${result.summary}` : "Created from call summary.",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -569,7 +649,6 @@ export default function FloatingCallTranscriber() {
                   <option value="full">Full transcript + summary</option>
                 </select>
               </label>
-
             </div>
 
             <div style={privacyNoteStyle}>
@@ -587,12 +666,12 @@ export default function FloatingCallTranscriber() {
 
             <div style={recordActionsStyle}>
               {!recording ? (
-                <button type="button" onClick={startDefaultRecording} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
+                <button type="button" onClick={startRecording} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
                   Start call recording
                 </button>
               ) : (
                 <button type="button" onClick={stopRecording} style={dangerButtonStyle}>
-                  Stop & transcribe • {secondsLabel(seconds)}
+                  Stop & summarise • {secondsLabel(seconds)}
                 </button>
               )}
             </div>
@@ -612,25 +691,62 @@ export default function FloatingCallTranscriber() {
                     <div style={{ opacity: 0.75 }}>{result.match_reason || result.match_confidence}</div>
                   </div>
                 ) : (
-                  <div style={{ opacity: 0.78 }}>No customer linked yet. Search or create one below.</div>
+                  <div style={{ opacity: 0.78 }}>No customer linked yet. Search or create one below before creating a job.</div>
                 )}
               </div>
 
-              <Info label="Summary" value={result.summary} />
-              <Info label="Job requirements" value={result.job_requirements} />
-              <Info label="Detected customer" value={result.detected_customer_name} />
-              <Info label="Detected contact" value={result.detected_contact_name} />
-              <Info label="Detected date/time" value={result.detected_job_date} />
-              <Info label="Detected site/address" value={result.detected_site_address} />
-
-              {Array.isArray(result.action_points) && result.action_points.length ? (
-                <div style={infoBlockStyle}>
-                  <div style={infoLabelStyle}>Action points</div>
-                  <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
-                    {result.action_points.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
-                  </ul>
+              <div style={actionBoxStyle}>
+                <div style={infoLabelStyle}>Recommended next step</div>
+                <div style={{ fontWeight: 900 }}>{actionSuggestion({ ...result, summary: editSummary, job_requirements: editRequirements, detected_job_type: editJobType })}</div>
+                <div style={{ marginTop: 8, opacity: 0.76 }}>
+                  Check the editable details below, then create the job. The call summary will be saved as internal notes on the job and added to the customer profile notes.
                 </div>
-              ) : null}
+              </div>
+
+              <div style={editPanelStyle}>
+                <div style={sectionTitleStyle}>Editable call summary/details</div>
+                <label style={labelStyle}>
+                  Summary
+                  <textarea value={editSummary} onChange={(e) => setEditSummary(e.target.value)} rows={4} style={textareaStyle} />
+                </label>
+
+                <label style={labelStyle}>
+                  Requirements
+                  <textarea value={editRequirements} onChange={(e) => setEditRequirements(e.target.value)} rows={3} style={textareaStyle} />
+                </label>
+
+                <label style={labelStyle}>
+                  Action points, one per line
+                  <textarea value={editActions} onChange={(e) => setEditActions(e.target.value)} rows={3} style={textareaStyle} placeholder="e.g. Create draft crane job for Wednesday" />
+                </label>
+
+                <div style={fieldGridStyle}>
+                  <label style={labelStyle}>Contact name<input value={editContactName} onChange={(e) => setEditContactName(e.target.value)} style={inputStyle} /></label>
+                  <label style={labelStyle}>Contact number<input value={editContactPhone} onChange={(e) => setEditContactPhone(e.target.value)} style={inputStyle} /></label>
+                  <label style={labelStyle}>Date/time heard<input value={editJobDate} onChange={(e) => setEditJobDate(e.target.value)} style={inputStyle} placeholder="Wednesday, 01/07/2026, tomorrow..." /></label>
+                  <label style={labelStyle}>Job type<input value={editJobType} onChange={(e) => setEditJobType(e.target.value)} style={inputStyle} placeholder="crane / transport / HIAB..." /></label>
+                </div>
+
+                <label style={labelStyle}>
+                  Site / collection / delivery address
+                  <textarea value={editSiteAddress} onChange={(e) => setEditSiteAddress(e.target.value)} rows={3} style={textareaStyle} />
+                </label>
+
+                <button type="button" onClick={() => void saveTranscriptEdits(true)} disabled={savingEdits} style={secondaryButtonStyle}>
+                  {savingEdits ? "Saving..." : "Save edited call details"}
+                </button>
+              </div>
+
+              <div style={buttonPanelStyle}>
+                <button type="button" onClick={() => void createFromTranscript("crane")} disabled={creatingAction !== null || !result.matched_client_id} style={primaryButtonStyle}>
+                  {creatingAction === "crane" ? "Creating crane job..." : "Create crane job"}
+                </button>
+                <button type="button" onClick={() => void createFromTranscript("transport")} disabled={creatingAction !== null || !result.matched_client_id} style={secondaryButtonStyle}>
+                  {creatingAction === "transport" ? "Creating transport job..." : "Create transport job"}
+                </button>
+                {result.matched_job_id ? <a href={`/jobs/${result.matched_job_id}`} style={secondaryLinkButtonStyle}>Open created crane job</a> : null}
+                {result.matched_transport_job_id ? <a href={`/transport-jobs/${result.matched_transport_job_id}`} style={secondaryLinkButtonStyle}>Open created transport job</a> : null}
+              </div>
 
               <div style={inlineButtonRowStyle}>
                 {result.transcript ? (
@@ -708,16 +824,6 @@ export default function FloatingCallTranscriber() {
   );
 }
 
-function Info({ label, value }: { label: string; value?: string | null }) {
-  if (!value) return null;
-  return (
-    <div style={infoBlockStyle}>
-      <div style={infoLabelStyle}>{label}</div>
-      <div>{value}</div>
-    </div>
-  );
-}
-
 const floatingButtonStyle: React.CSSProperties = {
   position: "fixed",
   right: 22,
@@ -733,16 +839,14 @@ const floatingButtonStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-const floatingButtonRecordingStyle: React.CSSProperties = {
-  background: "#b91c1c",
-};
+const floatingButtonRecordingStyle: React.CSSProperties = { background: "#b91c1c" };
 
 const panelStyle: React.CSSProperties = {
   position: "fixed",
   right: 22,
   bottom: 145,
-  width: "min(620px, calc(100vw - 24px))",
-  maxHeight: "min(790px, calc(100vh - 170px))",
+  width: "min(700px, calc(100vw - 24px))",
+  maxHeight: "min(840px, calc(100vh - 170px))",
   overflowY: "auto",
   zIndex: 75,
   background: "#edf3f9",
@@ -752,264 +856,38 @@ const panelStyle: React.CSSProperties = {
   boxShadow: "0 22px 70px rgba(0,0,0,0.32)",
 };
 
-const panelHeaderStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "flex-start",
-  gap: 12,
-  marginBottom: 10,
-};
-
-const titleStyle: React.CSSProperties = {
-  fontSize: 22,
-  fontWeight: 1000,
-};
-
-const subtitleStyle: React.CSSProperties = {
-  marginTop: 3,
-  opacity: 0.68,
-  fontWeight: 800,
-};
-
-const closeButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.12)",
-  background: "#fff",
-  borderRadius: 12,
-  width: 38,
-  height: 38,
-  fontSize: 24,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const cardStyle: React.CSSProperties = {
-  background: "rgba(255,255,255,0.82)",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 16,
-  padding: 14,
-  marginTop: 12,
-};
-
-const fieldGridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-  gap: 10,
-};
-
-const labelStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 6,
-  fontSize: 13,
-  fontWeight: 900,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  boxSizing: "border-box",
-  border: "1px solid rgba(0,0,0,0.15)",
-  borderRadius: 11,
-  padding: "10px 11px",
-  fontWeight: 750,
-  background: "#fff",
-};
-
-const privacyNoteStyle: React.CSSProperties = {
-  marginTop: 10,
-  padding: "10px 11px",
-  borderRadius: 12,
-  background: "#f8fafc",
-  border: "1px solid rgba(0,0,0,0.08)",
-  fontSize: 12,
-  fontWeight: 800,
-  color: "#475569",
-  lineHeight: 1.45,
-};
-
-const recordActionsStyle: React.CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: 10,
-  marginTop: 12,
-};
-
-const primaryButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.14)",
-  background: "#111",
-  color: "#fff",
-  borderRadius: 12,
-  padding: "11px 14px",
-  fontWeight: 1000,
-  cursor: "pointer",
-  textDecoration: "none",
-};
-
-const secondaryButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.14)",
-  background: "#fff",
-  color: "#111",
-  borderRadius: 12,
-  padding: "11px 14px",
-  fontWeight: 1000,
-  cursor: "pointer",
-  textDecoration: "none",
-};
-
-const secondaryLinkButtonStyle: React.CSSProperties = {
-  ...secondaryButtonStyle,
-  display: "inline-block",
-};
-
-const summaryOnlyBadgeStyle: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  border: "1px solid rgba(15,23,42,0.12)",
-  background: "#f1f5f9",
-  color: "#334155",
-  borderRadius: 12,
-  padding: "10px 12px",
-  fontWeight: 950,
-};
-
-const dangerButtonStyle: React.CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#b91c1c",
-};
-
-const tinyButtonStyle: React.CSSProperties = {
-  border: "1px solid rgba(0,0,0,0.14)",
-  background: "#fff",
-  borderRadius: 10,
-  padding: "7px 10px",
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const warningStyle: React.CSSProperties = {
-  padding: 10,
-  borderRadius: 13,
-  background: "#fff7ed",
-  border: "1px solid #fed7aa",
-  fontSize: 13,
-  fontWeight: 750,
-};
-
-const errorStyle: React.CSSProperties = {
-  padding: 10,
-  borderRadius: 13,
-  background: "#fee2e2",
-  border: "1px solid #fecaca",
-  fontWeight: 850,
-  marginTop: 10,
-};
-
-const noticeStyle: React.CSSProperties = {
-  padding: 10,
-  borderRadius: 13,
-  background: "#dcfce7",
-  border: "1px solid #bbf7d0",
-  fontWeight: 850,
-  marginTop: 10,
-};
-
-const clickedContextStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 6,
-  marginTop: 12,
-  padding: 10,
-  borderRadius: 13,
-  background: "#e0f2fe",
-  border: "1px solid #bae6fd",
-};
-
-const processingStyle: React.CSSProperties = {
-  marginTop: 12,
-  fontWeight: 900,
-  opacity: 0.78,
-};
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: 17,
-  fontWeight: 1000,
-  marginBottom: 10,
-};
-
-const matchBoxStyle: React.CSSProperties = {
-  display: "grid",
-  gap: 4,
-  padding: 10,
-  background: "#f8fafc",
-  border: "1px solid rgba(0,0,0,0.08)",
-  borderRadius: 13,
-  marginBottom: 10,
-};
-
-const linkStyle: React.CSSProperties = {
-  color: "#0f172a",
-  fontWeight: 1000,
-};
-
-const infoBlockStyle: React.CSSProperties = {
-  marginTop: 10,
-  padding: 10,
-  borderRadius: 13,
-  background: "rgba(255,255,255,0.68)",
-  border: "1px solid rgba(0,0,0,0.06)",
-};
-
-const infoLabelStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 1000,
-  textTransform: "uppercase",
-  opacity: 0.62,
-  marginBottom: 4,
-};
-
-const inlineButtonRowStyle: React.CSSProperties = {
-  display: "flex",
-  gap: 10,
-  flexWrap: "wrap",
-  marginTop: 12,
-};
-
-const transcriptBoxStyle: React.CSSProperties = {
-  marginTop: 10,
-  maxHeight: 240,
-  overflowY: "auto",
-  padding: 12,
-  borderRadius: 13,
-  background: "#fff",
-  border: "1px solid rgba(0,0,0,0.08)",
-  lineHeight: 1.55,
-};
-
-const dividerStyle: React.CSSProperties = {
-  height: 1,
-  background: "rgba(0,0,0,0.1)",
-  margin: "14px 0",
-};
-
-const searchRowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  gap: 8,
-};
-
-const customerResultStyle: React.CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: 10,
-  padding: 10,
-  borderRadius: 13,
-  background: "#f8fafc",
-  border: "1px solid rgba(0,0,0,0.08)",
-};
-
-const recentButtonStyle: React.CSSProperties = {
-  textAlign: "left",
-  border: "1px solid rgba(0,0,0,0.08)",
-  background: "#fff",
-  borderRadius: 13,
-  padding: 10,
-  cursor: "pointer",
-};
+const panelHeaderStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 };
+const titleStyle: React.CSSProperties = { fontSize: 26, fontWeight: 1000, letterSpacing: -0.4 };
+const subtitleStyle: React.CSSProperties = { marginTop: 2, opacity: 0.7, fontWeight: 900 };
+const closeButtonStyle: React.CSSProperties = { border: "1px solid rgba(0,0,0,0.16)", background: "#fff", borderRadius: 14, width: 42, height: 42, fontSize: 28, fontWeight: 1000, cursor: "pointer" };
+const cardStyle: React.CSSProperties = { background: "rgba(255,255,255,0.84)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 16, padding: 14, marginTop: 12, boxShadow: "0 10px 28px rgba(0,0,0,0.06)" };
+const warningStyle: React.CSSProperties = { padding: "10px 12px", borderRadius: 12, background: "#fff7ed", border: "1px solid #fed7aa", color: "#7c2d12", fontWeight: 800, fontSize: 13, lineHeight: 1.35 };
+const errorStyle: React.CSSProperties = { marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#fee2e2", border: "1px solid #fecaca", color: "#7f1d1d", fontWeight: 900 };
+const noticeStyle: React.CSSProperties = { marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#ecfdf5", border: "1px solid #bbf7d0", color: "#064e3b", fontWeight: 900 };
+const fieldGridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 };
+const labelStyle: React.CSSProperties = { display: "grid", gap: 6, fontSize: 13, fontWeight: 1000 };
+const inputStyle: React.CSSProperties = { width: "100%", boxSizing: "border-box", borderRadius: 12, border: "1px solid rgba(0,0,0,0.16)", padding: "12px 13px", fontSize: 14, background: "#fff" };
+const textareaStyle: React.CSSProperties = { ...inputStyle, minHeight: 92, resize: "vertical", fontFamily: "inherit" };
+const privacyNoteStyle: React.CSSProperties = { marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(248,250,252,0.8)", fontSize: 13, opacity: 0.8, fontWeight: 800 };
+const clickedContextStyle: React.CSSProperties = { marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(37,99,235,0.22)", background: "rgba(219,234,254,0.65)", display: "grid", gap: 4, fontSize: 13 };
+const recordActionsStyle: React.CSSProperties = { marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap" };
+const primaryButtonStyle: React.CSSProperties = { border: 0, borderRadius: 999, padding: "12px 18px", background: "#0f172a", color: "#fff", fontWeight: 1000, cursor: "pointer", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" };
+const secondaryButtonStyle: React.CSSProperties = { border: "1px solid rgba(0,0,0,0.16)", borderRadius: 999, padding: "11px 16px", background: "#fff", color: "#0f172a", fontWeight: 1000, cursor: "pointer", textDecoration: "none" };
+const dangerButtonStyle: React.CSSProperties = { ...primaryButtonStyle, background: "#b91c1c" };
+const processingStyle: React.CSSProperties = { marginTop: 10, fontWeight: 900, opacity: 0.76 };
+const sectionTitleStyle: React.CSSProperties = { fontSize: 20, fontWeight: 1000, marginBottom: 10 };
+const matchBoxStyle: React.CSSProperties = { padding: 12, borderRadius: 14, border: "1px solid rgba(0,0,0,0.1)", background: "#f8fafc", marginBottom: 10 };
+const actionBoxStyle: React.CSSProperties = { padding: 12, borderRadius: 14, border: "1px solid #bfdbfe", background: "#eff6ff", marginBottom: 10 };
+const editPanelStyle: React.CSSProperties = { display: "grid", gap: 10, padding: 12, borderRadius: 14, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(248,250,252,0.85)", marginTop: 10 };
+const buttonPanelStyle: React.CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12, alignItems: "center" };
+const linkStyle: React.CSSProperties = { color: "#0f172a", fontWeight: 1000 };
+const inlineButtonRowStyle: React.CSSProperties = { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginTop: 12 };
+const secondaryLinkButtonStyle: React.CSSProperties = { ...secondaryButtonStyle, display: "inline-flex", textDecoration: "none" };
+const tinyButtonStyle: React.CSSProperties = { border: "1px solid rgba(0,0,0,0.14)", background: "#fff", borderRadius: 999, padding: "7px 10px", fontWeight: 900, cursor: "pointer", width: "fit-content" };
+const summaryOnlyBadgeStyle: React.CSSProperties = { padding: "10px 12px", borderRadius: 12, border: "1px solid rgba(0,0,0,0.12)", background: "#f8fafc", fontWeight: 1000, color: "#334155" };
+const transcriptBoxStyle: React.CSSProperties = { marginTop: 10, padding: 12, borderRadius: 12, background: "#fff", border: "1px solid rgba(0,0,0,0.1)", maxHeight: 220, overflowY: "auto", lineHeight: 1.45 };
+const dividerStyle: React.CSSProperties = { height: 1, background: "rgba(0,0,0,0.1)", margin: "14px 0" };
+const searchRowStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "center" };
+const customerResultStyle: React.CSSProperties = { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", padding: 10, borderRadius: 12, background: "#f8fafc", border: "1px solid rgba(0,0,0,0.08)" };
+const recentButtonStyle: React.CSSProperties = { textAlign: "left", padding: 12, borderRadius: 12, border: "1px solid rgba(0,0,0,0.1)", background: "#fff", cursor: "pointer" };
+const infoLabelStyle: React.CSSProperties = { textTransform: "uppercase", letterSpacing: 0.3, fontSize: 12, fontWeight: 1000, opacity: 0.62, marginBottom: 4 };
