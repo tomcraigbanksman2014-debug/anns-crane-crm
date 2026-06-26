@@ -301,6 +301,12 @@ export default async function SalesHubPage() {
 
   const smartPrompts = [
     {
+      label: "Call campaigns",
+      count: craneCustomerIds.size + transportCustomerIds.size,
+      href: "/sales-hub/call-campaigns",
+      note: "Generate click-to-call lists with contact names, last job dates and normal hire history.",
+    },
+    {
       label: "Equipment history availability",
       count: craneCustomerIds.size + transportCustomerIds.size,
       href: "/sales-hub/equipment-history-campaign",
@@ -372,6 +378,9 @@ export default async function SalesHubPage() {
           </div>
 
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <a href="/sales-hub/call-campaigns" style={primaryBtnStyle}>
+              Call Campaigns
+            </a>
             <a href="/sales-hub/equipment-history-campaign" style={primaryBtnStyle}>
               Equipment history campaign
             </a>
@@ -447,6 +456,11 @@ export default async function SalesHubPage() {
               <a href="/sales-hub/workflows" style={toolCardLink}>
                 <div style={{ fontWeight: 900 }}>Workflow Tasks</div>
                 <div style={toolCardSub}>Live now</div>
+              </a>
+
+              <a href="/sales-hub/call-campaigns" style={toolCardHighlight}>
+                <div style={{ fontWeight: 1000 }}>Call Campaigns</div>
+                <div style={toolCardSub}>Generate click-to-call lists from customer history</div>
               </a>
 
               <a href="/sales-hub/call-planning" style={toolCardLink}>
