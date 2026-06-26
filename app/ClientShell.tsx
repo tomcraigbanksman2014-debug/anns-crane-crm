@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { createSupabaseBrowserClient } from "./lib/supabase/browser";
 import { displayUserNameFromEmail } from "./lib/displayUserName";
 import CrmAssistant from "../components/CrmAssistant";
+import FloatingCallTranscriber from "./components/FloatingCallTranscriber";
 
 type NavItem = {
   label: string;
@@ -511,6 +512,7 @@ export default function ClientShell({
         </main>
       </div>
 
+      {isMasterAdmin ? <FloatingCallTranscriber /> : null}
       <CrmAssistant />
     </div>
   );
