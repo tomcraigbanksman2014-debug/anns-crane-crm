@@ -38,6 +38,8 @@ type ClickedCallContext = {
   capturedAt: string;
 };
 
+type RecordingMode = "screen" | "mic";
+
 function cleanPhoneHref(href: string) {
   return decodeURIComponent(String(href ?? "").replace(/^tel:/i, "")).trim();
 }
@@ -62,6 +64,42 @@ function bestMimeType() {
     "audio/mp4",
   ];
   return options.find((type) => MediaRecorderCtor.isTypeSupported(type)) || "";
+}
+
+function createAudioRecorder(stream: MediaStream) {
+  const MediaRecorderCtor = (window as any).MediaRecorder as typeof MediaRecorder | undefined;
+  if (!MediaRecorderCtor) {
+    throw new Error("This browser does not support call recording. Use Chrome or Edge on desktop.");
+  }
+
+  const preferredMimeType = bestMimeType();
+  const attempts: Array<MediaRecorderOptions | undefined> = [];
+
+  if (preferredMimeType) {
+    attempts.push({ mimeType: preferredMimeType, audioBitsPerSecond: 64000 });
+    attempts.push({ mimeType: preferredMimeType });
+  }
+
+  attempts.push({ audioBitsPerSecond: 64000 });
+  attempts.push(undefined);
+
+  let lastError: unknown = null;
+
+  for (const options of attempts) {
+    try {
+      const recorder = options ? new MediaRecorderCtor(stream, options) : new MediaRecorderCtor(stream);
+      return {
+        recorder,
+        mimeType: options?.mimeType || recorder.mimeType || preferredMimeType || "audio/webm",
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Could not start the audio recorder for the selected source.");
 }
 
 function formatDate(value: string | null | undefined) {
@@ -100,6 +138,7 @@ export default function FloatingCallTranscriber() {
   const [recent, setRecent] = useState<TranscriptRow[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const [saveFullTranscript, setSaveFullTranscript] = useState(false);
+  const [recordingMode, setRecordingMode] = useState<RecordingMode>("screen");
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerResults, setCustomerResults] = useState<CustomerRow[]>([]);
   const [searching, setSearching] = useState(false);
@@ -144,10 +183,22 @@ export default function FloatingCallTranscriber() {
     setMediaSupported(supportsMediaRecorder());
     try {
       setSaveFullTranscript(window.localStorage.getItem("anns_call_transcriber_save_full") === "1");
+      const savedMode = window.localStorage.getItem("anns_call_transcriber_default_mode");
+      if (savedMode === "mic" || savedMode === "screen") {
+        setRecordingMode(savedMode);
+      }
     } catch {
       // ignore storage issues
     }
   }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("anns_call_transcriber_default_mode", recordingMode);
+    } catch {
+      // ignore storage issues
+    }
+  }, [recordingMode]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -246,22 +297,28 @@ export default function FloatingCallTranscriber() {
     }
 
     try {
-      let stream: MediaStream;
+      let captureStream: MediaStream;
+      let recordingStream: MediaStream;
 
       if (mode === "screen") {
         const mediaDevices = navigator.mediaDevices as any;
-        stream = await mediaDevices.getDisplayMedia({
+        captureStream = await mediaDevices.getDisplayMedia({
           video: true,
           audio: true,
         });
 
-        if (stream.getAudioTracks().length === 0) {
-          cleanupStream();
-          setError("No audio was shared. Choose a screen/window/tab and tick the audio sharing option if your browser shows one.");
+        const audioTracks = captureStream.getAudioTracks();
+        if (audioTracks.length === 0) {
+          captureStream.getTracks().forEach((track) => track.stop());
+          setError("No audio was shared. Choose the Evonex window/tab and keep the audio sharing option switched on.");
           return;
         }
+
+        // Record only the audio tracks. Recording the full screen/window stream with an audio-only
+        // MIME type can cause Chrome to throw: Failed to execute 'start' on 'MediaRecorder'.
+        recordingStream = new MediaStream(audioTracks);
       } else {
-        stream = await navigator.mediaDevices.getUserMedia({
+        captureStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -269,17 +326,14 @@ export default function FloatingCallTranscriber() {
           },
           video: false,
         });
+        recordingStream = captureStream;
       }
 
       cleanupStream();
-      streamRef.current = stream;
+      streamRef.current = captureStream;
       chunksRef.current = [];
 
-      const mimeType = bestMimeType();
-      const recorder = new MediaRecorder(stream, {
-        ...(mimeType ? { mimeType } : {}),
-        audioBitsPerSecond: 32000,
-      });
+      const { recorder, mimeType } = createAudioRecorder(recordingStream);
 
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -314,6 +368,10 @@ export default function FloatingCallTranscriber() {
       cleanupStream();
       setRecording(false);
     }
+  }
+
+  function startDefaultRecording() {
+    void startRecording(recordingMode);
   }
 
   function stopRecording() {
@@ -492,7 +550,7 @@ export default function FloatingCallTranscriber() {
           </div>
 
           <div style={warningStyle}>
-            This records audio available to the browser. If your Evonex call is through a headset, mic mode may only capture your voice. For both sides, use speaker audio or screen/system audio where available.
+            This records audio available to the browser. Screen/system audio is best for Evonex. Chrome will always ask you to choose the window/tab each time; the CRM cannot bypass that security prompt.
           </div>
 
           {error ? <div style={errorStyle}>{error}</div> : null}
@@ -526,10 +584,23 @@ export default function FloatingCallTranscriber() {
                   <option value="full">Full transcript + summary</option>
                 </select>
               </label>
+
+              <label style={labelStyle}>
+                Default recording source
+                <select
+                  value={recordingMode}
+                  onChange={(e) => setRecordingMode(e.target.value === "mic" ? "mic" : "screen")}
+                  style={inputStyle}
+                  disabled={recording || processing}
+                >
+                  <option value="screen">Screen/system audio</option>
+                  <option value="mic">Microphone only</option>
+                </select>
+              </label>
             </div>
 
             <div style={privacyNoteStyle}>
-              Summary mode still listens to the recording to create the notes, but it only saves the summary, job details and actions. Choose full transcript only when you want the word-for-word text kept.
+              Summary mode is the default. The CRM remembers your recording source, but Chrome will still ask which window/tab to share each time for security. Select Evonex Connect and keep audio sharing switched on.
             </div>
 
             {clickedContext ? (
@@ -544,11 +615,11 @@ export default function FloatingCallTranscriber() {
             <div style={recordActionsStyle}>
               {!recording ? (
                 <>
-                  <button type="button" onClick={() => startRecording("mic")} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
-                    Start mic recording
+                  <button type="button" onClick={startDefaultRecording} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
+                    {recordingMode === "screen" ? "Start screen/system recording" : "Start mic recording"}
                   </button>
-                  <button type="button" onClick={() => startRecording("screen")} disabled={!mediaSupported || processing} style={secondaryButtonStyle}>
-                    Screen/system audio
+                  <button type="button" onClick={() => startRecording(recordingMode === "screen" ? "mic" : "screen")} disabled={!mediaSupported || processing} style={secondaryButtonStyle}>
+                    {recordingMode === "screen" ? "Use mic instead" : "Use screen/system instead"}
                   </button>
                 </>
               ) : (
