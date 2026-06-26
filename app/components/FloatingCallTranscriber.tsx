@@ -38,8 +38,6 @@ type ClickedCallContext = {
   capturedAt: string;
 };
 
-type RecordingMode = "screen" | "mic";
-
 function cleanPhoneHref(href: string) {
   return decodeURIComponent(String(href ?? "").replace(/^tel:/i, "")).trim();
 }
@@ -138,7 +136,6 @@ export default function FloatingCallTranscriber() {
   const [recent, setRecent] = useState<TranscriptRow[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
   const [saveFullTranscript, setSaveFullTranscript] = useState(false);
-  const [recordingMode, setRecordingMode] = useState<RecordingMode>("screen");
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerResults, setCustomerResults] = useState<CustomerRow[]>([]);
   const [searching, setSearching] = useState(false);
@@ -183,22 +180,10 @@ export default function FloatingCallTranscriber() {
     setMediaSupported(supportsMediaRecorder());
     try {
       setSaveFullTranscript(window.localStorage.getItem("anns_call_transcriber_save_full") === "1");
-      const savedMode = window.localStorage.getItem("anns_call_transcriber_default_mode");
-      if (savedMode === "mic" || savedMode === "screen") {
-        setRecordingMode(savedMode);
-      }
     } catch {
       // ignore storage issues
     }
   }, []);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("anns_call_transcriber_default_mode", recordingMode);
-    } catch {
-      // ignore storage issues
-    }
-  }, [recordingMode]);
 
   useEffect(() => {
     function onClick(e: MouseEvent) {
@@ -361,7 +346,7 @@ export default function FloatingCallTranscriber() {
       if (mode === "screen") {
         setNotice("Recording shared screen/system audio. Keep the call audio playing while recording.");
       } else {
-        setNotice("Recording microphone audio. If you use a headset, it may only catch your side of the call.");
+        setNotice("Recording call audio from your selected microphone input. With Voicemeeter Out 1 selected, this should capture both sides.");
       }
     } catch (err: any) {
       setError(err?.message || "Could not start recording.");
@@ -371,7 +356,7 @@ export default function FloatingCallTranscriber() {
   }
 
   function startDefaultRecording() {
-    void startRecording(recordingMode);
+    void startRecording("mic");
   }
 
   function stopRecording() {
@@ -550,7 +535,7 @@ export default function FloatingCallTranscriber() {
           </div>
 
           <div style={warningStyle}>
-            This records audio available to the browser. Screen/system audio is best for Evonex. Chrome will always ask you to choose the window/tab each time; the CRM cannot bypass that security prompt.
+            This records from your selected Chrome microphone. With your Voicemeeter setup, choose Voicemeeter Out 1 as the microphone and use Start call recording.
           </div>
 
           {error ? <div style={errorStyle}>{error}</div> : null}
@@ -585,22 +570,10 @@ export default function FloatingCallTranscriber() {
                 </select>
               </label>
 
-              <label style={labelStyle}>
-                Default recording source
-                <select
-                  value={recordingMode}
-                  onChange={(e) => setRecordingMode(e.target.value === "mic" ? "mic" : "screen")}
-                  style={inputStyle}
-                  disabled={recording || processing}
-                >
-                  <option value="screen">Screen/system audio</option>
-                  <option value="mic">Microphone only</option>
-                </select>
-              </label>
             </div>
 
             <div style={privacyNoteStyle}>
-              Summary mode is the default. The CRM remembers your recording source, but Chrome will still ask which window/tab to share each time for security. Select Evonex Connect and keep audio sharing switched on.
+              Summary mode is the default. With Voicemeeter set up, use Start call recording and make sure Chrome is using Voicemeeter Out 1 as the microphone.
             </div>
 
             {clickedContext ? (
@@ -614,14 +587,9 @@ export default function FloatingCallTranscriber() {
 
             <div style={recordActionsStyle}>
               {!recording ? (
-                <>
-                  <button type="button" onClick={startDefaultRecording} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
-                    {recordingMode === "screen" ? "Start screen/system recording" : "Start mic recording"}
-                  </button>
-                  <button type="button" onClick={() => startRecording(recordingMode === "screen" ? "mic" : "screen")} disabled={!mediaSupported || processing} style={secondaryButtonStyle}>
-                    {recordingMode === "screen" ? "Use mic instead" : "Use screen/system instead"}
-                  </button>
-                </>
+                <button type="button" onClick={startDefaultRecording} disabled={!mediaSupported || processing} style={primaryButtonStyle}>
+                  Start call recording
+                </button>
               ) : (
                 <button type="button" onClick={stopRecording} style={dangerButtonStyle}>
                   Stop & transcribe • {secondsLabel(seconds)}
