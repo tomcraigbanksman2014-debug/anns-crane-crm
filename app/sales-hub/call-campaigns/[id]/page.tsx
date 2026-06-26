@@ -277,6 +277,8 @@ export default async function CampaignDetailPage({ params, searchParams }: Campa
         row.contact_name_snapshot,
         row.phone_snapshot,
         row.email_snapshot,
+        row.contact_source,
+        row.contact_source_detail,
         row.normal_hire,
         row.last_site_area,
         row.last_job_type,
@@ -305,7 +307,7 @@ export default async function CampaignDetailPage({ params, searchParams }: Campa
             <p style={eyebrow}>Sales Hub / Call Campaigns</p>
             <h1 style={{ margin: 0, fontSize: 30 }}>{campaign.name}</h1>
             <p style={{ marginTop: 8, opacity: 0.76 }}>
-              {campaign.description || "Work through this list, call customers, record the outcome and set follow-ups."}
+              {campaign.description || "Work through this list, call customer profile contacts and job contacts, record the outcome and set follow-ups."}
             </p>
           </div>
 
@@ -342,7 +344,7 @@ export default async function CampaignDetailPage({ params, searchParams }: Campa
           <form style={filterGrid}>
             <label style={labelStyle}>
               Search
-              <input name="q" defaultValue={searchParams?.q ?? ""} placeholder="company, contact, area, normal hire..." style={inputStyle} />
+              <input name="q" defaultValue={searchParams?.q ?? ""} placeholder="company, contact, phone, source, area, normal hire..." style={inputStyle} />
             </label>
             <label style={labelStyle}>
               Status
@@ -390,7 +392,7 @@ export default async function CampaignDetailPage({ params, searchParams }: Campa
 
         <section style={{ marginTop: 14, display: "grid", gap: 12 }}>
           {filteredRows.length === 0 ? (
-            <div style={cardStyle}>No customers match the current filters.</div>
+            <div style={cardStyle}>No contacts match the current filters.</div>
           ) : (
             filteredRows.map((row: any) => {
               const phone = clean(row.phone_snapshot);
@@ -417,6 +419,11 @@ export default async function CampaignDetailPage({ params, searchParams }: Campa
                           )}
                         </div>
                         <div><strong>Email:</strong> {row.email_snapshot || "—"}</div>
+                        <div>
+                          <strong>Contact source:</strong> {row.contact_source || "Customer profile"}
+                          {row.contact_source_detail ? ` • ${row.contact_source_detail}` : ""}
+                          {row.contact_last_used_on ? ` • Last used ${fmtDate(row.contact_last_used_on)}` : ""}
+                        </div>
                       </div>
 
                       <div style={{ marginTop: 12, display: "grid", gap: 6, fontSize: 14 }}>
