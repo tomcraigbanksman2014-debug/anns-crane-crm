@@ -99,6 +99,7 @@ export default function FloatingCallTranscriber() {
   const [result, setResult] = useState<TranscriptRow | null>(null);
   const [recent, setRecent] = useState<TranscriptRow[]>([]);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [saveFullTranscript, setSaveFullTranscript] = useState(false);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerResults, setCustomerResults] = useState<CustomerRow[]>([]);
   const [searching, setSearching] = useState(false);
@@ -116,6 +117,7 @@ export default function FloatingCallTranscriber() {
   const directionRef = useRef(direction);
   const phoneRef = useRef(phoneNumber);
   const clickedContextRef = useRef(clickedContext);
+  const saveFullTranscriptRef = useRef(saveFullTranscript);
 
   useEffect(() => {
     directionRef.current = direction;
@@ -130,7 +132,21 @@ export default function FloatingCallTranscriber() {
   }, [clickedContext]);
 
   useEffect(() => {
+    saveFullTranscriptRef.current = saveFullTranscript;
+    try {
+      window.localStorage.setItem("anns_call_transcriber_save_full", saveFullTranscript ? "1" : "0");
+    } catch {
+      // ignore storage issues
+    }
+  }, [saveFullTranscript]);
+
+  useEffect(() => {
     setMediaSupported(supportsMediaRecorder());
+    try {
+      setSaveFullTranscript(window.localStorage.getItem("anns_call_transcriber_save_full") === "1");
+    } catch {
+      // ignore storage issues
+    }
   }, []);
 
   useEffect(() => {
@@ -335,6 +351,7 @@ export default function FloatingCallTranscriber() {
       form.append("phone_number", phoneRef.current || context?.phone || "");
       form.append("page_path", window.location.pathname);
       form.append("source_context", context?.sourceText || "");
+      form.append("save_full_transcript", saveFullTranscriptRef.current ? "true" : "false");
 
       const res = await fetch("/api/call-transcripts/transcribe", {
         method: "POST",
@@ -352,7 +369,7 @@ export default function FloatingCallTranscriber() {
       setNewCustomerName(next.detected_customer_name || "");
       setNewContactName(next.detected_contact_name || "");
       setNewCustomerPhone(next.phone_number || next.detected_phone_numbers?.[0] || "");
-      setNotice("Call transcribed and saved privately.");
+      setNotice(next.transcript ? "Call transcript and summary saved privately." : "Call summary saved privately. Full transcript was not stored.");
       await loadRecent();
     } catch (err: any) {
       setError(err?.message || "Could not transcribe recording.");
@@ -496,6 +513,23 @@ export default function FloatingCallTranscriber() {
                 Number, if known
                 <input value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} placeholder="e.g. 07900..." style={inputStyle} disabled={recording || processing} />
               </label>
+
+              <label style={labelStyle}>
+                Save preference
+                <select
+                  value={saveFullTranscript ? "full" : "summary"}
+                  onChange={(e) => setSaveFullTranscript(e.target.value === "full")}
+                  style={inputStyle}
+                  disabled={recording || processing}
+                >
+                  <option value="summary">Summary & actions only</option>
+                  <option value="full">Full transcript + summary</option>
+                </select>
+              </label>
+            </div>
+
+            <div style={privacyNoteStyle}>
+              Summary mode still listens to the recording to create the notes, but it only saves the summary, job details and actions. Choose full transcript only when you want the word-for-word text kept.
             </div>
 
             {clickedContext ? (
@@ -524,12 +558,12 @@ export default function FloatingCallTranscriber() {
               )}
             </div>
 
-            {processing ? <div style={processingStyle}>Transcribing and summarising call...</div> : null}
+            {processing ? <div style={processingStyle}>{saveFullTranscript ? "Transcribing and summarising call..." : "Creating call summary and actions..."}</div> : null}
           </div>
 
           {result ? (
             <div style={cardStyle}>
-              <div style={sectionTitleStyle}>Transcript result</div>
+              <div style={sectionTitleStyle}>{result.transcript ? "Transcript result" : "Call summary result"}</div>
 
               <div style={matchBoxStyle}>
                 <div style={{ fontWeight: 900 }}>Customer match</div>
@@ -560,13 +594,17 @@ export default function FloatingCallTranscriber() {
               ) : null}
 
               <div style={inlineButtonRowStyle}>
-                <button type="button" onClick={() => setShowTranscript((value) => !value)} style={secondaryButtonStyle}>
-                  {showTranscript ? "Hide full transcript" : "Show full transcript"}
-                </button>
+                {result.transcript ? (
+                  <button type="button" onClick={() => setShowTranscript((value) => !value)} style={secondaryButtonStyle}>
+                    {showTranscript ? "Hide full transcript" : "Show full transcript"}
+                  </button>
+                ) : (
+                  <div style={summaryOnlyBadgeStyle}>Summary-only mode: full transcript not saved</div>
+                )}
                 {result.matched_client_id ? <a href={`/customers/${result.matched_client_id}`} style={secondaryLinkButtonStyle}>Open customer</a> : null}
               </div>
 
-              {showTranscript ? (
+              {showTranscript && result.transcript ? (
                 <div style={transcriptBoxStyle}>
                   {transcriptLines.length ? transcriptLines.map((line, index) => <p key={index} style={{ margin: "0 0 8px" }}>{line}</p>) : "No transcript text."}
                 </div>
@@ -736,6 +774,18 @@ const inputStyle: React.CSSProperties = {
   background: "#fff",
 };
 
+const privacyNoteStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "10px 11px",
+  borderRadius: 12,
+  background: "#f8fafc",
+  border: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 12,
+  fontWeight: 800,
+  color: "#475569",
+  lineHeight: 1.45,
+};
+
 const recordActionsStyle: React.CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
@@ -768,6 +818,17 @@ const secondaryButtonStyle: React.CSSProperties = {
 const secondaryLinkButtonStyle: React.CSSProperties = {
   ...secondaryButtonStyle,
   display: "inline-block",
+};
+
+const summaryOnlyBadgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  border: "1px solid rgba(15,23,42,0.12)",
+  background: "#f1f5f9",
+  color: "#334155",
+  borderRadius: 12,
+  padding: "10px 12px",
+  fontWeight: 950,
 };
 
 const dangerButtonStyle: React.CSSProperties = {
