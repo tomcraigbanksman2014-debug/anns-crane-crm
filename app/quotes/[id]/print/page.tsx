@@ -285,6 +285,24 @@ export default async function QuotePrintPage({
                 break-inside: avoid;
                 page-break-inside: avoid;
               }
+              .quote-panel,
+              .quote-rate-breakdown,
+              .quote-small-section {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
+              .quote-rate-breakdown table {
+                width: 100%;
+                border-collapse: collapse;
+              }
+              .quote-rate-breakdown thead,
+              .quote-rate-breakdown tbody,
+              .quote-rate-breakdown tr,
+              .quote-rate-breakdown th,
+              .quote-rate-breakdown td {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
               @media screen and (max-width: 760px) {
                 body { background: #fff; }
                 .quote-sheet {
@@ -399,7 +417,7 @@ export default async function QuotePrintPage({
           {hasCommercialContent ? (
             <div style={compactCommercialWrapStyle}>
               {breakdownRows.length > 0 ? (
-                <Panel title="Breakdown of current charges / rates">
+                <Panel title="Breakdown of current charges / rates" className="quote-rate-breakdown">
                   <table style={tableStyle}>
                     <thead>
                       <tr>
@@ -424,7 +442,7 @@ export default async function QuotePrintPage({
 
               <div style={smallGridStyle}>
                 {additionalEquipment.length > 0 ? (
-                  <Panel title="Additional equipment & personnel">
+                  <Panel title="Additional equipment & personnel" className="quote-small-section">
                     <ul style={cleanListStyle}>
                       {additionalEquipment.map((item, index) => (
                         <li key={`${item}-${index}`}>{item}</li>
@@ -434,7 +452,7 @@ export default async function QuotePrintPage({
                 ) : null}
 
                 {includedItems.length > 0 ? (
-                  <Panel title="Included under full CPA terms">
+                  <Panel title="Included under full CPA terms" className="quote-small-section">
                     <ul style={cleanListStyle}>
                       {includedItems.map((item, index) => (
                         <li key={`${item}-${index}`}>{item}</li>
@@ -445,7 +463,7 @@ export default async function QuotePrintPage({
               </div>
 
               {displayAdditionalNotes.length > 0 ? (
-                <Panel title="Additional quote notes">
+                <Panel title="Additional quote notes" className="quote-small-section">
                   <div style={preLineTextStyle}>{displayAdditionalNotes.join("\n")}</div>
                 </Panel>
               ) : null}
@@ -507,9 +525,9 @@ export default async function QuotePrintPage({
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
+function Panel({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   return (
-    <section style={panelStyle}>
+    <section className={["quote-panel", className].filter(Boolean).join(" ")} style={panelStyle}>
       <div style={panelTitleStyle}>{title}</div>
       {children}
     </section>
@@ -677,6 +695,8 @@ const panelStyle: CSSProperties = {
   padding: 12,
   display: "grid",
   gap: 8,
+  breakInside: "avoid",
+  pageBreakInside: "avoid",
 };
 
 const panelTitleStyle: CSSProperties = {
