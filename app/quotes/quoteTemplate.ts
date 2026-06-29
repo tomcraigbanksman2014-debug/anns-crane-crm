@@ -254,32 +254,80 @@ export function splitBulletLines(value: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+function cleanBreakdownLine(value: string) {
+  return value
+    .replace(/^\s*[-•*]\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeQty(value: string) {
+  return /^(\d+(?:\.\d+)?\s*(?:x|no|nr|day|days|visit|visits|hr|hrs|hour|hours)?|one|two|three|four|five)$/i.test(value.trim());
+}
+
+function looksLikeMoney(value: string) {
+  return /£\s*\d/i.test(value.trim());
+}
+
+function splitLineWithEmbeddedRate(value: string): { description: string; rate: string } | null {
+  const line = cleanBreakdownLine(value);
+  if (!line || !looksLikeMoney(line)) return null;
+
+  const moneyPattern = /£\s*\d[\d,]*(?:\.\d{2})?(?:\s*(?:excluding|including|ex|inc)\.?\s*VAT)?/gi;
+  const matches = Array.from(line.matchAll(moneyPattern));
+  if (matches.length === 0) return null;
+
+  // Use the final money value as the actual rate. This lets descriptions keep wording like
+  // "2 visits @ £1,300.00 each - £2,600.00 excluding VAT".
+  const finalMatch = matches[matches.length - 1];
+  const rate = finalMatch[0].replace(/\s+/g, " ").trim();
+  const start = finalMatch.index ?? -1;
+  if (start < 0) return null;
+
+  const before = line.slice(0, start);
+  const after = line.slice(start + finalMatch[0].length);
+  const description = `${before} ${after}`
+    .replace(/\s+-\s*$/g, "")
+    .replace(/[-–—:]\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return {
+    description: description || line,
+    rate,
+  };
+}
+
 export function parseBreakdownRows(value: string | null | undefined): Array<{
   qty: string;
   description: string;
   rate: string;
 }> {
-  return splitLines(value).map((line) => {
-    const parts = line.split("|").map((part) => part.trim()).filter(Boolean);
+  return splitLines(value).map((rawLine) => {
+    const line = cleanBreakdownLine(rawLine);
+    const parts = line.split("|").map((part) => cleanBreakdownLine(part)).filter(Boolean);
 
     if (parts.length >= 3) {
+      const rateParts = parts.slice(2).join(" | ");
+      const extracted = splitLineWithEmbeddedRate(rateParts);
       return {
         qty: parts[0],
         description: parts[1],
-        rate: parts.slice(2).join(" | "),
+        rate: extracted?.rate || rateParts,
       };
     }
 
     if (parts.length === 2) {
-      const firstPartLooksLikeMoney = /^£\s*\d/i.test(parts[0]);
-      const secondPartLooksLikeMoney = /^£\s*\d/i.test(parts[1]);
-      const firstPartLooksLikeQty = /^(\d+(?:\.\d+)?\s*(?:x|no|nr|day|days|hr|hrs|hour|hours)?|one|two|three|four|five)$/i.test(parts[0]);
+      const firstPartLooksLikeMoney = looksLikeMoney(parts[0]);
+      const secondPartLooksLikeMoney = looksLikeMoney(parts[1]);
+      const firstPartLooksLikeQty = looksLikeQty(parts[0]);
 
       if (firstPartLooksLikeMoney && !secondPartLooksLikeMoney) {
+        const extracted = splitLineWithEmbeddedRate(parts[0]);
         return {
           qty: "",
           description: parts[1],
-          rate: parts[0],
+          rate: extracted?.rate || parts[0],
         };
       }
 
@@ -291,6 +339,15 @@ export function parseBreakdownRows(value: string | null | undefined): Array<{
         };
       }
 
+      if (secondPartLooksLikeMoney) {
+        const extracted = splitLineWithEmbeddedRate(parts[1]);
+        return {
+          qty: "",
+          description: parts[0],
+          rate: extracted?.rate || parts[1],
+        };
+      }
+
       return {
         qty: "",
         description: parts[0],
@@ -298,21 +355,12 @@ export function parseBreakdownRows(value: string | null | undefined): Array<{
       };
     }
 
-    const moneyAtStartMatch = line.match(/^(£\s*\d[\d,]*(?:\.\d{2})?)(?:\s+(.+))?$/i);
-    if (moneyAtStartMatch) {
+    const extracted = splitLineWithEmbeddedRate(line);
+    if (extracted) {
       return {
         qty: "",
-        description: moneyAtStartMatch[2]?.trim() || line,
-        rate: moneyAtStartMatch[1]?.trim() || "",
-      };
-    }
-
-    const moneyAtEndMatch = line.match(/^(.+?)\s+(£\s*\d[\d,]*(?:\.\d{2})?)$/i);
-    if (moneyAtEndMatch) {
-      return {
-        qty: "",
-        description: moneyAtEndMatch[1]?.trim() || line,
-        rate: moneyAtEndMatch[2]?.trim() || "",
+        description: extracted.description,
+        rate: extracted.rate,
       };
     }
 
