@@ -259,9 +259,16 @@ export async function POST(req: Request) {
     const collectionInput = clean(body?.collection_postcode);
     const deliveryInput = clean(body?.delivery_postcode);
     const returnToYard = body?.return_to_yard !== false;
+    const rawViaStops = Array.isArray(body?.via_stops)
+      ? body.via_stops
+      : String(body?.via_stops ?? "")
+          .split(/[\n;]/g)
+          .map((item) => item.trim())
+          .filter(Boolean);
+    const viaStops = rawViaStops.map((item: unknown) => clean(item)).filter(Boolean);
 
-    if (!collectionInput && !deliveryInput) {
-      return NextResponse.json({ error: "Enter at least a collection or delivery postcode/address." }, { status: 400 });
+    if (!collectionInput && !deliveryInput && viaStops.length === 0) {
+      return NextResponse.json({ error: "Enter at least a collection, via stop or delivery postcode/address." }, { status: 400 });
     }
 
     const yard = await geocodeStop("yard", yardInput);
@@ -270,6 +277,11 @@ export async function POST(req: Request) {
     if (collectionInput) {
       const collection = await geocodeStop("collection", collectionInput);
       if (!sameStop(collection, stops[stops.length - 1])) stops.push(collection);
+    }
+
+    for (let i = 0; i < viaStops.length; i += 1) {
+      const via = await geocodeStop(`via stop ${i + 1}`, viaStops[i]);
+      if (!sameStop(via, stops[stops.length - 1])) stops.push(via);
     }
 
     if (deliveryInput) {
