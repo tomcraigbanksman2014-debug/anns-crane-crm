@@ -75,6 +75,7 @@ type TransportRouteLine = {
   chargeableMiles: string;
   ratePerMile: string;
   baseRate: string;
+  adjustmentPercent: string;
   actualMiles: number | null;
   provider: string;
   routeMessage: string;
@@ -88,6 +89,7 @@ type CraneLine = {
   description: string;
   qty: string;
   rate: string;
+  adjustmentPercent: string;
   quote: boolean;
 };
 
@@ -97,6 +99,7 @@ type LabourLine = {
   men: string;
   days: string;
   rate: string;
+  adjustmentPercent: string;
   quote: boolean;
 };
 
@@ -105,6 +108,7 @@ type EquipmentLine = {
   item: string;
   qty: string;
   rate: string;
+  adjustmentPercent: string;
   quote: boolean;
 };
 
@@ -112,6 +116,7 @@ type CostLine = {
   id: string;
   item: string;
   amount: string;
+  adjustmentPercent: string;
 };
 
 const todayIso = new Date().toISOString().slice(0, 10);
@@ -144,6 +149,31 @@ function splitStops(value: string) {
     .filter(Boolean);
 }
 
+function percentFromAny(value: unknown) {
+  return numberFromAny(value);
+}
+
+function roundCurrency(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function applyLinePercent(amount: number, adjustmentPercent: unknown) {
+  const percent = percentFromAny(adjustmentPercent);
+  if (!percent) return roundCurrency(amount);
+  return roundCurrency(amount * (1 + percent / 100));
+}
+
+function adjustedRateFromAmount(amount: number, quantity: number, fallbackRate: number) {
+  if (quantity > 0) return roundCurrency(amount / quantity);
+  return roundCurrency(fallbackRate);
+}
+
+function adjustmentLabel(value: unknown) {
+  const percent = percentFromAny(value);
+  if (!percent) return "";
+  return ` | ${percent > 0 ? "+" : ""}${percent}% adjustment`;
+}
+
 function newTransportRouteLine(overrides: Partial<TransportRouteLine> = {}): TransportRouteLine {
   return {
     id: makeId("route"),
@@ -156,6 +186,7 @@ function newTransportRouteLine(overrides: Partial<TransportRouteLine> = {}): Tra
     chargeableMiles: "",
     ratePerMile: "",
     baseRate: "",
+    adjustmentPercent: "",
     actualMiles: null,
     provider: "",
     routeMessage: "",
@@ -172,6 +203,7 @@ function newCraneLine(overrides: Partial<CraneLine> = {}): CraneLine {
     description: "Crane hire",
     qty: "",
     rate: "",
+    adjustmentPercent: "",
     quote: true,
     ...overrides,
   };
@@ -184,6 +216,7 @@ function newLabourLine(overrides: Partial<LabourLine> = {}): LabourLine {
     men: "",
     days: "1",
     rate: "",
+    adjustmentPercent: "",
     quote: true,
     ...overrides,
   };
@@ -195,6 +228,7 @@ function newEquipmentLine(overrides: Partial<EquipmentLine> = {}): EquipmentLine
     item: "",
     qty: "",
     rate: "",
+    adjustmentPercent: "",
     quote: true,
     ...overrides,
   };
@@ -205,6 +239,7 @@ function newCostLine(overrides: Partial<CostLine> = {}): CostLine {
     id: makeId("cost"),
     item: "Supplier / internal cost",
     amount: "",
+    adjustmentPercent: "",
     ...overrides,
   };
 }
@@ -217,23 +252,29 @@ function addMoneyLine(lines: PackageCalculatorLine[], input: {
   quantity?: string | number;
   rate?: string | number;
   amount?: string | number;
+  adjustmentPercent?: string | number;
   show_on_quote?: boolean;
 }) {
   const hasManualAmount = clean(input.amount) !== "";
   const rawQty = clean(input.quantity);
   const qty = rawQty === "" ? 0 : numberFromAny(input.quantity);
-  const rate = numberFromAny(input.rate);
-  const amount = hasManualAmount ? numberFromAny(input.amount) : Math.round(qty * rate * 100) / 100;
+  const baseRate = numberFromAny(input.rate);
+  const baseAmount = hasManualAmount ? numberFromAny(input.amount) : roundCurrency(qty * baseRate);
+  const amount = applyLinePercent(baseAmount, input.adjustmentPercent);
   if (!clean(input.item) || amount === 0) return;
+
+  const quantityForLine = rawQty === "" && hasManualAmount ? 1 : input.quantity ?? "";
+  const quantityForRate = numberFromAny(quantityForLine) || 1;
+  const adjustedRate = hasManualAmount ? amount : adjustedRateFromAmount(amount, quantityForRate, baseRate);
 
   lines.push({
     id: input.id,
     phase_id: input.phase_id || "main",
     line_type: "sell",
     item: input.item,
-    description: input.description || input.item,
-    quantity: rawQty === "" && hasManualAmount ? 1 : input.quantity ?? "",
-    rate: input.rate ?? amount,
+    description: `${input.description || input.item}${adjustmentLabel(input.adjustmentPercent)}`,
+    quantity: quantityForLine,
+    rate: adjustedRate,
     amount,
     pricing_mode: "qty_rate",
     show_on_quote: input.show_on_quote !== false,
@@ -331,6 +372,7 @@ export default function JobPackageCalculatorClient({
         quantity: 1,
         rate: route.baseRate,
         amount: route.baseRate,
+        adjustmentPercent: route.adjustmentPercent,
         show_on_quote: route.quote,
       });
 
@@ -341,6 +383,7 @@ export default function JobPackageCalculatorClient({
         description: `${miles || 0} miles × ${money(mileRate)} per mile${summary ? ` | ${summary}` : ""}`,
         quantity: route.chargeableMiles,
         rate: route.ratePerMile,
+        adjustmentPercent: route.adjustmentPercent,
         show_on_quote: route.quote,
       });
     });
@@ -353,6 +396,7 @@ export default function JobPackageCalculatorClient({
         description: line.description || "Crane hire",
         quantity: line.qty,
         rate: line.rate,
+        adjustmentPercent: line.adjustmentPercent,
         show_on_quote: line.quote,
       });
     });
@@ -362,15 +406,20 @@ export default function JobPackageCalculatorClient({
       const days = numberFromAny(line.days) || 1;
       const labourRate = numberFromAny(line.rate);
       if (men > 0 && labourRate > 0) {
+        const quantity = men * days;
+        const baseAmount = roundCurrency(quantity * labourRate);
+        const amount = applyLinePercent(baseAmount, line.adjustmentPercent);
+        const adjustedRate = adjustedRateFromAmount(amount, quantity, labourRate);
+
         output.push({
           id: line.id,
           phase_id: "main",
           line_type: "sell",
           item: line.description || "Site team / labour",
-          description: `${men} men × ${days} day(s) × ${money(labourRate)}`,
-          quantity: men * days,
-          rate: labourRate,
-          amount: Math.round(men * days * labourRate * 100) / 100,
+          description: `${men} men × ${days} day(s) × ${money(labourRate)}${adjustmentLabel(line.adjustmentPercent)}`,
+          quantity,
+          rate: adjustedRate,
+          amount,
           pricing_mode: "qty_rate",
           show_on_quote: line.quote,
         });
@@ -385,6 +434,7 @@ export default function JobPackageCalculatorClient({
         description: line.item,
         quantity: line.qty,
         rate: line.rate,
+        adjustmentPercent: line.adjustmentPercent,
         show_on_quote: line.quote,
       });
     });
@@ -401,14 +451,15 @@ export default function JobPackageCalculatorClient({
     });
 
     costLines.forEach((line) => {
-      const amount = numberFromAny(line.amount);
+      const baseAmount = numberFromAny(line.amount);
+      const amount = applyLinePercent(baseAmount, line.adjustmentPercent);
       if (amount > 0) {
         output.push({
           id: line.id,
           phase_id: "main",
           line_type: "cost",
           item: line.item || "Supplier / internal cost",
-          description: `${line.item || "Supplier / internal cost"} for margin only`,
+          description: `${line.item || "Supplier / internal cost"} for margin only${adjustmentLabel(line.adjustmentPercent)}`,
           quantity: 1,
           rate: amount,
           amount,
@@ -746,7 +797,7 @@ export default function JobPackageCalculatorClient({
           <div style={eyebrow}>Master admin only</div>
           <h1 style={{ margin: "4px 0 0", fontSize: 32 }}>Simple Job Calculator</h1>
           <p style={{ margin: "8px 0 0", opacity: 0.78 }}>
-            Multiple routes, multiple cranes, multiple teams, lifting equipment, supplier costs and margin. Nothing is saved until you choose a target and press apply.
+            Multiple routes, cranes, teams, equipment, costs and per-line percentage uplifts/discounts. Nothing is saved until you choose a target and press apply.
           </p>
         </div>
         <div style={totalPill}>
@@ -796,7 +847,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Postcodes / mileage</h2>
-                <p style={sectionSub}>Add as many HGV route lines as needed. Each line can have via stops, one per line, for multi-drop work.</p>
+                <p style={sectionSub}>Add as many HGV route lines as needed. Use Adjustment % as +20 to increase or -10 to decrease that route.</p>
               </div>
               <div style={buttonGroup}>
                 <button type="button" style={secondaryBtn} onClick={calculateAllHgvMileage}>Calculate all</button>
@@ -853,6 +904,9 @@ export default function JobPackageCalculatorClient({
                     <label style={fieldStyle}>Base transport rate
                       <input style={inputStyle} inputMode="decimal" value={route.baseRate} onChange={(e) => updateTransportRoute(route.id, { baseRate: e.target.value })} placeholder="Optional" />
                     </label>
+                    <label style={fieldStyle}>Adjustment %
+                      <input style={inputStyle} inputMode="decimal" value={route.adjustmentPercent} onChange={(e) => updateTransportRoute(route.id, { adjustmentPercent: e.target.value })} placeholder="+20 or -10" />
+                    </label>
                     <label style={smallCheck}><input type="checkbox" checked={route.quote} onChange={(e) => updateTransportRoute(route.id, { quote: e.target.checked })} /> Quote</label>
                   </div>
                 </div>
@@ -864,7 +918,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Cranes</h2>
-                <p style={sectionSub}>Add one line per crane, visit or crane package.</p>
+                <p style={sectionSub}>Add one line per crane, visit or crane package. Use Adj % for uplift or discount per line.</p>
               </div>
               <button type="button" style={primaryBtn} onClick={addCraneLine}>+ Add crane</button>
             </div>
@@ -874,6 +928,7 @@ export default function JobPackageCalculatorClient({
                   <input style={inputStyle} value={line.description} onChange={(e) => updateCraneLine(line.id, { description: e.target.value })} placeholder="Crane description" />
                   <input style={inputStyle} inputMode="decimal" value={line.qty} onChange={(e) => updateCraneLine(line.id, { qty: e.target.value })} placeholder="Qty / visits" />
                   <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateCraneLine(line.id, { rate: e.target.value })} placeholder="Rate" />
+                  <input style={inputStyle} inputMode="decimal" value={line.adjustmentPercent} onChange={(e) => updateCraneLine(line.id, { adjustmentPercent: e.target.value })} placeholder="Adj %" title="Use +20 to increase, -10 to decrease" />
                   <label style={smallCheck}><input type="checkbox" checked={line.quote} onChange={(e) => updateCraneLine(line.id, { quote: e.target.checked })} /> Quote</label>
                   <button type="button" style={dangerGhostBtn} onClick={() => removeCraneLine(line.id)} disabled={craneLines.length <= 1}>Remove</button>
                 </div>
@@ -885,7 +940,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Men / labour</h2>
-                <p style={sectionSub}>Add one line per labour team/rate, for example 3 men at £450 each over 2 days.</p>
+                <p style={sectionSub}>Add one line per labour team/rate. Use Adj % for uplift or discount per team line.</p>
               </div>
               <button type="button" style={primaryBtn} onClick={addLabourLine}>+ Add labour</button>
             </div>
@@ -896,6 +951,7 @@ export default function JobPackageCalculatorClient({
                   <input style={inputStyle} inputMode="decimal" value={line.men} onChange={(e) => updateLabourLine(line.id, { men: e.target.value })} placeholder="Men" />
                   <input style={inputStyle} inputMode="decimal" value={line.days} onChange={(e) => updateLabourLine(line.id, { days: e.target.value })} placeholder="Days" />
                   <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateLabourLine(line.id, { rate: e.target.value })} placeholder="Rate per man" />
+                  <input style={inputStyle} inputMode="decimal" value={line.adjustmentPercent} onChange={(e) => updateLabourLine(line.id, { adjustmentPercent: e.target.value })} placeholder="Adj %" title="Use +20 to increase, -10 to decrease" />
                   <label style={smallCheck}><input type="checkbox" checked={line.quote} onChange={(e) => updateLabourLine(line.id, { quote: e.target.checked })} /> Quote</label>
                   <button type="button" style={dangerGhostBtn} onClick={() => removeLabourLine(line.id)} disabled={labourLines.length <= 1}>Remove</button>
                 </div>
@@ -907,7 +963,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Lifting equipment / extras</h2>
-                <p style={sectionSub}>Add lifting beams, mats, escorts, tracked carrier or any other extra.</p>
+                <p style={sectionSub}>Add lifting beams, mats, escorts, tracked carrier or any other extra. Use Adj % per item.</p>
               </div>
               <button type="button" style={primaryBtn} onClick={addEquipmentLine}>+ Add extra</button>
             </div>
@@ -917,6 +973,7 @@ export default function JobPackageCalculatorClient({
                   <input style={inputStyle} value={line.item} onChange={(e) => updateEquipment(line.id, { item: e.target.value })} placeholder="Item" />
                   <input style={inputStyle} inputMode="decimal" value={line.qty} onChange={(e) => updateEquipment(line.id, { qty: e.target.value })} placeholder="Qty" />
                   <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateEquipment(line.id, { rate: e.target.value })} placeholder="Rate" />
+                  <input style={inputStyle} inputMode="decimal" value={line.adjustmentPercent} onChange={(e) => updateEquipment(line.id, { adjustmentPercent: e.target.value })} placeholder="Adj %" title="Use +20 to increase, -10 to decrease" />
                   <label style={smallCheck}><input type="checkbox" checked={line.quote} onChange={(e) => updateEquipment(line.id, { quote: e.target.checked })} /> Quote</label>
                   <button type="button" style={dangerGhostBtn} onClick={() => removeEquipmentLine(line.id)}>Remove</button>
                 </div>
@@ -928,7 +985,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Costs, margin and notes</h2>
-                <p style={sectionSub}>Cost lines are hidden from the customer and only used for profit/margin.</p>
+                <p style={sectionSub}>Cost lines are hidden from the customer and only used for profit/margin. Adj % also works on costs.</p>
               </div>
               <button type="button" style={primaryBtn} onClick={addCostLine}>+ Add cost</button>
             </div>
@@ -937,6 +994,7 @@ export default function JobPackageCalculatorClient({
                 <div key={line.id} style={costLineGrid}>
                   <input style={inputStyle} value={line.item} onChange={(e) => updateCostLine(line.id, { item: e.target.value })} placeholder="Cost description" />
                   <input style={inputStyle} inputMode="decimal" value={line.amount} onChange={(e) => updateCostLine(line.id, { amount: e.target.value })} placeholder="Cost amount" />
+                  <input style={inputStyle} inputMode="decimal" value={line.adjustmentPercent} onChange={(e) => updateCostLine(line.id, { adjustmentPercent: e.target.value })} placeholder="Adj %" title="Use +20 to increase, -10 to decrease" />
                   <button type="button" style={dangerGhostBtn} onClick={() => removeCostLine(line.id)} disabled={costLines.length <= 1}>Remove</button>
                 </div>
               ))}
@@ -1189,21 +1247,21 @@ const routeGrid: CSSProperties = {
 
 const simpleLineGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) 90px 120px 90px 90px",
+  gridTemplateColumns: "minmax(220px, 1fr) 90px 120px 100px 90px 90px",
   gap: 8,
   alignItems: "center",
 };
 
 const labourLineGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) 80px 80px 120px 90px 90px",
+  gridTemplateColumns: "minmax(220px, 1fr) 80px 80px 120px 100px 90px 90px",
   gap: 8,
   alignItems: "center",
 };
 
 const costLineGrid: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) 130px 90px",
+  gridTemplateColumns: "minmax(220px, 1fr) 130px 100px 90px",
   gap: 8,
   alignItems: "center",
 };
