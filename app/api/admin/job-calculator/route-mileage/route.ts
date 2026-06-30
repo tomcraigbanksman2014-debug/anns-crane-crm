@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { geocodeAddress } from "../../../../lib/geocode";
-import { requireMasterAdminApi } from "../../../../lib/routeGuards";
+import { requireOfficeUserApi } from "../../../../lib/routeGuards";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -250,7 +250,7 @@ async function routeSegment(from: Coord, to: Coord): Promise<RouteResult> {
 }
 
 export async function POST(req: Request) {
-  const auth = await requireMasterAdminApi();
+  const auth = await requireOfficeUserApi();
   if (auth.response) return auth.response;
 
   try {
