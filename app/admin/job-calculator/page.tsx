@@ -45,6 +45,8 @@ type SlimQuote = {
   quote_date: string | null;
   status: string | null;
   amount: number | null;
+  notes: string | null;
+  pdf_sections: Record<string, unknown> | null;
 };
 
 export default async function JobCalculatorPage() {
@@ -73,7 +75,7 @@ export default async function JobCalculatorPage() {
       .limit(250),
     admin
       .from("quotes")
-      .select("id, client_id, subject, quote_date, status, amount")
+      .select("id, client_id, subject, quote_date, status, amount, notes, pdf_sections")
       .eq("archived", false)
       .order("quote_date", { ascending: false })
       .limit(250),
