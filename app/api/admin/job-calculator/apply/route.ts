@@ -102,6 +102,49 @@ function phaseKindMap(phases: PackagePhase[]) {
   return new Map(phases.map((phase) => [phase.id, phase.job_kind]));
 }
 
+function determineTermsMode(phases: PackagePhase[], lines: PackageCalculatorLine[]): "crane" | "transport" | "mixed" {
+  const phaseKinds = new Map(phases.map((phase) => [clean(phase.id), phase.job_kind]));
+  const visibleSellLines = lines.filter((line) => line.line_type === "sell" && line.show_on_quote !== false);
+
+  const transportWords = /\b(transport|route|mileage|mile|hiab|trailer|wagon|haulage|delivery|collection|low\s*loader|escort)\b/i;
+  const craneWords = /\b(crane|lift|lifting|bocker|böcker|jekko|mats?|slinger|banksman|appointed|supervisor|contract\s*lift|rigging|beam|carrier|site\s*team|men|labour)\b/i;
+
+  let hasTransport = false;
+  let hasCrane = false;
+
+  for (const line of visibleSellLines) {
+    const phaseKind = phaseKinds.get(clean(line.phase_id));
+    const text = `${clean(line.item)} ${clean(line.description)} ${clean(line.notes)}`;
+
+    if (phaseKind === "transport" || transportWords.test(text)) {
+      hasTransport = true;
+    }
+
+    if (phaseKind === "crane" || craneWords.test(text)) {
+      hasCrane = true;
+    }
+
+    if (phaseKind === "mixed" && !transportWords.test(text)) {
+      hasCrane = true;
+    }
+  }
+
+  if (!hasTransport && !hasCrane) {
+    hasTransport = phases.some((phase) => phase.job_kind === "transport");
+    hasCrane = phases.some((phase) => phase.job_kind === "crane" || phase.job_kind === "mixed");
+  }
+
+  if (hasTransport && hasCrane) return "mixed";
+  if (hasTransport) return "transport";
+  return "crane";
+}
+
+function hireTypeForTermsMode(mode: "crane" | "transport" | "mixed") {
+  if (mode === "transport") return "Transport / HIAB transport works - RHA terms";
+  if (mode === "crane") return "Crane hire / lifting works - CPA terms";
+  return "Full package / mixed crane and transport works - CPA / RHA terms";
+}
+
 function buildStructuredQuotePayload(input: {
   packageTitle: string;
   customer: any;
@@ -132,7 +175,7 @@ function buildStructuredQuotePayload(input: {
   fields.contactPhone = contactPhone;
   fields.projectDateTime = buildCustomerProjectDateText(input.phases);
   fields.siteLocation = workLocation;
-  fields.hireType = "Full package / mixed crane and transport works";
+  fields.hireType = hireTypeForTermsMode(determineTermsMode(input.phases, input.lines));
   fields.toSupply = "Crane / transport / lifting support package as priced.";
   fields.scopeOfWork = input.scope;
   fields.workLocation = workLocation;
