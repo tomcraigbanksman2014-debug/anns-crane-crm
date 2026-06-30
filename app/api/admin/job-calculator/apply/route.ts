@@ -66,6 +66,42 @@ function phaseSummary(phases: PackagePhase[]) {
     .join("\n");
 }
 
+function uniqueClean(values: unknown[]) {
+  return Array.from(new Set(values.map(clean).filter(Boolean)));
+}
+
+function routeReturnText(notes: string | null | undefined) {
+  const match = clean(notes).match(/(?:^|→\s*)return\s+([^|]+)/i);
+  return match?.[1] ? clean(match[1]) : "";
+}
+
+function buildCustomerRouteSummary(phases: PackagePhase[]) {
+  const transportPhases = phases.filter((phase) => phase.job_kind === "transport");
+
+  return transportPhases
+    .map((phase, index) => {
+      const from = clean(phase.from_location);
+      const to = clean(phase.to_location);
+      const route = [from, to].filter(Boolean).join(" → ");
+      const returnTo = routeReturnText(phase.notes);
+      const suffix = returnTo ? ` → return ${returnTo}` : "";
+      const loadText = clean(phase.loads) ? ` (${clean(phase.loads)} load/visit)` : "";
+      return route ? `Route ${index + 1}: ${route}${suffix}${loadText}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCustomerProjectDateText(phases: PackagePhase[]) {
+  const dates = uniqueClean(phases.map((phase) => clean(phase.work_date).slice(0, 10)));
+  if (dates.length === 0) return "Date TBC — time as agreed with site.";
+  return `${dates.join(", ")} — time as agreed with site.`;
+}
+
+function phaseKindMap(phases: PackagePhase[]) {
+  return new Map(phases.map((phase) => [phase.id, phase.job_kind]));
+}
+
 function buildStructuredQuotePayload(input: {
   packageTitle: string;
   customer: any;
@@ -80,27 +116,32 @@ function buildStructuredQuotePayload(input: {
   const fields = getEmptyStructuredQuoteFields();
   const contactName = clean(input.customer?.contact_name);
   const contactPhone = clean(input.customer?.phone);
-  const workLocation = clean(input.siteLocation || input.customer?.address);
-  const phasesText = phaseSummary(input.phases);
+  const customerRoutes = buildCustomerRouteSummary(input.phases);
+  const fallbackLocation = clean(input.siteLocation || input.customer?.address);
+  const workLocation = customerRoutes || fallbackLocation;
+  const uniqueDates = uniqueClean(input.phases.map((phase) => clean(phase.work_date).slice(0, 10)));
+  const kindByPhase = phaseKindMap(input.phases);
+  const equipmentItems = uniqueClean(
+    input.lines
+      .filter((line) => line.line_type === "sell" && line.show_on_quote !== false)
+      .filter((line) => kindByPhase.get(clean(line.phase_id)) !== "transport")
+      .map((line) => line.item)
+  );
 
   fields.contactName = contactName;
   fields.contactPhone = contactPhone;
-  fields.projectDateTime = phasesText;
+  fields.projectDateTime = buildCustomerProjectDateText(input.phases);
   fields.siteLocation = workLocation;
   fields.hireType = "Full package / mixed crane and transport works";
   fields.toSupply = "Crane / transport / lifting support package as priced.";
   fields.scopeOfWork = input.scope;
   fields.workLocation = workLocation;
-  fields.workDates = input.phases.map((phase) => clean(phase.work_date)).filter(Boolean).join(", ");
-  fields.duration = input.phases.map((phase) => clean(phase.title)).filter(Boolean).join(" / ");
+  fields.workDates = uniqueDates.join(", ");
+  fields.duration = "As agreed with site.";
   fields.workingHours = "As agreed with site and subject to final RAMS / lift plan requirements.";
   fields.costSummary = `Total package cost: £${input.sellSubtotal.toFixed(2)} + VAT`;
   fields.breakdown = buildCustomerBreakdownText(input.lines, input.phases);
-  fields.additionalEquipment = input.lines
-    .filter((line) => line.line_type === "sell" && line.show_on_quote !== false)
-    .map((line) => `- ${clean(line.item)}`)
-    .filter(Boolean)
-    .join("\n");
+  fields.additionalEquipment = equipmentItems.length ? equipmentItems.map((item) => `- ${item}`).join("\n") : "Included as listed in the breakdown above.";
   fields.includedItems = "Items listed in the breakdown above are included. Anything not listed is excluded unless confirmed in writing.";
   fields.additionalNotes = input.notes;
   fields.paymentTerms = input.paymentTerms || fields.paymentTerms;
