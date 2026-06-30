@@ -362,12 +362,12 @@ export default function JobPackageCalculatorClient({
       const miles = numberFromAny(route.chargeableMiles);
       const mileRate = numberFromAny(route.ratePerMile);
       const summary = routeSummary(route);
-      const routeLabel = route.description || `Transport route ${index + 1}`;
+      const routeLabel = clean(route.description) || `Transport route ${index + 1}`;
 
       addMoneyLine(output, {
         id: `${route.id}-base`,
         phase_id: route.id,
-        item: routeLabel,
+        item: `${routeLabel} base charge`,
         description: summary || routeLabel,
         quantity: 1,
         rate: route.baseRate,
@@ -379,8 +379,8 @@ export default function JobPackageCalculatorClient({
       addMoneyLine(output, {
         id: `${route.id}-mileage`,
         phase_id: route.id,
-        item: `${routeLabel} mileage`,
-        description: `${miles || 0} miles × ${money(mileRate)} per mile${summary ? ` | ${summary}` : ""}`,
+        item: "Transport mileage",
+        description: `${routeLabel}: ${miles || 0} chargeable miles × ${money(mileRate)} per mile${summary ? ` | ${summary}` : ""}`,
         quantity: route.chargeableMiles,
         rate: route.ratePerMile,
         adjustmentPercent: route.adjustmentPercent,
