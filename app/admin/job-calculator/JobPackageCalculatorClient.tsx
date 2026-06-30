@@ -103,9 +103,11 @@ function addMoneyLine(lines: PackageCalculatorLine[], input: {
   amount?: string | number;
   show_on_quote?: boolean;
 }) {
-  const qty = numberFromAny(input.quantity || 1) || 1;
+  const hasManualAmount = clean(input.amount) !== "";
+  const rawQty = clean(input.quantity);
+  const qty = rawQty === "" ? 0 : numberFromAny(input.quantity);
   const rate = numberFromAny(input.rate);
-  const amount = numberFromAny(input.amount) || Math.round(qty * rate * 100) / 100;
+  const amount = hasManualAmount ? numberFromAny(input.amount) : Math.round(qty * rate * 100) / 100;
   if (!clean(input.item) || amount === 0) return;
 
   lines.push({
@@ -114,7 +116,7 @@ function addMoneyLine(lines: PackageCalculatorLine[], input: {
     line_type: "sell",
     item: input.item,
     description: input.description || input.item,
-    quantity: input.quantity ?? 1,
+    quantity: rawQty === "" && hasManualAmount ? 1 : input.quantity ?? "",
     rate: input.rate ?? amount,
     amount,
     pricing_mode: "qty_rate",
@@ -136,6 +138,10 @@ export default function JobPackageCalculatorClient({
   const [collectionPostcode, setCollectionPostcode] = useState("");
   const [deliveryPostcode, setDeliveryPostcode] = useState("");
   const [returnToYard, setReturnToYard] = useState(true);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeMessage, setRouteMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  const [lastRouteMiles, setLastRouteMiles] = useState<number | null>(null);
+  const [routeProvider, setRouteProvider] = useState("");
   const [chargeableMiles, setChargeableMiles] = useState("");
   const [ratePerMile, setRatePerMile] = useState("");
   const [transportBaseRate, setTransportBaseRate] = useState("");
@@ -188,9 +194,12 @@ export default function JobPackageCalculatorClient({
         collectionPostcode ? `Collection: ${collectionPostcode}` : "",
         deliveryPostcode ? `Delivery/site: ${deliveryPostcode}` : "",
         returnToYard ? "Return to yard included" : "One-way / no return to yard selected",
+        lastRouteMiles ? `HGV route actual miles: ${lastRouteMiles.toFixed(1)}` : "",
+        chargeableMiles ? `Chargeable miles: ${chargeableMiles}` : "",
+        routeProvider ? `Route provider: ${routeProvider}` : "",
       ].filter(Boolean).join(" | "),
     },
-  ], [yardPostcode, collectionPostcode, deliveryPostcode, returnToYard, jobDate]);
+  ], [yardPostcode, collectionPostcode, deliveryPostcode, returnToYard, jobDate, lastRouteMiles, chargeableMiles, routeProvider]);
 
   const lines = useMemo<PackageCalculatorLine[]>(() => {
     const output: PackageCalculatorLine[] = [];
@@ -333,12 +342,13 @@ export default function JobPackageCalculatorClient({
     if (totals.sellSubtotal <= 0) list.push("No customer sell price entered yet.");
     if (numberFromAny(chargeableMiles) > 0 && numberFromAny(ratePerMile) === 0) list.push("Miles entered but rate per mile is blank.");
     if (numberFromAny(ratePerMile) > 0 && numberFromAny(chargeableMiles) === 0) list.push("Rate per mile entered but chargeable miles is blank.");
+    if ((clean(collectionPostcode) || clean(deliveryPostcode)) && !lastRouteMiles) list.push("Mileage has not been calculated from the HGV route yet. Use Calculate HGV miles, or enter checked chargeable miles manually.");
     if (totals.grossProfit < 0) list.push("This price is showing a loss.");
     if (totals.sellSubtotal > 0 && totals.marginPercent < 20) list.push("Margin is under 20%. Check before issuing.");
     if ((target === "crane_job" || target === "transport_job" || target === "quote") && !targetId) list.push("Select a target record before applying the calculator.");
     if ((target === "new_quote" || target === "quote") && !customerId) list.push("Select a customer before saving to a quote.");
     return list;
-  }, [totals, chargeableMiles, ratePerMile, target, targetId, customerId]);
+  }, [totals, chargeableMiles, ratePerMile, target, targetId, customerId, collectionPostcode, deliveryPostcode, lastRouteMiles]);
 
   function setTargetType(nextTarget: SaveTarget) {
     setTarget(nextTarget);
@@ -437,6 +447,9 @@ export default function JobPackageCalculatorClient({
     setCollectionPostcode("");
     setDeliveryPostcode("");
     setReturnToYard(true);
+    setRouteMessage(null);
+    setLastRouteMiles(null);
+    setRouteProvider("");
     setChargeableMiles("");
     setRatePerMile("");
     setTransportBaseRate("");
@@ -457,6 +470,48 @@ export default function JobPackageCalculatorClient({
     setManualAdjustment("");
     setSupplierCost("");
     setMessage(null);
+  }
+
+  async function calculateHgvMileage() {
+    setRouteLoading(true);
+    setRouteMessage(null);
+    setLastRouteMiles(null);
+
+    try {
+      const res = await fetch("/api/admin/job-calculator/route-mileage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          yard_postcode: yardPostcode,
+          collection_postcode: collectionPostcode,
+          delivery_postcode: deliveryPostcode,
+          return_to_yard: returnToYard,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setRouteMessage({ tone: "error", text: data?.error || "Could not calculate HGV mileage." });
+        return;
+      }
+
+      const chargeable = Number(data?.chargeable_miles ?? 0);
+      const actual = Number(data?.actual_miles ?? chargeable);
+      const provider = String(data?.provider || "openrouteservice-hgv");
+      const routeNote = String(data?.note || "");
+      setChargeableMiles(chargeable ? String(chargeable) : "");
+      setLastRouteMiles(Number.isFinite(actual) && actual > 0 ? actual : null);
+      setRouteProvider(provider);
+      setRouteMessage({
+        tone: provider.includes("fallback") ? "error" : "ok",
+        text: `HGV route calculated: ${actual.toFixed(1)} actual miles. Chargeable miles set to ${chargeable}. ${routeNote}`.trim(),
+      });
+    } catch (error: any) {
+      setRouteMessage({ tone: "error", text: error?.message || "Could not calculate HGV mileage." });
+    } finally {
+      setRouteLoading(false);
+    }
   }
 
   async function applyCalculator() {
@@ -557,24 +612,37 @@ export default function JobPackageCalculatorClient({
           </section>
 
           <section style={cardStyle}>
-            <h2 style={sectionTitle}>Postcodes / mileage</h2>
-            <p style={sectionSub}>Enter the postcodes and the chargeable mileage. The price is miles × rate per mile, plus any base transport rate.</p>
+            <div style={sectionHeaderSmall}>
+              <div>
+                <h2 style={sectionTitle}>Postcodes / mileage</h2>
+                <p style={sectionSub}>Use the same HGV routing setup as the transport planner. It calculates yard → collection → delivery/site → yard, then prices miles × rate per mile plus any base transport rate.</p>
+              </div>
+              <button
+                type="button"
+                style={{ ...primaryBtn, opacity: routeLoading ? 0.65 : 1 }}
+                disabled={routeLoading}
+                onClick={calculateHgvMileage}
+              >
+                {routeLoading ? "Calculating..." : "Calculate HGV miles"}
+              </button>
+            </div>
+            {routeMessage ? <div style={routeMessage.tone === "ok" ? successBoxSmall : errorBoxSmall}>{routeMessage.text}</div> : null}
             <div style={formGrid}>
               <label style={fieldStyle}>Yard postcode
-                <input style={inputStyle} value={yardPostcode} onChange={(e) => setYardPostcode(e.target.value)} placeholder="SA10 6JY" />
+                <input style={inputStyle} value={yardPostcode} onChange={(e) => { setYardPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="SA10 6JY" />
               </label>
               <label style={fieldStyle}>Collection postcode / address
-                <input style={inputStyle} value={collectionPostcode} onChange={(e) => setCollectionPostcode(e.target.value)} placeholder="e.g. SA14..." />
+                <input style={inputStyle} value={collectionPostcode} onChange={(e) => { setCollectionPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="e.g. SA14 6RF" />
               </label>
               <label style={fieldStyle}>Delivery / site postcode
-                <input style={inputStyle} value={deliveryPostcode} onChange={(e) => setDeliveryPostcode(e.target.value)} placeholder="e.g. NP4..." />
+                <input style={inputStyle} value={deliveryPostcode} onChange={(e) => { setDeliveryPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="e.g. BB10 4QF" />
               </label>
               <label style={checkField}>
-                <input type="checkbox" checked={returnToYard} onChange={(e) => setReturnToYard(e.target.checked)} />
+                <input type="checkbox" checked={returnToYard} onChange={(e) => { setReturnToYard(e.target.checked); setLastRouteMiles(null); setRouteProvider(""); }} />
                 Return to yard included
               </label>
               <label style={fieldStyle}>Chargeable miles
-                <input style={inputStyle} inputMode="decimal" value={chargeableMiles} onChange={(e) => setChargeableMiles(e.target.value)} placeholder="Enter miles" />
+                <input style={inputStyle} inputMode="decimal" value={chargeableMiles} onChange={(e) => { setChargeableMiles(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="Click Calculate HGV miles or enter manually" />
               </label>
               <label style={fieldStyle}>Rate per mile
                 <input style={inputStyle} inputMode="decimal" value={ratePerMile} onChange={(e) => setRatePerMile(e.target.value)} placeholder="e.g. 1.10 or 4.50" />
@@ -989,6 +1057,24 @@ const okSmall: CSSProperties = {
   background: "rgba(34,197,94,0.14)",
   border: "1px solid rgba(34,197,94,0.24)",
   fontWeight: 800,
+};
+
+const successBoxSmall: CSSProperties = {
+  margin: "0 0 12px",
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(34,197,94,0.14)",
+  border: "1px solid rgba(34,197,94,0.28)",
+  fontWeight: 850,
+};
+
+const errorBoxSmall: CSSProperties = {
+  margin: "0 0 12px",
+  padding: 10,
+  borderRadius: 10,
+  background: "rgba(239,68,68,0.14)",
+  border: "1px solid rgba(239,68,68,0.28)",
+  fontWeight: 850,
 };
 
 const successBox: CSSProperties = {
