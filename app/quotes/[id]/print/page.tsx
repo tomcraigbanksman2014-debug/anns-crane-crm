@@ -11,6 +11,113 @@ import {
   splitLines,
 } from "../../quoteTemplate";
 
+
+type QuoteTermsMode = "crane" | "transport" | "mixed";
+
+const RHA_TERMS_IMAGE_URLS = [
+  "/transport-rha-terms-page-1(1)%20(1).png",
+  "/transport-rha-terms-page-2(1)%20(1).png",
+  "/transport-rha-terms-page-3(1)%20(1).png",
+];
+
+const CRANE_QUOTE_TERMS_TEXT = `ALL WORK IS SUBJECT TO CPA TERMS AND CONDITIONS, ADDITIONAL TERMS BELOW:
+# INSURANCE & CONDITIONS OF HIRE
+If the quotation is for Crane Hire Only, it is the Hirer’s responsibility to provide:
+• Hired-In Plant Insurance
+• Goods on the Hook Insurance
+• Appointed Person
+• Slinger / Banksman
+If required, Anns Crane Hire Ltd can provide the above services and insurances. Price available upon application.
+
+### Contract Lift
+Under Contract Lift conditions:
+• Hired-In Plant Insurance requirements are covered.
+• A Damage Waiver is included.
+• Anns Crane Hire Ltd liability for Goods on the Hook is limited to a maximum of £25,000.
+• Increased cover is available upon request.
+
+## Conditions of Hire
+• All cranes, equipment, and work are supplied under CPA Terms and Conditions together with Anns Crane Hire Ltd Supplementary Conditions. Copies are available upon request.
+• This quotation is valid for 30 days, after which it may be subject to review.
+• The rate quoted is the minimum chargeable amount, irrespective of hours worked.
+• Acceptance of services on site constitutes acceptance of these Terms & Conditions, which take precedence over any other conditions.
+• The Client, by signing acceptance, confirms agreement to Anns Crane Hire Ltd General Hire Conditions and acknowledges that no consequential losses or liquidated damages are covered under any circumstances unless otherwise agreed in writing.
+
+## Additional Charges
+• Sling damage, tyre damage, and punctures are chargeable to the Hirer.
+• Any Site Rate / Bonus awards signed on the crane hire timesheet will be charged plus the applicable percentage of the Employer’s National Insurance Contribution (NIC).
+• VAT will be charged at the prevailing rate where applicable.
+• Loading / unloading delays exceeding 30 minutes will incur a charge of £85.00 per hour.
+
+## Site Responsibilities
+The Client is responsible for ensuring:
+• Suitable access and egress
+• Adequate ground conditions for the crane size
+• Unrestricted working conditions for the full duration of the hire`;
+
+const TRANSPORT_QUOTE_TERMS_TEXT = `ALL WORK IS SUBJECT TO RHA TERMS AND CONDITIONS, ADDITIONAL TERMS BELOW:
+# TRANSPORT
+• ANNS CRANE HIRE HAVE GOODS IN TRANSIT INSURANCE TO THE VALUE OF £500,000.00 PER EVENT.
+• Transport / HIAB transport is quoted under RHA terms unless a contract lift is specifically agreed in writing.
+• Curb side collection and delivery is included as standard unless otherwise stated in writing.
+• If a contract lift is required, please let us know so this can be priced accordingly.
+
+## Additional Charges
+• Waiting / loading / unloading delays exceeding 30 minutes may incur a charge of £85.00 per hour.
+• Failed collections, failed deliveries, aborted visits, access issues or changes in scope may be chargeable.
+• VAT will be charged at the prevailing rate where applicable.
+
+## Site Responsibilities
+The Client is responsible for ensuring:
+• Suitable HGV access and egress
+• Safe loading and unloading areas
+• Correct collection and delivery details
+• Any site restrictions, booking slots or access requirements are confirmed in advance`;
+
+function detectQuoteTermsMode(fields: Record<string, string>): QuoteTermsMode {
+  const hireType = String(fields.hireType ?? "").toLowerCase();
+  if ((hireType.includes("cpa") && hireType.includes("rha")) || hireType.includes("mixed")) return "mixed";
+  if (hireType.includes("rha") && !hireType.includes("cpa")) return "transport";
+  if (hireType.includes("cpa") && !hireType.includes("rha")) return "crane";
+
+  const text = [
+    fields.hireType,
+    fields.toSupply,
+    fields.scopeOfWork,
+    fields.siteLocation,
+    fields.workLocation,
+    fields.breakdown,
+    fields.additionalEquipment,
+  ]
+    .join("\n")
+    .toLowerCase();
+
+  const hasTransport = /\b(transport|route|mileage|mile|hiab|trailer|wagon|haulage|delivery|collection|low\s*loader|rha)\b/i.test(text);
+  const hasCrane = /\b(crane|lift|lifting|bocker|böcker|jekko|mats?|slinger|banksman|appointed|supervisor|contract\s*lift|rigging|beam|carrier|cpa)\b/i.test(text);
+
+  if (hasTransport && hasCrane) return "mixed";
+  if (hasTransport) return "transport";
+  return "crane";
+}
+
+function includedTermsTitle(mode: QuoteTermsMode) {
+  if (mode === "transport") return "Included under RHA terms";
+  if (mode === "crane") return "Included under CPA terms";
+  return "Included under applicable CPA / RHA terms";
+}
+
+function termsFooterText(mode: QuoteTermsMode) {
+  if (mode === "transport") return "Road Haulage Association (RHA) terms and conditions.";
+  if (mode === "crane") return "Construction Plant-hire Association (CPA) Standard terms and conditions for contract lift services.";
+  return "Applicable CPA / RHA terms and conditions.";
+}
+
+function additionalTermsText(mode: QuoteTermsMode) {
+  if (mode === "transport") return TRANSPORT_QUOTE_TERMS_TEXT;
+  if (mode === "crane") return CRANE_QUOTE_TERMS_TEXT;
+  return DEFAULT_HIRE_TERMS_TEXT;
+}
+
 function fmtDate(value: string | null | undefined) {
   if (!value) return "—";
   const d = new Date(value);
@@ -227,7 +334,13 @@ export default async function QuotePrintPage({
   const includedItems = splitBulletLines(fields.includedItems);
   const additionalNotes = splitLines(fields.additionalNotes);
   const paymentTerms = fields.paymentTerms || DEFAULT_PAYMENT_TERMS;
-  const longTermPages = chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 7600);
+  const quoteTermsMode = detectQuoteTermsMode(fields);
+  const quoteIncludedTermsTitle = includedTermsTitle(quoteTermsMode);
+  const quoteTermsFooter = termsFooterText(quoteTermsMode);
+  const quoteAdditionalTermsText = additionalTermsText(quoteTermsMode);
+  const showCpaTerms = quoteTermsMode !== "transport";
+  const showRhaTerms = quoteTermsMode !== "crane";
+  const longTermPages = showCpaTerms ? chunkByApproxChars(toParagraphs(DEFAULT_CONTRACT_TERMS_TEXT), 7600) : [];
 
   const splitLocation = splitCollectionDelivery(fields.workLocation || "");
   const collection = pdfText("collection", splitLocation.collection);
@@ -452,7 +565,7 @@ export default async function QuotePrintPage({
                 ) : null}
 
                 {includedItems.length > 0 ? (
-                  <Panel title="Included under full CPA terms" className="quote-small-section">
+                  <Panel title={quoteIncludedTermsTitle} className="quote-small-section">
                     <ul style={cleanListStyle}>
                       {includedItems.map((item, index) => (
                         <li key={`${item}-${index}`}>{item}</li>
@@ -477,7 +590,7 @@ export default async function QuotePrintPage({
             <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
           </div>
 
-          <div style={termsCardStyle}>{markdownishNodes(DEFAULT_HIRE_TERMS_TEXT)}</div>
+          <div style={termsCardStyle}>{markdownishNodes(quoteAdditionalTermsText)}</div>
 
           <div style={signatureBoxStyle}>
             <div style={signatureTitleStyle}>PLEASE SIGN BELOW AND RETURN TO info@annscranehire.co.uk</div>
@@ -494,7 +607,7 @@ export default async function QuotePrintPage({
           </div>
 
           <div style={footerStyle}>
-            Construction Plant-hire Association (CPA) Standard terms and conditions for contract lift services.
+            {quoteTermsFooter}
             <br />
             Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
           </div>
@@ -520,6 +633,23 @@ export default async function QuotePrintPage({
             </div>
           </div>
         ))}
+
+        {showRhaTerms
+          ? RHA_TERMS_IMAGE_URLS.map((src, index) => (
+              <div key={`rha-terms-${index}`} className="quote-sheet terms-page" style={sheetStyle}>
+                <div style={pageHeaderStyle}>
+                  <div style={pageHeaderTitleStyle}>Road Haulage Association (RHA)</div>
+                  <div style={pageHeaderSubStyle}>Conditions of carriage</div>
+                </div>
+
+                <img src={src} alt={`RHA carriage terms page ${index + 1}`} style={termsImageStyle} />
+
+                <div style={footerTightStyle}>
+                  Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
+                </div>
+              </div>
+            ))
+          : null}
       </body>
     </html>
   );
@@ -891,6 +1021,15 @@ const footerStyle: CSSProperties = {
   lineHeight: 1.45,
   color: "#475569",
   textAlign: "center",
+};
+
+
+const termsImageStyle: CSSProperties = {
+  display: "block",
+  width: "100%",
+  maxHeight: "1040px",
+  objectFit: "contain",
+  marginTop: 16,
 };
 
 const longTermsStyle: CSSProperties = {
