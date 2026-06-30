@@ -1,5 +1,5 @@
 import ClientShell from "../../ClientShell";
-import { requireMasterAdmin } from "../../lib/routeGuards";
+import { requireOfficeUser } from "../../lib/routeGuards";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import JobPackageCalculatorClient from "./JobPackageCalculatorClient";
 
@@ -48,7 +48,7 @@ type SlimQuote = {
 };
 
 export default async function JobCalculatorPage() {
-  await requireMasterAdmin();
+  await requireOfficeUser();
 
   const admin = createSupabaseAdminClient();
 
