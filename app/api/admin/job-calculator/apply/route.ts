@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "../../../../lib/supabase/admin";
-import { requireMasterAdminApi } from "../../../../lib/routeGuards";
+import { requireOfficeUserApi } from "../../../../lib/routeGuards";
 import { writeAuditLog } from "../../../../lib/audit";
 import {
   buildCustomerBreakdownText,
@@ -198,7 +198,7 @@ function buildStructuredQuotePayload(input: {
 
 export async function POST(req: Request) {
   try {
-    const auth = await requireMasterAdminApi();
+    const auth = await requireOfficeUserApi();
     if (auth.response) return auth.response;
 
     const body = (await req.json().catch(() => ({}))) as Payload;
