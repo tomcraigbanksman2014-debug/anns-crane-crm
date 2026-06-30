@@ -62,6 +62,43 @@ type Props = {
 };
 
 type SaveTarget = "none" | "crane_job" | "transport_job" | "quote" | "new_quote";
+type RouteTone = "ok" | "error" | "idle";
+
+type TransportRouteLine = {
+  id: string;
+  description: string;
+  yardPostcode: string;
+  collectionPostcode: string;
+  viaStops: string;
+  deliveryPostcode: string;
+  returnToYard: boolean;
+  chargeableMiles: string;
+  ratePerMile: string;
+  baseRate: string;
+  actualMiles: number | null;
+  provider: string;
+  routeMessage: string;
+  routeTone: RouteTone;
+  loading: boolean;
+  quote: boolean;
+};
+
+type CraneLine = {
+  id: string;
+  description: string;
+  qty: string;
+  rate: string;
+  quote: boolean;
+};
+
+type LabourLine = {
+  id: string;
+  description: string;
+  men: string;
+  days: string;
+  rate: string;
+  quote: boolean;
+};
 
 type EquipmentLine = {
   id: string;
@@ -69,6 +106,12 @@ type EquipmentLine = {
   qty: string;
   rate: string;
   quote: boolean;
+};
+
+type CostLine = {
+  id: string;
+  item: string;
+  amount: string;
 };
 
 const todayIso = new Date().toISOString().slice(0, 10);
@@ -94,8 +137,81 @@ function customerLabel(client: ClientRow | null | undefined) {
   return [client.company_name, client.contact_name].filter(Boolean).join(" — ");
 }
 
+function splitStops(value: string) {
+  return String(value ?? "")
+    .split(/[\n;]/g)
+    .map((item) => item.replace(/^[\s,>-]+/, "").replace(/[\s,]+$/, "").trim())
+    .filter(Boolean);
+}
+
+function newTransportRouteLine(overrides: Partial<TransportRouteLine> = {}): TransportRouteLine {
+  return {
+    id: makeId("route"),
+    description: "Transport charge",
+    yardPostcode: "SA10 6JY",
+    collectionPostcode: "",
+    viaStops: "",
+    deliveryPostcode: "",
+    returnToYard: true,
+    chargeableMiles: "",
+    ratePerMile: "",
+    baseRate: "",
+    actualMiles: null,
+    provider: "",
+    routeMessage: "",
+    routeTone: "idle",
+    loading: false,
+    quote: true,
+    ...overrides,
+  };
+}
+
+function newCraneLine(overrides: Partial<CraneLine> = {}): CraneLine {
+  return {
+    id: makeId("crane"),
+    description: "Crane hire",
+    qty: "",
+    rate: "",
+    quote: true,
+    ...overrides,
+  };
+}
+
+function newLabourLine(overrides: Partial<LabourLine> = {}): LabourLine {
+  return {
+    id: makeId("labour"),
+    description: "Site team / labour",
+    men: "",
+    days: "1",
+    rate: "",
+    quote: true,
+    ...overrides,
+  };
+}
+
+function newEquipmentLine(overrides: Partial<EquipmentLine> = {}): EquipmentLine {
+  return {
+    id: makeId("equipment"),
+    item: "",
+    qty: "",
+    rate: "",
+    quote: true,
+    ...overrides,
+  };
+}
+
+function newCostLine(overrides: Partial<CostLine> = {}): CostLine {
+  return {
+    id: makeId("cost"),
+    item: "Supplier / internal cost",
+    amount: "",
+    ...overrides,
+  };
+}
+
 function addMoneyLine(lines: PackageCalculatorLine[], input: {
   id: string;
+  phase_id?: string;
   item: string;
   description?: string;
   quantity?: string | number;
@@ -112,7 +228,7 @@ function addMoneyLine(lines: PackageCalculatorLine[], input: {
 
   lines.push({
     id: input.id,
-    phase_id: "main",
+    phase_id: input.phase_id || "main",
     line_type: "sell",
     item: input.item,
     description: input.description || input.item,
@@ -122,6 +238,17 @@ function addMoneyLine(lines: PackageCalculatorLine[], input: {
     pricing_mode: "qty_rate",
     show_on_quote: input.show_on_quote !== false,
   });
+}
+
+function routeSummary(route: TransportRouteLine) {
+  const parts = [
+    route.yardPostcode ? `Yard ${route.yardPostcode}` : "",
+    route.collectionPostcode ? `collection ${route.collectionPostcode}` : "",
+    ...splitStops(route.viaStops).map((stop, index) => `stop ${index + 1} ${stop}`),
+    route.deliveryPostcode ? `delivery/site ${route.deliveryPostcode}` : "",
+    route.returnToYard && route.yardPostcode ? `return ${route.yardPostcode}` : "",
+  ].filter(Boolean);
+  return parts.join(" → ");
 }
 
 export default function JobPackageCalculatorClient({
@@ -134,38 +261,18 @@ export default function JobPackageCalculatorClient({
   const [packageTitle, setPackageTitle] = useState("Simple job price");
   const [customerId, setCustomerId] = useState(clients[0]?.id ?? "");
   const [jobDate, setJobDate] = useState(todayIso);
-  const [yardPostcode, setYardPostcode] = useState("SA10 6JY");
-  const [collectionPostcode, setCollectionPostcode] = useState("");
-  const [deliveryPostcode, setDeliveryPostcode] = useState("");
-  const [returnToYard, setReturnToYard] = useState(true);
-  const [routeLoading, setRouteLoading] = useState(false);
-  const [routeMessage, setRouteMessage] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
-  const [lastRouteMiles, setLastRouteMiles] = useState<number | null>(null);
-  const [routeProvider, setRouteProvider] = useState("");
-  const [chargeableMiles, setChargeableMiles] = useState("");
-  const [ratePerMile, setRatePerMile] = useState("");
-  const [transportBaseRate, setTransportBaseRate] = useState("");
-  const [transportDescription, setTransportDescription] = useState("Transport charge");
-
-  const [craneDescription, setCraneDescription] = useState("Crane hire");
-  const [craneQty, setCraneQty] = useState("");
-  const [craneRate, setCraneRate] = useState("");
-
-  const [menQty, setMenQty] = useState("");
-  const [menDays, setMenDays] = useState("1");
-  const [manRate, setManRate] = useState("");
-  const [menDescription, setMenDescription] = useState("Site team / labour");
-
+  const [transportRoutes, setTransportRoutes] = useState<TransportRouteLine[]>([newTransportRouteLine({ id: "route-main" })]);
+  const [craneLines, setCraneLines] = useState<CraneLine[]>([newCraneLine({ id: "crane-main" })]);
+  const [labourLines, setLabourLines] = useState<LabourLine[]>([newLabourLine({ id: "labour-main" })]);
   const [equipmentLines, setEquipmentLines] = useState<EquipmentLine[]>([
-    { id: "lifting-beam", item: "Lifting beam", qty: "", rate: "", quote: true },
-    { id: "crane-mats", item: "Crane mats", qty: "", rate: "", quote: true },
-    { id: "escort", item: "Escort", qty: "", rate: "", quote: true },
-    { id: "tracked-carrier", item: "Tracked carrier", qty: "", rate: "", quote: true },
+    newEquipmentLine({ id: "lifting-beam", item: "Lifting beam" }),
+    newEquipmentLine({ id: "crane-mats", item: "Crane mats" }),
+    newEquipmentLine({ id: "escort", item: "Escort" }),
+    newEquipmentLine({ id: "tracked-carrier", item: "Tracked carrier" }),
   ]);
-
+  const [costLines, setCostLines] = useState<CostLine[]>([newCostLine({ id: "supplier-cost" })]);
   const [manualAdjustment, setManualAdjustment] = useState("");
   const [manualAdjustmentLabel, setManualAdjustmentLabel] = useState("Manual adjustment / rounding");
-  const [supplierCost, setSupplierCost] = useState("");
   const [scope, setScope] = useState("Crane / transport / lifting works as priced below.");
   const [notes, setNotes] = useState("Price is subject to clear access, suitable ground conditions, normal working hours unless stated, and no change in scope.");
   const [paymentTerms, setPaymentTerms] = useState("30 days from Month End");
@@ -180,87 +287,100 @@ export default function JobPackageCalculatorClient({
   const customerMap = useMemo(() => new Map(clients.map((client) => [client.id, client])), [clients]);
   const selectedCustomer = customerMap.get(customerId) ?? null;
 
-  const phases = useMemo<PackagePhase[]>(() => [
-    {
-      id: "main",
-      title: "Job price",
-      job_kind: "mixed",
-      from_location: collectionPostcode,
-      to_location: deliveryPostcode,
-      work_date: jobDate,
-      loads: 1,
-      notes: [
-        yardPostcode ? `Yard: ${yardPostcode}` : "",
-        collectionPostcode ? `Collection: ${collectionPostcode}` : "",
-        deliveryPostcode ? `Delivery/site: ${deliveryPostcode}` : "",
-        returnToYard ? "Return to yard included" : "One-way / no return to yard selected",
-        lastRouteMiles ? `HGV route actual miles: ${lastRouteMiles.toFixed(1)}` : "",
-        chargeableMiles ? `Chargeable miles: ${chargeableMiles}` : "",
-        routeProvider ? `Route provider: ${routeProvider}` : "",
-      ].filter(Boolean).join(" | "),
-    },
-  ], [yardPostcode, collectionPostcode, deliveryPostcode, returnToYard, jobDate, lastRouteMiles, chargeableMiles, routeProvider]);
+  const phases = useMemo<PackagePhase[]>(() => {
+    const output: PackagePhase[] = [{ id: "main", title: "Job price", job_kind: "mixed", work_date: jobDate, notes: customerLabel(selectedCustomer) }];
+
+    transportRoutes.forEach((route, index) => {
+      const summary = routeSummary(route);
+      const notes = [
+        summary,
+        route.actualMiles ? `HGV actual miles: ${route.actualMiles.toFixed(1)}` : "",
+        route.chargeableMiles ? `Chargeable miles: ${route.chargeableMiles}` : "",
+        route.provider ? `Route provider: ${route.provider}` : "",
+      ].filter(Boolean).join(" | ");
+
+      output.push({
+        id: route.id,
+        title: `Route ${index + 1}`,
+        job_kind: "transport",
+        from_location: route.collectionPostcode || route.yardPostcode,
+        to_location: route.deliveryPostcode || splitStops(route.viaStops).slice(-1)[0] || route.yardPostcode,
+        work_date: jobDate,
+        loads: 1,
+        notes,
+      });
+    });
+
+    return output;
+  }, [transportRoutes, jobDate, selectedCustomer]);
 
   const lines = useMemo<PackageCalculatorLine[]>(() => {
     const output: PackageCalculatorLine[] = [];
-    const miles = numberFromAny(chargeableMiles);
-    const mileRate = numberFromAny(ratePerMile);
-    const routeText = [
-      yardPostcode ? `Yard ${yardPostcode}` : "",
-      collectionPostcode ? `collection ${collectionPostcode}` : "",
-      deliveryPostcode ? `delivery/site ${deliveryPostcode}` : "",
-      returnToYard && yardPostcode ? `return ${yardPostcode}` : "",
-    ].filter(Boolean).join(" → ");
 
-    addMoneyLine(output, {
-      id: "transport-base",
-      item: transportDescription || "Transport charge",
-      description: routeText || transportDescription || "Transport charge",
-      quantity: 1,
-      rate: transportBaseRate,
-      amount: transportBaseRate,
-      show_on_quote: true,
-    });
+    transportRoutes.forEach((route, index) => {
+      const miles = numberFromAny(route.chargeableMiles);
+      const mileRate = numberFromAny(route.ratePerMile);
+      const summary = routeSummary(route);
+      const routeLabel = route.description || `Transport route ${index + 1}`;
 
-    addMoneyLine(output, {
-      id: "transport-mileage",
-      item: "Mileage",
-      description: `${miles || 0} miles × ${money(mileRate)} per mile${routeText ? ` | ${routeText}` : ""}`,
-      quantity: chargeableMiles,
-      rate: ratePerMile,
-      show_on_quote: true,
-    });
-
-    addMoneyLine(output, {
-      id: "crane-hire",
-      item: craneDescription || "Crane hire",
-      description: craneDescription || "Crane hire",
-      quantity: craneQty,
-      rate: craneRate,
-      show_on_quote: true,
-    });
-
-    const men = numberFromAny(menQty);
-    const days = numberFromAny(menDays) || 1;
-    const labourRate = numberFromAny(manRate);
-    if (men > 0 && labourRate > 0) {
-      output.push({
-        id: "site-team",
-        phase_id: "main",
-        line_type: "sell",
-        item: menDescription || "Site team / labour",
-        description: `${men} men × ${days} day(s) × ${money(labourRate)}`,
-        quantity: men * days,
-        rate: labourRate,
-        amount: Math.round(men * days * labourRate * 100) / 100,
-        pricing_mode: "qty_rate",
-        show_on_quote: true,
+      addMoneyLine(output, {
+        id: `${route.id}-base`,
+        phase_id: route.id,
+        item: routeLabel,
+        description: summary || routeLabel,
+        quantity: 1,
+        rate: route.baseRate,
+        amount: route.baseRate,
+        show_on_quote: route.quote,
       });
-    }
+
+      addMoneyLine(output, {
+        id: `${route.id}-mileage`,
+        phase_id: route.id,
+        item: `${routeLabel} mileage`,
+        description: `${miles || 0} miles × ${money(mileRate)} per mile${summary ? ` | ${summary}` : ""}`,
+        quantity: route.chargeableMiles,
+        rate: route.ratePerMile,
+        show_on_quote: route.quote,
+      });
+    });
+
+    craneLines.forEach((line) => {
+      addMoneyLine(output, {
+        id: line.id,
+        phase_id: "main",
+        item: line.description || "Crane hire",
+        description: line.description || "Crane hire",
+        quantity: line.qty,
+        rate: line.rate,
+        show_on_quote: line.quote,
+      });
+    });
+
+    labourLines.forEach((line) => {
+      const men = numberFromAny(line.men);
+      const days = numberFromAny(line.days) || 1;
+      const labourRate = numberFromAny(line.rate);
+      if (men > 0 && labourRate > 0) {
+        output.push({
+          id: line.id,
+          phase_id: "main",
+          line_type: "sell",
+          item: line.description || "Site team / labour",
+          description: `${men} men × ${days} day(s) × ${money(labourRate)}`,
+          quantity: men * days,
+          rate: labourRate,
+          amount: Math.round(men * days * labourRate * 100) / 100,
+          pricing_mode: "qty_rate",
+          show_on_quote: line.quote,
+        });
+      }
+    });
 
     equipmentLines.forEach((line) => {
       addMoneyLine(output, {
         id: line.id,
+        phase_id: "main",
         item: line.item,
         description: line.item,
         quantity: line.qty,
@@ -271,6 +391,7 @@ export default function JobPackageCalculatorClient({
 
     addMoneyLine(output, {
       id: "manual-adjustment",
+      phase_id: "main",
       item: manualAdjustmentLabel || "Manual adjustment",
       description: manualAdjustmentLabel || "Manual adjustment",
       quantity: 1,
@@ -279,44 +400,26 @@ export default function JobPackageCalculatorClient({
       show_on_quote: false,
     });
 
-    const cost = numberFromAny(supplierCost);
-    if (cost > 0) {
-      output.push({
-        id: "supplier-cost",
-        phase_id: "main",
-        line_type: "cost",
-        item: "Supplier / internal cost",
-        description: "Supplier / internal cost for margin only",
-        quantity: 1,
-        rate: cost,
-        amount: cost,
-        pricing_mode: "fixed",
-        show_on_quote: false,
-      });
-    }
+    costLines.forEach((line) => {
+      const amount = numberFromAny(line.amount);
+      if (amount > 0) {
+        output.push({
+          id: line.id,
+          phase_id: "main",
+          line_type: "cost",
+          item: line.item || "Supplier / internal cost",
+          description: `${line.item || "Supplier / internal cost"} for margin only`,
+          quantity: 1,
+          rate: amount,
+          amount,
+          pricing_mode: "fixed",
+          show_on_quote: false,
+        });
+      }
+    });
 
     return output;
-  }, [
-    yardPostcode,
-    collectionPostcode,
-    deliveryPostcode,
-    returnToYard,
-    chargeableMiles,
-    ratePerMile,
-    transportBaseRate,
-    transportDescription,
-    craneDescription,
-    craneQty,
-    craneRate,
-    menQty,
-    menDays,
-    manRate,
-    menDescription,
-    equipmentLines,
-    manualAdjustment,
-    manualAdjustmentLabel,
-    supplierCost,
-  ]);
+  }, [transportRoutes, craneLines, labourLines, equipmentLines, costLines, manualAdjustment, manualAdjustmentLabel]);
 
   const totals = useMemo(() => calculatePackageTotals(lines), [lines]);
   const visibleBreakdown = useMemo(() => buildCustomerBreakdownText(lines, phases), [lines, phases]);
@@ -340,15 +443,21 @@ export default function JobPackageCalculatorClient({
   const warnings = useMemo(() => {
     const list: string[] = [];
     if (totals.sellSubtotal <= 0) list.push("No customer sell price entered yet.");
-    if (numberFromAny(chargeableMiles) > 0 && numberFromAny(ratePerMile) === 0) list.push("Miles entered but rate per mile is blank.");
-    if (numberFromAny(ratePerMile) > 0 && numberFromAny(chargeableMiles) === 0) list.push("Rate per mile entered but chargeable miles is blank.");
-    if ((clean(collectionPostcode) || clean(deliveryPostcode)) && !lastRouteMiles) list.push("Mileage has not been calculated from the HGV route yet. Use Calculate HGV miles, or enter checked chargeable miles manually.");
+
+    transportRoutes.forEach((route, index) => {
+      const label = `Route ${index + 1}`;
+      if (numberFromAny(route.chargeableMiles) > 0 && numberFromAny(route.ratePerMile) === 0) list.push(`${label}: miles entered but rate per mile is blank.`);
+      if (numberFromAny(route.ratePerMile) > 0 && numberFromAny(route.chargeableMiles) === 0) list.push(`${label}: rate per mile entered but chargeable miles is blank.`);
+      if ((clean(route.collectionPostcode) || clean(route.deliveryPostcode) || clean(route.viaStops)) && !route.actualMiles) list.push(`${label}: HGV mileage has not been calculated yet. Use Calculate, or enter checked miles manually.`);
+      if (route.provider.includes("fallback")) list.push(`${label}: HGV routing fell back to standard road routing. Check restrictions, low bridges and access.`);
+    });
+
     if (totals.grossProfit < 0) list.push("This price is showing a loss.");
     if (totals.sellSubtotal > 0 && totals.marginPercent < 20) list.push("Margin is under 20%. Check before issuing.");
     if ((target === "crane_job" || target === "transport_job" || target === "quote") && !targetId) list.push("Select a target record before applying the calculator.");
     if ((target === "new_quote" || target === "quote") && !customerId) list.push("Select a customer before saving to a quote.");
     return list;
-  }, [totals, chargeableMiles, ratePerMile, target, targetId, customerId, collectionPostcode, deliveryPostcode, lastRouteMiles]);
+  }, [totals, target, targetId, customerId, transportRoutes]);
 
   function setTargetType(nextTarget: SaveTarget) {
     setTarget(nextTarget);
@@ -381,18 +490,99 @@ export default function JobPackageCalculatorClient({
     return [];
   }
 
+  function updateTransportRoute(id: string, patch: Partial<TransportRouteLine>) {
+    setTransportRoutes((current) => current.map((route) => (route.id === id ? {
+      ...route,
+      ...patch,
+      ...(patch.yardPostcode !== undefined || patch.collectionPostcode !== undefined || patch.viaStops !== undefined || patch.deliveryPostcode !== undefined || patch.returnToYard !== undefined
+        ? { actualMiles: null, provider: "", routeMessage: "", routeTone: "idle" as RouteTone }
+        : {}),
+    } : route)));
+  }
+
+  function addTransportRoute() {
+    const previous = transportRoutes[transportRoutes.length - 1];
+    setTransportRoutes((current) => [...current, newTransportRouteLine({
+      yardPostcode: previous?.yardPostcode || "SA10 6JY",
+      ratePerMile: previous?.ratePerMile || "",
+      returnToYard: previous?.returnToYard ?? true,
+      description: `Transport charge ${current.length + 1}`,
+    })]);
+  }
+
+  function removeTransportRoute(id: string) {
+    setTransportRoutes((current) => current.length <= 1 ? current : current.filter((route) => route.id !== id));
+  }
+
+  function updateCraneLine(id: string, patch: Partial<CraneLine>) {
+    setCraneLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  function addCraneLine() {
+    setCraneLines((current) => [...current, newCraneLine({ description: `Crane hire ${current.length + 1}` })]);
+  }
+
+  function removeCraneLine(id: string) {
+    setCraneLines((current) => current.length <= 1 ? current : current.filter((line) => line.id !== id));
+  }
+
+  function updateLabourLine(id: string, patch: Partial<LabourLine>) {
+    setLabourLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  function addLabourLine() {
+    setLabourLines((current) => [...current, newLabourLine({ description: `Site team / labour ${current.length + 1}` })]);
+  }
+
+  function removeLabourLine(id: string) {
+    setLabourLines((current) => current.length <= 1 ? current : current.filter((line) => line.id !== id));
+  }
+
+  function updateEquipment(id: string, patch: Partial<EquipmentLine>) {
+    setEquipmentLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  function addEquipmentLine() {
+    setEquipmentLines((current) => [...current, newEquipmentLine()]);
+  }
+
+  function removeEquipmentLine(id: string) {
+    setEquipmentLines((current) => current.filter((line) => line.id !== id));
+  }
+
+  function updateCostLine(id: string, patch: Partial<CostLine>) {
+    setCostLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
+  }
+
+  function addCostLine() {
+    setCostLines((current) => [...current, newCostLine({ item: `Supplier / internal cost ${current.length + 1}` })]);
+  }
+
+  function removeCostLine(id: string) {
+    setCostLines((current) => current.length <= 1 ? current : current.filter((line) => line.id !== id));
+  }
+
   function syncCustomerFromTarget(nextTargetId: string) {
     if (!nextTargetId) return;
     if (target === "crane_job") {
       const job = craneJobs.find((row) => row.id === nextTargetId);
       if (job?.client_id) setCustomerId(job.client_id);
-      if (job?.site_address) setDeliveryPostcode(job.site_address);
+      if (job?.site_address) {
+        setTransportRoutes((current) => current.map((route, index) => index === 0 ? { ...route, deliveryPostcode: job.site_address || "", actualMiles: null, provider: "", routeMessage: "", routeTone: "idle" } : route));
+      }
     }
     if (target === "transport_job") {
       const job = transportJobs.find((row) => row.id === nextTargetId);
       if (job?.client_id) setCustomerId(job.client_id);
-      if (job?.collection_address) setCollectionPostcode(job.collection_address);
-      if (job?.delivery_address) setDeliveryPostcode(job.delivery_address);
+      setTransportRoutes((current) => current.map((route, index) => index === 0 ? {
+        ...route,
+        collectionPostcode: job?.collection_address || "",
+        deliveryPostcode: job?.delivery_address || "",
+        actualMiles: null,
+        provider: "",
+        routeMessage: "",
+        routeTone: "idle",
+      } : route));
     }
     if (target === "quote") {
       const quote = quotes.find((row) => row.id === nextTargetId);
@@ -409,14 +599,20 @@ export default function JobPackageCalculatorClient({
     }
   }
 
+  function buildRouteText() {
+    return transportRoutes
+      .filter((route) => routeSummary(route) || route.chargeableMiles)
+      .map((route, index) => [
+        `Route ${index + 1}: ${route.description || "Transport charge"}`,
+        routeSummary(route),
+        route.actualMiles ? `HGV actual miles: ${route.actualMiles.toFixed(1)}` : "",
+        route.chargeableMiles ? `Chargeable miles: ${route.chargeableMiles}` : "",
+      ].filter(Boolean).join("\n"))
+      .join("\n\n");
+  }
+
   function buildQuoteText() {
-    const route = [
-      yardPostcode ? `Yard: ${yardPostcode}` : "",
-      collectionPostcode ? `Collection: ${collectionPostcode}` : "",
-      deliveryPostcode ? `Delivery/site: ${deliveryPostcode}` : "",
-      returnToYard ? "Return to yard: Yes" : "Return to yard: No",
-      chargeableMiles ? `Chargeable miles: ${chargeableMiles}` : "",
-    ].filter(Boolean).join("\n");
+    const route = buildRouteText();
 
     return [
       `COST SUMMARY:\n${money(totals.sellSubtotal)} + VAT`,
@@ -428,71 +624,46 @@ export default function JobPackageCalculatorClient({
     ].filter(Boolean).join("\n\n");
   }
 
-  function updateEquipment(id: string, patch: Partial<EquipmentLine>) {
-    setEquipmentLines((current) => current.map((line) => (line.id === id ? { ...line, ...patch } : line)));
-  }
-
-  function addEquipmentLine() {
-    setEquipmentLines((current) => [...current, { id: makeId("equipment"), item: "", qty: "", rate: "", quote: true }]);
-  }
-
-  function removeEquipmentLine(id: string) {
-    setEquipmentLines((current) => current.filter((line) => line.id !== id));
-  }
-
   function resetCalculator() {
     setPackageTitle("Simple job price");
     setJobDate(todayIso);
-    setYardPostcode("SA10 6JY");
-    setCollectionPostcode("");
-    setDeliveryPostcode("");
-    setReturnToYard(true);
-    setRouteMessage(null);
-    setLastRouteMiles(null);
-    setRouteProvider("");
-    setChargeableMiles("");
-    setRatePerMile("");
-    setTransportBaseRate("");
-    setTransportDescription("Transport charge");
-    setCraneDescription("Crane hire");
-    setCraneQty("");
-    setCraneRate("");
-    setMenQty("");
-    setMenDays("1");
-    setManRate("");
-    setMenDescription("Site team / labour");
+    setTransportRoutes([newTransportRouteLine({ id: "route-main" })]);
+    setCraneLines([newCraneLine({ id: "crane-main" })]);
+    setLabourLines([newLabourLine({ id: "labour-main" })]);
     setEquipmentLines([
-      { id: "lifting-beam", item: "Lifting beam", qty: "", rate: "", quote: true },
-      { id: "crane-mats", item: "Crane mats", qty: "", rate: "", quote: true },
-      { id: "escort", item: "Escort", qty: "", rate: "", quote: true },
-      { id: "tracked-carrier", item: "Tracked carrier", qty: "", rate: "", quote: true },
+      newEquipmentLine({ id: "lifting-beam", item: "Lifting beam" }),
+      newEquipmentLine({ id: "crane-mats", item: "Crane mats" }),
+      newEquipmentLine({ id: "escort", item: "Escort" }),
+      newEquipmentLine({ id: "tracked-carrier", item: "Tracked carrier" }),
     ]);
+    setCostLines([newCostLine({ id: "supplier-cost" })]);
     setManualAdjustment("");
-    setSupplierCost("");
     setMessage(null);
   }
 
-  async function calculateHgvMileage() {
-    setRouteLoading(true);
-    setRouteMessage(null);
-    setLastRouteMiles(null);
+  async function calculateHgvMileage(routeId: string) {
+    const route = transportRoutes.find((item) => item.id === routeId);
+    if (!route) return;
+
+    updateTransportRoute(routeId, { loading: true, routeMessage: "", routeTone: "idle" });
 
     try {
       const res = await fetch("/api/admin/job-calculator/route-mileage", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          yard_postcode: yardPostcode,
-          collection_postcode: collectionPostcode,
-          delivery_postcode: deliveryPostcode,
-          return_to_yard: returnToYard,
+          yard_postcode: route.yardPostcode,
+          collection_postcode: route.collectionPostcode,
+          via_stops: splitStops(route.viaStops),
+          delivery_postcode: route.deliveryPostcode,
+          return_to_yard: route.returnToYard,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setRouteMessage({ tone: "error", text: data?.error || "Could not calculate HGV mileage." });
+        updateTransportRoute(routeId, { loading: false, routeTone: "error", routeMessage: data?.error || "Could not calculate HGV mileage." });
         return;
       }
 
@@ -500,17 +671,27 @@ export default function JobPackageCalculatorClient({
       const actual = Number(data?.actual_miles ?? chargeable);
       const provider = String(data?.provider || "openrouteservice-hgv");
       const routeNote = String(data?.note || "");
-      setChargeableMiles(chargeable ? String(chargeable) : "");
-      setLastRouteMiles(Number.isFinite(actual) && actual > 0 ? actual : null);
-      setRouteProvider(provider);
-      setRouteMessage({
-        tone: provider.includes("fallback") ? "error" : "ok",
-        text: `HGV route calculated: ${actual.toFixed(1)} actual miles. Chargeable miles set to ${chargeable}. ${routeNote}`.trim(),
+
+      updateTransportRoute(routeId, {
+        loading: false,
+        chargeableMiles: chargeable ? String(chargeable) : "",
+        actualMiles: Number.isFinite(actual) && actual > 0 ? actual : null,
+        provider,
+        routeTone: provider.includes("fallback") ? "error" : "ok",
+        routeMessage: `HGV route calculated: ${actual.toFixed(1)} actual miles. Chargeable miles set to ${chargeable}. ${routeNote}`.trim(),
       });
     } catch (error: any) {
-      setRouteMessage({ tone: "error", text: error?.message || "Could not calculate HGV mileage." });
-    } finally {
-      setRouteLoading(false);
+      updateTransportRoute(routeId, { loading: false, routeTone: "error", routeMessage: error?.message || "Could not calculate HGV mileage." });
+    }
+  }
+
+  async function calculateAllHgvMileage() {
+    for (const route of transportRoutes) {
+      const hasRoute = clean(route.collectionPostcode) || clean(route.viaStops) || clean(route.deliveryPostcode);
+      if (hasRoute) {
+        // eslint-disable-next-line no-await-in-loop
+        await calculateHgvMileage(route.id);
+      }
     }
   }
 
@@ -525,7 +706,7 @@ export default function JobPackageCalculatorClient({
         body: JSON.stringify({
           package_title: packageTitle,
           client_id: customerId || null,
-          site_location: [collectionPostcode, deliveryPostcode].filter(Boolean).join(" → "),
+          site_location: transportRoutes.map(routeSummary).filter(Boolean).join(" | "),
           scope,
           notes,
           payment_terms: paymentTerms,
@@ -565,7 +746,7 @@ export default function JobPackageCalculatorClient({
           <div style={eyebrow}>Master admin only</div>
           <h1 style={{ margin: "4px 0 0", fontSize: 32 }}>Simple Job Calculator</h1>
           <p style={{ margin: "8px 0 0", opacity: 0.78 }}>
-            Postcodes, mileage, crane rate, men, lifting equipment, supplier cost and margin. Nothing is saved until you choose a target and press apply.
+            Multiple routes, multiple cranes, multiple teams, lifting equipment, supplier costs and margin. Nothing is saved until you choose a target and press apply.
           </p>
         </div>
         <div style={totalPill}>
@@ -588,7 +769,7 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Job details</h2>
-                <p style={sectionSub}>Keep this simple. Select customer and enter the basic route/site details.</p>
+                <p style={sectionSub}>Select customer and set the basic quote/job details.</p>
               </div>
               <button type="button" style={secondaryBtn} onClick={resetCalculator}>Clear calculator</button>
             </div>
@@ -612,74 +793,113 @@ export default function JobPackageCalculatorClient({
           </section>
 
           <section style={cardStyle}>
-            <div style={sectionHeaderSmall}>
+            <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Postcodes / mileage</h2>
-                <p style={sectionSub}>Use the same HGV routing setup as the transport planner. It calculates yard → collection → delivery/site → yard, then prices miles × rate per mile plus any base transport rate.</p>
+                <p style={sectionSub}>Add as many HGV route lines as needed. Each line can have via stops, one per line, for multi-drop work.</p>
               </div>
-              <button
-                type="button"
-                style={{ ...primaryBtn, opacity: routeLoading ? 0.65 : 1 }}
-                disabled={routeLoading}
-                onClick={calculateHgvMileage}
-              >
-                {routeLoading ? "Calculating..." : "Calculate HGV miles"}
-              </button>
+              <div style={buttonGroup}>
+                <button type="button" style={secondaryBtn} onClick={calculateAllHgvMileage}>Calculate all</button>
+                <button type="button" style={primaryBtn} onClick={addTransportRoute}>+ Add route</button>
+              </div>
             </div>
-            {routeMessage ? <div style={routeMessage.tone === "ok" ? successBoxSmall : errorBoxSmall}>{routeMessage.text}</div> : null}
-            <div style={formGrid}>
-              <label style={fieldStyle}>Yard postcode
-                <input style={inputStyle} value={yardPostcode} onChange={(e) => { setYardPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="SA10 6JY" />
-              </label>
-              <label style={fieldStyle}>Collection postcode / address
-                <input style={inputStyle} value={collectionPostcode} onChange={(e) => { setCollectionPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="e.g. SA14 6RF" />
-              </label>
-              <label style={fieldStyle}>Delivery / site postcode
-                <input style={inputStyle} value={deliveryPostcode} onChange={(e) => { setDeliveryPostcode(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="e.g. BB10 4QF" />
-              </label>
-              <label style={checkField}>
-                <input type="checkbox" checked={returnToYard} onChange={(e) => { setReturnToYard(e.target.checked); setLastRouteMiles(null); setRouteProvider(""); }} />
-                Return to yard included
-              </label>
-              <label style={fieldStyle}>Chargeable miles
-                <input style={inputStyle} inputMode="decimal" value={chargeableMiles} onChange={(e) => { setChargeableMiles(e.target.value); setLastRouteMiles(null); setRouteProvider(""); }} placeholder="Click Calculate HGV miles or enter manually" />
-              </label>
-              <label style={fieldStyle}>Rate per mile
-                <input style={inputStyle} inputMode="decimal" value={ratePerMile} onChange={(e) => setRatePerMile(e.target.value)} placeholder="e.g. 1.10 or 4.50" />
-              </label>
-              <label style={fieldStyle}>Base transport rate
-                <input style={inputStyle} inputMode="decimal" value={transportBaseRate} onChange={(e) => setTransportBaseRate(e.target.value)} placeholder="Optional" />
-              </label>
-              <label style={fieldStyle}>Transport description
-                <input style={inputStyle} value={transportDescription} onChange={(e) => setTransportDescription(e.target.value)} />
-              </label>
+
+            <div style={{ display: "grid", gap: 14 }}>
+              {transportRoutes.map((route, index) => (
+                <div key={route.id} style={subCard}>
+                  <div style={subHeader}>
+                    <h3 style={subTitle}>Route {index + 1}</h3>
+                    <div style={buttonGroup}>
+                      <button
+                        type="button"
+                        style={{ ...primaryBtn, opacity: route.loading ? 0.65 : 1 }}
+                        disabled={route.loading}
+                        onClick={() => calculateHgvMileage(route.id)}
+                      >
+                        {route.loading ? "Calculating..." : "Calculate HGV miles"}
+                      </button>
+                      <button type="button" style={dangerGhostBtn} onClick={() => removeTransportRoute(route.id)} disabled={transportRoutes.length <= 1}>Remove</button>
+                    </div>
+                  </div>
+
+                  {route.routeMessage ? <div style={route.routeTone === "ok" ? successBoxSmall : errorBoxSmall}>{route.routeMessage}</div> : null}
+
+                  <div style={routeGrid}>
+                    <label style={fieldStyle}>Description
+                      <input style={inputStyle} value={route.description} onChange={(e) => updateTransportRoute(route.id, { description: e.target.value })} />
+                    </label>
+                    <label style={fieldStyle}>Yard postcode
+                      <input style={inputStyle} value={route.yardPostcode} onChange={(e) => updateTransportRoute(route.id, { yardPostcode: e.target.value })} placeholder="SA10 6JY" />
+                    </label>
+                    <label style={fieldStyle}>Collection postcode / address
+                      <input style={inputStyle} value={route.collectionPostcode} onChange={(e) => updateTransportRoute(route.id, { collectionPostcode: e.target.value })} placeholder="e.g. SA14 6RF" />
+                    </label>
+                    <label style={fieldStyle}>Via stops / extra drops
+                      <textarea style={smallTextareaStyle} value={route.viaStops} onChange={(e) => updateTransportRoute(route.id, { viaStops: e.target.value })} placeholder={"One per line\nPontypool\nHereford"} />
+                    </label>
+                    <label style={fieldStyle}>Delivery / site postcode
+                      <input style={inputStyle} value={route.deliveryPostcode} onChange={(e) => updateTransportRoute(route.id, { deliveryPostcode: e.target.value })} placeholder="e.g. BB10 4QF" />
+                    </label>
+                    <label style={checkField}>
+                      <input type="checkbox" checked={route.returnToYard} onChange={(e) => updateTransportRoute(route.id, { returnToYard: e.target.checked })} />
+                      Return to yard included
+                    </label>
+                    <label style={fieldStyle}>Chargeable miles
+                      <input style={inputStyle} inputMode="decimal" value={route.chargeableMiles} onChange={(e) => updateTransportRoute(route.id, { chargeableMiles: e.target.value, actualMiles: null, provider: "" })} placeholder="Calculate or enter manually" />
+                    </label>
+                    <label style={fieldStyle}>Rate per mile
+                      <input style={inputStyle} inputMode="decimal" value={route.ratePerMile} onChange={(e) => updateTransportRoute(route.id, { ratePerMile: e.target.value })} placeholder="e.g. 1.10 or 4.50" />
+                    </label>
+                    <label style={fieldStyle}>Base transport rate
+                      <input style={inputStyle} inputMode="decimal" value={route.baseRate} onChange={(e) => updateTransportRoute(route.id, { baseRate: e.target.value })} placeholder="Optional" />
+                    </label>
+                    <label style={smallCheck}><input type="checkbox" checked={route.quote} onChange={(e) => updateTransportRoute(route.id, { quote: e.target.checked })} /> Quote</label>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
           <section style={cardStyle}>
-            <h2 style={sectionTitle}>Crane and men</h2>
-            <div style={formGrid}>
-              <label style={fieldStyle}>Crane description
-                <input style={inputStyle} value={craneDescription} onChange={(e) => setCraneDescription(e.target.value)} placeholder="e.g. Böcker AK46 / HK40 / Contract lift crane" />
-              </label>
-              <label style={fieldStyle}>Crane qty / visits
-                <input style={inputStyle} inputMode="decimal" value={craneQty} onChange={(e) => setCraneQty(e.target.value)} placeholder="e.g. 1" />
-              </label>
-              <label style={fieldStyle}>Crane rate
-                <input style={inputStyle} inputMode="decimal" value={craneRate} onChange={(e) => setCraneRate(e.target.value)} placeholder="e.g. 1300" />
-              </label>
-              <label style={fieldStyle}>Men description
-                <input style={inputStyle} value={menDescription} onChange={(e) => setMenDescription(e.target.value)} />
-              </label>
-              <label style={fieldStyle}>Number of men
-                <input style={inputStyle} inputMode="decimal" value={menQty} onChange={(e) => setMenQty(e.target.value)} placeholder="e.g. 3" />
-              </label>
-              <label style={fieldStyle}>Days / visits
-                <input style={inputStyle} inputMode="decimal" value={menDays} onChange={(e) => setMenDays(e.target.value)} />
-              </label>
-              <label style={fieldStyle}>Rate per man
-                <input style={inputStyle} inputMode="decimal" value={manRate} onChange={(e) => setManRate(e.target.value)} placeholder="e.g. 450" />
-              </label>
+            <div style={sectionHeader}>
+              <div>
+                <h2 style={sectionTitle}>Cranes</h2>
+                <p style={sectionSub}>Add one line per crane, visit or crane package.</p>
+              </div>
+              <button type="button" style={primaryBtn} onClick={addCraneLine}>+ Add crane</button>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {craneLines.map((line) => (
+                <div key={line.id} style={simpleLineGrid}>
+                  <input style={inputStyle} value={line.description} onChange={(e) => updateCraneLine(line.id, { description: e.target.value })} placeholder="Crane description" />
+                  <input style={inputStyle} inputMode="decimal" value={line.qty} onChange={(e) => updateCraneLine(line.id, { qty: e.target.value })} placeholder="Qty / visits" />
+                  <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateCraneLine(line.id, { rate: e.target.value })} placeholder="Rate" />
+                  <label style={smallCheck}><input type="checkbox" checked={line.quote} onChange={(e) => updateCraneLine(line.id, { quote: e.target.checked })} /> Quote</label>
+                  <button type="button" style={dangerGhostBtn} onClick={() => removeCraneLine(line.id)} disabled={craneLines.length <= 1}>Remove</button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section style={cardStyle}>
+            <div style={sectionHeader}>
+              <div>
+                <h2 style={sectionTitle}>Men / labour</h2>
+                <p style={sectionSub}>Add one line per labour team/rate, for example 3 men at £450 each over 2 days.</p>
+              </div>
+              <button type="button" style={primaryBtn} onClick={addLabourLine}>+ Add labour</button>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {labourLines.map((line) => (
+                <div key={line.id} style={labourLineGrid}>
+                  <input style={inputStyle} value={line.description} onChange={(e) => updateLabourLine(line.id, { description: e.target.value })} placeholder="Labour description" />
+                  <input style={inputStyle} inputMode="decimal" value={line.men} onChange={(e) => updateLabourLine(line.id, { men: e.target.value })} placeholder="Men" />
+                  <input style={inputStyle} inputMode="decimal" value={line.days} onChange={(e) => updateLabourLine(line.id, { days: e.target.value })} placeholder="Days" />
+                  <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateLabourLine(line.id, { rate: e.target.value })} placeholder="Rate per man" />
+                  <label style={smallCheck}><input type="checkbox" checked={line.quote} onChange={(e) => updateLabourLine(line.id, { quote: e.target.checked })} /> Quote</label>
+                  <button type="button" style={dangerGhostBtn} onClick={() => removeLabourLine(line.id)} disabled={labourLines.length <= 1}>Remove</button>
+                </div>
+              ))}
             </div>
           </section>
 
@@ -687,13 +907,13 @@ export default function JobPackageCalculatorClient({
             <div style={sectionHeader}>
               <div>
                 <h2 style={sectionTitle}>Lifting equipment / extras</h2>
-                <p style={sectionSub}>Add lifting beams, mats, escorts, tracked carrier or any other extra. Blank qty/rate means it is not included.</p>
+                <p style={sectionSub}>Add lifting beams, mats, escorts, tracked carrier or any other extra.</p>
               </div>
               <button type="button" style={primaryBtn} onClick={addEquipmentLine}>+ Add extra</button>
             </div>
             <div style={{ display: "grid", gap: 10 }}>
               {equipmentLines.map((line) => (
-                <div key={line.id} style={equipmentGrid}>
+                <div key={line.id} style={simpleLineGrid}>
                   <input style={inputStyle} value={line.item} onChange={(e) => updateEquipment(line.id, { item: e.target.value })} placeholder="Item" />
                   <input style={inputStyle} inputMode="decimal" value={line.qty} onChange={(e) => updateEquipment(line.id, { qty: e.target.value })} placeholder="Qty" />
                   <input style={inputStyle} inputMode="decimal" value={line.rate} onChange={(e) => updateEquipment(line.id, { rate: e.target.value })} placeholder="Rate" />
@@ -705,11 +925,24 @@ export default function JobPackageCalculatorClient({
           </section>
 
           <section style={cardStyle}>
-            <h2 style={sectionTitle}>Costs / notes</h2>
-            <div style={formGrid}>
-              <label style={fieldStyle}>Supplier / internal cost
-                <input style={inputStyle} inputMode="decimal" value={supplierCost} onChange={(e) => setSupplierCost(e.target.value)} placeholder="Hidden cost for margin only" />
-              </label>
+            <div style={sectionHeader}>
+              <div>
+                <h2 style={sectionTitle}>Costs, margin and notes</h2>
+                <p style={sectionSub}>Cost lines are hidden from the customer and only used for profit/margin.</p>
+              </div>
+              <button type="button" style={primaryBtn} onClick={addCostLine}>+ Add cost</button>
+            </div>
+            <div style={{ display: "grid", gap: 10 }}>
+              {costLines.map((line) => (
+                <div key={line.id} style={costLineGrid}>
+                  <input style={inputStyle} value={line.item} onChange={(e) => updateCostLine(line.id, { item: e.target.value })} placeholder="Cost description" />
+                  <input style={inputStyle} inputMode="decimal" value={line.amount} onChange={(e) => updateCostLine(line.id, { amount: e.target.value })} placeholder="Cost amount" />
+                  <button type="button" style={dangerGhostBtn} onClick={() => removeCostLine(line.id)} disabled={costLines.length <= 1}>Remove</button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ ...formGrid, marginTop: 12 }}>
               <label style={fieldStyle}>Manual adjustment
                 <input style={inputStyle} inputMode="decimal" value={manualAdjustment} onChange={(e) => setManualAdjustment(e.target.value)} placeholder="Optional uplift / rounding" />
               </label>
@@ -866,6 +1099,13 @@ const cardStyle: CSSProperties = {
   boxShadow: "0 6px 18px rgba(0,0,0,0.05)",
 };
 
+const subCard: CSSProperties = {
+  padding: 12,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.58)",
+  border: "1px solid rgba(0,0,0,0.08)",
+};
+
 const sideColumn: CSSProperties = {
   display: "grid",
   gap: 16,
@@ -909,9 +1149,24 @@ const sectionHeaderSmall: CSSProperties = {
   marginBottom: 8,
 };
 
+const subHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 8,
+  flexWrap: "wrap",
+  marginBottom: 10,
+};
+
 const sectionTitle: CSSProperties = {
   margin: 0,
   fontSize: 20,
+  fontWeight: 1000,
+};
+
+const subTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 16,
   fontWeight: 1000,
 };
 
@@ -924,6 +1179,40 @@ const formGrid: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: 12,
+};
+
+const routeGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+  gap: 10,
+};
+
+const simpleLineGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(220px, 1fr) 90px 120px 90px 90px",
+  gap: 8,
+  alignItems: "center",
+};
+
+const labourLineGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(220px, 1fr) 80px 80px 120px 90px 90px",
+  gap: 8,
+  alignItems: "center",
+};
+
+const costLineGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(220px, 1fr) 130px 90px",
+  gap: 8,
+  alignItems: "center",
+};
+
+const buttonGroup: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
 };
 
 const fieldStyle: CSSProperties = {
@@ -958,11 +1247,11 @@ const textareaStyle: CSSProperties = {
   fontFamily: "inherit",
 };
 
-const equipmentGrid: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(220px, 1fr) 90px 120px 90px 90px",
-  gap: 8,
-  alignItems: "center",
+const smallTextareaStyle: CSSProperties = {
+  ...inputStyle,
+  minHeight: 42,
+  resize: "vertical",
+  fontFamily: "inherit",
 };
 
 const primaryBtn: CSSProperties = {
@@ -1038,59 +1327,61 @@ const preBox: CSSProperties = {
   padding: 12,
   borderRadius: 12,
   margin: 0,
-  minHeight: 80,
-  fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-  fontSize: 12,
-};
-
-const warnBox: CSSProperties = {
-  padding: 10,
-  borderRadius: 10,
-  background: "rgba(245,158,11,0.16)",
-  border: "1px solid rgba(245,158,11,0.35)",
-  fontWeight: 800,
-};
-
-const okSmall: CSSProperties = {
-  padding: 10,
-  borderRadius: 10,
-  background: "rgba(34,197,94,0.14)",
-  border: "1px solid rgba(34,197,94,0.24)",
-  fontWeight: 800,
-};
-
-const successBoxSmall: CSSProperties = {
-  margin: "0 0 12px",
-  padding: 10,
-  borderRadius: 10,
-  background: "rgba(34,197,94,0.14)",
-  border: "1px solid rgba(34,197,94,0.28)",
-  fontWeight: 850,
-};
-
-const errorBoxSmall: CSSProperties = {
-  margin: "0 0 12px",
-  padding: 10,
-  borderRadius: 10,
-  background: "rgba(239,68,68,0.14)",
-  border: "1px solid rgba(239,68,68,0.28)",
-  fontWeight: 850,
+  maxHeight: 360,
+  overflow: "auto",
 };
 
 const successBox: CSSProperties = {
   marginTop: 12,
   padding: 12,
   borderRadius: 12,
-  background: "rgba(34,197,94,0.14)",
-  border: "1px solid rgba(34,197,94,0.28)",
-  fontWeight: 850,
+  background: "rgba(22,163,74,0.14)",
+  border: "1px solid rgba(22,163,74,0.25)",
+  color: "#14532d",
+  fontWeight: 800,
 };
 
 const errorBox: CSSProperties = {
   marginTop: 12,
   padding: 12,
   borderRadius: 12,
-  background: "rgba(239,68,68,0.14)",
-  border: "1px solid rgba(239,68,68,0.28)",
-  fontWeight: 850,
+  background: "rgba(220,38,38,0.12)",
+  border: "1px solid rgba(220,38,38,0.22)",
+  color: "#7f1d1d",
+  fontWeight: 800,
+};
+
+const successBoxSmall: CSSProperties = {
+  ...successBox,
+  marginTop: 0,
+  marginBottom: 10,
+  padding: 9,
+  fontSize: 13,
+};
+
+const errorBoxSmall: CSSProperties = {
+  ...errorBox,
+  marginTop: 0,
+  marginBottom: 10,
+  padding: 9,
+  fontSize: 13,
+};
+
+const warnBox: CSSProperties = {
+  padding: 9,
+  borderRadius: 10,
+  background: "rgba(245,158,11,0.15)",
+  border: "1px solid rgba(245,158,11,0.28)",
+  color: "#78350f",
+  fontWeight: 800,
+  fontSize: 13,
+};
+
+const okSmall: CSSProperties = {
+  padding: 9,
+  borderRadius: 10,
+  background: "rgba(22,163,74,0.12)",
+  color: "#14532d",
+  fontWeight: 800,
+  fontSize: 13,
 };
