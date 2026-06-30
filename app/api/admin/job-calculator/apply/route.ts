@@ -22,6 +22,7 @@ type Payload = {
   payment_terms?: string | null;
   phases?: PackagePhase[];
   lines?: PackageCalculatorLine[];
+  calculator_state?: Record<string, unknown> | null;
   target_type?: "none" | "crane_job" | "transport_job" | "quote" | "new_quote";
   target_id?: string | null;
   quote_status?: "Draft" | "Sent";
@@ -42,6 +43,11 @@ function appendInternalNote(existing: string | null | undefined, addition: strin
   if (!oldText) return newText;
   if (!newText) return oldText;
   return `${oldText}\n\n${newText}`;
+}
+
+function safeJsonObject(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  return {};
 }
 
 function firstPhaseDate(phases: PackagePhase[]) {
@@ -145,6 +151,33 @@ function hireTypeForTermsMode(mode: "crane" | "transport" | "mixed") {
   return "Full package / mixed crane and transport works - CPA / RHA terms";
 }
 
+function buildCalculatorPdfSection(input: {
+  savedAt: string;
+  packageTitle: string;
+  clientId: string;
+  phases: PackagePhase[];
+  lines: PackageCalculatorLine[];
+  calculatorState?: Record<string, unknown> | null;
+  sellSubtotal: number;
+  costSubtotal: number;
+}) {
+  return {
+    version: 1,
+    saved_at: input.savedAt,
+    package_title: input.packageTitle,
+    client_id: input.clientId || null,
+    state: input.calculatorState && typeof input.calculatorState === "object" && !Array.isArray(input.calculatorState)
+      ? input.calculatorState
+      : null,
+    phases: input.phases,
+    lines: input.lines,
+    totals: {
+      sell_subtotal: input.sellSubtotal,
+      cost_subtotal: input.costSubtotal,
+    },
+  };
+}
+
 function buildStructuredQuotePayload(input: {
   packageTitle: string;
   customer: any;
@@ -240,6 +273,17 @@ export async function POST(req: Request) {
     const vat = Math.round(totals.sellSubtotal * 0.2 * 100) / 100;
     const invoiceTotal = Math.round((totals.sellSubtotal + vat) * 100) / 100;
     const now = new Date().toISOString();
+    const calculatorPdfSection = buildCalculatorPdfSection({
+      savedAt: now,
+      packageTitle,
+      clientId,
+      phases,
+      lines,
+      calculatorState: body.calculator_state ?? null,
+      sellSubtotal: totals.sellSubtotal,
+      costSubtotal,
+    });
+
     const internalNote = [
       `Job calculator applied ${new Date().toLocaleString("en-GB")}`,
       `Package: ${packageTitle}`,
@@ -362,7 +406,7 @@ export async function POST(req: Request) {
     if (targetType === "quote") {
       const { data: existing, error: existingError } = await admin
         .from("quotes")
-        .select("id, subject, client_id")
+        .select("id, subject, client_id, pdf_sections")
         .eq("id", targetId)
         .single();
 
@@ -370,12 +414,18 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: existingError?.message || "Quote not found." }, { status: 404 });
       }
 
+      const existingPdfSections = safeJsonObject((existing as any).pdf_sections);
+
       const { error } = await admin
         .from("quotes")
         .update({
           subject: quotePayload.subject,
           notes: quotePayload.notes,
           amount: quotePayload.amount,
+          pdf_sections: {
+            ...existingPdfSections,
+            jobCalculator: calculatorPdfSection,
+          },
         })
         .eq("id", targetId);
 
@@ -404,6 +454,7 @@ export async function POST(req: Request) {
           amount: quotePayload.amount,
           subject: quotePayload.subject,
           notes: quotePayload.notes,
+          pdf_sections: { jobCalculator: calculatorPdfSection },
           created_by: auth.ctx?.user?.id ?? null,
         })
         .select("id")
