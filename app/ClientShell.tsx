@@ -275,6 +275,7 @@ export default function ClientShell({
       { label: "Settings", href: "/settings" },
       ...(isMasterAdmin
         ? [
+            { label: "Job Calculator", href: "/admin/job-calculator" },
             { label: "System Health", href: "/settings/system-health" },
             { label: "Status Audit", href: "/settings/status-audit" },
           ]
