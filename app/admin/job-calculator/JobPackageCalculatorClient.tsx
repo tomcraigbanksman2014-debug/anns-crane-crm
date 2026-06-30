@@ -794,7 +794,7 @@ export default function JobPackageCalculatorClient({
     <div style={pageWrap}>
       <div style={headerCard}>
         <div>
-          <div style={eyebrow}>Master admin only</div>
+          <div style={eyebrow}>Office staff</div>
           <h1 style={{ margin: "4px 0 0", fontSize: 32 }}>Simple Job Calculator</h1>
           <p style={{ margin: "8px 0 0", opacity: 0.78 }}>
             Multiple routes, cranes, teams, equipment, costs and per-line percentage uplifts/discounts. Nothing is saved until you choose a target and press apply.
@@ -1020,7 +1020,7 @@ export default function JobPackageCalculatorClient({
         <aside style={sideColumn}>
           <section style={cardStyle}>
             <h2 style={sectionTitle}>Apply / save</h2>
-            <p style={sectionSub}>Master admin only. Nothing writes to the system until you press Apply.</p>
+            <p style={sectionSub}>Office staff. Nothing writes to the system until you press Apply.</p>
             <label style={fieldStyle}>Save target
               <select style={inputStyle} value={target} onChange={(e) => setTargetType(e.target.value as SaveTarget)}>
                 <option value="none">Do not save yet</option>
