@@ -250,6 +250,7 @@ export default function ClientShell({
 
       { label: "Jobs", href: "/jobs" },
       { label: "Transport Jobs", href: "/transport-jobs" },
+      { label: "Job Calculator", href: "/admin/job-calculator" },
 
       { label: "Crane Planner", href: "/planner" },
       { label: "Weekly Planner", href: "/weekly-planner" },
@@ -275,7 +276,6 @@ export default function ClientShell({
       { label: "Settings", href: "/settings" },
       ...(isMasterAdmin
         ? [
-            { label: "Job Calculator", href: "/admin/job-calculator" },
             { label: "System Health", href: "/settings/system-health" },
             { label: "Status Audit", href: "/settings/status-audit" },
           ]
