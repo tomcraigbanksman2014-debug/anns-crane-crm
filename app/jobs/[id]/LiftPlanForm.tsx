@@ -2,7 +2,11 @@
 
 import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
-import type { CraneSetupOption, EquipmentProfile } from "../../lib/ai/equipmentProfiles";
+import type {
+  CraneSetupOption,
+  EquipmentProfile,
+} from "../../lib/ai/equipmentProfiles";
+import type { RangeChartProfileOption } from "../../lib/rangeChartSpecs";
 import {
   calculateRangeChartBearingLoad,
   calculateRangeChartCapacity,
@@ -123,7 +127,11 @@ function hasDraftValue(value: unknown) {
   return true;
 }
 
-function mergeGeneratedDraft<T extends Record<string, any>>(prev: T, draft: Partial<T> | null | undefined, preserveKeys: string[]) {
+function mergeGeneratedDraft<T extends Record<string, any>>(
+  prev: T,
+  draft: Partial<T> | null | undefined,
+  preserveKeys: string[],
+) {
   const next: Record<string, any> = { ...prev };
   const preserve = new Set(preserveKeys);
 
@@ -172,7 +180,10 @@ function normaliseCraneTextForCompare(value: unknown) {
     .trim();
 }
 
-function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unknown) {
+function textMentionsDifferentKnownCrane(
+  value: unknown,
+  currentCraneName: unknown,
+) {
   const text = normaliseCraneTextForCompare(value);
   const current = normaliseCraneTextForCompare(currentCraneName);
   if (!text || !current) return false;
@@ -187,18 +198,27 @@ function textMentionsDifferentKnownCrane(value: unknown, currentCraneName: unkno
 
   const currentKeys = new Set(
     known
-      .filter((item) => item.aliases.some((alias) => current.includes(alias.replace(/\s+/g, " "))))
-      .map((item) => item.key)
+      .filter((item) =>
+        item.aliases.some((alias) =>
+          current.includes(alias.replace(/\s+/g, " ")),
+        ),
+      )
+      .map((item) => item.key),
   );
   if (!currentKeys.size) return false;
 
   return known.some((item) => {
     if (currentKeys.has(item.key)) return false;
-    return item.aliases.some((alias) => text.includes(alias.replace(/\s+/g, " ")));
+    return item.aliases.some((alias) =>
+      text.includes(alias.replace(/\s+/g, " ")),
+    );
   });
 }
 
-function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T, currentCraneName: unknown): T {
+function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(
+  draft: T,
+  currentCraneName: unknown,
+): T {
   const machineText = [
     draft.crane_configuration,
     draft.outrigger_setup,
@@ -213,12 +233,18 @@ function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T
     draft.crane_details,
     draft.configuration_outrigger_note,
     draft.load_chart_note,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  if (!textMentionsDifferentKnownCrane(machineText, currentCraneName)) return draft;
+  if (!textMentionsDifferentKnownCrane(machineText, currentCraneName))
+    return draft;
 
-  const next: Record<string, any> = clearMachineNarrativeFields(draft as Record<string, any>);
-  const currentCrane = String(currentCraneName ?? "").trim() || "selected crane";
+  const next: Record<string, any> = clearMachineNarrativeFields(
+    draft as Record<string, any>,
+  );
+  const currentCrane =
+    String(currentCraneName ?? "").trim() || "selected crane";
   next.selected_crane_setup_key = "";
   next.selected_crane_setup_label = "";
   next.boom_configuration = "";
@@ -233,7 +259,8 @@ function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(draft: T
   next.custom_crane_jib_outreach_m = "";
   next.custom_crane_max_radius_m = "";
   next.crane_configuration = `${currentCrane} configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`;
-  next.outrigger_setup = "Outrigger, support and mat arrangement must be checked against the uploaded specification / load chart and the actual ground conditions before lifting.";
+  next.outrigger_setup =
+    "Outrigger, support and mat arrangement must be checked against the uploaded specification / load chart and the actual ground conditions before lifting.";
   next.exclusion_zone_details = `Barrier off the lifting area, slewing area and landing zone for ${currentCrane}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`;
   next.emergency_procedures = `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${currentCrane} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`;
   return next as T;
@@ -268,7 +295,9 @@ function normaliseDuplicateKey(value: string) {
 }
 
 function tidyRepeatedTextBlock(value: unknown) {
-  const text = String(value ?? "").replace(/\r\n/g, "\n").trim();
+  const text = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .trim();
   if (!text) return "";
 
   const paragraphs = text
@@ -332,7 +361,9 @@ function safeJsonParseArray(value: unknown): AdditionalCraneEntry[] {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((item, index) => normaliseAdditionalCrane(item, index)).filter(Boolean) as AdditionalCraneEntry[];
+    return parsed
+      .map((item, index) => normaliseAdditionalCrane(item, index))
+      .filter(Boolean) as AdditionalCraneEntry[];
   } catch {
     return [];
   }
@@ -369,30 +400,54 @@ function normaliseAdditionalCrane(item: any, index = 0): AdditionalCraneEntry {
   return {
     ...fallback,
     id: String(item?.id || `crane-${index + 1}`),
-    selected_crane_option_value: String(item?.selected_crane_option_value ?? item?.selectedCraneOptionValue ?? ""),
-    selected_profile_key: String(item?.selected_profile_key ?? item?.selectedProfileKey ?? ""),
-    selected_jib_key: String(item?.selected_jib_key ?? item?.selectedJibKey ?? ""),
+    selected_crane_option_value: String(
+      item?.selected_crane_option_value ?? item?.selectedCraneOptionValue ?? "",
+    ),
+    selected_profile_key: String(
+      item?.selected_profile_key ?? item?.selectedProfileKey ?? "",
+    ),
+    selected_jib_key: String(
+      item?.selected_jib_key ?? item?.selectedJibKey ?? "",
+    ),
     crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
-    crane_role: String(item?.crane_role ?? item?.craneRole ?? "Alternative crane for same work"),
+    crane_role: String(
+      item?.crane_role ?? item?.craneRole ?? "Alternative crane for same work",
+    ),
     planned_use: String(item?.planned_use ?? item?.plannedUse ?? ""),
     setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
     boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
-    boom_length_m_manual: item?.boom_length_m_manual === true || item?.boomLengthMManual === true || item?.boom_length_m_manual === "true" || item?.boomLengthMManual === "true",
+    boom_length_m_manual:
+      item?.boom_length_m_manual === true ||
+      item?.boomLengthMManual === true ||
+      item?.boom_length_m_manual === "true" ||
+      item?.boomLengthMManual === "true",
     radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
     hook_height_m: String(item?.hook_height_m ?? item?.hookHeightM ?? ""),
-    crane_gross_weight_kg: String(item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? ""),
+    crane_gross_weight_kg: String(
+      item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? "",
+    ),
     load_share_kg: String(item?.load_share_kg ?? item?.loadShareKg ?? ""),
-    accessory_weight_kg: String(item?.accessory_weight_kg ?? item?.accessoryWeightKg ?? ""),
-    chart_capacity_kg: String(item?.chart_capacity_kg ?? item?.chartCapacityKg ?? ""),
+    accessory_weight_kg: String(
+      item?.accessory_weight_kg ?? item?.accessoryWeightKg ?? "",
+    ),
+    chart_capacity_kg: String(
+      item?.chart_capacity_kg ?? item?.chartCapacityKg ?? "",
+    ),
     mat_length_m: String(item?.mat_length_m ?? item?.matLengthM ?? ""),
     mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
-    spec_sheet_reference: String(item?.spec_sheet_reference ?? item?.specSheetReference ?? ""),
-    verification_notes: String(item?.verification_notes ?? item?.verificationNotes ?? ""),
+    spec_sheet_reference: String(
+      item?.spec_sheet_reference ?? item?.specSheetReference ?? "",
+    ),
+    verification_notes: String(
+      item?.verification_notes ?? item?.verificationNotes ?? "",
+    ),
   };
 }
 
 function stringifyAdditionalCranes(cranes: AdditionalCraneEntry[]) {
-  return JSON.stringify(cranes.map((item, index) => normaliseAdditionalCrane(item, index)));
+  return JSON.stringify(
+    cranes.map((item, index) => normaliseAdditionalCrane(item, index)),
+  );
 }
 
 function additionalCraneTotals(crane: AdditionalCraneEntry) {
@@ -405,9 +460,23 @@ function additionalCraneTotals(crane: AdditionalCraneEntry) {
   const matWidthM = numberOrNull(crane.mat_width_m);
   const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
   const bearingLoadKg = grossKg ? (grossKg + totalLiftedKg) * 0.75 : null;
-  const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
-  const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
-  return { grossKg, loadKg, accessoryKg, totalLiftedKg, chartCapacityKg, matAreaM2, bearingLoadKg, bearingPressureKgM2, utilisationPercent };
+  const bearingPressureKgM2 =
+    bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
+  const utilisationPercent =
+    chartCapacityKg && totalLiftedKg > 0
+      ? (totalLiftedKg / chartCapacityKg) * 100
+      : null;
+  return {
+    grossKg,
+    loadKg,
+    accessoryKg,
+    totalLiftedKg,
+    chartCapacityKg,
+    matAreaM2,
+    bearingLoadKg,
+    bearingPressureKgM2,
+    utilisationPercent,
+  };
 }
 
 function formatAutoKgInput(value: number | null | undefined) {
@@ -420,8 +489,63 @@ function formatAutoMInput(value: number | null | undefined) {
   return String(Number(value.toFixed(2)));
 }
 
-function buildAdditionalCraneSetupLabel(profileLabel: string, jibLabel: string) {
-  return [profileLabel, jibLabel && !/^no jib/i.test(jibLabel) ? jibLabel : ""].filter(Boolean).join(" / ");
+function buildAdditionalCraneSetupLabel(
+  profileLabel: string,
+  jibLabel: string,
+) {
+  return [profileLabel, jibLabel && !/^no jib/i.test(jibLabel) ? jibLabel : ""]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function profileBoomLengthValue(
+  option: RangeChartProfileOption | null | undefined,
+) {
+  const n = option?.defaultBoomLengthM ?? option?.maxBoomLengthM ?? null;
+  return n !== null && n !== undefined && Number.isFinite(n) ? Number(n) : null;
+}
+
+function profilesHaveDistinctBoomLengths(options: RangeChartProfileOption[]) {
+  const values = options
+    .map((option) => profileBoomLengthValue(option))
+    .filter((value): value is number => value !== null)
+    .map((value) => Number(value.toFixed(2)));
+  return new Set(values).size > 1;
+}
+
+function findBestProfileForBoomLength(
+  options: RangeChartProfileOption[],
+  boomLengthM: number | null | undefined,
+) {
+  if (
+    !boomLengthM ||
+    !Number.isFinite(boomLengthM) ||
+    !profilesHaveDistinctBoomLengths(options)
+  )
+    return null;
+
+  const scored = options
+    .map((option) => {
+      const profileBoomM = profileBoomLengthValue(option);
+      if (!profileBoomM) return null;
+      const diff = profileBoomM - boomLengthM;
+      const absoluteDiff = Math.abs(diff);
+      // Prefer an exact manufacturer/spec chart. If the user enters an intermediate telescopic
+      // boom length, use the next longer structured chart as the conservative fallback.
+      const score =
+        absoluteDiff <= 0.35
+          ? absoluteDiff
+          : diff >= 0
+            ? diff + 5
+            : absoluteDiff + 50;
+      return { option, score };
+    })
+    .filter(Boolean) as Array<{
+    option: RangeChartProfileOption;
+    score: number;
+  }>;
+
+  return scored.sort((a, b) => a.score - b.score)[0]?.option ?? null;
 }
 
 function formatKg(value: number | null | undefined) {
@@ -460,17 +584,23 @@ function setupBoomLengthText(setup: CraneSetupOption) {
 }
 
 function setupOutreachText(setup: CraneSetupOption) {
-  if (setup.hydraulicOutreachM && setup.maxRadiusM && setup.hydraulicOutreachM !== setup.maxRadiusM) {
+  if (
+    setup.hydraulicOutreachM &&
+    setup.maxRadiusM &&
+    setup.hydraulicOutreachM !== setup.maxRadiusM
+  ) {
     return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach / ${formatMetres(setup.maxRadiusM)} radius`;
   }
-  if (setup.hydraulicOutreachM) return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach`;
+  if (setup.hydraulicOutreachM)
+    return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach`;
   if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} radius`;
   if (setup.boomLengthM) return `${formatMetres(setup.boomLengthM)} boom`;
   return "";
 }
 
 function setupJibText(setup: CraneSetupOption) {
-  if (setup.jibOutreachM) return `${formatMetres(setup.jibOutreachM)} jib / max outreach`;
+  if (setup.jibOutreachM)
+    return `${formatMetres(setup.jibOutreachM)} jib / max outreach`;
   if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} max radius`;
   return "";
 }
@@ -479,7 +609,9 @@ function setupLoadChartNote(setup: CraneSetupOption) {
   return (
     setup.chartNote ||
     [
-      setup.sourceDocumentTitle ? `Source: ${setup.sourceDocumentTitle}.` : null,
+      setup.sourceDocumentTitle
+        ? `Source: ${setup.sourceDocumentTitle}.`
+        : null,
       setup.sourcePage ? `Page ${setup.sourcePage}.` : null,
       "The appointed person must verify the exact manufacturer/supplier chart, radius, boom length, counterweight, outrigger setup and accessory deductions before approval.",
     ]
@@ -492,10 +624,20 @@ const MAT_OPTIONS = [
   { value: "", label: "Select mat size…", lengthM: null, widthM: null },
   { value: "1x3", label: "1m x 3m mat (3.00 m²)", lengthM: 1, widthM: 3 },
   { value: "1x2", label: "1m x 2m mat (2.00 m²)", lengthM: 1, widthM: 2 },
-  { value: "1.2x2.4", label: "1.2m x 2.4m mat (2.88 m²)", lengthM: 1.2, widthM: 2.4 },
+  {
+    value: "1.2x2.4",
+    label: "1.2m x 2.4m mat (2.88 m²)",
+    lengthM: 1.2,
+    widthM: 2.4,
+  },
   { value: "1.5x3", label: "1.5m x 3m mat (4.50 m²)", lengthM: 1.5, widthM: 3 },
   { value: "2x3", label: "2m x 3m mat (6.00 m²)", lengthM: 2, widthM: 3 },
-  { value: "custom", label: "Custom mat / spreader size", lengthM: null, widthM: null },
+  {
+    value: "custom",
+    label: "Custom mat / spreader size",
+    lengthM: null,
+    widthM: null,
+  },
 ];
 
 function calcMatArea(lengthValue: unknown, widthValue: unknown) {
@@ -512,7 +654,9 @@ function formatArea(value: number | null | undefined) {
 }
 
 function parseWeightToKg(value: unknown) {
-  const text = String(value ?? "").trim().toLowerCase();
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (!text) return null;
   const match = text.replace(/,/g, "").match(/([0-9]+(?:\.[0-9]+)?)/);
   if (!match) return null;
@@ -541,20 +685,33 @@ function buildDefaultSetupOptions(profile?: EquipmentProfile | null) {
       label: [
         "Current selected profile",
         profile.maxBoomLengthM ? `${profile.maxBoomLengthM} m boom` : null,
-        profile.maxHydraulicOutreachM ? `${profile.maxHydraulicOutreachM} m outreach` : profile.maxRadiusM ? `${profile.maxRadiusM} m radius` : null,
-        profile.maxJibOutreachM ? `${profile.maxJibOutreachM} m jib / max outreach` : null,
+        profile.maxHydraulicOutreachM
+          ? `${profile.maxHydraulicOutreachM} m outreach`
+          : profile.maxRadiusM
+            ? `${profile.maxRadiusM} m radius`
+            : null,
+        profile.maxJibOutreachM
+          ? `${profile.maxJibOutreachM} m jib / max outreach`
+          : null,
       ]
         .filter(Boolean)
         .join(" – "),
-      boomConfiguration: profile.maxJibOutreachM ? "Main boom + jib / fly jib" : "Main boom",
+      boomConfiguration: profile.maxJibOutreachM
+        ? "Main boom + jib / fly jib"
+        : "Main boom",
       boomLengthM: profile.maxBoomLengthM ?? null,
-      hydraulicOutreachM: profile.maxHydraulicOutreachM ?? profile.maxRadiusM ?? profile.maxBoomLengthM ?? null,
+      hydraulicOutreachM:
+        profile.maxHydraulicOutreachM ??
+        profile.maxRadiusM ??
+        profile.maxBoomLengthM ??
+        null,
       jibOutreachM: profile.maxJibOutreachM ?? null,
       maxRadiusM: profile.maxRadiusM ?? profile.maxHydraulicOutreachM ?? null,
       maxTipHeightM: profile.maxTipHeightM ?? null,
       sourceDocumentTitle: profile.sourceLabel,
       sourceLabel: profile.sourceLabel,
-      chartNote: "Selected from the current crane profile. Verify the exact manufacturer/supplier chart before approval.",
+      chartNote:
+        "Selected from the current crane profile. Verify the exact manufacturer/supplier chart before approval.",
       configurationNote: profile.configurationNote ?? null,
       outriggerNote: profile.outriggersNote ?? null,
     },
@@ -580,72 +737,109 @@ export default function LiftPlanForm({
   craneSetupOptionsByAllocation?: Record<string, CraneSetupOption[]>;
   alternativeCraneOptions?: CraneOption[];
 }) {
-  const initialPackSections = (initial?.pack_sections ?? {}) as Record<string, string | null>;
-  const initialSelectedAllocationId = initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "";
-  const initialSelectedCraneLabel = craneOptions.find((option) => option.value === initialSelectedAllocationId)?.label ?? craneOptions[0]?.label ?? "";
+  const initialPackSections = (initial?.pack_sections ?? {}) as Record<
+    string,
+    string | null
+  >;
+  const initialSelectedAllocationId =
+    initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "";
+  const initialSelectedCraneLabel =
+    craneOptions.find((option) => option.value === initialSelectedAllocationId)
+      ?.label ??
+    craneOptions[0]?.label ??
+    "";
 
-  const [form, setForm] = useState<LiftPlanData>(() => sanitiseInitialLiftPlanForCurrentCrane(tidyLiftPlanTextFields({
-    selected_job_equipment_id: initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
-    selected_crane_id: initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
-    load_description: initial?.load_description ?? "",
-    load_weight: initial?.load_weight ?? null,
-    lift_radius: initial?.lift_radius ?? null,
-    lift_height: initial?.lift_height ?? null,
-    crane_configuration: initial?.crane_configuration ?? "",
-    outrigger_setup: initial?.outrigger_setup ?? "",
-    ground_conditions: initial?.ground_conditions ?? "",
-    sling_type: initial?.sling_type ?? "",
-    lifting_accessories: initial?.lifting_accessories ?? "",
-    method_statement: initial?.method_statement ?? "",
-    risk_assessment: initial?.risk_assessment ?? "",
-    site_hazards: initial?.site_hazards ?? "",
-    control_measures: initial?.control_measures ?? "",
-    ppe_required: initial?.ppe_required ?? "",
-    exclusion_zone_details: initial?.exclusion_zone_details ?? "",
-    weather_limitations: initial?.weather_limitations ?? "",
-    emergency_procedures: initial?.emergency_procedures ?? "",
-    lift_supervisor: initial?.lift_supervisor ?? "",
-    appointed_person: initial?.appointed_person ?? "",
-    crane_operator: initial?.crane_operator ?? "",
-    rams_complete: initial?.rams_complete ?? false,
-    lift_plan_complete: initial?.lift_plan_complete ?? false,
-    approved_by: initial?.approved_by ?? "",
-    approved_at: initial?.approved_at ?? "",
-    approval_notes: initial?.approval_notes ?? "",
-    customer_signed_by: initial?.customer_signed_by ?? "",
-    operator_signed_by: initial?.operator_signed_by ?? "",
-    office_signed_by: initial?.office_signed_by ?? "",
-    finalised_at: initial?.finalised_at ?? "",
-    paperwork_locked: initial?.paperwork_locked ?? false,
-    selected_crane_setup_key: initialPackSections.selected_crane_setup_key ?? "",
-    selected_crane_setup_label: initialPackSections.selected_crane_setup_label ?? "",
-    boom_configuration: initialPackSections.boom_configuration ?? "",
-    boom_length: initialPackSections.boom_length ?? "",
-    crane_outreach_reference: initialPackSections.crane_outreach_reference ?? "",
-    crane_jib_reference: initialPackSections.crane_jib_reference ?? "",
-    crane_details: initialPackSections.crane_details ?? "",
-    configuration_outrigger_note: initialPackSections.configuration_outrigger_note ?? "",
-    load_chart_note: initialPackSections.load_chart_note ?? "",
-    ground_bearing_mat_preset: initialPackSections.ground_bearing_mat_preset ?? "",
-    ground_bearing_mat_length_m: initialPackSections.ground_bearing_mat_length_m ?? "",
-    ground_bearing_mat_width_m: initialPackSections.ground_bearing_mat_width_m ?? "",
-    ground_bearing_mat_area_m2: initialPackSections.ground_bearing_mat_area_m2 ?? "",
-    ground_bearing_bearing_load: initialPackSections.ground_bearing_bearing_load ?? "",
-    ground_bearing_pressure: initialPackSections.ground_bearing_pressure ?? "",
-    ground_bearing_notes: initialPackSections.ground_bearing_notes ?? "",
-    custom_crane_boom_length_m: initialPackSections.custom_crane_boom_length_m ?? "",
-    custom_crane_hydraulic_outreach_m: initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
-    custom_crane_jib_outreach_m: initialPackSections.custom_crane_jib_outreach_m ?? "",
-    custom_crane_max_radius_m: initialPackSections.custom_crane_max_radius_m ?? "",
-    multi_crane_enabled: initialPackSections.multi_crane_enabled === "true" || Boolean(initialPackSections.additional_cranes_json),
-    multi_crane_lift_type: initialPackSections.multi_crane_lift_type ?? "Alternative crane options for same lift / multi-day job",
-    multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
-    additional_cranes_json: initialPackSections.additional_cranes_json ?? "[]",
-    range_chart_radius_m: initialPackSections.range_chart_radius_m ?? "",
-    range_chart_tip_height_m: initialPackSections.range_chart_tip_height_m ?? "",
-    range_chart_load_weight_kg: initialPackSections.range_chart_load_weight_kg ?? "",
-    range_chart_accessory_weight_kg: initialPackSections.range_chart_accessory_weight_kg ?? "",
-  }), initialSelectedCraneLabel));
+  const [form, setForm] = useState<LiftPlanData>(() =>
+    sanitiseInitialLiftPlanForCurrentCrane(
+      tidyLiftPlanTextFields({
+        selected_job_equipment_id:
+          initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
+        selected_crane_id:
+          initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
+        load_description: initial?.load_description ?? "",
+        load_weight: initial?.load_weight ?? null,
+        lift_radius: initial?.lift_radius ?? null,
+        lift_height: initial?.lift_height ?? null,
+        crane_configuration: initial?.crane_configuration ?? "",
+        outrigger_setup: initial?.outrigger_setup ?? "",
+        ground_conditions: initial?.ground_conditions ?? "",
+        sling_type: initial?.sling_type ?? "",
+        lifting_accessories: initial?.lifting_accessories ?? "",
+        method_statement: initial?.method_statement ?? "",
+        risk_assessment: initial?.risk_assessment ?? "",
+        site_hazards: initial?.site_hazards ?? "",
+        control_measures: initial?.control_measures ?? "",
+        ppe_required: initial?.ppe_required ?? "",
+        exclusion_zone_details: initial?.exclusion_zone_details ?? "",
+        weather_limitations: initial?.weather_limitations ?? "",
+        emergency_procedures: initial?.emergency_procedures ?? "",
+        lift_supervisor: initial?.lift_supervisor ?? "",
+        appointed_person: initial?.appointed_person ?? "",
+        crane_operator: initial?.crane_operator ?? "",
+        rams_complete: initial?.rams_complete ?? false,
+        lift_plan_complete: initial?.lift_plan_complete ?? false,
+        approved_by: initial?.approved_by ?? "",
+        approved_at: initial?.approved_at ?? "",
+        approval_notes: initial?.approval_notes ?? "",
+        customer_signed_by: initial?.customer_signed_by ?? "",
+        operator_signed_by: initial?.operator_signed_by ?? "",
+        office_signed_by: initial?.office_signed_by ?? "",
+        finalised_at: initial?.finalised_at ?? "",
+        paperwork_locked: initial?.paperwork_locked ?? false,
+        selected_crane_setup_key:
+          initialPackSections.selected_crane_setup_key ?? "",
+        selected_crane_setup_label:
+          initialPackSections.selected_crane_setup_label ?? "",
+        boom_configuration: initialPackSections.boom_configuration ?? "",
+        boom_length: initialPackSections.boom_length ?? "",
+        crane_outreach_reference:
+          initialPackSections.crane_outreach_reference ?? "",
+        crane_jib_reference: initialPackSections.crane_jib_reference ?? "",
+        crane_details: initialPackSections.crane_details ?? "",
+        configuration_outrigger_note:
+          initialPackSections.configuration_outrigger_note ?? "",
+        load_chart_note: initialPackSections.load_chart_note ?? "",
+        ground_bearing_mat_preset:
+          initialPackSections.ground_bearing_mat_preset ?? "",
+        ground_bearing_mat_length_m:
+          initialPackSections.ground_bearing_mat_length_m ?? "",
+        ground_bearing_mat_width_m:
+          initialPackSections.ground_bearing_mat_width_m ?? "",
+        ground_bearing_mat_area_m2:
+          initialPackSections.ground_bearing_mat_area_m2 ?? "",
+        ground_bearing_bearing_load:
+          initialPackSections.ground_bearing_bearing_load ?? "",
+        ground_bearing_pressure:
+          initialPackSections.ground_bearing_pressure ?? "",
+        ground_bearing_notes: initialPackSections.ground_bearing_notes ?? "",
+        custom_crane_boom_length_m:
+          initialPackSections.custom_crane_boom_length_m ?? "",
+        custom_crane_hydraulic_outreach_m:
+          initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
+        custom_crane_jib_outreach_m:
+          initialPackSections.custom_crane_jib_outreach_m ?? "",
+        custom_crane_max_radius_m:
+          initialPackSections.custom_crane_max_radius_m ?? "",
+        multi_crane_enabled:
+          initialPackSections.multi_crane_enabled === "true" ||
+          Boolean(initialPackSections.additional_cranes_json),
+        multi_crane_lift_type:
+          initialPackSections.multi_crane_lift_type ??
+          "Alternative crane options for same lift / multi-day job",
+        multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
+        additional_cranes_json:
+          initialPackSections.additional_cranes_json ?? "[]",
+        range_chart_radius_m: initialPackSections.range_chart_radius_m ?? "",
+        range_chart_tip_height_m:
+          initialPackSections.range_chart_tip_height_m ?? "",
+        range_chart_load_weight_kg:
+          initialPackSections.range_chart_load_weight_kg ?? "",
+        range_chart_accessory_weight_kg:
+          initialPackSections.range_chart_accessory_weight_kg ?? "",
+      }),
+      initialSelectedCraneLabel,
+    ),
+  );
 
   const [saving, setSaving] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -662,9 +856,14 @@ export default function LiftPlanForm({
     setLoadingVersions(true);
     setMsg("");
     try {
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, { cache: "no-store" });
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, {
+        cache: "no-store",
+      });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Could not load previous lift plan drafts.");
+      if (!res.ok)
+        throw new Error(
+          data?.error || "Could not load previous lift plan drafts.",
+        );
       const items = Array.isArray(data?.versions) ? data.versions : [];
       setVersions(items);
       setVersionsLoaded(true);
@@ -679,8 +878,12 @@ export default function LiftPlanForm({
   async function restorePreviousVersion() {
     if (!selectedVersionId || locked) return;
     const selected = versions.find((item) => item.id === selectedVersionId);
-    const label = selected?.created_at ? new Date(selected.created_at).toLocaleString("en-GB") : "the selected previous draft";
-    const ok = window.confirm(`Restore lift plan version from ${label}? This will replace the current draft, but the current draft will also be kept as a previous version.`);
+    const label = selected?.created_at
+      ? new Date(selected.created_at).toLocaleString("en-GB")
+      : "the selected previous draft";
+    const ok = window.confirm(
+      `Restore lift plan version from ${label}? This will replace the current draft, but the current draft will also be kept as a previous version.`,
+    );
     if (!ok) return;
 
     setRestoringVersion(true);
@@ -692,8 +895,13 @@ export default function LiftPlanForm({
         body: JSON.stringify({ version_id: selectedVersionId }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Could not restore previous lift plan draft.");
-      setMsg("Previous lift plan draft restored. Reloading the page so all pack fields are refreshed…");
+      if (!res.ok)
+        throw new Error(
+          data?.error || "Could not restore previous lift plan draft.",
+        );
+      setMsg(
+        "Previous lift plan draft restored. Reloading the page so all pack fields are refreshed…",
+      );
       window.location.reload();
     } catch (error: any) {
       setMsg(error?.message || "Could not restore previous lift plan draft.");
@@ -703,18 +911,22 @@ export default function LiftPlanForm({
   }
 
   const selectedCraneLabel = useMemo(() => {
-    const selected = craneOptions.find((option) => option.value === form.selected_job_equipment_id);
+    const selected = craneOptions.find(
+      (option) => option.value === form.selected_job_equipment_id,
+    );
     return selected?.label || "No crane selected";
   }, [craneOptions, form.selected_job_equipment_id]);
 
   const availableCraneSetupOptions = useMemo(() => {
     const allocationKey = String(form.selected_job_equipment_id ?? "").trim();
-    const allocationSpecific = allocationKey ? craneSetupOptionsByAllocation?.[allocationKey] ?? [] : [];
+    const allocationSpecific = allocationKey
+      ? (craneSetupOptionsByAllocation?.[allocationKey] ?? [])
+      : [];
     const raw = allocationSpecific.length
       ? allocationSpecific
       : craneSetupOptions?.length
-      ? craneSetupOptions
-      : buildDefaultSetupOptions(equipmentProfile);
+        ? craneSetupOptions
+        : buildDefaultSetupOptions(equipmentProfile);
     const seen = new Set<string>();
     return raw.filter((option) => {
       const key = String(option.key || option.label || "").trim();
@@ -722,34 +934,67 @@ export default function LiftPlanForm({
       seen.add(key);
       return true;
     });
-  }, [craneSetupOptions, craneSetupOptionsByAllocation, equipmentProfile, form.selected_job_equipment_id]);
+  }, [
+    craneSetupOptions,
+    craneSetupOptionsByAllocation,
+    equipmentProfile,
+    form.selected_job_equipment_id,
+  ]);
 
   const selectedSetup = useMemo(() => {
     const selectedKey = String(form.selected_crane_setup_key ?? "").trim();
-    return availableCraneSetupOptions.find((option) => option.key === selectedKey) ?? null;
+    return (
+      availableCraneSetupOptions.find((option) => option.key === selectedKey) ??
+      null
+    );
   }, [availableCraneSetupOptions, form.selected_crane_setup_key]);
 
-  const matAreaM2 = numberOrNull(form.ground_bearing_mat_area_m2) ?? calcMatArea(form.ground_bearing_mat_length_m, form.ground_bearing_mat_width_m);
+  const matAreaM2 =
+    numberOrNull(form.ground_bearing_mat_area_m2) ??
+    calcMatArea(
+      form.ground_bearing_mat_length_m,
+      form.ground_bearing_mat_width_m,
+    );
   const matBearingLoadKg = parseWeightToKg(form.ground_bearing_bearing_load);
   const matPressureText = formatPressure(matBearingLoadKg, matAreaM2);
-  const additionalCranes = useMemo(() => safeJsonParseArray(form.additional_cranes_json), [form.additional_cranes_json]);
+  const additionalCranes = useMemo(
+    () => safeJsonParseArray(form.additional_cranes_json),
+    [form.additional_cranes_json],
+  );
 
   const additionalCraneSelectOptions = useMemo(() => {
     const seen = new Set<string>();
-    const source = (alternativeCraneOptions?.length ? alternativeCraneOptions : craneOptions) ?? [];
+    const source =
+      (alternativeCraneOptions?.length
+        ? alternativeCraneOptions
+        : craneOptions) ?? [];
     return source.filter((option) => {
-      const key = String(option.craneId || option.label || option.value || "").toLowerCase();
+      const key = String(
+        option.craneId || option.label || option.value || "",
+      ).toLowerCase();
       if (!key || seen.has(key)) return false;
       seen.add(key);
       return true;
     });
   }, [alternativeCraneOptions, craneOptions]);
 
-  const multiCraneArrangementOptions = useMemo(() => [
-    { value: "Alternative crane options for same lift / multi-day job", label: "Alternative crane options for same lift / multi-day job" },
-    { value: "Assisting crane - separate task", label: "Assisting crane - separate task" },
-    { value: "Tandem / shared-load lift", label: "Tandem / shared-load lift" },
-  ], []);
+  const multiCraneArrangementOptions = useMemo(
+    () => [
+      {
+        value: "Alternative crane options for same lift / multi-day job",
+        label: "Alternative crane options for same lift / multi-day job",
+      },
+      {
+        value: "Assisting crane - separate task",
+        label: "Assisting crane - separate task",
+      },
+      {
+        value: "Tandem / shared-load lift",
+        label: "Tandem / shared-load lift",
+      },
+    ],
+    [],
+  );
 
   const personnelSelectOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -779,28 +1024,44 @@ export default function LiftPlanForm({
 
   function updateSelectedCrane(allocationId: string) {
     if (locked) return;
-    const selected = craneOptions.find((option) => option.value === allocationId) ?? null;
+    const selected =
+      craneOptions.find((option) => option.value === allocationId) ?? null;
     setForm((prev) => {
-      const changed = String(prev.selected_job_equipment_id ?? "") !== String(allocationId ?? "");
+      const changed =
+        String(prev.selected_job_equipment_id ?? "") !==
+        String(allocationId ?? "");
       const base = changed ? clearMachineNarrativeFields(prev) : { ...prev };
-      const shouldClearSupervisor = changed && (!hasDraftValue(prev.lift_supervisor) || String(prev.lift_supervisor ?? "").trim() === String(prev.crane_operator ?? "").trim());
+      const shouldClearSupervisor =
+        changed &&
+        (!hasDraftValue(prev.lift_supervisor) ||
+          String(prev.lift_supervisor ?? "").trim() ===
+            String(prev.crane_operator ?? "").trim());
       return {
         ...base,
         lift_supervisor: shouldClearSupervisor ? "" : prev.lift_supervisor,
         selected_job_equipment_id: allocationId || "",
         selected_crane_id: selected?.craneId || "",
         selected_crane_setup_key: changed ? "" : prev.selected_crane_setup_key,
-        selected_crane_setup_label: changed ? "" : prev.selected_crane_setup_label,
+        selected_crane_setup_label: changed
+          ? ""
+          : prev.selected_crane_setup_label,
       };
     });
-    if (String(form.selected_job_equipment_id ?? "") !== String(allocationId ?? "")) {
-      setMsg("Selected crane changed. Select the crane setup/chart, then generate the AI draft if you need wording rebuilt.");
+    if (
+      String(form.selected_job_equipment_id ?? "") !==
+      String(allocationId ?? "")
+    ) {
+      setMsg(
+        "Selected crane changed. Select the crane setup/chart, then generate the AI draft if you need wording rebuilt.",
+      );
     }
   }
 
   function applyCraneSetup(setupKey: string) {
     if (locked) return;
-    const setup = availableCraneSetupOptions.find((option) => option.key === setupKey) ?? null;
+    const setup =
+      availableCraneSetupOptions.find((option) => option.key === setupKey) ??
+      null;
 
     setForm((prev) => {
       if (!setup) {
@@ -822,12 +1083,18 @@ export default function LiftPlanForm({
         };
       }
 
-      const boomConfiguration = setup.boomConfiguration || setup.label || "Selected crane setup";
+      const boomConfiguration =
+        setup.boomConfiguration || setup.label || "Selected crane setup";
       const boomLengthText = setupBoomLengthText(setup);
       const outreachText = setupOutreachText(setup);
       const jibText = setupJibText(setup);
       const chartNote = setupLoadChartNote(setup);
-      const configurationNote = [setup.configurationNote || boomConfiguration, setup.outriggerNote].filter(Boolean).join("\n\n");
+      const configurationNote = [
+        setup.configurationNote || boomConfiguration,
+        setup.outriggerNote,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
 
       return {
         ...prev,
@@ -837,25 +1104,51 @@ export default function LiftPlanForm({
         boom_length: boomLengthText,
         crane_outreach_reference: outreachText,
         crane_jib_reference: jibText,
-        crane_details: [equipmentProfile?.summary, `Selected setup: ${setup.label}`].filter(Boolean).join("\n"),
+        crane_details: [
+          equipmentProfile?.summary,
+          `Selected setup: ${setup.label}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
         configuration_outrigger_note: configurationNote,
         load_chart_note: chartNote,
         crane_configuration: prev.crane_configuration || boomConfiguration,
-        outrigger_setup: prev.outrigger_setup || setup.outriggerNote || "Confirm outrigger setup and mats/spreaders against selected chart.",
-        custom_crane_boom_length_m: setup.boomLengthM ? String(setup.boomLengthM) : "",
-        custom_crane_hydraulic_outreach_m: setup.hydraulicOutreachM ? String(setup.hydraulicOutreachM) : "",
-        custom_crane_jib_outreach_m: setup.jibOutreachM ? String(setup.jibOutreachM) : "",
-        custom_crane_max_radius_m: setup.maxRadiusM ? String(setup.maxRadiusM) : "",
+        outrigger_setup:
+          prev.outrigger_setup ||
+          setup.outriggerNote ||
+          "Confirm outrigger setup and mats/spreaders against selected chart.",
+        custom_crane_boom_length_m: setup.boomLengthM
+          ? String(setup.boomLengthM)
+          : "",
+        custom_crane_hydraulic_outreach_m: setup.hydraulicOutreachM
+          ? String(setup.hydraulicOutreachM)
+          : "",
+        custom_crane_jib_outreach_m: setup.jibOutreachM
+          ? String(setup.jibOutreachM)
+          : "",
+        custom_crane_max_radius_m: setup.maxRadiusM
+          ? String(setup.maxRadiusM)
+          : "",
       };
     });
-    setMsg("Crane setup selected. Save draft to pull boom/outreach and jib/max outreach through into the lift plan pack.");
+    setMsg(
+      "Crane setup selected. Save draft to pull boom/outreach and jib/max outreach through into the lift plan pack.",
+    );
   }
 
   function updateMatPreset(preset: string) {
     if (locked) return;
     const option = MAT_OPTIONS.find((item) => item.value === preset) ?? null;
-    const lengthM = option?.lengthM ? String(option.lengthM) : preset === "custom" ? form.ground_bearing_mat_length_m ?? "" : "";
-    const widthM = option?.widthM ? String(option.widthM) : preset === "custom" ? form.ground_bearing_mat_width_m ?? "" : "";
+    const lengthM = option?.lengthM
+      ? String(option.lengthM)
+      : preset === "custom"
+        ? (form.ground_bearing_mat_length_m ?? "")
+        : "";
+    const widthM = option?.widthM
+      ? String(option.widthM)
+      : preset === "custom"
+        ? (form.ground_bearing_mat_width_m ?? "")
+        : "";
     const area = calcMatArea(lengthM, widthM);
     setForm((prev) => ({
       ...prev,
@@ -863,60 +1156,122 @@ export default function LiftPlanForm({
       ground_bearing_mat_length_m: lengthM,
       ground_bearing_mat_width_m: widthM,
       ground_bearing_mat_area_m2: area ? String(area) : "",
-      ground_bearing_notes: prev.ground_bearing_notes || "Ground bearing pressure calculation: bearing load / outrigger reaction divided by selected mat area in m². Final ground bearing and outrigger reactions must be verified against the actual crane chart and ground conditions.",
+      ground_bearing_notes:
+        prev.ground_bearing_notes ||
+        "Ground bearing pressure calculation: bearing load / outrigger reaction divided by selected mat area in m². Final ground bearing and outrigger reactions must be verified against the actual crane chart and ground conditions.",
     }));
   }
 
-  function updateMatDimension(key: "ground_bearing_mat_length_m" | "ground_bearing_mat_width_m", value: string) {
+  function updateMatDimension(
+    key: "ground_bearing_mat_length_m" | "ground_bearing_mat_width_m",
+    value: string,
+  ) {
     if (locked) return;
     setForm((prev) => {
-      const next = { ...prev, [key]: value, ground_bearing_mat_preset: prev.ground_bearing_mat_preset || "custom" };
-      const area = calcMatArea(next.ground_bearing_mat_length_m, next.ground_bearing_mat_width_m);
+      const next = {
+        ...prev,
+        [key]: value,
+        ground_bearing_mat_preset: prev.ground_bearing_mat_preset || "custom",
+      };
+      const area = calcMatArea(
+        next.ground_bearing_mat_length_m,
+        next.ground_bearing_mat_width_m,
+      );
       return { ...next, ground_bearing_mat_area_m2: area ? String(area) : "" };
     });
   }
 
-
-  function autoPopulateAdditionalCrane(crane: AdditionalCraneEntry): AdditionalCraneEntry {
-    const selectedCrane = additionalCraneSelectOptions.find((option) => option.value === crane.selected_crane_option_value) ?? null;
-    const craneName = String(crane.crane_name || selectedCrane?.label || "").trim();
-    const specOptions = getRangeChartSpecOptions({ craneName, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
-    const selectedProfile = specOptions.profileOptions.find((option) => option.key === crane.selected_profile_key) ?? specOptions.profileOptions[0] ?? null;
-    const selectedJib = crane.selected_jib_key
-      ? specOptions.jibOptions.find((option) => option.key === crane.selected_jib_key) ?? null
+  function autoPopulateAdditionalCrane(
+    crane: AdditionalCraneEntry,
+  ): AdditionalCraneEntry {
+    const selectedCrane =
+      additionalCraneSelectOptions.find(
+        (option) => option.value === crane.selected_crane_option_value,
+      ) ?? null;
+    const craneName = String(
+      crane.crane_name || selectedCrane?.label || "",
+    ).trim();
+    const specOptions = getRangeChartSpecOptions({
+      craneName,
+      setupLabel: crane.setup_profile,
+      sourceLabel: crane.spec_sheet_reference,
+    });
+    const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
+    const boomMatchedProfile = crane.boom_length_m_manual
+      ? findBestProfileForBoomLength(
+          specOptions.profileOptions,
+          enteredBoomLengthM,
+        )
       : null;
-    const setupLabel = buildAdditionalCraneSetupLabel(selectedProfile?.label ?? crane.setup_profile, selectedJib?.label ?? "");
+    const selectedProfile =
+      boomMatchedProfile ??
+      specOptions.profileOptions.find(
+        (option) => option.key === crane.selected_profile_key,
+      ) ??
+      specOptions.profileOptions[0] ??
+      null;
+    const selectedJib = crane.selected_jib_key
+      ? (specOptions.jibOptions.find(
+          (option) => option.key === crane.selected_jib_key,
+        ) ?? null)
+      : null;
+    const setupLabel = buildAdditionalCraneSetupLabel(
+      selectedProfile?.label ?? crane.setup_profile,
+      selectedJib?.label ?? "",
+    );
     const limits = getRangeChartLimits({
       craneName,
       setupLabel,
-      sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
-      setupMaxBoomLengthM: selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? null,
-      setupMaxRadiusM: selectedJib?.maxRadiusM ?? selectedProfile?.maxRadiusM ?? null,
-      setupMaxTipHeightM: selectedJib?.maxTipHeightM ?? selectedProfile?.maxTipHeightM ?? null,
+      sourceLabel:
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        crane.spec_sheet_reference,
+      setupMaxBoomLengthM:
+        selectedProfile?.maxBoomLengthM ??
+        selectedProfile?.defaultBoomLengthM ??
+        null,
+      setupMaxRadiusM:
+        selectedJib?.maxRadiusM ?? selectedProfile?.maxRadiusM ?? null,
+      setupMaxTipHeightM:
+        selectedJib?.maxTipHeightM ?? selectedProfile?.maxTipHeightM ?? null,
       setupMaxPhysicalJibLengthM: selectedJib?.lengthM ?? null,
     });
 
-    const loadKg = numberOrNull(crane.load_share_kg)
-      ?? numberOrNull(form.range_chart_load_weight_kg)
-      ?? numberOrNull(form.load_weight)
-      ?? 0;
-    const accessoryKg = numberOrNull(crane.accessory_weight_kg)
-      ?? numberOrNull(form.range_chart_accessory_weight_kg)
-      ?? parseWeightToKg(form.lifting_accessories)
-      ?? 0;
+    const loadKg =
+      numberOrNull(crane.load_share_kg) ??
+      numberOrNull(form.range_chart_load_weight_kg) ??
+      numberOrNull(form.load_weight) ??
+      0;
+    const accessoryKg =
+      numberOrNull(crane.accessory_weight_kg) ??
+      numberOrNull(form.range_chart_accessory_weight_kg) ??
+      parseWeightToKg(form.lifting_accessories) ??
+      0;
     const totalLiftedWeightKg = loadKg + accessoryKg;
-    const defaultBoomLengthM = selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
-    const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
+    const defaultBoomLengthM =
+      selectedProfile?.defaultBoomLengthM ??
+      selectedProfile?.maxBoomLengthM ??
+      limits.maxBoomLengthM ??
+      null;
     const boomLengthM = enteredBoomLengthM ?? defaultBoomLengthM;
-    const radiusM = numberOrNull(crane.radius_m) ?? numberOrNull(form.range_chart_radius_m) ?? numberOrNull(form.lift_radius);
-    const hookHeightM = numberOrNull(crane.hook_height_m) ?? numberOrNull(form.range_chart_tip_height_m) ?? numberOrNull(form.lift_height);
+    const radiusM =
+      numberOrNull(crane.radius_m) ??
+      numberOrNull(form.range_chart_radius_m) ??
+      numberOrNull(form.lift_radius);
+    const hookHeightM =
+      numberOrNull(crane.hook_height_m) ??
+      numberOrNull(form.range_chart_tip_height_m) ??
+      numberOrNull(form.lift_height);
     const jibLengthM = selectedJib?.lengthM ?? 0;
 
     const capacity = radiusM
       ? calculateRangeChartCapacity({
           craneName,
           setupLabel,
-          sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+          sourceLabel:
+            selectedProfile?.source ||
+            selectedJib?.source ||
+            crane.spec_sheet_reference,
           radiusM,
           boomLengthM,
           jibLengthM,
@@ -926,24 +1281,38 @@ export default function LiftPlanForm({
     const bearing = calculateRangeChartBearingLoad({
       craneName,
       setupLabel,
-      sourceLabel: selectedProfile?.source || selectedJib?.source || crane.spec_sheet_reference,
+      sourceLabel:
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        crane.spec_sheet_reference,
       totalLiftedWeightKg,
     });
 
     const next: AdditionalCraneEntry = {
       ...crane,
       crane_name: craneName,
+      selected_profile_key: selectedProfile?.key || crane.selected_profile_key,
       setup_profile: setupLabel || crane.setup_profile,
-      spec_sheet_reference: selectedProfile?.source || selectedJib?.source || specOptions.rule?.capacitySource || crane.spec_sheet_reference,
+      spec_sheet_reference:
+        capacity?.source ||
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        specOptions.rule?.capacitySource ||
+        crane.spec_sheet_reference,
       // Keep manually entered telescopic boom lengths exactly as typed.
       // Previously this field was auto-filled back to the default/max boom length on every edit,
       // so additional cranes could stay on the wrong chart and show over-capacity.
-      boom_length_m: crane.boom_length_m_manual ? crane.boom_length_m : (crane.boom_length_m || formatAutoMInput(boomLengthM)),
+      boom_length_m: crane.boom_length_m_manual
+        ? crane.boom_length_m
+        : crane.boom_length_m || formatAutoMInput(boomLengthM),
       radius_m: crane.radius_m || formatAutoMInput(radiusM),
       hook_height_m: crane.hook_height_m || formatAutoMInput(hookHeightM),
       load_share_kg: crane.load_share_kg || formatAutoKgInput(loadKg),
-      accessory_weight_kg: crane.accessory_weight_kg || formatAutoKgInput(accessoryKg),
-      crane_gross_weight_kg: limits.planningWeightKg ? formatAutoKgInput(limits.planningWeightKg) : crane.crane_gross_weight_kg,
+      accessory_weight_kg:
+        crane.accessory_weight_kg || formatAutoKgInput(accessoryKg),
+      crane_gross_weight_kg: limits.planningWeightKg
+        ? formatAutoKgInput(limits.planningWeightKg)
+        : crane.crane_gross_weight_kg,
       chart_capacity_kg: capacity?.capacityKg
         ? formatAutoKgInput(capacity.capacityKg)
         : capacity?.allowManualCapacityFallback
@@ -951,22 +1320,30 @@ export default function LiftPlanForm({
           : "",
     };
 
-    if (!next.verification_notes && (capacity?.setupAdvice || capacity?.source || bearing?.source)) {
+    if (
+      !next.verification_notes &&
+      (capacity?.setupAdvice || capacity?.source || bearing?.source)
+    ) {
       next.verification_notes = [
         capacity?.setupAdvice || capacity?.source,
         bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
         "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
-      ].filter(Boolean).join("\n");
+      ]
+        .filter(Boolean)
+        .join("\n");
     }
 
     return next;
   }
 
   function setAdditionalCranes(nextCranes: AdditionalCraneEntry[]) {
-    const normalised = nextCranes.map((crane) => autoPopulateAdditionalCrane(crane));
+    const normalised = nextCranes.map((crane) =>
+      autoPopulateAdditionalCrane(crane),
+    );
     setForm((prev) => ({
       ...prev,
-      multi_crane_enabled: normalised.length > 0 ? true : prev.multi_crane_enabled,
+      multi_crane_enabled:
+        normalised.length > 0 ? true : prev.multi_crane_enabled,
       additional_cranes_json: stringifyAdditionalCranes(normalised),
     }));
   }
@@ -983,13 +1360,20 @@ export default function LiftPlanForm({
     setAdditionalCranes(next);
   }
 
-  function updateAdditionalCrane(id: string, key: keyof AdditionalCraneEntry, value: string) {
+  function updateAdditionalCrane(
+    id: string,
+    key: keyof AdditionalCraneEntry,
+    value: string,
+  ) {
     if (locked) return;
     const next = additionalCranes.map((item) => {
       if (item.id !== id) return item;
       const changed = { ...item, [key]: value };
       if (key === "selected_crane_option_value") {
-        const selected = additionalCraneSelectOptions.find((option) => option.value === value) ?? null;
+        const selected =
+          additionalCraneSelectOptions.find(
+            (option) => option.value === value,
+          ) ?? null;
         changed.crane_name = selected?.label || "";
         changed.selected_profile_key = "";
         changed.selected_jib_key = "";
@@ -1007,9 +1391,42 @@ export default function LiftPlanForm({
       }
       if (key === "boom_length_m") {
         changed.boom_length_m_manual = true;
+        const selected =
+          additionalCraneSelectOptions.find(
+            (option) => option.value === changed.selected_crane_option_value,
+          ) ?? null;
+        const craneNameForSpecs = changed.crane_name || selected?.label || "";
+        const specOptions = getRangeChartSpecOptions({
+          craneName: craneNameForSpecs,
+          setupLabel: changed.setup_profile,
+          sourceLabel: changed.spec_sheet_reference,
+        });
+        const matchedProfile = findBestProfileForBoomLength(
+          specOptions.profileOptions,
+          numberOrNull(value),
+        );
+        if (matchedProfile) {
+          changed.selected_profile_key = matchedProfile.key;
+          changed.setup_profile = matchedProfile.label;
+          changed.spec_sheet_reference =
+            matchedProfile.source || changed.spec_sheet_reference;
+        }
       }
-      if (key === "selected_profile_key" || key === "selected_jib_key" || key === "radius_m" || key === "boom_length_m" || key === "load_share_kg" || key === "accessory_weight_kg") {
-        changed.chart_capacity_kg = key === "radius_m" || key === "selected_profile_key" || key === "selected_jib_key" || key === "boom_length_m" ? "" : changed.chart_capacity_kg;
+      if (
+        key === "selected_profile_key" ||
+        key === "selected_jib_key" ||
+        key === "radius_m" ||
+        key === "boom_length_m" ||
+        key === "load_share_kg" ||
+        key === "accessory_weight_kg"
+      ) {
+        changed.chart_capacity_kg =
+          key === "radius_m" ||
+          key === "selected_profile_key" ||
+          key === "selected_jib_key" ||
+          key === "boom_length_m"
+            ? ""
+            : changed.chart_capacity_kg;
       }
       return changed;
     });
@@ -1024,13 +1441,30 @@ export default function LiftPlanForm({
 
   async function postForm(payload: LiftPlanData) {
     const cleanedPayload = tidyLiftPlanTextFields(payload);
-    const area = numberOrNull(cleanedPayload.ground_bearing_mat_area_m2) ?? calcMatArea(cleanedPayload.ground_bearing_mat_length_m, cleanedPayload.ground_bearing_mat_width_m);
-    const pressure = formatPressure(parseWeightToKg(cleanedPayload.ground_bearing_bearing_load), area);
+    const area =
+      numberOrNull(cleanedPayload.ground_bearing_mat_area_m2) ??
+      calcMatArea(
+        cleanedPayload.ground_bearing_mat_length_m,
+        cleanedPayload.ground_bearing_mat_width_m,
+      );
+    const pressure = formatPressure(
+      parseWeightToKg(cleanedPayload.ground_bearing_bearing_load),
+      area,
+    );
     const payloadWithCalculatedSections: LiftPlanData = {
       ...cleanedPayload,
-      additional_cranes_json: stringifyAdditionalCranes(safeJsonParseArray(cleanedPayload.additional_cranes_json).map((crane) => autoPopulateAdditionalCrane(crane))),
-      ground_bearing_mat_area_m2: area ? String(area) : cleanedPayload.ground_bearing_mat_area_m2 ?? "",
-      ground_bearing_pressure: pressure !== "—" ? pressure : cleanedPayload.ground_bearing_pressure ?? "",
+      additional_cranes_json: stringifyAdditionalCranes(
+        safeJsonParseArray(cleanedPayload.additional_cranes_json).map((crane) =>
+          autoPopulateAdditionalCrane(crane),
+        ),
+      ),
+      ground_bearing_mat_area_m2: area
+        ? String(area)
+        : (cleanedPayload.ground_bearing_mat_area_m2 ?? ""),
+      ground_bearing_pressure:
+        pressure !== "—"
+          ? pressure
+          : (cleanedPayload.ground_bearing_pressure ?? ""),
     };
 
     const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
@@ -1051,23 +1485,21 @@ export default function LiftPlanForm({
 
     try {
       await postForm(form);
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, { method: "POST" });
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, {
+        method: "POST",
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
 
-      const mergedBase = mergeGeneratedDraft(
-        form,
-        data?.draft,
-        [
-          "load_description",
-          "load_weight",
-          "lift_radius",
-          "lift_height",
-          "sling_type",
-          "lifting_accessories",
-          "appointed_person",
-        ]
-      );
+      const mergedBase = mergeGeneratedDraft(form, data?.draft, [
+        "load_description",
+        "load_weight",
+        "lift_radius",
+        "lift_height",
+        "sling_type",
+        "lifting_accessories",
+        "appointed_person",
+      ]);
 
       const merged: LiftPlanData = {
         ...mergedBase,
@@ -1086,7 +1518,9 @@ export default function LiftPlanForm({
       const cleanedMerged = tidyLiftPlanTextFields(merged);
       await postForm(cleanedMerged);
       setForm(cleanedMerged);
-      setMsg(`AI draft generated and saved (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before finalising.`);
+      setMsg(
+        `AI draft generated and saved (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before finalising.`,
+      );
     } catch (e: any) {
       setMsg(e?.message || "Could not generate draft.");
     } finally {
@@ -1113,7 +1547,12 @@ export default function LiftPlanForm({
   function approveNow() {
     if (locked) return;
     const now = new Date().toISOString();
-    setForm((prev) => ({ ...prev, approved_at: now, rams_complete: true, lift_plan_complete: true }));
+    setForm((prev) => ({
+      ...prev,
+      approved_at: now,
+      rams_complete: true,
+      lift_plan_complete: true,
+    }));
   }
 
   async function finaliseNow() {
@@ -1121,7 +1560,11 @@ export default function LiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
-      const finalPayload: LiftPlanData = { ...form, finalised_at: new Date().toISOString(), paperwork_locked: true };
+      const finalPayload: LiftPlanData = {
+        ...form,
+        finalised_at: new Date().toISOString(),
+        paperwork_locked: true,
+      };
       await postForm(finalPayload);
       setForm(finalPayload);
       setMsg("Paperwork finalised and locked.");
@@ -1136,9 +1579,12 @@ export default function LiftPlanForm({
     setUnlocking(true);
     setMsg("");
     try {
-      const res = await fetch(`/api/jobs/${jobId}/lift-plan/unlock`, { method: "POST" });
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/unlock`, {
+        method: "POST",
+      });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "Could not unlock paperwork.");
+      if (!res.ok)
+        throw new Error(data?.error || "Could not unlock paperwork.");
 
       setForm((prev) => ({
         ...prev,
@@ -1146,7 +1592,9 @@ export default function LiftPlanForm({
         finalised_at: "",
       }));
 
-      setMsg("Paperwork unlocked. Make your changes and finalise it again when ready.");
+      setMsg(
+        "Paperwork unlocked. Make your changes and finalise it again when ready.",
+      );
     } catch (e: any) {
       setMsg(e?.message || "Could not unlock paperwork.");
     } finally {
@@ -1159,46 +1607,119 @@ export default function LiftPlanForm({
       <div style={topRow}>
         <div>
           <h2 style={{ margin: 0, fontSize: 24 }}>Lift Plan & RAMS</h2>
-          <div style={helperText}>Generate a draft, review it, then save and finalise manually.</div>
+          <div style={helperText}>
+            Generate a draft, review it, then save and finalise manually.
+          </div>
         </div>
         <div style={buttonRow}>
-          <a href={`/jobs/${jobId}/lift-plan/print`} target="_blank" style={secondaryBtn}>Printable version</a>
+          <a
+            href={`/jobs/${jobId}/lift-plan/print`}
+            target="_blank"
+            style={secondaryBtn}
+          >
+            Printable version
+          </a>
           {locked ? (
-            <button type="button" onClick={unlockNow} disabled={unlocking || generating || saving} style={warningBtn}>
+            <button
+              type="button"
+              onClick={unlockNow}
+              disabled={unlocking || generating || saving}
+              style={warningBtn}
+            >
               {unlocking ? "Unlocking…" : "Unlock for edits"}
             </button>
           ) : null}
-          <button type="button" onClick={generateDraft} disabled={locked || generating || saving || unlocking} style={secondaryBtn}>{generating ? "Generating…" : "Generate AI draft"}</button>
-          <button type="button" onClick={save} disabled={locked || generating || saving || unlocking} style={primaryBtn}>{saving ? "Saving…" : "Save draft"}</button>
-          <button type="button" onClick={finaliseNow} disabled={locked || generating || saving || unlocking} style={dangerBtn}>Finalise & lock</button>
+          <button
+            type="button"
+            onClick={generateDraft}
+            disabled={locked || generating || saving || unlocking}
+            style={secondaryBtn}
+          >
+            {generating ? "Generating…" : "Generate AI draft"}
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={locked || generating || saving || unlocking}
+            style={primaryBtn}
+          >
+            {saving ? "Saving…" : "Save draft"}
+          </button>
+          <button
+            type="button"
+            onClick={finaliseNow}
+            disabled={locked || generating || saving || unlocking}
+            style={dangerBtn}
+          >
+            Finalise & lock
+          </button>
         </div>
       </div>
 
       <div style={infoBox}>
-        Crane selection, crane setup/profile, load weight, lift radius, lift height, mat size, bearing load and bearing pressure are now controlled in the <strong>Range chart / lift sketch builder</strong> above. Use the sections below for wording, RAMS and approvals only.
+        Crane selection, crane setup/profile, load weight, lift radius, lift
+        height, mat size, bearing load and bearing pressure are now controlled
+        in the <strong>Range chart / lift sketch builder</strong> above. Use the
+        sections below for wording, RAMS and approvals only.
       </div>
-      {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
+      {locked ? (
+        <div style={lockedBox}>
+          Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen
+          it, then finalise it again when you are done.
+        </div>
+      ) : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
       <div style={versionBox}>
         <div>
           <strong>Previous lift plan drafts</strong>
-          <div style={helperText}>Every future Save draft / Generate AI draft keeps a snapshot of the previous draft so it can be restored later.</div>
+          <div style={helperText}>
+            Every future Save draft / Generate AI draft keeps a snapshot of the
+            previous draft so it can be restored later.
+          </div>
         </div>
         <div style={versionActions}>
-          <button type="button" onClick={loadPreviousVersions} disabled={loadingVersions || saving || generating || restoringVersion} style={secondaryBtn}>
-            {loadingVersions ? "Loading…" : versionsLoaded ? "Refresh versions" : "Load previous versions"}
+          <button
+            type="button"
+            onClick={loadPreviousVersions}
+            disabled={
+              loadingVersions || saving || generating || restoringVersion
+            }
+            style={secondaryBtn}
+          >
+            {loadingVersions
+              ? "Loading…"
+              : versionsLoaded
+                ? "Refresh versions"
+                : "Load previous versions"}
           </button>
           {versionsLoaded ? (
             <>
-              <select value={selectedVersionId} onChange={(e) => setSelectedVersionId(e.target.value)} disabled={!versions.length || restoringVersion || locked} style={versionSelect}>
-                {versions.length ? versions.map((version) => (
-                  <option key={version.id} value={version.id}>
-                    {version.created_at ? new Date(version.created_at).toLocaleString("en-GB") : "Saved version"}{version.reason ? ` - ${version.reason}` : ""}
-                  </option>
-                )) : <option value="">No previous versions saved yet</option>}
+              <select
+                value={selectedVersionId}
+                onChange={(e) => setSelectedVersionId(e.target.value)}
+                disabled={!versions.length || restoringVersion || locked}
+                style={versionSelect}
+              >
+                {versions.length ? (
+                  versions.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {version.created_at
+                        ? new Date(version.created_at).toLocaleString("en-GB")
+                        : "Saved version"}
+                      {version.reason ? ` - ${version.reason}` : ""}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No previous versions saved yet</option>
+                )}
               </select>
-              <button type="button" onClick={restorePreviousVersion} disabled={!selectedVersionId || restoringVersion || locked} style={warningBtn}>
+              <button
+                type="button"
+                onClick={restorePreviousVersion}
+                disabled={!selectedVersionId || restoringVersion || locked}
+                style={warningBtn}
+              >
                 {restoringVersion ? "Restoring…" : "Restore selected"}
               </button>
             </>
@@ -1217,28 +1738,74 @@ export default function LiftPlanForm({
             />
             Enable alternative / additional crane details
           </label>
-          <button type="button" onClick={addAdditionalCrane} disabled={locked} style={secondaryBtn}>+ Add another crane</button>
+          <button
+            type="button"
+            onClick={addAdditionalCrane}
+            disabled={locked}
+            style={secondaryBtn}
+          >
+            + Add another crane
+          </button>
         </div>
         <div style={grid2}>
-          <SelectField label="Lift type / arrangement" value={form.multi_crane_lift_type ?? "Alternative crane options for same lift / multi-day job"} onChange={(v) => update("multi_crane_lift_type", v)} disabled={locked} options={multiCraneArrangementOptions} />
+          <SelectField
+            label="Lift type / arrangement"
+            value={
+              form.multi_crane_lift_type ??
+              "Alternative crane options for same lift / multi-day job"
+            }
+            onChange={(v) => update("multi_crane_lift_type", v)}
+            disabled={locked}
+            options={multiCraneArrangementOptions}
+          />
         </div>
-        <TextAreaField label="Alternative crane notes / AP instructions" value={form.multi_crane_notes ?? ""} onChange={(v) => update("multi_crane_notes", v)} disabled={locked} rows={3} />
+        <TextAreaField
+          label="Alternative crane notes / AP instructions"
+          value={form.multi_crane_notes ?? ""}
+          onChange={(v) => update("multi_crane_notes", v)}
+          disabled={locked}
+          rows={3}
+        />
         {additionalCranes.length === 0 ? (
-          <div style={helperText}>Add another crane here when the same planned work may be carried out with a different crane on a different day. The main selected crane remains controlled by the range chart above. Use the tandem/shared-load option only where two cranes lift the same load at the same time.</div>
+          <div style={helperText}>
+            Add another crane here when the same planned work may be carried out
+            with a different crane on a different day. The main selected crane
+            remains controlled by the range chart above. Use the
+            tandem/shared-load option only where two cranes lift the same load
+            at the same time.
+          </div>
         ) : null}
         {additionalCranes.map((crane, index) => {
           const totals = additionalCraneTotals(crane);
-          const overCapacity = Boolean(totals.utilisationPercent && totals.utilisationPercent > 100);
+          const overCapacity = Boolean(
+            totals.utilisationPercent && totals.utilisationPercent > 100,
+          );
           return (
             <div key={crane.id} style={multiCraneCard}>
               <div style={multiCraneHeader}>
                 <strong>Crane option {index + 1}</strong>
-                <button type="button" onClick={() => removeAdditionalCrane(crane.id)} disabled={locked} style={smallDangerBtn}>Remove</button>
+                <button
+                  type="button"
+                  onClick={() => removeAdditionalCrane(crane.id)}
+                  disabled={locked}
+                  style={smallDangerBtn}
+                >
+                  Remove
+                </button>
               </div>
               {(() => {
-                const selectedCrane = additionalCraneSelectOptions.find((option) => option.value === crane.selected_crane_option_value) ?? null;
-                const craneNameForSpecs = crane.crane_name || selectedCrane?.label || "";
-                const specOptions = getRangeChartSpecOptions({ craneName: craneNameForSpecs, setupLabel: crane.setup_profile, sourceLabel: crane.spec_sheet_reference });
+                const selectedCrane =
+                  additionalCraneSelectOptions.find(
+                    (option) =>
+                      option.value === crane.selected_crane_option_value,
+                  ) ?? null;
+                const craneNameForSpecs =
+                  crane.crane_name || selectedCrane?.label || "";
+                const specOptions = getRangeChartSpecOptions({
+                  craneName: craneNameForSpecs,
+                  setupLabel: crane.setup_profile,
+                  sourceLabel: crane.spec_sheet_reference,
+                });
                 const profileOptions = specOptions.profileOptions;
                 const jibOptions = specOptions.jibOptions;
                 return (
@@ -1246,108 +1813,467 @@ export default function LiftPlanForm({
                     <SelectField
                       label="Crane option from CRM/spec library"
                       value={crane.selected_crane_option_value}
-                      onChange={(v) => updateAdditionalCrane(crane.id, "selected_crane_option_value", v)}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "selected_crane_option_value",
+                          v,
+                        )
+                      }
                       disabled={locked}
-                      options={[{ value: "", label: "Select crane…" }, ...additionalCraneSelectOptions.map((option) => ({ value: option.value, label: option.label }))]}
+                      options={[
+                        { value: "", label: "Select crane…" },
+                        ...additionalCraneSelectOptions.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        })),
+                      ]}
                     />
                     {!crane.selected_crane_option_value ? (
-                      <Field label="Manual crane name / model" value={crane.crane_name} onChange={(v) => updateAdditionalCrane(crane.id, "crane_name", v)} disabled={locked} />
+                      <Field
+                        label="Manual crane name / model"
+                        value={crane.crane_name}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "crane_name", v)
+                        }
+                        disabled={locked}
+                      />
                     ) : null}
-                    <Field label="Use / role for this crane" value={crane.crane_role} onChange={(v) => updateAdditionalCrane(crane.id, "crane_role", v)} disabled={locked} />
-                    <Field label="Planned day / visit / when used" value={crane.planned_use} onChange={(v) => updateAdditionalCrane(crane.id, "planned_use", v)} disabled={locked} />
+                    <Field
+                      label="Use / role for this crane"
+                      value={crane.crane_role}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "crane_role", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Planned day / visit / when used"
+                      value={crane.planned_use}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "planned_use", v)
+                      }
+                      disabled={locked}
+                    />
                     {profileOptions.length ? (
                       <SelectField
                         label="Main boom / profile"
                         value={crane.selected_profile_key}
-                        onChange={(v) => updateAdditionalCrane(crane.id, "selected_profile_key", v)}
+                        onChange={(v) =>
+                          updateAdditionalCrane(
+                            crane.id,
+                            "selected_profile_key",
+                            v,
+                          )
+                        }
                         disabled={locked}
-                        options={[{ value: "", label: "Select profile from spec…" }, ...profileOptions.map((option) => ({ value: option.key, label: option.label }))]}
+                        options={[
+                          { value: "", label: "Select profile from spec…" },
+                          ...profileOptions.map((option) => ({
+                            value: option.key,
+                            label: option.label,
+                          })),
+                        ]}
                       />
                     ) : (
-                      <Field label="Setup / profile / chart used" value={crane.setup_profile} onChange={(v) => updateAdditionalCrane(crane.id, "setup_profile", v)} disabled={locked} />
+                      <Field
+                        label="Setup / profile / chart used"
+                        value={crane.setup_profile}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "setup_profile", v)
+                        }
+                        disabled={locked}
+                      />
                     )}
                     {jibOptions.length ? (
                       <SelectField
                         label="Fly jib / extension option"
                         value={crane.selected_jib_key}
-                        onChange={(v) => updateAdditionalCrane(crane.id, "selected_jib_key", v)}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "selected_jib_key", v)
+                        }
                         disabled={locked}
-                        options={[{ value: "", label: "Select jib/extension…" }, ...jibOptions.map((option) => ({ value: option.key, label: option.label }))]}
+                        options={[
+                          { value: "", label: "Select jib/extension…" },
+                          ...jibOptions.map((option) => ({
+                            value: option.key,
+                            label: option.label,
+                          })),
+                        ]}
                       />
                     ) : null}
-                    <Field label="Spec sheet / chart reference" value={crane.spec_sheet_reference} onChange={(v) => updateAdditionalCrane(crane.id, "spec_sheet_reference", v)} disabled={locked} />
-                    <Field label="Boom length (m)" type="number" step="0.01" value={crane.boom_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "boom_length_m", v)} disabled={locked} />
-                    <Field label="Radius (m)" type="number" step="0.01" value={crane.radius_m} onChange={(v) => updateAdditionalCrane(crane.id, "radius_m", v)} disabled={locked} />
-                    <Field label="Hook / lift height (m)" type="number" step="0.01" value={crane.hook_height_m} onChange={(v) => updateAdditionalCrane(crane.id, "hook_height_m", v)} disabled={locked} />
-                    <Field label="Chart capacity at radius (kg)" type="number" step="1" value={crane.chart_capacity_kg} onChange={(v) => updateAdditionalCrane(crane.id, "chart_capacity_kg", v)} disabled={locked} />
-                    <Field label="Crane planning / gross weight (kg)" type="number" step="1" value={crane.crane_gross_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "crane_gross_weight_kg", v)} disabled={locked} />
-                    <Field label="Planned load on this crane (kg)" type="number" step="1" value={crane.load_share_kg} onChange={(v) => updateAdditionalCrane(crane.id, "load_share_kg", v)} disabled={locked} />
-                    <Field label="Accessories for this crane (kg)" type="number" step="1" value={crane.accessory_weight_kg} onChange={(v) => updateAdditionalCrane(crane.id, "accessory_weight_kg", v)} disabled={locked} />
-                    <Field label="Mat length (m)" type="number" step="0.01" value={crane.mat_length_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_length_m", v)} disabled={locked} />
-                    <Field label="Mat width (m)" type="number" step="0.01" value={crane.mat_width_m} onChange={(v) => updateAdditionalCrane(crane.id, "mat_width_m", v)} disabled={locked} />
+                    <Field
+                      label="Spec sheet / chart reference"
+                      value={crane.spec_sheet_reference}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "spec_sheet_reference",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Boom length (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.boom_length_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "boom_length_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Radius (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.radius_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "radius_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Hook / lift height (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.hook_height_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "hook_height_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Chart capacity at radius (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.chart_capacity_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "chart_capacity_kg", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Crane planning / gross weight (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.crane_gross_weight_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "crane_gross_weight_kg",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Planned load on this crane (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.load_share_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "load_share_kg", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Accessories for this crane (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.accessory_weight_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "accessory_weight_kg",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Mat length (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.mat_length_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "mat_length_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Mat width (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.mat_width_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "mat_width_m", v)
+                      }
+                      disabled={locked}
+                    />
                   </div>
                 );
               })()}
               <div style={summaryGrid}>
-                <ReadOnlyFact label="Total lifted / planned load" value={formatKgAndT(totals.totalLiftedKg)} />
-                <ReadOnlyFact label="Utilisation" value={totals.utilisationPercent !== null ? `${totals.utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "—"} />
-                <ReadOnlyFact label="Mat area" value={formatM2(totals.matAreaM2)} />
-                <ReadOnlyFact label="Est. bearing load" value={formatKgAndT(totals.bearingLoadKg)} />
-                <ReadOnlyFact label="Est. bearing pressure" value={formatPressureKgM2(totals.bearingPressureKgM2)} />
+                <ReadOnlyFact
+                  label="Total lifted / planned load"
+                  value={formatKgAndT(totals.totalLiftedKg)}
+                />
+                <ReadOnlyFact
+                  label="Utilisation"
+                  value={
+                    totals.utilisationPercent !== null
+                      ? `${totals.utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%`
+                      : "—"
+                  }
+                />
+                <ReadOnlyFact
+                  label="Mat area"
+                  value={formatM2(totals.matAreaM2)}
+                />
+                <ReadOnlyFact
+                  label="Est. bearing load"
+                  value={formatKgAndT(totals.bearingLoadKg)}
+                />
+                <ReadOnlyFact
+                  label="Est. bearing pressure"
+                  value={formatPressureKgM2(totals.bearingPressureKgM2)}
+                />
               </div>
-              {overCapacity ? <div style={capacityWarningBox}>Warning: this crane is over 100% of entered chart capacity. Change crane/setup/load share before approval.</div> : null}
-              <TextAreaField label="Verification notes / day-use notes for this crane" value={crane.verification_notes} onChange={(v) => updateAdditionalCrane(crane.id, "verification_notes", v)} disabled={locked} rows={3} />
+              {overCapacity ? (
+                <div style={capacityWarningBox}>
+                  Warning: this crane is over 100% of entered chart capacity.
+                  Change crane/setup/load share before approval.
+                </div>
+              ) : null}
+              <TextAreaField
+                label="Verification notes / day-use notes for this crane"
+                value={crane.verification_notes}
+                onChange={(v) =>
+                  updateAdditionalCrane(crane.id, "verification_notes", v)
+                }
+                disabled={locked}
+                rows={3}
+              />
             </div>
           );
         })}
-        <div style={helperText}>For ongoing or multi-day work, list each acceptable crane option separately. This does not mean the lift is tandem unless the lift type above states tandem/shared-load. The pack will show each crane option separately so the appointed person can verify the actual crane used on the day against the correct manufacturer/supplier chart.</div>
+        <div style={helperText}>
+          For ongoing or multi-day work, list each acceptable crane option
+          separately. This does not mean the lift is tandem unless the lift type
+          above states tandem/shared-load. The pack will show each crane option
+          separately so the appointed person can verify the actual crane used on
+          the day against the correct manufacturer/supplier chart.
+        </div>
       </Section>
 
       <Section title="Lift details / accessories">
         <div style={grid2}>
-          <Field label="Load description" value={form.load_description ?? ""} onChange={(v) => update("load_description", v)} disabled={locked} />
-          <Field label="Sling type" value={form.sling_type ?? ""} onChange={(v) => update("sling_type", v)} disabled={locked} />
-          <Field label="Lifting accessories" value={form.lifting_accessories ?? ""} onChange={(v) => update("lifting_accessories", v)} disabled={locked} />
+          <Field
+            label="Load description"
+            value={form.load_description ?? ""}
+            onChange={(v) => update("load_description", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Sling type"
+            value={form.sling_type ?? ""}
+            onChange={(v) => update("sling_type", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Lifting accessories"
+            value={form.lifting_accessories ?? ""}
+            onChange={(v) => update("lifting_accessories", v)}
+            disabled={locked}
+          />
         </div>
-        <div style={helperText}>Load weight, lift radius and lift height are saved from the range chart builder above so they are not entered twice.</div>
+        <div style={helperText}>
+          Load weight, lift radius and lift height are saved from the range
+          chart builder above so they are not entered twice.
+        </div>
       </Section>
 
       <Section title="Setup & site conditions">
-        <TextAreaField label="Crane configuration" value={form.crane_configuration ?? ""} onChange={(v) => update("crane_configuration", v)} disabled={locked} />
-        <TextAreaField label="Outrigger setup" value={form.outrigger_setup ?? ""} onChange={(v) => update("outrigger_setup", v)} disabled={locked} />
-        <TextAreaField label="Ground conditions" value={form.ground_conditions ?? ""} onChange={(v) => update("ground_conditions", v)} disabled={locked} />
-        <TextAreaField label="Exclusion zone details" value={form.exclusion_zone_details ?? ""} onChange={(v) => update("exclusion_zone_details", v)} disabled={locked} />
-        <TextAreaField label="Weather limitations" value={form.weather_limitations ?? ""} onChange={(v) => update("weather_limitations", v)} disabled={locked} />
+        <TextAreaField
+          label="Crane configuration"
+          value={form.crane_configuration ?? ""}
+          onChange={(v) => update("crane_configuration", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Outrigger setup"
+          value={form.outrigger_setup ?? ""}
+          onChange={(v) => update("outrigger_setup", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Ground conditions"
+          value={form.ground_conditions ?? ""}
+          onChange={(v) => update("ground_conditions", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Exclusion zone details"
+          value={form.exclusion_zone_details ?? ""}
+          onChange={(v) => update("exclusion_zone_details", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Weather limitations"
+          value={form.weather_limitations ?? ""}
+          onChange={(v) => update("weather_limitations", v)}
+          disabled={locked}
+        />
       </Section>
 
       <Section title="RAMS wording">
-        <TextAreaField label="Method statement" value={form.method_statement ?? ""} onChange={(v) => update("method_statement", v)} disabled={locked} rows={6} />
-        <TextAreaField label="Risk assessment" value={form.risk_assessment ?? ""} onChange={(v) => update("risk_assessment", v)} disabled={locked} rows={6} />
-        <TextAreaField label="Site hazards" value={form.site_hazards ?? ""} onChange={(v) => update("site_hazards", v)} disabled={locked} rows={4} />
-        <TextAreaField label="Control measures" value={form.control_measures ?? ""} onChange={(v) => update("control_measures", v)} disabled={locked} rows={4} />
-        <TextAreaField label="PPE required" value={form.ppe_required ?? ""} onChange={(v) => update("ppe_required", v)} disabled={locked} rows={3} />
-        <TextAreaField label="Emergency procedures" value={form.emergency_procedures ?? ""} onChange={(v) => update("emergency_procedures", v)} disabled={locked} rows={4} />
+        <TextAreaField
+          label="Method statement"
+          value={form.method_statement ?? ""}
+          onChange={(v) => update("method_statement", v)}
+          disabled={locked}
+          rows={6}
+        />
+        <TextAreaField
+          label="Risk assessment"
+          value={form.risk_assessment ?? ""}
+          onChange={(v) => update("risk_assessment", v)}
+          disabled={locked}
+          rows={6}
+        />
+        <TextAreaField
+          label="Site hazards"
+          value={form.site_hazards ?? ""}
+          onChange={(v) => update("site_hazards", v)}
+          disabled={locked}
+          rows={4}
+        />
+        <TextAreaField
+          label="Control measures"
+          value={form.control_measures ?? ""}
+          onChange={(v) => update("control_measures", v)}
+          disabled={locked}
+          rows={4}
+        />
+        <TextAreaField
+          label="PPE required"
+          value={form.ppe_required ?? ""}
+          onChange={(v) => update("ppe_required", v)}
+          disabled={locked}
+          rows={3}
+        />
+        <TextAreaField
+          label="Emergency procedures"
+          value={form.emergency_procedures ?? ""}
+          onChange={(v) => update("emergency_procedures", v)}
+          disabled={locked}
+          rows={4}
+        />
       </Section>
 
       <Section title="Personnel & approval">
         <div style={grid2}>
-          <SelectField label="Lift supervisor" value={form.lift_supervisor ?? ""} onChange={(v) => update("lift_supervisor", v)} disabled={locked} options={personnelSelectOptions} />
-          <Field label="Appointed person" value={form.appointed_person ?? ""} onChange={(v) => update("appointed_person", v)} disabled={locked} />
-          <SelectField label="Crane operator" value={form.crane_operator ?? ""} onChange={(v) => update("crane_operator", v)} disabled={locked} options={personnelSelectOptions} />
-          <Field label="Approved by" value={form.approved_by ?? ""} onChange={(v) => update("approved_by", v)} disabled={locked} />
-          <Field label="Approved at" type="datetime-local" value={toInputDateTime(form.approved_at)} onChange={(v) => update("approved_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
-          <Field label="Finalised at" type="datetime-local" value={toInputDateTime(form.finalised_at)} onChange={(v) => update("finalised_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
+          <SelectField
+            label="Lift supervisor"
+            value={form.lift_supervisor ?? ""}
+            onChange={(v) => update("lift_supervisor", v)}
+            disabled={locked}
+            options={personnelSelectOptions}
+          />
+          <Field
+            label="Appointed person"
+            value={form.appointed_person ?? ""}
+            onChange={(v) => update("appointed_person", v)}
+            disabled={locked}
+          />
+          <SelectField
+            label="Crane operator"
+            value={form.crane_operator ?? ""}
+            onChange={(v) => update("crane_operator", v)}
+            disabled={locked}
+            options={personnelSelectOptions}
+          />
+          <Field
+            label="Approved by"
+            value={form.approved_by ?? ""}
+            onChange={(v) => update("approved_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Approved at"
+            type="datetime-local"
+            value={toInputDateTime(form.approved_at)}
+            onChange={(v) =>
+              update("approved_at", v ? new Date(v).toISOString() : "")
+            }
+            disabled={locked}
+          />
+          <Field
+            label="Finalised at"
+            type="datetime-local"
+            value={toInputDateTime(form.finalised_at)}
+            onChange={(v) =>
+              update("finalised_at", v ? new Date(v).toISOString() : "")
+            }
+            disabled={locked}
+          />
         </div>
-        <TextAreaField label="Approval notes" value={form.approval_notes ?? ""} onChange={(v) => update("approval_notes", v)} disabled={locked} rows={3} />
+        <TextAreaField
+          label="Approval notes"
+          value={form.approval_notes ?? ""}
+          onChange={(v) => update("approval_notes", v)}
+          disabled={locked}
+          rows={3}
+        />
         <div style={grid2}>
-          <Field label="Customer signed by" value={form.customer_signed_by ?? ""} onChange={(v) => update("customer_signed_by", v)} disabled={locked} />
-          <Field label="Operator signed by" value={form.operator_signed_by ?? ""} onChange={(v) => update("operator_signed_by", v)} disabled={locked} />
-          <Field label="Office signed by" value={form.office_signed_by ?? ""} onChange={(v) => update("office_signed_by", v)} disabled={locked} />
+          <Field
+            label="Customer signed by"
+            value={form.customer_signed_by ?? ""}
+            onChange={(v) => update("customer_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Operator signed by"
+            value={form.operator_signed_by ?? ""}
+            onChange={(v) => update("operator_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Office signed by"
+            value={form.office_signed_by ?? ""}
+            onChange={(v) => update("office_signed_by", v)}
+            disabled={locked}
+          />
         </div>
         <div style={tickRow}>
-          <label style={tickLabel}><input type="checkbox" checked={!!form.rams_complete} onChange={(e) => update("rams_complete", e.target.checked)} disabled={locked} /> RAMS complete</label>
-          <label style={tickLabel}><input type="checkbox" checked={!!form.lift_plan_complete} onChange={(e) => update("lift_plan_complete", e.target.checked)} disabled={locked} /> Lift plan complete</label>
-          <button type="button" onClick={approveNow} disabled={locked || saving || generating} style={secondaryBtn}>Mark approved now</button>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.rams_complete}
+              onChange={(e) => update("rams_complete", e.target.checked)}
+              disabled={locked}
+            />{" "}
+            RAMS complete
+          </label>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.lift_plan_complete}
+              onChange={(e) => update("lift_plan_complete", e.target.checked)}
+              disabled={locked}
+            />{" "}
+            Lift plan complete
+          </label>
+          <button
+            type="button"
+            onClick={approveNow}
+            disabled={locked || saving || generating}
+            style={secondaryBtn}
+          >
+            Mark approved now
+          </button>
         </div>
       </Section>
     </div>
@@ -1362,55 +2288,354 @@ function EquipmentProfileCard({ profile }: { profile: EquipmentProfile }) {
       <div style={profileSummary}>{profile.summary}</div>
       <div style={grid2}>
         <ReadOnlyFact label="Machine type" value={profile.machineType} />
-        <ReadOnlyFact label="Max capacity" value={profile.maxCapacityKg ? `${profile.maxCapacityKg.toLocaleString()} kg` : profile.maxCapacityTonnes ? `${profile.maxCapacityTonnes} t` : "—"} />
-        <ReadOnlyFact label="Boom / hydraulic outreach" value={profile.maxBoomLengthM ? `${profile.maxBoomLengthM} m` : profile.maxHydraulicOutreachM ? `${profile.maxHydraulicOutreachM} m` : "—"} />
-        <ReadOnlyFact label="Jib / max outreach" value={profile.maxJibOutreachM ? `${profile.maxJibOutreachM} m` : profile.maxRadiusM ? `${profile.maxRadiusM} m radius` : "—"} />
+        <ReadOnlyFact
+          label="Max capacity"
+          value={
+            profile.maxCapacityKg
+              ? `${profile.maxCapacityKg.toLocaleString()} kg`
+              : profile.maxCapacityTonnes
+                ? `${profile.maxCapacityTonnes} t`
+                : "—"
+          }
+        />
+        <ReadOnlyFact
+          label="Boom / hydraulic outreach"
+          value={
+            profile.maxBoomLengthM
+              ? `${profile.maxBoomLengthM} m`
+              : profile.maxHydraulicOutreachM
+                ? `${profile.maxHydraulicOutreachM} m`
+                : "—"
+          }
+        />
+        <ReadOnlyFact
+          label="Jib / max outreach"
+          value={
+            profile.maxJibOutreachM
+              ? `${profile.maxJibOutreachM} m`
+              : profile.maxRadiusM
+                ? `${profile.maxRadiusM} m radius`
+                : "—"
+          }
+        />
       </div>
       <div style={{ marginTop: 12 }}>
         <div style={fieldLabel}>Key warnings</div>
-        <ul style={warningList}>{profile.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        <ul style={warningList}>
+          {profile.warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
       </div>
     </div>
   );
 }
 
-function ReadOnlyFact({ label, value }: { label: string; value: string }) { return <div style={summaryItem}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div></div>; }
-function Section({ title, children }: { title: string; children: ReactNode }) { return <div style={sectionStyle}><div style={sectionTitle}>{title}</div><div style={{ display: "grid", gap: 12 }}>{children}</div></div>; }
-function Field({ label, value, onChange, type = "text", step, disabled }: { label: string; value: string | number; onChange: (value: string) => void; type?: string; step?: string; disabled?: boolean; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} /></label>; }
-function SelectField({ label, value, onChange, disabled, options }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; options: Array<{ value: string; label: string }>; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
-function TextAreaField({ label, value, onChange, disabled, rows = 4 }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; rows?: number; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} /></label>; }
+function ReadOnlyFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={summaryItem}>
+      <div style={fieldLabel}>{label}</div>
+      <div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={sectionStyle}>
+      <div style={sectionTitle}>{title}</div>
+      <div style={{ display: "grid", gap: 12 }}>{children}</div>
+    </div>
+  );
+}
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  step,
+  disabled,
+}: {
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  type?: string;
+  step?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <input
+        type={type}
+        step={step}
+        value={value as any}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={inputStyle}
+      />
+    </label>
+  );
+}
+function SelectField({
+  label,
+  value,
+  onChange,
+  disabled,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={inputStyle}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  disabled,
+  rows = 4,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  rows?: number;
+}) {
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        rows={rows}
+        style={textAreaStyle}
+      />
+    </label>
+  );
+}
 
 const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
-const topRow: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" };
+const topRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
 const buttonRow: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
 const helperText: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.75 };
-const sectionStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 16 };
-const profileCard: CSSProperties = { ...sectionStyle, background: "rgba(255,248,225,0.8)" };
+const sectionStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 16,
+};
+const profileCard: CSSProperties = {
+  ...sectionStyle,
+  background: "rgba(255,248,225,0.8)",
+};
 const profileTitle: CSSProperties = { fontSize: 18, fontWeight: 900 };
 const profileSummary: CSSProperties = { marginTop: 6, opacity: 0.82 };
 const sectionTitle: CSSProperties = { fontWeight: 900, marginBottom: 12 };
-const grid2: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 };
+const grid2: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
 const fieldWrap: CSSProperties = { display: "grid", gap: 6 };
-const fieldLabel: CSSProperties = { fontSize: 13, fontWeight: 800, opacity: 0.82 };
-const inputStyle: CSSProperties = { width: "100%", minHeight: 42, borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: "0 12px", fontSize: 14, boxSizing: "border-box", background: "#fff" };
-const textAreaStyle: CSSProperties = { width: "100%", borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: 12, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
-const versionBox: CSSProperties = { background: "rgba(255,255,255,0.78)", border: "1px solid rgba(0,0,0,0.10)", borderRadius: 14, padding: 14, display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", marginBottom: 14 };
-const versionActions: CSSProperties = { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" };
-const versionSelect: CSSProperties = { minWidth: 260, padding: "10px 12px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.18)", background: "#fff", fontWeight: 800 };
+const fieldLabel: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  opacity: 0.82,
+};
+const inputStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 42,
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  padding: "0 12px",
+  fontSize: 14,
+  boxSizing: "border-box",
+  background: "#fff",
+};
+const textAreaStyle: CSSProperties = {
+  width: "100%",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  padding: 12,
+  fontSize: 14,
+  boxSizing: "border-box",
+  background: "#fff",
+  resize: "vertical",
+};
+const versionBox: CSSProperties = {
+  background: "rgba(255,255,255,0.78)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  borderRadius: 14,
+  padding: 14,
+  display: "flex",
+  gap: 12,
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+const versionActions: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+const versionSelect: CSSProperties = {
+  minWidth: 260,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.18)",
+  background: "#fff",
+  fontWeight: 800,
+};
 
-const msgBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)" };
-const lockedBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", fontWeight: 800 };
-const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" };
-const tickLabel: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 700 };
-const warningList: CSSProperties = { margin: "8px 0 0 18px", padding: 0, display: "grid", gap: 6 };
-const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.8)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12 };
-const infoBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontSize: 14, lineHeight: 1.45 };
-const primaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
-const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", textDecoration: "none", background: "rgba(255,255,255,0.86)", color: "#111", fontWeight: 900, cursor: "pointer" };
-const dangerBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
-const warningBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, border: "none", textDecoration: "none", background: "#c77d00", color: "#fff", fontWeight: 900, cursor: "pointer" };
-const smallDangerBtn: CSSProperties = { padding: "8px 10px", borderRadius: 10, border: "none", background: "#8a1f1f", color: "#fff", fontWeight: 900, cursor: "pointer" };
-const multiCraneCard: CSSProperties = { border: "1px solid rgba(0,0,0,0.12)", borderRadius: 14, padding: 14, background: "rgba(255,255,255,0.78)", display: "grid", gap: 12 };
-const multiCraneHeader: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" };
-const summaryGrid: CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 10 };
-const capacityWarningBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(220,0,0,0.10)", border: "1px solid rgba(220,0,0,0.25)", fontWeight: 900 };
+const msgBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.08)",
+  border: "1px solid rgba(0,120,255,0.18)",
+};
+const lockedBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(180,0,0,0.10)",
+  border: "1px solid rgba(180,0,0,0.18)",
+  fontWeight: 800,
+};
+const tickRow: CSSProperties = {
+  display: "flex",
+  gap: 16,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+const tickLabel: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontWeight: 700,
+};
+const warningList: CSSProperties = {
+  margin: "8px 0 0 18px",
+  padding: 0,
+  display: "grid",
+  gap: 6,
+};
+const summaryItem: CSSProperties = {
+  background: "rgba(255,255,255,0.8)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+};
+const infoBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.08)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontSize: 14,
+  lineHeight: 1.45,
+};
+const primaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const secondaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.86)",
+  color: "#111",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const dangerBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#8a1f1f",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const warningBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#c77d00",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const smallDangerBtn: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: "none",
+  background: "#8a1f1f",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const multiCraneCard: CSSProperties = {
+  border: "1px solid rgba(0,0,0,0.12)",
+  borderRadius: 14,
+  padding: 14,
+  background: "rgba(255,255,255,0.78)",
+  display: "grid",
+  gap: 12,
+};
+const multiCraneHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+};
+const summaryGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: 10,
+};
+const capacityWarningBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(220,0,0,0.10)",
+  border: "1px solid rgba(220,0,0,0.25)",
+  fontWeight: 900,
+};
