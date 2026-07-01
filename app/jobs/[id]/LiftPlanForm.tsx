@@ -102,6 +102,7 @@ type AdditionalCraneEntry = {
   planned_use: string;
   setup_profile: string;
   boom_length_m: string;
+  boom_length_m_manual: boolean;
   radius_m: string;
   hook_height_m: string;
   crane_gross_weight_kg: string;
@@ -349,6 +350,7 @@ function newAdditionalCraneEntry(): AdditionalCraneEntry {
     planned_use: "",
     setup_profile: "",
     boom_length_m: "",
+    boom_length_m_manual: false,
     radius_m: "",
     hook_height_m: "",
     crane_gross_weight_kg: "",
@@ -375,6 +377,7 @@ function normaliseAdditionalCrane(item: any, index = 0): AdditionalCraneEntry {
     planned_use: String(item?.planned_use ?? item?.plannedUse ?? ""),
     setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
     boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
+    boom_length_m_manual: item?.boom_length_m_manual === true || item?.boomLengthMManual === true || item?.boom_length_m_manual === "true" || item?.boomLengthMManual === "true",
     radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
     hook_height_m: String(item?.hook_height_m ?? item?.hookHeightM ?? ""),
     crane_gross_weight_kg: String(item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? ""),
@@ -902,11 +905,9 @@ export default function LiftPlanForm({
       ?? parseWeightToKg(form.lifting_accessories)
       ?? 0;
     const totalLiftedWeightKg = loadKg + accessoryKg;
-    const maxBoomLengthM = selectedProfile?.maxBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? limits.maxBoomLengthM ?? null;
+    const defaultBoomLengthM = selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
     const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
-    const boomLengthM = enteredBoomLengthM && maxBoomLengthM
-      ? Math.min(enteredBoomLengthM, maxBoomLengthM)
-      : enteredBoomLengthM ?? selectedProfile?.defaultBoomLengthM ?? selectedProfile?.maxBoomLengthM ?? limits.maxBoomLengthM ?? null;
+    const boomLengthM = enteredBoomLengthM ?? defaultBoomLengthM;
     const radiusM = numberOrNull(crane.radius_m) ?? numberOrNull(form.range_chart_radius_m) ?? numberOrNull(form.lift_radius);
     const hookHeightM = numberOrNull(crane.hook_height_m) ?? numberOrNull(form.range_chart_tip_height_m) ?? numberOrNull(form.lift_height);
     const jibLengthM = selectedJib?.lengthM ?? 0;
@@ -934,7 +935,10 @@ export default function LiftPlanForm({
       crane_name: craneName,
       setup_profile: setupLabel || crane.setup_profile,
       spec_sheet_reference: selectedProfile?.source || selectedJib?.source || specOptions.rule?.capacitySource || crane.spec_sheet_reference,
-      boom_length_m: formatAutoMInput(boomLengthM) || crane.boom_length_m,
+      // Keep manually entered telescopic boom lengths exactly as typed.
+      // Previously this field was auto-filled back to the default/max boom length on every edit,
+      // so additional cranes could stay on the wrong chart and show over-capacity.
+      boom_length_m: crane.boom_length_m_manual ? crane.boom_length_m : (crane.boom_length_m || formatAutoMInput(boomLengthM)),
       radius_m: crane.radius_m || formatAutoMInput(radiusM),
       hook_height_m: crane.hook_height_m || formatAutoMInput(hookHeightM),
       load_share_kg: crane.load_share_kg || formatAutoKgInput(loadKg),
@@ -990,13 +994,22 @@ export default function LiftPlanForm({
         changed.selected_profile_key = "";
         changed.selected_jib_key = "";
         changed.setup_profile = "";
+        changed.boom_length_m = "";
+        changed.boom_length_m_manual = false;
         changed.spec_sheet_reference = "";
         changed.chart_capacity_kg = "";
         changed.crane_gross_weight_kg = "";
         changed.verification_notes = "";
       }
-      if (key === "selected_profile_key" || key === "selected_jib_key" || key === "radius_m" || key === "load_share_kg" || key === "accessory_weight_kg") {
-        changed.chart_capacity_kg = key === "radius_m" || key === "selected_profile_key" || key === "selected_jib_key" ? "" : changed.chart_capacity_kg;
+      if (key === "selected_profile_key" || key === "selected_jib_key") {
+        changed.boom_length_m = "";
+        changed.boom_length_m_manual = false;
+      }
+      if (key === "boom_length_m") {
+        changed.boom_length_m_manual = true;
+      }
+      if (key === "selected_profile_key" || key === "selected_jib_key" || key === "radius_m" || key === "boom_length_m" || key === "load_share_kg" || key === "accessory_weight_kg") {
+        changed.chart_capacity_kg = key === "radius_m" || key === "selected_profile_key" || key === "selected_jib_key" || key === "boom_length_m" ? "" : changed.chart_capacity_kg;
       }
       return changed;
     });
