@@ -665,6 +665,13 @@ export default function RangeChartBuilder({
   const numbers = chartNumbers(chart);
   const calc = calculatedFrom(numbers);
   const inferredSetupJibLength = activeJibOption ? activeJibOption.lengthM : (inferPhysicalJibLength(activeSetup) ?? inferPhysicalJibLengthFromText(chart.selectedSetupLabel));
+  const effectiveSetupLabel = activeStructuredProfile?.label || chart.selectedSetupLabel;
+  const effectiveJibLabel = activeJibOption?.label || chart.selectedJibOptionLabel;
+  const effectiveSourceLabel = [
+    activeStructuredProfile?.source,
+    activeJibOption?.source,
+    chart.externalSpecDocumentTitle,
+  ].filter(Boolean).join(" / ");
   const setupMaxBoom = activeStructuredProfile?.maxBoomLengthM ?? activeStructuredProfile?.defaultBoomLengthM ?? maybeNumber(activeSetup?.boomLengthM);
   const setupMaxRadius = activeStructuredProfile?.maxRadiusM ?? activeJibOption?.maxRadiusM ?? maybeNumber(activeSetup?.maxRadiusM);
   const setupMaxTipHeight = activeStructuredProfile?.maxTipHeightM ?? activeJibOption?.maxTipHeightM ?? maybeNumber(activeSetup?.maxTipHeightM);
@@ -709,8 +716,8 @@ export default function RangeChartBuilder({
 
   const limits = getRangeChartLimits({
     craneName: cleanCraneName,
-    setupLabel: chart.selectedSetupLabel,
-    sourceLabel: chart.externalSpecDocumentTitle,
+    setupLabel: [effectiveSetupLabel, effectiveJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: effectiveSourceLabel,
     setupMaxBoomLengthM: maybeNumber(setupMaxBoom),
     setupMaxRadiusM: maybeNumber(setupMaxRadius),
     setupMaxTipHeightM: maybeNumber(setupMaxTipHeight),
@@ -722,8 +729,8 @@ export default function RangeChartBuilder({
   const displayedBoomAngle = enteredBoomAngle ?? calc.boomAngle;
   const capacityResult = calculateRangeChartCapacity({
     craneName: cleanCraneName,
-    setupLabel: chart.selectedSetupLabel,
-    sourceLabel: chart.externalSpecDocumentTitle,
+    setupLabel: [effectiveSetupLabel, effectiveJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: effectiveSourceLabel,
     radiusM: numbers.radiusM,
     boomLengthM: displayedBoomLength,
     jibLengthM: numbers.jibLengthM,
@@ -732,8 +739,8 @@ export default function RangeChartBuilder({
   });
   const bearingResult = calculateRangeChartBearingLoad({
     craneName: cleanCraneName,
-    setupLabel: chart.selectedSetupLabel,
-    sourceLabel: chart.externalSpecDocumentTitle,
+    setupLabel: [effectiveSetupLabel, effectiveJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: effectiveSourceLabel,
     totalLiftedWeightKg: calc.totalLiftedWeight,
   });
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
@@ -986,9 +993,11 @@ export default function RangeChartBuilder({
       range_chart_external_spec_document_id: chart.externalSpecDocumentId,
       range_chart_external_spec_document_title: chart.externalSpecDocumentTitle,
       range_chart_selected_setup_key: chart.selectedSetupKey,
-      range_chart_selected_setup_label: chart.selectedSetupLabel,
+      range_chart_selected_setup_label: effectiveSetupLabel,
+      range_chart_selected_setup_source: activeStructuredProfile?.source || "",
       range_chart_selected_jib_option_key: chart.selectedJibOptionKey,
-      range_chart_selected_jib_option_label: chart.selectedJibOptionLabel,
+      range_chart_selected_jib_option_label: effectiveJibLabel,
+      range_chart_selected_jib_option_source: activeJibOption?.source || "",
       range_chart_boom_length_m: String(round(displayedBoomLength, 2)),
       range_chart_boom_angle_deg: String(round(displayedBoomAngle, 2)),
       range_chart_radius_m: chart.radiusM,
