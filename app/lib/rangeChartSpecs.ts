@@ -1,878 +1,2641 @@
-export type RangeChartCapacityPoint = {
-  radiusM: number;
-  capacityKg: number;
-};
+"use client";
 
-export type RangeChartCapacityCurve = {
-  key: string;
+import type { CSSProperties, ReactNode } from "react";
+import { useMemo, useState } from "react";
+import type {
+  CraneSetupOption,
+  EquipmentProfile,
+} from "../../lib/ai/equipmentProfiles";
+import type { RangeChartProfileOption } from "../../lib/rangeChartSpecs";
+import {
+  calculateRangeChartBearingLoad,
+  calculateRangeChartCapacity,
+  getRangeChartLimits,
+  getRangeChartSpecOptions,
+} from "../../lib/rangeChartSpecs";
+
+type CraneOption = {
+  value: string;
+  craneId: string;
   label: string;
-  jibLengthM?: number | null;
-  boomLengthM?: number | null;
-  jibAngleMinDeg?: number | null;
-  jibAngleMaxDeg?: number | null;
-  counterweightT?: number | null;
-  points: RangeChartCapacityPoint[];
-  source: string;
-  setupAdvice?: string;
 };
 
-export type RangeChartProfileOption = {
-  key: string;
+type PersonOption = {
+  value: string;
   label: string;
-  defaultBoomLengthM?: number | null;
-  maxBoomLengthM?: number | null;
-  maxRadiusM?: number | null;
-  maxTipHeightM?: number | null;
-  source?: string;
 };
 
-export type RangeChartJibOption = {
-  key: string;
-  label: string;
-  lengthM: number;
-  maxRadiusM?: number | null;
-  maxTipHeightM?: number | null;
-  source?: string;
+type LiftPlanData = {
+  selected_job_equipment_id?: string | null;
+  selected_crane_id?: string | null;
+  load_description?: string | null;
+  load_weight?: number | null;
+  lift_radius?: number | null;
+  lift_height?: number | null;
+  crane_configuration?: string | null;
+  outrigger_setup?: string | null;
+  ground_conditions?: string | null;
+  sling_type?: string | null;
+  lifting_accessories?: string | null;
+  method_statement?: string | null;
+  risk_assessment?: string | null;
+  site_hazards?: string | null;
+  control_measures?: string | null;
+  ppe_required?: string | null;
+  exclusion_zone_details?: string | null;
+  weather_limitations?: string | null;
+  emergency_procedures?: string | null;
+  lift_supervisor?: string | null;
+  appointed_person?: string | null;
+  crane_operator?: string | null;
+  rams_complete?: boolean;
+  lift_plan_complete?: boolean;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  approval_notes?: string | null;
+  customer_signed_by?: string | null;
+  operator_signed_by?: string | null;
+  office_signed_by?: string | null;
+  finalised_at?: string | null;
+  paperwork_locked?: boolean;
+  pack_sections?: Record<string, string | null> | null;
+  selected_crane_setup_key?: string | null;
+  selected_crane_setup_label?: string | null;
+  boom_configuration?: string | null;
+  boom_length?: string | null;
+  crane_outreach_reference?: string | null;
+  crane_jib_reference?: string | null;
+  crane_details?: string | null;
+  configuration_outrigger_note?: string | null;
+  load_chart_note?: string | null;
+  ground_bearing_mat_preset?: string | null;
+  ground_bearing_mat_length_m?: string | null;
+  ground_bearing_mat_width_m?: string | null;
+  ground_bearing_mat_area_m2?: string | null;
+  ground_bearing_bearing_load?: string | null;
+  ground_bearing_pressure?: string | null;
+  ground_bearing_notes?: string | null;
+  custom_crane_boom_length_m?: string | null;
+  custom_crane_hydraulic_outreach_m?: string | null;
+  custom_crane_jib_outreach_m?: string | null;
+  custom_crane_max_radius_m?: string | null;
+  multi_crane_enabled?: boolean;
+  multi_crane_lift_type?: string | null;
+  multi_crane_notes?: string | null;
+  additional_cranes_json?: string | null;
+  range_chart_radius_m?: string | null;
+  range_chart_tip_height_m?: string | null;
+  range_chart_load_weight_kg?: string | null;
+  range_chart_accessory_weight_kg?: string | null;
 };
 
-export type RangeChartSpecRule = {
+type LiftPlanVersionSummary = {
   id: string;
-  title: string;
-  match: RegExp[];
-  maxCapacityKg?: number | null;
-  maxBoomLengthM?: number | null;
-  maxPhysicalJibLengthM?: number | null;
-  maxRadiusM?: number | null;
-  maxTipHeightM?: number | null;
-  defaultBearingLoadKg?: number | null;
-  bearingLoadSource?: string;
-  planningWeightKg?: number | null;
-  planningWeightSource?: string;
-  estimatedBearingFactor?: number | null;
-  capacitySource?: string;
-  capacityPoints?: RangeChartCapacityPoint[];
-  capacityCurves?: RangeChartCapacityCurve[];
-  profileOptions?: RangeChartProfileOption[];
-  jibOptions?: RangeChartJibOption[];
-  notes?: string;
+  created_at: string | null;
+  created_by_email?: string | null;
+  reason?: string | null;
 };
 
-export type RangeChartCapacityResult = {
-  capacityKg: number | null;
-  method: "automatic" | "manual";
-  source: string;
-  warning?: string;
-  setupAdvice?: string;
-  /**
-   * True only when it is acceptable to use an explicitly entered/manual capacity value.
-   * For recognised structured cranes, this stays false when the exact chart/setup cannot
-   * be matched, so stale max-capacity values such as 4t/35t/80t cannot be used as
-   * capacity-at-radius.
-   */
-  allowManualCapacityFallback?: boolean;
-  recognisedRuleId?: string | null;
+type AdditionalCraneEntry = {
+  id: string;
+  selected_crane_option_value: string;
+  selected_profile_key: string;
+  selected_jib_key: string;
+  crane_name: string;
+  crane_role: string;
+  planned_use: string;
+  setup_profile: string;
+  boom_length_m: string;
+  boom_length_m_manual: boolean;
+  radius_m: string;
+  hook_height_m: string;
+  crane_gross_weight_kg: string;
+  load_share_kg: string;
+  accessory_weight_kg: string;
+  chart_capacity_kg: string;
+  mat_length_m: string;
+  mat_width_m: string;
+  spec_sheet_reference: string;
+  verification_notes: string;
 };
 
-export type RangeChartBearingResult = {
-  bearingLoadKg: number | null;
-  method: "automatic" | "manual";
-  source: string;
-  warning?: string;
-};
-
-function clean(value: unknown) {
-  return String(value ?? "").replace(/\s+/g, " ").trim();
-}
-
-function lower(value: unknown) {
-  return clean(value).toLowerCase();
-}
-
-function point(radiusM: number, capacityKg: number): RangeChartCapacityPoint {
-  return { radiusM, capacityKg };
-}
-
-function pointT(radiusM: number, capacityT: number): RangeChartCapacityPoint {
-  return { radiusM, capacityKg: Math.round(capacityT * 1000) };
-}
-
-function pointsT(items: Array<[number, number]>): RangeChartCapacityPoint[] {
-  return items.map(([radiusM, capacityT]) => pointT(radiusM, capacityT));
-}
-
-function profile(
-  key: string,
-  label: string,
-  defaultBoomLengthM: number | null,
-  maxBoomLengthM: number | null,
-  maxRadiusM?: number | null,
-  maxTipHeightM?: number | null,
-  source?: string
-): RangeChartProfileOption {
-  return { key, label, defaultBoomLengthM, maxBoomLengthM, maxRadiusM, maxTipHeightM, source };
-}
-
-function jib(
-  key: string,
-  label: string,
-  lengthM: number,
-  maxRadiusM?: number | null,
-  maxTipHeightM?: number | null,
-  source?: string
-): RangeChartJibOption {
-  return { key, label, lengthM, maxRadiusM, maxTipHeightM, source };
-}
-
-function curve(
-  key: string,
-  label: string,
-  points: RangeChartCapacityPoint[],
-  options: Omit<RangeChartCapacityCurve, "key" | "label" | "points">,
-): RangeChartCapacityCurve {
-  return { key, label, points, ...options };
-}
-
-// All curves below are deliberately used as planning aids only. They are structured from the uploaded spec-sheet charts
-// so the CRM can give useful setup advice and catch obvious out-of-capacity cases. The appointed person must still
-// verify the exact manufacturer/supplier chart, counterweight, outrigger setting, hook block and LMI before approval.
-
-const AK46_MAIN = [
-  point(8, 6000), point(11, 4000), point(17.7, 2000), point(26, 1000), point(34.5, 500), point(39, 250),
-];
-
-const GMK_4080_MAIN_BOOM_51_193T = pointsT([
-  [2.5, 80], [3, 68], [4, 53.5], [5, 46], [6, 40], [7, 34.5], [8, 28.5], [10, 7.2], [11, 7.2], [12, 7.2],
-  [13, 7.2], [14, 7.2], [15, 7.2], [16, 7.2], [18, 7.2], [20, 6.7], [22, 6.3], [24, 5.4], [26, 4.6],
-  [28, 4.0], [30, 3.4], [32, 2.9], [34, 2.5], [36, 2.1], [38, 1.8], [40, 1.5], [42, 1.3], [44, 1.0], [46, 0.8],
-]);
-
-const GMK_4080_SWINGAWAY_8_7_51_020_193T = pointsT([
-  [12, 4.2], [13, 4.1], [14, 4.0], [15, 4.0], [16, 3.9], [18, 3.8], [20, 3.6], [22, 3.5], [24, 3.4],
-  [26, 3.3], [28, 3.3], [30, 3.2], [32, 3.1], [34, 3.0], [36, 2.8], [38, 2.5], [40, 2.1], [42, 1.7], [44, 1.2],
-]);
-
-const GMK_4080_SWINGAWAY_15_51_020_193T = pointsT([
-  [15, 2.3], [16, 2.2], [18, 2.1], [20, 2.0], [22, 2.0], [24, 1.9], [26, 1.8], [28, 1.8], [30, 1.7],
-  [32, 1.7], [34, 1.7], [36, 1.6], [38, 1.5], [40, 1.2], [42, 1.0], [44, 0.7],
-]);
-
-const GMK_4080_EXTENSION_21_51_020_193T = pointsT([
-  [18, 2.1], [20, 2.0], [22, 2.0], [24, 1.9], [26, 1.8], [28, 1.8], [30, 1.7], [32, 1.7], [34, 1.7],
-  [36, 1.6], [38, 1.6], [40, 1.5], [42, 1.5], [44, 1.5], [46, 1.3], [48, 1.1], [50, 0.9], [52, 0.8], [54, 0.6],
-]);
-
-const JEKKO_SPX532_MAIN_J7_LONG_BOOM = pointsT([
-  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.90], [7, 0.80], [8, 0.64], [9, 0.52], [9.45, 0.47],
-]);
-const JEKKO_SPX532_MAIN_J6_LONG_BOOM = pointsT([
-  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40], [9.45, 0.32],
-]);
-// Fallback planning curve used only when the SPX532 is recognised as main-boom work but the exact J-rating
-// has not been selected in the setup dropdown/text yet. It deliberately follows the reduced J6 long-boom line,
-// not the 3.2t maximum machine capacity, so the CRM gives a useful preliminary capacity without hiding the
-// appointed-person verification warning.
-const JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING = JEKKO_SPX532_MAIN_J6_LONG_BOOM;
-const JEKKO_SPX532_MAIN_J5 = pointsT([
-  [1, 0.40], [2, 0.40], [3, 0.30], [4, 0.28], [5, 0.20],
-]);
-const JEKKO_SPX532_JIB1000_J5_51 = pointsT([
-  [1, 0.22], [2, 0.21], [3, 0.20], [4, 0.19], [5, 0.18],
-]);
-const JEKKO_SPX532_JIB500GR = [point(4, 500), point(8, 400), point(10, 300), point(12, 200)];
-
-const HK40_35_2_85T = pointsT([
-  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.6], [16, 5.0],
-  [18, 4.5], [20, 4.0], [22, 3.6], [24, 3.1], [26, 2.7], [28, 2.3], [30, 2.0], [32, 1.8],
-]);
-const HK40_35_2_45T = pointsT([
-  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.6], [16, 4.9],
-  [18, 4.0], [20, 3.3], [22, 2.7], [24, 2.2], [26, 1.9], [28, 1.6], [30, 1.3], [32, 1.1],
-]);
-const HK40_35_2_21T = pointsT([
-  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.3], [14, 5.1], [16, 4.0],
-  [18, 3.2], [20, 2.6], [22, 2.1], [24, 1.7], [26, 1.4], [28, 1.1], [30, 0.9], [32, 0.7],
-]);
-const HK40_35_2_14T = pointsT([
-  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 7.1], [11, 6.7], [12, 6.1], [14, 4.8], [16, 3.7],
-  [18, 2.9], [20, 2.4], [22, 1.9], [24, 1.5], [26, 1.2], [28, 0.9], [30, 0.7], [32, 0.6],
-]);
-const HK40_35_2_0T = pointsT([
-  [6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 6.9], [11, 6.1], [12, 5.4], [14, 4.2], [16, 3.4],
-  [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7], [30, 0.5],
-]);
-
-const MTK35_MAIN_32 = pointsT([
-  [6, 7.0], [7, 7.0], [8, 7.0], [9, 6.8], [10, 6.5], [12, 5.4], [14, 4.0], [16, 3.1], [18, 2.3],
-  [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7], [28, 0.5],
-]);
-const MTK35_MAIN_26_5 = pointsT([
-  [4, 10.8], [5, 10.8], [6, 10.6], [7, 10.4], [8, 10.2], [9, 7.7], [10, 7.5], [12, 5.4],
-  [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7],
-]);
-const MTK35_MAIN_19_9 = pointsT([
-  [3, 16.5], [3.5, 16.5], [4, 16.5], [5, 16.4], [6, 16.0], [7, 14.2], [8, 11.3], [9, 9.0], [10, 7.4],
-  [12, 5.3], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8],
-]);
-const MTK35_EXTENSION_8_0 = pointsT([
-  [8, 2.7], [10, 2.7], [12, 2.7], [14, 2.7], [16, 2.6], [18, 2.4], [20, 1.9], [22, 1.4], [24, 1.1],
-  [26, 0.8], [28, 0.6], [30, 0.4], [32, 0.3], [34, 0.3],
-]);
-const MTK35_EXTENSION_8_20 = pointsT([
-  [10, 2.5], [12, 2.5], [14, 2.5], [16, 2.5], [18, 2.4], [20, 2.1], [22, 1.6], [24, 1.2], [26, 0.9],
-  [28, 0.7], [30, 0.4],
-]);
-const MTK35_EXTENSION_8_40 = pointsT([
-  [12, 2.3], [14, 2.3], [16, 2.2], [18, 2.1], [20, 2.0], [22, 1.7], [24, 1.3], [26, 1.0], [28, 0.7],
-  [30, 0.5], [32, 0.5], [34, 0.4],
-]);
-const MTK35_EXTENSION_14_5_0 = pointsT([
-  [10, 1.4], [12, 1.4], [14, 1.3], [16, 1.3], [18, 1.2], [20, 1.2], [22, 1.1], [24, 1.0], [26, 0.9],
-  [28, 0.7], [30, 0.5], [32, 0.5],
-]);
-const MTK35_EXTENSION_14_5_20 = pointsT([
-  [12, 1.2], [14, 1.2], [16, 1.1], [18, 1.1], [20, 1.0], [22, 0.9], [24, 0.8], [26, 0.8], [28, 0.7],
-  [30, 0.7], [32, 0.6],
-]);
-const MTK35_EXTENSION_14_5_40 = pointsT([
-  [16, 0.8], [18, 0.8], [20, 0.8], [22, 0.8], [24, 0.7], [26, 0.7], [28, 0.7], [30, 0.7],
-]);
-
-export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
-  {
-    id: "ak46-6000",
-    title: "Böcker AK 46/6000",
-    match: [/\bak\s*46(?:\/6000)?\b/i, /\bbocker\b.*\bak\s*46/i, /\bböcker\b.*\bak\s*46/i, /\bak46\b/i],
-    maxCapacityKg: 6000,
-    maxBoomLengthM: 46,
-    // AK46 maximum extension/boom length is the total crane extension, including the hydraulic 11 m extension.
-    // Do not add a separate 11 m jib on top of 46 m in the range sketch.
-    maxPhysicalJibLengthM: 0,
-    maxRadiusM: 39,
-    maxTipHeightM: 46,
-    planningWeightKg: 26000,
-    planningWeightSource: "AK 46/6000 spec: permissible gross vehicle weight up to 26 t",
-    estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("ak46-crane-operation", "AK46 crane-operation range table / total boom-extension up to 46 m", null, 46, 39, 46, "AK 46/6000 crane-operation range/load table"),
-      profile("ak46-total-44", "AK46 total boom-extension up to 44 m", null, 44, 38, 43.3, "AK 46/6000 technical information"),
-      profile("ak46-total-46", "AK46 optional total boom-extension up to 46 m", null, 46, 39, 46, "AK 46/6000 technical information"),
-    ],
-    jibOptions: [
-      jib("none", "No separate additive jib — hydraulic extension is included in the 46 m total boom-extension", 0, 39, 46, "AK 46/6000: 5.3 m / 8.1 m / 11.0 m hydraulic extension is included within the 44 m / optional 46 m total extension length"),
-    ],
-    capacitySource: "AK 46/6000 spec: crane-operation range/load table",
-    capacityPoints: AK46_MAIN,
-    capacityCurves: [
-      curve("ak46-main", "AK46 crane-operation range table", AK46_MAIN, {
-        jibLengthM: null,
-        boomLengthM: 46,
-        source: "AK 46/6000 spec: 6t at 8m, 4t at 11m, 2t at 17.7m, 1t at 26m, 500kg at 34.5m, 250kg at 39m",
-        setupAdvice: "AK46 preliminary check: use the published crane-operation range/load table for capacity at radius. The 44 m / optional 46 m maximum is the total boom-extension length and already includes the hydraulic extension; do not add an extra 11 m jib on top of the 46 m total. Do not apply the 800 kg extension marker as a hard cap where the crane-operation chart gives 1,000 kg up to 26 m. Confirm single/two-fall operation, exact boom/extension configuration and LMI before approval.",
-      }),
-    ],
-    notes: "Uses the published AK 46/6000 range/load points as a conservative planning curve. The 46 m maximum is treated as total boom-extension length including the hydraulic extension, not 46 m plus a separate 11 m jib. Final duty must still be checked on the supplier/manufacturer chart.",
-  },
-  {
-    id: "gmk4080-1",
-    title: "Grove GMK4080-1",
-    match: [/\bgmk\s*4080\s*-?\s*1\b/i, /\bgrove\b.*\b4080\s*-?\s*1\b/i, /\bmanitowoc\b.*\b4080\b/i],
-    maxCapacityKg: 80000,
-    maxBoomLengthM: 51,
-    maxPhysicalJibLengthM: 21,
-    maxRadiusM: 75,
-    maxTipHeightM: 75,
-    planningWeightKg: 48000,
-    planningWeightSource: "GMK4080-1 product guide: total weight 48 t with 9.3 t counterweight",
-    estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("gmk4080-main-51-manual", "Main boom up to 51 m — select counterweight/chart manually", 51, 51, null, 54, "GMK4080-1 product guide: 11.0 m to 51.0 m TWIN-LOCK boom. Automatic capacity needs an exact counterweight/chart selection."),
-      profile("gmk4080-main-51-193t", "Main boom up to 51 m — 19.3 t counterweight chart", 51, 51, null, 54, "GMK4080-1 load chart: 51 m main boom, 19.3 t counterweight"),
-    ],
-    jibOptions: [
-      jib("none", "No jib / main boom only", 0),
-      jib("gmk4080-swingaway-8-7", "8.7 m bi-fold swingaway", 8.7, 46, 63, "GMK4080-1 optional bi-fold swingaway 8.7 m"),
-      jib("gmk4080-swingaway-15", "15 m bi-fold swingaway", 15, 50, 69, "GMK4080-1 optional bi-fold swingaway 15 m"),
-      jib("gmk4080-lattice-21", "21 m lattice extension", 21, 54, 75, "GMK4080-1 optional 21 m lattice extension"),
-    ],
-    capacitySource: "GMK4080-1 product guide load charts. Exact table/counterweight must still be verified before lifting.",
-    capacityCurves: [
-      curve("gmk-main-51-193t", "51 m main boom, 19.3 t counterweight", GMK_4080_MAIN_BOOM_51_193T, {
-        boomLengthM: 51, jibLengthM: 0, counterweightT: 19.3,
-        source: "GMK4080-1 load chart: 11.0-51.0 m telescopic boom, 360°, 19.3 t counterweight",
-        setupAdvice: "Main boom only may be the stronger setup if height/reach is possible. Verify exact counterweight, boom length and LMI.",
-      }),
-      curve("gmk-8-7-51-020-193t", "51 m boom + 8.7 m swingaway, 0°-20°, 19.3 t", GMK_4080_SWINGAWAY_8_7_51_020_193T, {
-        boomLengthM: 51, jibLengthM: 8.7, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
-        source: "GMK4080-1 swingaway load chart: 51.0 m boom + 8.7 m swingaway, 0°-20°, 360°, 19.3 t counterweight",
-        setupAdvice: "Use 8.7 m swingaway only where the extra height/reach is needed; main boom only may give more capacity.",
-      }),
-      curve("gmk-15-51-020-193t", "51 m boom + 15 m swingaway, 0°-20°, 19.3 t", GMK_4080_SWINGAWAY_15_51_020_193T, {
-        boomLengthM: 51, jibLengthM: 15, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
-        source: "GMK4080-1 swingaway load chart: 51.0 m boom + 15.0 m swingaway, 0°-20°, 360°, 19.3 t counterweight",
-        setupAdvice: "Use 15 m swingaway only where required. If capacity is tight, check 8.7 m swingaway or main boom only.",
-      }),
-      curve("gmk-21-51-020-193t", "51 m boom + 21 m extension, 0°-20°, 19.3 t", GMK_4080_EXTENSION_21_51_020_193T, {
-        boomLengthM: 51, jibLengthM: 21, jibAngleMinDeg: 0, jibAngleMaxDeg: 20, counterweightT: 19.3,
-        source: "GMK4080-1 boom-extension load chart: 51.0 m boom + 21.0 m extension, 0°-20°, 360°, 19.3 t counterweight",
-        setupAdvice: "Use the 21 m extension only for the extra height/reach. If capacity is tight, try shorter fly jib or main boom only.",
-      }),
-    ],
-    notes: "Structured preliminary curves cover common long-boom and extension options. Final manufacturer chart/LMI verification is mandatory.",
-  },
-  {
-    id: "spx532",
-    title: "Jekko SPX532",
-    match: [/\bspx\s*532[a-z0-9-]*\b/i, /\bspx532[a-z0-9-]*\b/i, /\bjekko\b.*\b532[a-z0-9-]*\b/i],
-    maxCapacityKg: 3200,
-    maxBoomLengthM: 10.8,
-    maxPhysicalJibLengthM: 5.1,
-    maxRadiusM: 14.8,
-    maxTipHeightM: 17.3,
-    planningWeightKg: 2520,
-    planningWeightSource: "SPX532 spec: dry crane weight 2520 kg",
-    estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("spx532-main-j7", "Main boom — J7/full-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J7 chart"),
-      profile("spx532-main-j6", "Main boom — J6 reduced-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J6 chart"),
-      profile("spx532-main-j5", "Main boom — J5 reduced-stability planning chart", 5.7, 10.8, 5, 12.1, "SPX532 main boom J5 chart"),
-    ],
-    jibOptions: [
-      jib("none", "No jib / main boom only", 0),
-      jib("spx532-jib500gr", "JIB500GR grabber jib", 0.5, 12, 14.8, "SPX532 JIB500GR planning chart"),
-      jib("spx532-jib1000", "JIB1000.2H1MX long jib", 5.1, 5, 17.3, "SPX532 JIB1000.2H1MX chart"),
-    ],
-    defaultBearingLoadKg: 3000,
-    bearingLoadSource: "Jekko SPX532 spec: static outrigger load 3000 kg",
-    capacitySource: "Jekko SPX532 spec: structured J-rating/load charts; exact outrigger/stability rating must be verified.",
-    capacityCurves: [
-      curve("spx532-main-j7", "SPX532 main boom J7/full stability", JEKKO_SPX532_MAIN_J7_LONG_BOOM, {
-        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J7 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J7 crane performance.",
-      }),
-      curve("spx532-main-j6", "SPX532 main boom J6", JEKKO_SPX532_MAIN_J6_LONG_BOOM, {
-        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J6 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J6 crane performance.",
-      }),
-      curve("spx532-main-j5", "SPX532 main boom J5", JEKKO_SPX532_MAIN_J5, {
-        boomLengthM: 5.7, jibLengthM: 0, source: "SPX532 page 11: main boom J5 chart", setupAdvice: "Use only if the outrigger/stability area gives J5 crane performance.",
-      }),
-      curve("spx532-main-pending-j-rating", "SPX532 main boom conservative planning curve pending J-rating verification", JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING, {
-        boomLengthM: 10.8,
-        jibLengthM: 0,
-        source: "SPX532 preliminary main-boom planning curve using the reduced J6 long-boom line until exact J-rating/stability is verified",
-        setupAdvice: "Preliminary only: the CRM has used the conservative SPX532 main-boom J6 planning line because the exact J-rating/stability setup has not been selected. The appointed person must verify the actual outrigger spread, stability/J-rating, boom length, hook/accessory allowance and manufacturer chart before approval.",
-      }),
-      curve("spx532-jib1000-j5", "SPX532 JIB1000.2H1MX J5", JEKKO_SPX532_JIB1000_J5_51, {
-        jibLengthM: 5.1, boomLengthM: 10.8, source: "SPX532 page 14: JIB1000.2H1MX J5 chart, LJ 5.1 m", setupAdvice: "Use only if the selected outrigger/stability area gives J5 crane performance.",
-      }),
-      curve("spx532-jib500gr", "SPX532 JIB500GR planning curve", JEKKO_SPX532_JIB500GR, {
-        jibLengthM: 0.5, boomLengthM: 10.8, source: "SPX532 page 18: JIB500GR working-range chart", setupAdvice: "Verify the exact JIB500GR chart before approval.",
-      }),
-    ],
-    notes: "SPX532 duties depend heavily on the outrigger/stability J-rating. The CRM can advise from structured J7/J6/J5 curves, but the selected stability rating must be confirmed before approval.",
-  },
-  {
-    id: "hk40",
-    title: "Tadano Faun HK 40",
-    match: [/\bhk\s*40\b/i, /\btadano\b.*\bhk\s*40\b/i, /\bfaun\b.*\bhk\s*40\b/i],
-    maxCapacityKg: 40000,
-    maxBoomLengthM: 35.2,
-    maxPhysicalJibLengthM: 9,
-    maxRadiusM: 35.2,
-    maxTipHeightM: 44.2,
-    planningWeightKg: 32000,
-    planningWeightSource: "HK 40 spec: total weight up to 32 t depending chassis/options",
-    estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("hk40-main-35-2-85", "Main boom 35.2 m — 8.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 8.5 t counterweight"),
-      profile("hk40-main-35-2-45", "Main boom 35.2 m — 4.5 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 4.5 t counterweight"),
-      profile("hk40-main-35-2-21", "Main boom 35.2 m — 2.1 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 2.1 t counterweight"),
-      profile("hk40-main-35-2-14", "Main boom 35.2 m — 1.4 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart 360°, 1.4 t counterweight"),
-      profile("hk40-main-35-2-0", "Main boom 35.2 m — 0 t counterweight chart", 35.2, 35.2, 30, 35.2, "HK 40 load chart 360°, 0 t counterweight"),
-    ],
-    jibOptions: [jib("none", "No jib / main boom only", 0), jib("hk40-extension-9", "9 m boom extension", 9, null, 44.2, "HK 40 spec: 9 m boom extension")],
-    capacitySource: "HK 40 uploaded load charts. Select the correct counterweight chart and verify exact boom length/radius before approval.",
-    capacityCurves: [
-      curve("hk40-35-2-85", "HK40 35.2 m main boom, 8.5 t counterweight", HK40_35_2_85T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 8.5, source: "HK 40 chart page 4: 35.2 m main boom, 360°, 8.5 t counterweight", setupAdvice: "If capacity is tight, confirm the crane can be rigged with 8.5 t counterweight or use a shorter boom chart." }),
-      curve("hk40-35-2-45", "HK40 35.2 m main boom, 4.5 t counterweight", HK40_35_2_45T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 4.5, source: "HK 40 chart page 6: 35.2 m main boom, 360°, 4.5 t counterweight", setupAdvice: "If capacity is tight, select/rig the 8.5 t chart or reduce radius." }),
-      curve("hk40-35-2-21", "HK40 35.2 m main boom, 2.1 t counterweight", HK40_35_2_21T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 2.1, source: "HK 40 chart page 8: 35.2 m main boom, 360°, 2.1 t counterweight", setupAdvice: "If capacity is tight, select/rig a heavier counterweight chart or reduce radius." }),
-      curve("hk40-35-2-14", "HK40 35.2 m main boom, 1.4 t counterweight", HK40_35_2_14T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 1.4, source: "HK 40 chart page 10: 35.2 m main boom, 360°, 1.4 t counterweight", setupAdvice: "If capacity is tight, select/rig a heavier counterweight chart or reduce radius." }),
-      curve("hk40-35-2-0", "HK40 35.2 m main boom, 0 t counterweight", HK40_35_2_0T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 0, source: "HK 40 chart page 12: 35.2 m main boom, 360°, 0 t counterweight", setupAdvice: "If capacity is tight, select/rig a counterweight chart or reduce radius." }),
-    ],
-    notes: "HK40 capacity varies by counterweight and boom length. The structured curves cover the conservative 35.2 m boom lines for each uploaded counterweight chart.",
-  },
-  {
-    id: "mtk35",
-    title: "Marchetti MTK 35",
-    match: [/\bmtk\s*35\b/i, /\bmarchetti\b.*\b35\b/i, /\bmkt\s*35\b/i],
-    maxCapacityKg: 35000,
-    maxBoomLengthM: 32,
-    maxPhysicalJibLengthM: 14.5,
-    maxRadiusM: 40,
-    maxTipHeightM: 52,
-    planningWeightKg: 26000,
-    planningWeightSource: "MTK35 spec: total vehicle weight 26 t",
-    estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("mtk35-main-32", "Main boom up to 32 m", 32, 32, 28, 40, "MTK35 main boom 10-32 m chart"),
-      profile("mtk35-main-26-5", "Main boom 26.5 m", 26.5, 32, 26, 40, "MTK35 main boom chart"),
-      profile("mtk35-main-19-9", "Main boom 19.9 m", 19.9, 32, 20, 40, "MTK35 main boom chart"),
-    ],
-    jibOptions: [
-      jib("none", "No jib / main boom only", 0),
-      jib("mtk35-extension-8", "8 m lattice extension", 8, 34, 45, "MTK35: 8 m extension, offsets 0°/20°/40°"),
-      jib("mtk35-extension-14-5", "14.5 m lattice extension", 14.5, 32, 52, "MTK35: 14.5 m extension, offsets 0°/20°/40°"),
-    ],
-    capacitySource: "MTK35 uploaded load chart: main boom 10-32 m and 32 m + 8/14.5 m extensions.",
-    capacityCurves: [
-      curve("mtk35-main-32", "MTK35 32 m main boom", MTK35_MAIN_32, { boomLengthM: 32, jibLengthM: 0, source: "MTK35 load chart: main boom 32.0 m column", setupAdvice: "If capacity is tight, use a shorter main boom chart if the height/radius allows." }),
-      curve("mtk35-main-26-5", "MTK35 26.5 m main boom", MTK35_MAIN_26_5, { boomLengthM: 26.5, jibLengthM: 0, source: "MTK35 load chart: main boom 26.5 m column", setupAdvice: "If this covers the height/radius, the shorter boom gives more capacity than the 32 m boom." }),
-      curve("mtk35-main-19-9", "MTK35 19.9 m main boom", MTK35_MAIN_19_9, { boomLengthM: 19.9, jibLengthM: 0, source: "MTK35 load chart: main boom 19.9 m column", setupAdvice: "Use this only if the height/radius can be achieved with 19.9 m boom." }),
-      curve("mtk35-ext8-0", "MTK35 32 m + 8 m extension at 0°", MTK35_EXTENSION_8_0, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 0, jibAngleMaxDeg: 5, source: "MTK35 extension chart: 8 m extension, 0°", setupAdvice: "Use 8 m extension only where the main boom does not achieve the required height/reach." }),
-      curve("mtk35-ext8-20", "MTK35 32 m + 8 m extension at 20°", MTK35_EXTENSION_8_20, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 8 m extension, 20°", setupAdvice: "Use 20° offset only if needed for clearance/reach; check chart before approval." }),
-      curve("mtk35-ext8-40", "MTK35 32 m + 8 m extension at 40°", MTK35_EXTENSION_8_40, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 8 m extension, 40°", setupAdvice: "Use 40° offset only if needed for clearance/reach; check chart before approval." }),
-      curve("mtk35-ext145-0", "MTK35 32 m + 14.5 m extension at 0°", MTK35_EXTENSION_14_5_0, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 0, jibAngleMaxDeg: 5, source: "MTK35 extension chart: 14.5 m extension, 0°", setupAdvice: "Use 14.5 m extension only where required; capacity is much lower than main boom." }),
-      curve("mtk35-ext145-20", "MTK35 32 m + 14.5 m extension at 20°", MTK35_EXTENSION_14_5_20, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 14.5 m extension, 20°", setupAdvice: "Use 20° offset only if needed; check chart before approval." }),
-      curve("mtk35-ext145-40", "MTK35 32 m + 14.5 m extension at 40°", MTK35_EXTENSION_14_5_40, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 14.5 m extension, 40°", setupAdvice: "Use 40° offset only if needed; check chart before approval." }),
-    ],
-    notes: "MTK35 structured data now covers main-boom planning curves and 8 m / 14.5 m extension offsets. Final chart verification is still required.",
-  },
-];
-
-export function findRangeChartSpecRule(...values: unknown[]) {
-  const haystack = lower(values.filter(Boolean).join(" "));
-  if (!haystack) return null;
-  return RANGE_CHART_SPEC_RULES.find((rule) => rule.match.some((pattern) => pattern.test(haystack))) ?? null;
-}
-
-export function conservativeCapacityFromCurve(points: RangeChartCapacityPoint[] | undefined, radiusM: number) {
-  if (!points?.length || !Number.isFinite(radiusM)) return null;
-  const sorted = [...points].sort((a, b) => a.radiusM - b.radiusM);
-  for (const item of sorted) {
-    if (radiusM <= item.radiusM + 0.0001) return item.capacityKg;
-  }
-  return null;
-}
-
-function closeTo(value: number | null | undefined, target: number | null | undefined, tolerance: number) {
-  if (value === null || value === undefined || target === null || target === undefined) return true;
-  if (!Number.isFinite(value) || !Number.isFinite(target)) return true;
-  return Math.abs(value - target) <= tolerance;
-}
-
-function jibMatches(curve: RangeChartCapacityCurve, jibLengthM?: number | null, jibAngleDeg?: number | null) {
-  const effectiveJib = Math.max(0, jibLengthM ?? 0);
-  if (curve.jibLengthM !== null && curve.jibLengthM !== undefined && !closeTo(effectiveJib, curve.jibLengthM, curve.jibLengthM === 0 ? 0.25 : 0.85)) return false;
-  if (curve.jibAngleMinDeg !== null && curve.jibAngleMinDeg !== undefined && jibAngleDeg !== null && jibAngleDeg !== undefined && Number.isFinite(jibAngleDeg)) {
-    if (jibAngleDeg < curve.jibAngleMinDeg - 0.01) return false;
-  }
-  if (curve.jibAngleMaxDeg !== null && curve.jibAngleMaxDeg !== undefined && jibAngleDeg !== null && jibAngleDeg !== undefined && Number.isFinite(jibAngleDeg)) {
-    if (jibAngleDeg > curve.jibAngleMaxDeg + 0.01) return false;
-  }
+function hasDraftValue(value: unknown) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return true;
   return true;
 }
 
-function boomCurveScore(curve: RangeChartCapacityCurve, boomLengthM?: number | null) {
-  if (curve.boomLengthM === null || curve.boomLengthM === undefined || boomLengthM === null || boomLengthM === undefined || !Number.isFinite(boomLengthM)) return 0;
-  const diff = curve.boomLengthM - boomLengthM;
-  if (Math.abs(diff) <= 0.75) return Math.abs(diff);
-  // Prefer a longer chart line where available as a conservative planning check for intermediate boom lengths.
-  if (diff > 0) return diff + 2;
-  return Math.abs(diff) + 20;
+function mergeGeneratedDraft<T extends Record<string, any>>(
+  prev: T,
+  draft: Partial<T> | null | undefined,
+  preserveKeys: string[],
+) {
+  const next: Record<string, any> = { ...prev };
+  const preserve = new Set(preserveKeys);
+
+  for (const [key, value] of Object.entries(draft ?? {})) {
+    if (preserve.has(key) && hasDraftValue(prev[key])) {
+      continue;
+    }
+    if (hasDraftValue(value)) {
+      next[key] = value;
+    }
+  }
+
+  return next as T;
 }
 
-function textHasCounterweightSelection(text: string, counterweightT: number | null | undefined) {
-  if (counterweightT === null || counterweightT === undefined) return true;
-  const value = Number(counterweightT);
-  if (!Number.isFinite(value)) return true;
+const MACHINE_NARRATIVE_KEYS: Array<keyof LiftPlanData> = [
+  "crane_configuration",
+  "outrigger_setup",
+  "ground_conditions",
+  "method_statement",
+  "risk_assessment",
+  "site_hazards",
+  "control_measures",
+  "ppe_required",
+  "exclusion_zone_details",
+  "weather_limitations",
+  "emergency_procedures",
+  "crane_operator",
+];
 
-  // The all-terrain/truck-crane charts must not auto-fill from a stronger chart unless that chart has been
-  // deliberately selected. Match common labels such as "19.3 t counterweight", "8.5t", "0 t counterweight",
-  // or the profile/curve key itself.
-  const escaped = String(value).replace(".", "\\.");
-  const patterns = [
-    new RegExp(`\\b${escaped}\\s*t(?:onne|onnes)?\\b`, "i"),
-    new RegExp(`\\b${escaped}t\\b`, "i"),
-    new RegExp(`\\b${escaped}\\s*ton(?:ne|nes)?\\b`, "i"),
+function clearMachineNarrativeFields<T extends Record<string, any>>(prev: T) {
+  const next: Record<string, any> = { ...prev };
+  for (const key of MACHINE_NARRATIVE_KEYS) {
+    next[key] = "";
+  }
+  return next as T;
+}
+
+function normaliseCraneTextForCompare(value: unknown) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/böcker/g, "bocker")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(?:crane|mobile|spider|truck|mounted|gt|cdh)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function textMentionsDifferentKnownCrane(
+  value: unknown,
+  currentCraneName: unknown,
+) {
+  const text = normaliseCraneTextForCompare(value);
+  const current = normaliseCraneTextForCompare(currentCraneName);
+  if (!text || !current) return false;
+
+  const known = [
+    { key: "bocker", aliases: ["bocker", "ak46", "ak 46"] },
+    { key: "jekko", aliases: ["jekko", "spx532", "spx 532"] },
+    { key: "grove", aliases: ["grove", "gmk4080", "gmk 4080"] },
+    { key: "mtk35", aliases: ["marchetti", "mtk35", "mtk 35"] },
+    { key: "hk40", aliases: ["tadano", "faun", "hk40", "hk 40"] },
   ];
-  if (value === 0) patterns.push(/\b0\s*t\s*counterweight\b/i, /\bwithout\s+counterweight\b/i);
-  return patterns.some((pattern) => pattern.test(text));
+
+  const currentKeys = new Set(
+    known
+      .filter((item) =>
+        item.aliases.some((alias) =>
+          current.includes(alias.replace(/\s+/g, " ")),
+        ),
+      )
+      .map((item) => item.key),
+  );
+  if (!currentKeys.size) return false;
+
+  return known.some((item) => {
+    if (currentKeys.has(item.key)) return false;
+    return item.aliases.some((alias) =>
+      text.includes(alias.replace(/\s+/g, " ")),
+    );
+  });
 }
 
-function hasJekkoExactStabilityOrAttachmentSelection(text: string) {
-  return /\bj[567]\b|full[-\s]?stability|jib500gr|grabber|jib1000/i.test(text);
+function sanitiseInitialLiftPlanForCurrentCrane<T extends LiftPlanData>(
+  draft: T,
+  currentCraneName: unknown,
+): T {
+  const machineText = [
+    draft.crane_configuration,
+    draft.outrigger_setup,
+    draft.method_statement,
+    draft.risk_assessment,
+    draft.exclusion_zone_details,
+    draft.weather_limitations,
+    draft.emergency_procedures,
+    draft.selected_crane_setup_key,
+    draft.selected_crane_setup_label,
+    draft.boom_configuration,
+    draft.crane_details,
+    draft.configuration_outrigger_note,
+    draft.load_chart_note,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (!textMentionsDifferentKnownCrane(machineText, currentCraneName))
+    return draft;
+
+  const next: Record<string, any> = clearMachineNarrativeFields(
+    draft as Record<string, any>,
+  );
+  const currentCrane =
+    String(currentCraneName ?? "").trim() || "selected crane";
+  next.selected_crane_setup_key = "";
+  next.selected_crane_setup_label = "";
+  next.boom_configuration = "";
+  next.boom_length = "";
+  next.crane_outreach_reference = "";
+  next.crane_jib_reference = "";
+  next.crane_details = "";
+  next.configuration_outrigger_note = "";
+  next.load_chart_note = "";
+  next.custom_crane_boom_length_m = "";
+  next.custom_crane_hydraulic_outreach_m = "";
+  next.custom_crane_jib_outreach_m = "";
+  next.custom_crane_max_radius_m = "";
+  next.crane_configuration = `${currentCrane} configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`;
+  next.outrigger_setup =
+    "Outrigger, support and mat arrangement must be checked against the uploaded specification / load chart and the actual ground conditions before lifting.";
+  next.exclusion_zone_details = `Barrier off the lifting area, slewing area and landing zone for ${currentCrane}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`;
+  next.emergency_procedures = `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${currentCrane} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`;
+  return next as T;
 }
 
-function isJekkoPendingMainBoomCurve(curve: RangeChartCapacityCurve) {
-  return curve.key === "spx532-main-pending-j-rating";
+const TIDY_LONG_TEXT_KEYS: Array<keyof LiftPlanData> = [
+  "crane_configuration",
+  "outrigger_setup",
+  "ground_conditions",
+  "method_statement",
+  "risk_assessment",
+  "site_hazards",
+  "control_measures",
+  "ppe_required",
+  "exclusion_zone_details",
+  "weather_limitations",
+  "emergency_procedures",
+  "approval_notes",
+  "configuration_outrigger_note",
+  "load_chart_note",
+  "ground_bearing_notes",
+];
+
+function normaliseDuplicateKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .replace(/[^a-z0-9.%/()'" -]/g, "")
+    .trim();
 }
 
-function textHasJekkoStabilitySelection(text: string, curve: RangeChartCapacityCurve) {
-  if (!/spx532|jekko|jib500gr|jib1000|main boom/i.test(`${curve.key} ${curve.label}`)) return true;
-  if (isJekkoPendingMainBoomCurve(curve)) {
-    // Allow a useful preliminary main-boom capacity when the dropdown/text only says "Main boom".
-    // Exact J7/J6/J5 selections are still preferred because those curves appear earlier and match first.
-    return !hasJekkoExactStabilityOrAttachmentSelection(text) || /main\s*boom|spx532|jekko/i.test(text);
+function tidyRepeatedTextBlock(value: unknown) {
+  const text = String(value ?? "")
+    .replace(/\r\n/g, "\n")
+    .trim();
+  if (!text) return "";
+
+  const paragraphs = text
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const seenParagraphs = new Set<string>();
+  const uniqueParagraphs: string[] = [];
+
+  for (const paragraph of paragraphs.length ? paragraphs : [text]) {
+    const sentenceParts = paragraph
+      .replace(/([.!?])\s+(?=[A-Z0-9])/g, "$1\n")
+      .split(/\n+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    const seenSentences = new Set<string>();
+    const uniqueSentences: string[] = [];
+
+    for (const sentence of sentenceParts.length ? sentenceParts : [paragraph]) {
+      const key = normaliseDuplicateKey(sentence);
+      if (!key || seenSentences.has(key)) continue;
+      seenSentences.add(key);
+      uniqueSentences.push(sentence);
+    }
+
+    const cleanedParagraph = uniqueSentences.join(" ").trim();
+    const paragraphKey = normaliseDuplicateKey(cleanedParagraph);
+    if (!paragraphKey || seenParagraphs.has(paragraphKey)) continue;
+    seenParagraphs.add(paragraphKey);
+    uniqueParagraphs.push(cleanedParagraph);
   }
-  if (/j7/i.test(curve.key)) return /\bj7\b|full[-\s]?stability/i.test(text);
-  if (/j6/i.test(curve.key)) return /\bj6\b/i.test(text);
-  if (/j5/i.test(curve.key)) return /\bj5\b/i.test(text);
-  // The grabber chart is a specific attachment chart, so only auto-fill when the attachment was selected.
-  if (/jib500gr/i.test(curve.key)) return /jib500gr|grabber/i.test(text);
-  return true;
+
+  return uniqueParagraphs.join("\n\n").trim();
 }
 
-function selectedCurveAllowed(rule: RangeChartSpecRule, curve: RangeChartCapacityCurve, setupLabel?: string | null, sourceLabel?: string | null) {
-  const text = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
-  if ((rule.id === "gmk4080-1" || rule.id === "hk40") && !textHasCounterweightSelection(text, curve.counterweightT)) {
-    return false;
+function tidyLiftPlanTextFields<T extends Record<string, any>>(payload: T) {
+  const next: Record<string, any> = { ...payload };
+  for (const key of TIDY_LONG_TEXT_KEYS) {
+    if (key in next) next[key] = tidyRepeatedTextBlock(next[key]);
   }
-  if (rule.id === "spx532" && !textHasJekkoStabilitySelection(text, curve)) {
-    return false;
-  }
-  return true;
+  return next as T;
 }
 
-function curveMatches({
-  rule,
-  curve,
-  boomLengthM,
-  jibLengthM,
-  jibAngleDeg,
-  setupLabel,
-  sourceLabel,
+function toInputDateTime(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function safeJsonParseArray(value: unknown): AdditionalCraneEntry[] {
+  if (!value) return [];
+  try {
+    const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item, index) => normaliseAdditionalCrane(item, index))
+      .filter(Boolean) as AdditionalCraneEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function newAdditionalCraneEntry(): AdditionalCraneEntry {
+  const id = `crane-${Date.now()}-${Math.round(Math.random() * 100000)}`;
+  return {
+    id,
+    selected_crane_option_value: "",
+    selected_profile_key: "",
+    selected_jib_key: "",
+    crane_name: "",
+    crane_role: "Alternative crane for same work",
+    planned_use: "",
+    setup_profile: "",
+    boom_length_m: "",
+    boom_length_m_manual: false,
+    radius_m: "",
+    hook_height_m: "",
+    crane_gross_weight_kg: "",
+    load_share_kg: "",
+    accessory_weight_kg: "",
+    chart_capacity_kg: "",
+    mat_length_m: "",
+    mat_width_m: "",
+    spec_sheet_reference: "",
+    verification_notes: "",
+  };
+}
+
+function normaliseAdditionalCrane(item: any, index = 0): AdditionalCraneEntry {
+  const fallback = newAdditionalCraneEntry();
+  return {
+    ...fallback,
+    id: String(item?.id || `crane-${index + 1}`),
+    selected_crane_option_value: String(
+      item?.selected_crane_option_value ?? item?.selectedCraneOptionValue ?? "",
+    ),
+    selected_profile_key: String(
+      item?.selected_profile_key ?? item?.selectedProfileKey ?? "",
+    ),
+    selected_jib_key: String(
+      item?.selected_jib_key ?? item?.selectedJibKey ?? "",
+    ),
+    crane_name: String(item?.crane_name ?? item?.craneName ?? ""),
+    crane_role: String(
+      item?.crane_role ?? item?.craneRole ?? "Alternative crane for same work",
+    ),
+    planned_use: String(item?.planned_use ?? item?.plannedUse ?? ""),
+    setup_profile: String(item?.setup_profile ?? item?.setupProfile ?? ""),
+    boom_length_m: String(item?.boom_length_m ?? item?.boomLengthM ?? ""),
+    boom_length_m_manual:
+      item?.boom_length_m_manual === true ||
+      item?.boomLengthMManual === true ||
+      item?.boom_length_m_manual === "true" ||
+      item?.boomLengthMManual === "true",
+    radius_m: String(item?.radius_m ?? item?.radiusM ?? ""),
+    hook_height_m: String(item?.hook_height_m ?? item?.hookHeightM ?? ""),
+    crane_gross_weight_kg: String(
+      item?.crane_gross_weight_kg ?? item?.craneGrossWeightKg ?? "",
+    ),
+    load_share_kg: String(item?.load_share_kg ?? item?.loadShareKg ?? ""),
+    accessory_weight_kg: String(
+      item?.accessory_weight_kg ?? item?.accessoryWeightKg ?? "",
+    ),
+    chart_capacity_kg: String(
+      item?.chart_capacity_kg ?? item?.chartCapacityKg ?? "",
+    ),
+    mat_length_m: String(item?.mat_length_m ?? item?.matLengthM ?? ""),
+    mat_width_m: String(item?.mat_width_m ?? item?.matWidthM ?? ""),
+    spec_sheet_reference: String(
+      item?.spec_sheet_reference ?? item?.specSheetReference ?? "",
+    ),
+    verification_notes: String(
+      item?.verification_notes ?? item?.verificationNotes ?? "",
+    ),
+  };
+}
+
+function stringifyAdditionalCranes(cranes: AdditionalCraneEntry[]) {
+  return JSON.stringify(
+    cranes.map((item, index) => normaliseAdditionalCrane(item, index)),
+  );
+}
+
+function additionalCraneTotals(crane: AdditionalCraneEntry) {
+  const grossKg = numberOrNull(crane.crane_gross_weight_kg);
+  const loadKg = numberOrNull(crane.load_share_kg) ?? 0;
+  const accessoryKg = numberOrNull(crane.accessory_weight_kg) ?? 0;
+  const totalLiftedKg = loadKg + accessoryKg;
+  const chartCapacityKg = numberOrNull(crane.chart_capacity_kg);
+  const matLengthM = numberOrNull(crane.mat_length_m);
+  const matWidthM = numberOrNull(crane.mat_width_m);
+  const matAreaM2 = matLengthM && matWidthM ? matLengthM * matWidthM : null;
+  const bearingLoadKg = grossKg ? (grossKg + totalLiftedKg) * 0.75 : null;
+  const bearingPressureKgM2 =
+    bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
+  const utilisationPercent =
+    chartCapacityKg && totalLiftedKg > 0
+      ? (totalLiftedKg / chartCapacityKg) * 100
+      : null;
+  return {
+    grossKg,
+    loadKg,
+    accessoryKg,
+    totalLiftedKg,
+    chartCapacityKg,
+    matAreaM2,
+    bearingLoadKg,
+    bearingPressureKgM2,
+    utilisationPercent,
+  };
+}
+
+function formatAutoKgInput(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "";
+  return String(Math.round(value));
+}
+
+function formatAutoMInput(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "";
+  return String(Number(value.toFixed(2)));
+}
+
+function buildAdditionalCraneSetupLabel(
+  profileLabel: string,
+  jibLabel: string,
+) {
+  return [profileLabel, jibLabel && !/^no jib/i.test(jibLabel) ? jibLabel : ""]
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function profileBoomLengthValue(
+  option: RangeChartProfileOption | null | undefined,
+) {
+  const n = option?.defaultBoomLengthM ?? option?.maxBoomLengthM ?? null;
+  return n !== null && n !== undefined && Number.isFinite(n) ? Number(n) : null;
+}
+
+function profilesHaveDistinctBoomLengths(options: RangeChartProfileOption[]) {
+  const values = options
+    .map((option) => profileBoomLengthValue(option))
+    .filter((value): value is number => value !== null)
+    .map((value) => Number(value.toFixed(2)));
+  return new Set(values).size > 1;
+}
+
+function findBestProfileForBoomLength(
+  options: RangeChartProfileOption[],
+  boomLengthM: number | null | undefined,
+) {
+  if (
+    !boomLengthM ||
+    !Number.isFinite(boomLengthM) ||
+    !profilesHaveDistinctBoomLengths(options)
+  )
+    return null;
+
+  const scored = options
+    .map((option) => {
+      const profileBoomM = profileBoomLengthValue(option);
+      if (!profileBoomM) return null;
+      const diff = profileBoomM - boomLengthM;
+      const absoluteDiff = Math.abs(diff);
+      // Prefer an exact manufacturer/spec chart. If the user enters an intermediate telescopic
+      // boom length, use the next longer structured chart as the conservative fallback.
+      const score =
+        absoluteDiff <= 0.35
+          ? absoluteDiff
+          : diff >= 0
+            ? diff + 5
+            : absoluteDiff + 50;
+      return { option, score };
+    })
+    .filter(Boolean) as Array<{
+    option: RangeChartProfileOption;
+    score: number;
+  }>;
+
+  return scored.sort((a, b) => a.score - b.score)[0]?.option ?? null;
+}
+
+function formatKg(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg`;
+}
+
+function formatTonnes(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${(value / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t`;
+}
+
+function formatKgAndT(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${formatKg(value)} / ${formatTonnes(value)}`;
+}
+
+function formatM2(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m²`;
+}
+
+function formatPressureKgM2(value: number | null | undefined) {
+  if (!value || !Number.isFinite(value)) return "—";
+  return `${value.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(value / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²`;
+}
+
+function formatMetres(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return `${n.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m`;
+}
+
+function setupBoomLengthText(setup: CraneSetupOption) {
+  return setup.boomLengthM ? `${formatMetres(setup.boomLengthM)} boom` : "";
+}
+
+function setupOutreachText(setup: CraneSetupOption) {
+  if (
+    setup.hydraulicOutreachM &&
+    setup.maxRadiusM &&
+    setup.hydraulicOutreachM !== setup.maxRadiusM
+  ) {
+    return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach / ${formatMetres(setup.maxRadiusM)} radius`;
+  }
+  if (setup.hydraulicOutreachM)
+    return `${formatMetres(setup.hydraulicOutreachM)} hydraulic outreach`;
+  if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} radius`;
+  if (setup.boomLengthM) return `${formatMetres(setup.boomLengthM)} boom`;
+  return "";
+}
+
+function setupJibText(setup: CraneSetupOption) {
+  if (setup.jibOutreachM)
+    return `${formatMetres(setup.jibOutreachM)} jib / max outreach`;
+  if (setup.maxRadiusM) return `${formatMetres(setup.maxRadiusM)} max radius`;
+  return "";
+}
+
+function setupLoadChartNote(setup: CraneSetupOption) {
+  return (
+    setup.chartNote ||
+    [
+      setup.sourceDocumentTitle
+        ? `Source: ${setup.sourceDocumentTitle}.`
+        : null,
+      setup.sourcePage ? `Page ${setup.sourcePage}.` : null,
+      "The appointed person must verify the exact manufacturer/supplier chart, radius, boom length, counterweight, outrigger setup and accessory deductions before approval.",
+    ]
+      .filter(Boolean)
+      .join(" ")
+  );
+}
+
+const MAT_OPTIONS = [
+  { value: "", label: "Select mat size…", lengthM: null, widthM: null },
+  { value: "1x3", label: "1m x 3m mat (3.00 m²)", lengthM: 1, widthM: 3 },
+  { value: "1x2", label: "1m x 2m mat (2.00 m²)", lengthM: 1, widthM: 2 },
+  {
+    value: "1.2x2.4",
+    label: "1.2m x 2.4m mat (2.88 m²)",
+    lengthM: 1.2,
+    widthM: 2.4,
+  },
+  { value: "1.5x3", label: "1.5m x 3m mat (4.50 m²)", lengthM: 1.5, widthM: 3 },
+  { value: "2x3", label: "2m x 3m mat (6.00 m²)", lengthM: 2, widthM: 3 },
+  {
+    value: "custom",
+    label: "Custom mat / spreader size",
+    lengthM: null,
+    widthM: null,
+  },
+];
+
+function calcMatArea(lengthValue: unknown, widthValue: unknown) {
+  const length = numberOrNull(lengthValue);
+  const width = numberOrNull(widthValue);
+  if (!length || !width) return null;
+  return Number((length * width).toFixed(3));
+}
+
+function formatArea(value: number | null | undefined) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return `${n.toLocaleString("en-GB", { maximumFractionDigits: 3 })} m²`;
+}
+
+function parseWeightToKg(value: unknown) {
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (!text) return null;
+  const match = text.replace(/,/g, "").match(/([0-9]+(?:\.[0-9]+)?)/);
+  if (!match) return null;
+  const raw = Number(match[1]);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  if (/\bkg\b|kilogram/.test(text)) return raw;
+  if (/tonne|ton|\bt\b/.test(text)) return raw * 1000;
+  if (raw <= 250) return raw * 1000;
+  return raw;
+}
+
+function formatPressure(loadKg: number | null, areaM2: number | null) {
+  if (!loadKg || !areaM2) return "—";
+  const kgPerM2 = loadKg / areaM2;
+  const tonnesPerM2 = kgPerM2 / 1000;
+  return `${kgPerM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${tonnesPerM2.toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²`;
+}
+
+function buildDefaultSetupOptions(profile?: EquipmentProfile | null) {
+  if (!profile) return [] as CraneSetupOption[];
+  if (profile.setupOptions?.length) return profile.setupOptions;
+
+  return [
+    {
+      key: `${profile.id}-current-profile`,
+      label: [
+        "Current selected profile",
+        profile.maxBoomLengthM ? `${profile.maxBoomLengthM} m boom` : null,
+        profile.maxHydraulicOutreachM
+          ? `${profile.maxHydraulicOutreachM} m outreach`
+          : profile.maxRadiusM
+            ? `${profile.maxRadiusM} m radius`
+            : null,
+        profile.maxJibOutreachM
+          ? `${profile.maxJibOutreachM} m jib / max outreach`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" – "),
+      boomConfiguration: profile.maxJibOutreachM
+        ? "Main boom + jib / fly jib"
+        : "Main boom",
+      boomLengthM: profile.maxBoomLengthM ?? null,
+      hydraulicOutreachM:
+        profile.maxHydraulicOutreachM ??
+        profile.maxRadiusM ??
+        profile.maxBoomLengthM ??
+        null,
+      jibOutreachM: profile.maxJibOutreachM ?? null,
+      maxRadiusM: profile.maxRadiusM ?? profile.maxHydraulicOutreachM ?? null,
+      maxTipHeightM: profile.maxTipHeightM ?? null,
+      sourceDocumentTitle: profile.sourceLabel,
+      sourceLabel: profile.sourceLabel,
+      chartNote:
+        "Selected from the current crane profile. Verify the exact manufacturer/supplier chart before approval.",
+      configurationNote: profile.configurationNote ?? null,
+      outriggerNote: profile.outriggersNote ?? null,
+    },
+  ];
+}
+
+export default function LiftPlanForm({
+  jobId,
+  initial,
+  equipmentProfile,
+  craneOptions,
+  personnelOptions,
+  craneSetupOptions,
+  craneSetupOptionsByAllocation,
+  alternativeCraneOptions,
 }: {
-  rule: RangeChartSpecRule;
-  curve: RangeChartCapacityCurve;
-  boomLengthM?: number | null;
-  jibLengthM?: number | null;
-  jibAngleDeg?: number | null;
-  setupLabel?: string | null;
-  sourceLabel?: string | null;
+  jobId: string;
+  initial: LiftPlanData | null;
+  equipmentProfile?: EquipmentProfile | null;
+  craneOptions: CraneOption[];
+  personnelOptions?: PersonOption[];
+  craneSetupOptions?: CraneSetupOption[];
+  craneSetupOptionsByAllocation?: Record<string, CraneSetupOption[]>;
+  alternativeCraneOptions?: CraneOption[];
 }) {
-  if (!selectedCurveAllowed(rule, curve, setupLabel, sourceLabel)) return false;
-  if (!jibMatches(curve, jibLengthM, jibAngleDeg)) return false;
-  if (curve.boomLengthM !== null && curve.boomLengthM !== undefined && boomLengthM !== null && boomLengthM !== undefined && Number.isFinite(boomLengthM)) {
-    if (boomLengthM > curve.boomLengthM + 0.75) return false;
-    // A longer published boom chart is normally conservative for preliminary planning when the entered boom is shorter.
-    // Do not block capacity auto-fill just because the exact intermediate boom length has not been structured yet.
-  }
-  return true;
-}
+  const initialPackSections = (initial?.pack_sections ?? {}) as Record<
+    string,
+    string | null
+  >;
+  const initialSelectedAllocationId =
+    initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "";
+  const initialSelectedCraneLabel =
+    craneOptions.find((option) => option.value === initialSelectedAllocationId)
+      ?.label ??
+    craneOptions[0]?.label ??
+    "";
 
-function matchingCapacityCurves(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
-  return (rule.capacityCurves ?? [])
-    .filter((item) => curveMatches({ rule, curve: item, boomLengthM: args.boomLengthM, jibLengthM: args.jibLengthM, jibAngleDeg: args.jibAngleDeg, setupLabel: args.setupLabel, sourceLabel: args.sourceLabel }))
-    .sort((a, b) => boomCurveScore(a, args.boomLengthM) - boomCurveScore(b, args.boomLengthM));
-}
+  const [form, setForm] = useState<LiftPlanData>(() =>
+    sanitiseInitialLiftPlanForCurrentCrane(
+      tidyLiftPlanTextFields({
+        selected_job_equipment_id:
+          initial?.selected_job_equipment_id ?? craneOptions[0]?.value ?? "",
+        selected_crane_id:
+          initial?.selected_crane_id ?? craneOptions[0]?.craneId ?? "",
+        load_description: initial?.load_description ?? "",
+        load_weight: initial?.load_weight ?? null,
+        lift_radius: initial?.lift_radius ?? null,
+        lift_height: initial?.lift_height ?? null,
+        crane_configuration: initial?.crane_configuration ?? "",
+        outrigger_setup: initial?.outrigger_setup ?? "",
+        ground_conditions: initial?.ground_conditions ?? "",
+        sling_type: initial?.sling_type ?? "",
+        lifting_accessories: initial?.lifting_accessories ?? "",
+        method_statement: initial?.method_statement ?? "",
+        risk_assessment: initial?.risk_assessment ?? "",
+        site_hazards: initial?.site_hazards ?? "",
+        control_measures: initial?.control_measures ?? "",
+        ppe_required: initial?.ppe_required ?? "",
+        exclusion_zone_details: initial?.exclusion_zone_details ?? "",
+        weather_limitations: initial?.weather_limitations ?? "",
+        emergency_procedures: initial?.emergency_procedures ?? "",
+        lift_supervisor: initial?.lift_supervisor ?? "",
+        appointed_person: initial?.appointed_person ?? "",
+        crane_operator: initial?.crane_operator ?? "",
+        rams_complete: initial?.rams_complete ?? false,
+        lift_plan_complete: initial?.lift_plan_complete ?? false,
+        approved_by: initial?.approved_by ?? "",
+        approved_at: initial?.approved_at ?? "",
+        approval_notes: initial?.approval_notes ?? "",
+        customer_signed_by: initial?.customer_signed_by ?? "",
+        operator_signed_by: initial?.operator_signed_by ?? "",
+        office_signed_by: initial?.office_signed_by ?? "",
+        finalised_at: initial?.finalised_at ?? "",
+        paperwork_locked: initial?.paperwork_locked ?? false,
+        selected_crane_setup_key:
+          initialPackSections.selected_crane_setup_key ?? "",
+        selected_crane_setup_label:
+          initialPackSections.selected_crane_setup_label ?? "",
+        boom_configuration: initialPackSections.boom_configuration ?? "",
+        boom_length: initialPackSections.boom_length ?? "",
+        crane_outreach_reference:
+          initialPackSections.crane_outreach_reference ?? "",
+        crane_jib_reference: initialPackSections.crane_jib_reference ?? "",
+        crane_details: initialPackSections.crane_details ?? "",
+        configuration_outrigger_note:
+          initialPackSections.configuration_outrigger_note ?? "",
+        load_chart_note: initialPackSections.load_chart_note ?? "",
+        ground_bearing_mat_preset:
+          initialPackSections.ground_bearing_mat_preset ?? "",
+        ground_bearing_mat_length_m:
+          initialPackSections.ground_bearing_mat_length_m ?? "",
+        ground_bearing_mat_width_m:
+          initialPackSections.ground_bearing_mat_width_m ?? "",
+        ground_bearing_mat_area_m2:
+          initialPackSections.ground_bearing_mat_area_m2 ?? "",
+        ground_bearing_bearing_load:
+          initialPackSections.ground_bearing_bearing_load ?? "",
+        ground_bearing_pressure:
+          initialPackSections.ground_bearing_pressure ?? "",
+        ground_bearing_notes: initialPackSections.ground_bearing_notes ?? "",
+        custom_crane_boom_length_m:
+          initialPackSections.custom_crane_boom_length_m ?? "",
+        custom_crane_hydraulic_outreach_m:
+          initialPackSections.custom_crane_hydraulic_outreach_m ?? "",
+        custom_crane_jib_outreach_m:
+          initialPackSections.custom_crane_jib_outreach_m ?? "",
+        custom_crane_max_radius_m:
+          initialPackSections.custom_crane_max_radius_m ?? "",
+        multi_crane_enabled:
+          initialPackSections.multi_crane_enabled === "true" ||
+          Boolean(initialPackSections.additional_cranes_json),
+        multi_crane_lift_type:
+          initialPackSections.multi_crane_lift_type ??
+          "Alternative crane options for same lift / multi-day job",
+        multi_crane_notes: initialPackSections.multi_crane_notes ?? "",
+        additional_cranes_json:
+          initialPackSections.additional_cranes_json ?? "[]",
+        range_chart_radius_m: initialPackSections.range_chart_radius_m ?? "",
+        range_chart_tip_height_m:
+          initialPackSections.range_chart_tip_height_m ?? "",
+        range_chart_load_weight_kg:
+          initialPackSections.range_chart_load_weight_kg ?? "",
+        range_chart_accessory_weight_kg:
+          initialPackSections.range_chart_accessory_weight_kg ?? "",
+      }),
+      initialSelectedCraneLabel,
+    ),
+  );
 
-function bestMatchingCapacityCurve(rule: RangeChartSpecRule, args: { boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null; radiusM: number; setupLabel?: string | null; sourceLabel?: string | null }) {
-  const matches = matchingCapacityCurves(rule, args)
-    .filter((item) => conservativeCapacityFromCurve(item.points, args.radiusM) !== null);
-  return matches[0] ?? null;
-}
+  const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [versions, setVersions] = useState<LiftPlanVersionSummary[]>([]);
+  const [versionsLoaded, setVersionsLoaded] = useState(false);
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState(false);
+  const [selectedVersionId, setSelectedVersionId] = useState("");
+  const locked = !!form.paperwork_locked;
 
-function structuredManualWarning(rule: RangeChartSpecRule, args: { radiusM: number; setupLabel?: string | null; sourceLabel?: string | null; boomLengthM?: number | null; jibLengthM?: number | null; jibAngleDeg?: number | null }) {
-  const selectorText = lower(`${args.setupLabel ?? ""} ${args.sourceLabel ?? ""}`);
-  if (rule.id === "spx532" && !hasJekkoExactStabilityOrAttachmentSelection(selectorText)) {
-    return "Jekko SPX532 recognised, but the exact J-rating/stability/attachment chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct SPX532 J7/J6/J5/attachment chart or check manually against the manufacturer chart.";
-  }
-  if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
-    return "Grove GMK4080-1 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
-  }
-  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
-    return "HK40 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
-  }
-  const curvesForSetup = matchingCapacityCurves(rule, args);
-  if (curvesForSetup.length) {
-    const maxRadius = Math.max(...curvesForSetup.flatMap((curve) => curve.points.map((point) => point.radiusM)));
-    if (Number.isFinite(maxRadius) && args.radiusM > maxRadius) {
-      return `${rule.title} recognised, but ${args.radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius is outside the structured curve selected in the CRM (max structured point ${maxRadius.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m). Check the exact manufacturer/supplier chart manually before approval.`;
+  async function loadPreviousVersions() {
+    setLoadingVersions(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(
+          data?.error || "Could not load previous lift plan drafts.",
+        );
+      const items = Array.isArray(data?.versions) ? data.versions : [];
+      setVersions(items);
+      setVersionsLoaded(true);
+      if (!selectedVersionId && items[0]?.id) setSelectedVersionId(items[0].id);
+    } catch (error: any) {
+      setMsg(error?.message || "Could not load previous lift plan drafts.");
+    } finally {
+      setLoadingVersions(false);
     }
   }
-  return `${rule.title} recognised, but the exact selected boom/jib/counterweight/outrigger setup cannot be auto-matched to a structured load chart at this radius. Do not use crane maximum capacity as capacity at radius; check the exact manufacturer/supplier chart manually before approval.`;
-}
 
+  async function restorePreviousVersion() {
+    if (!selectedVersionId || locked) return;
+    const selected = versions.find((item) => item.id === selectedVersionId);
+    const label = selected?.created_at
+      ? new Date(selected.created_at).toLocaleString("en-GB")
+      : "the selected previous draft";
+    const ok = window.confirm(
+      `Restore lift plan version from ${label}? This will replace the current draft, but the current draft will also be kept as a previous version.`,
+    );
+    if (!ok) return;
 
-function applyPayloadCap(
-  rule: RangeChartSpecRule,
-  capacityKg: number | null,
-  source: string,
-  warning: string | undefined,
-  setupAdvice: string | undefined,
-  args: { setupLabel?: string | null; sourceLabel?: string | null; jibLengthM?: number | null; totalLiftedWeightKg?: number | null },
-): { capacityKg: number | null; source: string; warning?: string; setupAdvice?: string } {
-  // Important AK46 correction:
-  // The Böcker AK46/6000 spec gives crane-operation capacity by radius:
-  // 6t @ 8m, 4t @ 11m, 2t @ 17.7m, 1t @ 26m, 500kg @ 34.5m, 250kg @ 38-39m.
-  // The 5.3m / 8.1m / 11.0m hydraulic extension is included within the 44 m / optional
-  // 46 m total extension length. It must NOT be added as a separate physical jib on top
-  // of 46 m, and its 3000kg / 1500kg / 800kg labels must NOT be treated as hard global
-  // caps where the crane-operation table gives the applicable capacity by radius.
-  void rule;
-  void args;
-  return { capacityKg, source, warning, setupAdvice };
-}
-
-function selectedCurveVerificationWarning(
-  rule: RangeChartSpecRule,
-  curve: RangeChartCapacityCurve,
-  setupLabel?: string | null,
-  sourceLabel?: string | null,
-) {
-  const selectorText = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
-  if (rule.id === "spx532") {
-    if (isJekkoPendingMainBoomCurve(curve) || !hasJekkoExactStabilityOrAttachmentSelection(selectorText)) {
-      return "Preliminary SPX532 capacity only: verify the exact outrigger/stability J-rating, boom length, hook block/accessories and manufacturer chart before approving the lift.";
+    setRestoringVersion(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version_id: selectedVersionId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(
+          data?.error || "Could not restore previous lift plan draft.",
+        );
+      setMsg(
+        "Previous lift plan draft restored. Reloading the page so all pack fields are refreshed…",
+      );
+      window.location.reload();
+    } catch (error: any) {
+      setMsg(error?.message || "Could not restore previous lift plan draft.");
+    } finally {
+      setRestoringVersion(false);
     }
-    return "SPX532 capacity is still subject to appointed-person verification of the actual outrigger/stability J-rating, boom length, attachment, hook block/accessories and manufacturer chart before approval.";
-  }
-  return undefined;
-}
-
-function viableSetupAdvice(
-  rule: RangeChartSpecRule,
-  radiusM: number,
-  totalLiftedWeightKg: number | null | undefined,
-  selectedCurve?: RangeChartCapacityCurve | null,
-  setupLabel?: string | null,
-  sourceLabel?: string | null,
-  boomLengthM?: number | null,
-  jibLengthM?: number | null,
-  jibAngleDeg?: number | null,
-) {
-  if (!totalLiftedWeightKg || !(rule.capacityCurves?.length)) return "";
-  const selectorText = lower(`${setupLabel ?? ""} ${sourceLabel ?? ""}`);
-
-  if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
-    return "Select the exact GMK4080-1 counterweight/load-chart setup before the CRM auto-fills capacity. The uploaded structured curve is for the 19.3 t counterweight chart and must not be used silently.";
-  }
-  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
-    return "Select the exact HK40 counterweight chart before the CRM auto-fills capacity. HK40 capacity changes by counterweight.";
-  }
-  if (rule.id === "spx532" && !hasJekkoExactStabilityOrAttachmentSelection(selectorText) && !selectedCurve) {
-    return "Select the exact Jekko SPX532 J-rating/stability or attachment chart, or use the conservative main-boom planning curve with AP verification. SPX532 capacity depends on outrigger/stability setup.";
   }
 
-  const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
-  if (selectedCurve && selectedCapacity !== null && selectedCapacity >= totalLiftedWeightKg) {
-    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
-  }
-  const viable = rule.capacityCurves
-    .filter((item) => curveMatches({ rule, curve: item, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel }))
-    .map((item) => ({ curve: item, capacityKg: conservativeCapacityFromCurve(item.points, radiusM) }))
-    .filter((item) => item.capacityKg !== null && item.capacityKg >= totalLiftedWeightKg)
-    .sort((a, b) => (a.capacityKg ?? 0) - (b.capacityKg ?? 0));
-  if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
-  const first = viable[0];
-  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
-}
+  const selectedCraneLabel = useMemo(() => {
+    const selected = craneOptions.find(
+      (option) => option.value === form.selected_job_equipment_id,
+    );
+    return selected?.label || "No crane selected";
+  }, [craneOptions, form.selected_job_equipment_id]);
 
-export function calculateRangeChartCapacity({
-  craneName,
-  setupLabel,
-  sourceLabel,
-  radiusM,
-  boomLengthM,
-  jibLengthM,
-  jibAngleDeg,
-  totalLiftedWeightKg,
-}: {
-  craneName?: string | null;
-  setupLabel?: string | null;
-  sourceLabel?: string | null;
-  radiusM: number;
-  boomLengthM?: number | null;
-  jibLengthM?: number | null;
-  jibAngleDeg?: number | null;
-  totalLiftedWeightKg?: number | null;
-}): RangeChartCapacityResult {
-  const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
-  if (!rule) {
-    return {
-      capacityKg: null,
-      method: "manual",
-      source: "No recognised structured crane capacity rule found. Enter/check the capacity against the manufacturer/supplier chart.",
-      warning: "Chart capacity cannot be auto-calculated until this crane/spec sheet has structured load-chart data.",
-      allowManualCapacityFallback: true,
-      recognisedRuleId: null,
-    };
+  const availableCraneSetupOptions = useMemo(() => {
+    const allocationKey = String(form.selected_job_equipment_id ?? "").trim();
+    const allocationSpecific = allocationKey
+      ? (craneSetupOptionsByAllocation?.[allocationKey] ?? [])
+      : [];
+    const raw = allocationSpecific.length
+      ? allocationSpecific
+      : craneSetupOptions?.length
+        ? craneSetupOptions
+        : buildDefaultSetupOptions(equipmentProfile);
+    const seen = new Set<string>();
+    return raw.filter((option) => {
+      const key = String(option.key || option.label || "").trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [
+    craneSetupOptions,
+    craneSetupOptionsByAllocation,
+    equipmentProfile,
+    form.selected_job_equipment_id,
+  ]);
+
+  const selectedSetup = useMemo(() => {
+    const selectedKey = String(form.selected_crane_setup_key ?? "").trim();
+    return (
+      availableCraneSetupOptions.find((option) => option.key === selectedKey) ??
+      null
+    );
+  }, [availableCraneSetupOptions, form.selected_crane_setup_key]);
+
+  const matAreaM2 =
+    numberOrNull(form.ground_bearing_mat_area_m2) ??
+    calcMatArea(
+      form.ground_bearing_mat_length_m,
+      form.ground_bearing_mat_width_m,
+    );
+  const matBearingLoadKg = parseWeightToKg(form.ground_bearing_bearing_load);
+  const matPressureText = formatPressure(matBearingLoadKg, matAreaM2);
+  const additionalCranes = useMemo(
+    () => safeJsonParseArray(form.additional_cranes_json),
+    [form.additional_cranes_json],
+  );
+
+  const additionalCraneSelectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const source =
+      (alternativeCraneOptions?.length
+        ? alternativeCraneOptions
+        : craneOptions) ?? [];
+    return source.filter((option) => {
+      const key = String(
+        option.craneId || option.label || option.value || "",
+      ).toLowerCase();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [alternativeCraneOptions, craneOptions]);
+
+  const multiCraneArrangementOptions = useMemo(
+    () => [
+      {
+        value: "Alternative crane options for same lift / multi-day job",
+        label: "Alternative crane options for same lift / multi-day job",
+      },
+      {
+        value: "Assisting crane - separate task",
+        label: "Assisting crane - separate task",
+      },
+      {
+        value: "Tandem / shared-load lift",
+        label: "Tandem / shared-load lift",
+      },
+    ],
+    [],
+  );
+
+  const personnelSelectOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options: PersonOption[] = [{ value: "", label: "Select person…" }];
+
+    for (const option of personnelOptions ?? []) {
+      const value = String(option.value || option.label || "").trim();
+      if (!value || seen.has(value.toLowerCase())) continue;
+      seen.add(value.toLowerCase());
+      options.push({ value, label: option.label || value });
+    }
+
+    for (const existingValue of [form.lift_supervisor, form.crane_operator]) {
+      const value = String(existingValue ?? "").trim();
+      if (!value || seen.has(value.toLowerCase())) continue;
+      seen.add(value.toLowerCase());
+      options.push({ value, label: `${value} (saved value)` });
+    }
+
+    return options;
+  }, [personnelOptions, form.lift_supervisor, form.crane_operator]);
+
+  function update(key: keyof LiftPlanData, value: any) {
+    if (locked) return;
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  const limits = getRangeChartLimits({ craneName, setupLabel, sourceLabel });
-  const boomLimitExceeded = Boolean(limits.maxBoomLengthM && boomLengthM && boomLengthM > limits.maxBoomLengthM + 0.1);
-  const radiusLimitExceeded = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.1);
-  if (boomLimitExceeded || radiusLimitExceeded) {
-    const parts = [
-      boomLimitExceeded ? `required boom length ${Number(boomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxBoomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
-      radiusLimitExceeded ? `radius ${Number(radiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m exceeds the structured limit ${Number(limits.maxRadiusM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m` : "",
-    ].filter(Boolean).join(" and ");
-    return {
-      capacityKg: null,
-      method: "manual",
-      source: rule.capacitySource || `${rule.title} load chart`,
-      warning: `${rule.title} cannot be auto-cleared because ${parts}. Check the exact manufacturer/supplier chart and crane configuration manually before approval.`,
-      setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
-      allowManualCapacityFallback: false,
-      recognisedRuleId: rule.id,
-    };
+  function updateSelectedCrane(allocationId: string) {
+    if (locked) return;
+    const selected =
+      craneOptions.find((option) => option.value === allocationId) ?? null;
+    setForm((prev) => {
+      const changed =
+        String(prev.selected_job_equipment_id ?? "") !==
+        String(allocationId ?? "");
+      const base = changed ? clearMachineNarrativeFields(prev) : { ...prev };
+      const shouldClearSupervisor =
+        changed &&
+        (!hasDraftValue(prev.lift_supervisor) ||
+          String(prev.lift_supervisor ?? "").trim() ===
+            String(prev.crane_operator ?? "").trim());
+      return {
+        ...base,
+        lift_supervisor: shouldClearSupervisor ? "" : prev.lift_supervisor,
+        selected_job_equipment_id: allocationId || "",
+        selected_crane_id: selected?.craneId || "",
+        selected_crane_setup_key: changed ? "" : prev.selected_crane_setup_key,
+        selected_crane_setup_label: changed
+          ? ""
+          : prev.selected_crane_setup_label,
+      };
+    });
+    if (
+      String(form.selected_job_equipment_id ?? "") !==
+      String(allocationId ?? "")
+    ) {
+      setMsg(
+        "Selected crane changed. Select the crane setup/chart, then generate the AI draft if you need wording rebuilt.",
+      );
+    }
   }
 
-  const selectedCurve = bestMatchingCapacityCurve(rule, { radiusM, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel });
-  if (selectedCurve) {
-    const capacityKg = conservativeCapacityFromCurve(selectedCurve.points, radiusM);
-    const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, selectedCurve, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg) || selectedCurve.setupAdvice;
-    return {
-      ...(() => {
-        const overloadWarning = capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
-          ? `${rule.title} selected setup is over the structured chart capacity at this radius. ${advice}`
-          : undefined;
-        const capped = applyPayloadCap(
-          rule,
-          capacityKg,
-          selectedCurve.source,
-          overloadWarning || selectedCurveVerificationWarning(rule, selectedCurve, setupLabel, sourceLabel),
-          advice,
-          { setupLabel, sourceLabel, jibLengthM, totalLiftedWeightKg }
-        );
+  function applyCraneSetup(setupKey: string) {
+    if (locked) return;
+    const setup =
+      availableCraneSetupOptions.find((option) => option.key === setupKey) ??
+      null;
+
+    setForm((prev) => {
+      if (!setup) {
         return {
-          capacityKg: capped.capacityKg,
-          method: "automatic" as const,
-          source: capped.source,
-          setupAdvice: capped.setupAdvice,
-          warning: capped.warning,
-          allowManualCapacityFallback: false,
-          recognisedRuleId: rule.id,
+          ...prev,
+          selected_crane_setup_key: "",
+          selected_crane_setup_label: "",
+          boom_configuration: "",
+          boom_length: "",
+          crane_outreach_reference: "",
+          crane_jib_reference: "",
+          crane_details: "",
+          configuration_outrigger_note: "",
+          load_chart_note: "",
+          custom_crane_boom_length_m: "",
+          custom_crane_hydraulic_outreach_m: "",
+          custom_crane_jib_outreach_m: "",
+          custom_crane_max_radius_m: "",
         };
-      })(),
-    };
+      }
+
+      const boomConfiguration =
+        setup.boomConfiguration || setup.label || "Selected crane setup";
+      const boomLengthText = setupBoomLengthText(setup);
+      const outreachText = setupOutreachText(setup);
+      const jibText = setupJibText(setup);
+      const chartNote = setupLoadChartNote(setup);
+      const configurationNote = [
+        setup.configurationNote || boomConfiguration,
+        setup.outriggerNote,
+      ]
+        .filter(Boolean)
+        .join("\n\n");
+
+      return {
+        ...prev,
+        selected_crane_setup_key: setup.key,
+        selected_crane_setup_label: setup.label,
+        boom_configuration: boomConfiguration,
+        boom_length: boomLengthText,
+        crane_outreach_reference: outreachText,
+        crane_jib_reference: jibText,
+        crane_details: [
+          equipmentProfile?.summary,
+          `Selected setup: ${setup.label}`,
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        configuration_outrigger_note: configurationNote,
+        load_chart_note: chartNote,
+        crane_configuration: prev.crane_configuration || boomConfiguration,
+        outrigger_setup:
+          prev.outrigger_setup ||
+          setup.outriggerNote ||
+          "Confirm outrigger setup and mats/spreaders against selected chart.",
+        custom_crane_boom_length_m: setup.boomLengthM
+          ? String(setup.boomLengthM)
+          : "",
+        custom_crane_hydraulic_outreach_m: setup.hydraulicOutreachM
+          ? String(setup.hydraulicOutreachM)
+          : "",
+        custom_crane_jib_outreach_m: setup.jibOutreachM
+          ? String(setup.jibOutreachM)
+          : "",
+        custom_crane_max_radius_m: setup.maxRadiusM
+          ? String(setup.maxRadiusM)
+          : "",
+      };
+    });
+    setMsg(
+      "Crane setup selected. Save draft to pull boom/outreach and jib/max outreach through into the lift plan pack.",
+    );
   }
 
-  const capacityKg = conservativeCapacityFromCurve(rule.capacityPoints, radiusM);
-  if (capacityKg !== null) {
-    return {
-      ...(() => {
-        const advice = viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg);
-        const capped = applyPayloadCap(
-          rule,
-          capacityKg,
-          rule.capacitySource || `${rule.title} structured capacity rule`,
-          capacityKg !== null && totalLiftedWeightKg && totalLiftedWeightKg > capacityKg
-            ? `${rule.title} selected setup is over the structured chart capacity at this radius.`
-            : undefined,
-          advice,
-          { setupLabel, sourceLabel, jibLengthM, totalLiftedWeightKg }
+  function updateMatPreset(preset: string) {
+    if (locked) return;
+    const option = MAT_OPTIONS.find((item) => item.value === preset) ?? null;
+    const lengthM = option?.lengthM
+      ? String(option.lengthM)
+      : preset === "custom"
+        ? (form.ground_bearing_mat_length_m ?? "")
+        : "";
+    const widthM = option?.widthM
+      ? String(option.widthM)
+      : preset === "custom"
+        ? (form.ground_bearing_mat_width_m ?? "")
+        : "";
+    const area = calcMatArea(lengthM, widthM);
+    setForm((prev) => ({
+      ...prev,
+      ground_bearing_mat_preset: preset,
+      ground_bearing_mat_length_m: lengthM,
+      ground_bearing_mat_width_m: widthM,
+      ground_bearing_mat_area_m2: area ? String(area) : "",
+      ground_bearing_notes:
+        prev.ground_bearing_notes ||
+        "Ground bearing pressure calculation: bearing load / outrigger reaction divided by selected mat area in m². Final ground bearing and outrigger reactions must be verified against the actual crane chart and ground conditions.",
+    }));
+  }
+
+  function updateMatDimension(
+    key: "ground_bearing_mat_length_m" | "ground_bearing_mat_width_m",
+    value: string,
+  ) {
+    if (locked) return;
+    setForm((prev) => {
+      const next = {
+        ...prev,
+        [key]: value,
+        ground_bearing_mat_preset: prev.ground_bearing_mat_preset || "custom",
+      };
+      const area = calcMatArea(
+        next.ground_bearing_mat_length_m,
+        next.ground_bearing_mat_width_m,
+      );
+      return { ...next, ground_bearing_mat_area_m2: area ? String(area) : "" };
+    });
+  }
+
+  function autoPopulateAdditionalCrane(
+    crane: AdditionalCraneEntry,
+  ): AdditionalCraneEntry {
+    const selectedCrane =
+      additionalCraneSelectOptions.find(
+        (option) => option.value === crane.selected_crane_option_value,
+      ) ?? null;
+    const craneName = String(
+      crane.crane_name || selectedCrane?.label || "",
+    ).trim();
+    const specOptions = getRangeChartSpecOptions({
+      craneName,
+      setupLabel: crane.setup_profile,
+      sourceLabel: crane.spec_sheet_reference,
+    });
+    const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
+    const boomMatchedProfile = crane.boom_length_m_manual
+      ? findBestProfileForBoomLength(
+          specOptions.profileOptions,
+          enteredBoomLengthM,
+        )
+      : null;
+    const selectedProfile =
+      boomMatchedProfile ??
+      specOptions.profileOptions.find(
+        (option) => option.key === crane.selected_profile_key,
+      ) ??
+      specOptions.profileOptions[0] ??
+      null;
+    const selectedJib = crane.selected_jib_key
+      ? (specOptions.jibOptions.find(
+          (option) => option.key === crane.selected_jib_key,
+        ) ?? null)
+      : null;
+    const setupLabel = buildAdditionalCraneSetupLabel(
+      selectedProfile?.label ?? crane.setup_profile,
+      selectedJib?.label ?? "",
+    );
+    const limits = getRangeChartLimits({
+      craneName,
+      setupLabel,
+      sourceLabel:
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        crane.spec_sheet_reference,
+      setupMaxBoomLengthM:
+        selectedProfile?.maxBoomLengthM ??
+        selectedProfile?.defaultBoomLengthM ??
+        null,
+      setupMaxRadiusM:
+        selectedJib?.maxRadiusM ?? selectedProfile?.maxRadiusM ?? null,
+      setupMaxTipHeightM:
+        selectedJib?.maxTipHeightM ?? selectedProfile?.maxTipHeightM ?? null,
+      setupMaxPhysicalJibLengthM: selectedJib?.lengthM ?? null,
+    });
+
+    const loadKg =
+      numberOrNull(crane.load_share_kg) ??
+      numberOrNull(form.range_chart_load_weight_kg) ??
+      numberOrNull(form.load_weight) ??
+      0;
+    const accessoryKg =
+      numberOrNull(crane.accessory_weight_kg) ??
+      numberOrNull(form.range_chart_accessory_weight_kg) ??
+      parseWeightToKg(form.lifting_accessories) ??
+      0;
+    const totalLiftedWeightKg = loadKg + accessoryKg;
+    const defaultBoomLengthM =
+      selectedProfile?.defaultBoomLengthM ??
+      selectedProfile?.maxBoomLengthM ??
+      limits.maxBoomLengthM ??
+      null;
+    const boomLengthM = enteredBoomLengthM ?? defaultBoomLengthM;
+    const radiusM =
+      numberOrNull(crane.radius_m) ??
+      numberOrNull(form.range_chart_radius_m) ??
+      numberOrNull(form.lift_radius);
+    const hookHeightM =
+      numberOrNull(crane.hook_height_m) ??
+      numberOrNull(form.range_chart_tip_height_m) ??
+      numberOrNull(form.lift_height);
+    const jibLengthM = selectedJib?.lengthM ?? 0;
+
+    const capacity = radiusM
+      ? calculateRangeChartCapacity({
+          craneName,
+          setupLabel,
+          sourceLabel:
+            selectedProfile?.source ||
+            selectedJib?.source ||
+            crane.spec_sheet_reference,
+          radiusM,
+          boomLengthM,
+          jibLengthM,
+          totalLiftedWeightKg,
+        })
+      : null;
+    const bearing = calculateRangeChartBearingLoad({
+      craneName,
+      setupLabel,
+      sourceLabel:
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        crane.spec_sheet_reference,
+      totalLiftedWeightKg,
+    });
+
+    const next: AdditionalCraneEntry = {
+      ...crane,
+      crane_name: craneName,
+      selected_profile_key: selectedProfile?.key || crane.selected_profile_key,
+      setup_profile: setupLabel || crane.setup_profile,
+      spec_sheet_reference:
+        capacity?.source ||
+        selectedProfile?.source ||
+        selectedJib?.source ||
+        specOptions.rule?.capacitySource ||
+        crane.spec_sheet_reference,
+      // Keep manually entered telescopic boom lengths exactly as typed.
+      // Previously this field was auto-filled back to the default/max boom length on every edit,
+      // so additional cranes could stay on the wrong chart and show over-capacity.
+      boom_length_m: crane.boom_length_m_manual
+        ? crane.boom_length_m
+        : crane.boom_length_m || formatAutoMInput(boomLengthM),
+      radius_m: crane.radius_m || formatAutoMInput(radiusM),
+      hook_height_m: crane.hook_height_m || formatAutoMInput(hookHeightM),
+      load_share_kg: crane.load_share_kg || formatAutoKgInput(loadKg),
+      accessory_weight_kg:
+        crane.accessory_weight_kg || formatAutoKgInput(accessoryKg),
+      crane_gross_weight_kg: limits.planningWeightKg
+        ? formatAutoKgInput(limits.planningWeightKg)
+        : crane.crane_gross_weight_kg,
+      chart_capacity_kg: capacity?.capacityKg
+        ? formatAutoKgInput(capacity.capacityKg)
+        : capacity?.allowManualCapacityFallback
+          ? crane.chart_capacity_kg
+          : "",
+    };
+
+    if (
+      !next.verification_notes &&
+      (capacity?.setupAdvice || capacity?.source || bearing?.source)
+    ) {
+      next.verification_notes = [
+        capacity?.setupAdvice || capacity?.source,
+        bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
+        "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
+      ]
+        .filter(Boolean)
+        .join("\n");
+    }
+
+    return next;
+  }
+
+  function setAdditionalCranes(nextCranes: AdditionalCraneEntry[]) {
+    const normalised = nextCranes.map((crane) =>
+      autoPopulateAdditionalCrane(crane),
+    );
+    setForm((prev) => ({
+      ...prev,
+      multi_crane_enabled:
+        normalised.length > 0 ? true : prev.multi_crane_enabled,
+      additional_cranes_json: stringifyAdditionalCranes(normalised),
+    }));
+  }
+
+  function addAdditionalCrane() {
+    if (locked) return;
+    const first = additionalCraneSelectOptions[0] ?? null;
+    const entry = newAdditionalCraneEntry();
+    if (first) {
+      entry.selected_crane_option_value = first.value;
+      entry.crane_name = first.label;
+    }
+    const next = [...additionalCranes, entry];
+    setAdditionalCranes(next);
+  }
+
+  function updateAdditionalCrane(
+    id: string,
+    key: keyof AdditionalCraneEntry,
+    value: string,
+  ) {
+    if (locked) return;
+    const next = additionalCranes.map((item) => {
+      if (item.id !== id) return item;
+      const changed = { ...item, [key]: value };
+      if (key === "selected_crane_option_value") {
+        const selected =
+          additionalCraneSelectOptions.find(
+            (option) => option.value === value,
+          ) ?? null;
+        changed.crane_name = selected?.label || "";
+        changed.selected_profile_key = "";
+        changed.selected_jib_key = "";
+        changed.setup_profile = "";
+        changed.boom_length_m = "";
+        changed.boom_length_m_manual = false;
+        changed.spec_sheet_reference = "";
+        changed.chart_capacity_kg = "";
+        changed.crane_gross_weight_kg = "";
+        changed.verification_notes = "";
+      }
+      if (key === "selected_profile_key" || key === "selected_jib_key") {
+        changed.boom_length_m = "";
+        changed.boom_length_m_manual = false;
+      }
+      if (key === "boom_length_m") {
+        changed.boom_length_m_manual = true;
+        const selected =
+          additionalCraneSelectOptions.find(
+            (option) => option.value === changed.selected_crane_option_value,
+          ) ?? null;
+        const craneNameForSpecs = changed.crane_name || selected?.label || "";
+        const specOptions = getRangeChartSpecOptions({
+          craneName: craneNameForSpecs,
+          setupLabel: changed.setup_profile,
+          sourceLabel: changed.spec_sheet_reference,
+        });
+        const matchedProfile = findBestProfileForBoomLength(
+          specOptions.profileOptions,
+          numberOrNull(value),
         );
-        return {
-          capacityKg: capped.capacityKg,
-          method: "automatic" as const,
-          source: capped.source,
-          setupAdvice: capped.setupAdvice,
-          warning: capped.warning,
-          allowManualCapacityFallback: false,
-          recognisedRuleId: rule.id,
-        };
-      })(),
-    };
+        if (matchedProfile) {
+          changed.selected_profile_key = matchedProfile.key;
+          changed.setup_profile = matchedProfile.label;
+          changed.spec_sheet_reference =
+            matchedProfile.source || changed.spec_sheet_reference;
+        }
+      }
+      if (
+        key === "selected_profile_key" ||
+        key === "selected_jib_key" ||
+        key === "radius_m" ||
+        key === "boom_length_m" ||
+        key === "load_share_kg" ||
+        key === "accessory_weight_kg"
+      ) {
+        changed.chart_capacity_kg =
+          key === "radius_m" ||
+          key === "selected_profile_key" ||
+          key === "selected_jib_key" ||
+          key === "boom_length_m"
+            ? ""
+            : changed.chart_capacity_kg;
+      }
+      return changed;
+    });
+    setAdditionalCranes(next);
   }
 
-  return {
-    capacityKg: null,
-    method: "manual",
-    source: rule.capacitySource || `${rule.title} load chart`,
-    warning: structuredManualWarning(rule, { radiusM, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg }),
-    setupAdvice: viableSetupAdvice(rule, radiusM, totalLiftedWeightKg, null, setupLabel, sourceLabel, boomLengthM, jibLengthM, jibAngleDeg),
-    allowManualCapacityFallback: false,
-    recognisedRuleId: rule.id,
-  };
+  function removeAdditionalCrane(id: string) {
+    if (locked) return;
+    const next = additionalCranes.filter((item) => item.id !== id);
+    setAdditionalCranes(next);
+  }
+
+  async function postForm(payload: LiftPlanData) {
+    const cleanedPayload = tidyLiftPlanTextFields(payload);
+    const area =
+      numberOrNull(cleanedPayload.ground_bearing_mat_area_m2) ??
+      calcMatArea(
+        cleanedPayload.ground_bearing_mat_length_m,
+        cleanedPayload.ground_bearing_mat_width_m,
+      );
+    const pressure = formatPressure(
+      parseWeightToKg(cleanedPayload.ground_bearing_bearing_load),
+      area,
+    );
+    const payloadWithCalculatedSections: LiftPlanData = {
+      ...cleanedPayload,
+      additional_cranes_json: stringifyAdditionalCranes(
+        safeJsonParseArray(cleanedPayload.additional_cranes_json).map((crane) =>
+          autoPopulateAdditionalCrane(crane),
+        ),
+      ),
+      ground_bearing_mat_area_m2: area
+        ? String(area)
+        : (cleanedPayload.ground_bearing_mat_area_m2 ?? ""),
+      ground_bearing_pressure:
+        pressure !== "—"
+          ? pressure
+          : (cleanedPayload.ground_bearing_pressure ?? ""),
+    };
+
+    const res = await fetch(`/api/jobs/${jobId}/lift-plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payloadWithCalculatedSections),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || "Error saving lift plan.");
+    return data;
+  }
+
+  async function generateDraft() {
+    if (locked) return;
+    setGenerating(true);
+    setMsg("");
+
+    try {
+      await postForm(form);
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/generate`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Could not generate draft.");
+
+      const mergedBase = mergeGeneratedDraft(form, data?.draft, [
+        "load_description",
+        "load_weight",
+        "lift_radius",
+        "lift_height",
+        "sling_type",
+        "lifting_accessories",
+        "appointed_person",
+      ]);
+
+      const merged: LiftPlanData = {
+        ...mergedBase,
+        selected_job_equipment_id: form.selected_job_equipment_id,
+        selected_crane_id: form.selected_crane_id,
+        paperwork_locked: form.paperwork_locked,
+        approved_by: form.approved_by,
+        approved_at: form.approved_at,
+        approval_notes: form.approval_notes,
+        customer_signed_by: form.customer_signed_by,
+        operator_signed_by: form.operator_signed_by,
+        office_signed_by: form.office_signed_by,
+        finalised_at: form.finalised_at,
+      };
+
+      const cleanedMerged = tidyLiftPlanTextFields(merged);
+      await postForm(cleanedMerged);
+      setForm(cleanedMerged);
+      setMsg(
+        `AI draft generated and saved (${data?.provider === "openai" ? "AI" : "fallback"}). Review and edit before finalising.`,
+      );
+    } catch (e: any) {
+      setMsg(e?.message || "Could not generate draft.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function save() {
+    if (locked) return;
+    setSaving(true);
+    setMsg("");
+    try {
+      const cleanedForm = tidyLiftPlanTextFields(form);
+      await postForm(cleanedForm);
+      setForm(cleanedForm);
+      setMsg("Lift plan / RAMS saved.");
+    } catch (e: any) {
+      setMsg(e?.message || "Error saving lift plan.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function approveNow() {
+    if (locked) return;
+    const now = new Date().toISOString();
+    setForm((prev) => ({
+      ...prev,
+      approved_at: now,
+      rams_complete: true,
+      lift_plan_complete: true,
+    }));
+  }
+
+  async function finaliseNow() {
+    if (locked) return;
+    setSaving(true);
+    setMsg("");
+    try {
+      const finalPayload: LiftPlanData = {
+        ...form,
+        finalised_at: new Date().toISOString(),
+        paperwork_locked: true,
+      };
+      await postForm(finalPayload);
+      setForm(finalPayload);
+      setMsg("Paperwork finalised and locked.");
+    } catch (e: any) {
+      setMsg(e?.message || "Could not finalise paperwork.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function unlockNow() {
+    setUnlocking(true);
+    setMsg("");
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/lift-plan/unlock`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(data?.error || "Could not unlock paperwork.");
+
+      setForm((prev) => ({
+        ...prev,
+        paperwork_locked: false,
+        finalised_at: "",
+      }));
+
+      setMsg(
+        "Paperwork unlocked. Make your changes and finalise it again when ready.",
+      );
+    } catch (e: any) {
+      setMsg(e?.message || "Could not unlock paperwork.");
+    } finally {
+      setUnlocking(false);
+    }
+  }
+
+  return (
+    <div style={wrapStyle}>
+      <div style={topRow}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 24 }}>Lift Plan & RAMS</h2>
+          <div style={helperText}>
+            Generate a draft, review it, then save and finalise manually.
+          </div>
+        </div>
+        <div style={buttonRow}>
+          <a
+            href={`/jobs/${jobId}/lift-plan/print`}
+            target="_blank"
+            style={secondaryBtn}
+          >
+            Printable version
+          </a>
+          {locked ? (
+            <button
+              type="button"
+              onClick={unlockNow}
+              disabled={unlocking || generating || saving}
+              style={warningBtn}
+            >
+              {unlocking ? "Unlocking…" : "Unlock for edits"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={generateDraft}
+            disabled={locked || generating || saving || unlocking}
+            style={secondaryBtn}
+          >
+            {generating ? "Generating…" : "Generate AI draft"}
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={locked || generating || saving || unlocking}
+            style={primaryBtn}
+          >
+            {saving ? "Saving…" : "Save draft"}
+          </button>
+          <button
+            type="button"
+            onClick={finaliseNow}
+            disabled={locked || generating || saving || unlocking}
+            style={dangerBtn}
+          >
+            Finalise & lock
+          </button>
+        </div>
+      </div>
+
+      <div style={infoBox}>
+        Crane selection, crane setup/profile, load weight, lift radius, lift
+        height, mat size, bearing load and bearing pressure are now controlled
+        in the <strong>Range chart / lift sketch builder</strong> above. Use the
+        sections below for wording, RAMS and approvals only.
+      </div>
+      {locked ? (
+        <div style={lockedBox}>
+          Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen
+          it, then finalise it again when you are done.
+        </div>
+      ) : null}
+      {msg ? <div style={msgBox}>{msg}</div> : null}
+
+      <div style={versionBox}>
+        <div>
+          <strong>Previous lift plan drafts</strong>
+          <div style={helperText}>
+            Every future Save draft / Generate AI draft keeps a snapshot of the
+            previous draft so it can be restored later.
+          </div>
+        </div>
+        <div style={versionActions}>
+          <button
+            type="button"
+            onClick={loadPreviousVersions}
+            disabled={
+              loadingVersions || saving || generating || restoringVersion
+            }
+            style={secondaryBtn}
+          >
+            {loadingVersions
+              ? "Loading…"
+              : versionsLoaded
+                ? "Refresh versions"
+                : "Load previous versions"}
+          </button>
+          {versionsLoaded ? (
+            <>
+              <select
+                value={selectedVersionId}
+                onChange={(e) => setSelectedVersionId(e.target.value)}
+                disabled={!versions.length || restoringVersion || locked}
+                style={versionSelect}
+              >
+                {versions.length ? (
+                  versions.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {version.created_at
+                        ? new Date(version.created_at).toLocaleString("en-GB")
+                        : "Saved version"}
+                      {version.reason ? ` - ${version.reason}` : ""}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">No previous versions saved yet</option>
+                )}
+              </select>
+              <button
+                type="button"
+                onClick={restorePreviousVersion}
+                disabled={!selectedVersionId || restoringVersion || locked}
+                style={warningBtn}
+              >
+                {restoringVersion ? "Restoring…" : "Restore selected"}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+
+      <Section title="Alternative cranes / multi-day crane options">
+        <div style={tickRow}>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.multi_crane_enabled}
+              onChange={(e) => update("multi_crane_enabled", e.target.checked)}
+              disabled={locked}
+            />
+            Enable alternative / additional crane details
+          </label>
+          <button
+            type="button"
+            onClick={addAdditionalCrane}
+            disabled={locked}
+            style={secondaryBtn}
+          >
+            + Add another crane
+          </button>
+        </div>
+        <div style={grid2}>
+          <SelectField
+            label="Lift type / arrangement"
+            value={
+              form.multi_crane_lift_type ??
+              "Alternative crane options for same lift / multi-day job"
+            }
+            onChange={(v) => update("multi_crane_lift_type", v)}
+            disabled={locked}
+            options={multiCraneArrangementOptions}
+          />
+        </div>
+        <TextAreaField
+          label="Alternative crane notes / AP instructions"
+          value={form.multi_crane_notes ?? ""}
+          onChange={(v) => update("multi_crane_notes", v)}
+          disabled={locked}
+          rows={3}
+        />
+        {additionalCranes.length === 0 ? (
+          <div style={helperText}>
+            Add another crane here when the same planned work may be carried out
+            with a different crane on a different day. The main selected crane
+            remains controlled by the range chart above. Use the
+            tandem/shared-load option only where two cranes lift the same load
+            at the same time.
+          </div>
+        ) : null}
+        {additionalCranes.map((crane, index) => {
+          const totals = additionalCraneTotals(crane);
+          const overCapacity = Boolean(
+            totals.utilisationPercent && totals.utilisationPercent > 100,
+          );
+          return (
+            <div key={crane.id} style={multiCraneCard}>
+              <div style={multiCraneHeader}>
+                <strong>Crane option {index + 1}</strong>
+                <button
+                  type="button"
+                  onClick={() => removeAdditionalCrane(crane.id)}
+                  disabled={locked}
+                  style={smallDangerBtn}
+                >
+                  Remove
+                </button>
+              </div>
+              {(() => {
+                const selectedCrane =
+                  additionalCraneSelectOptions.find(
+                    (option) =>
+                      option.value === crane.selected_crane_option_value,
+                  ) ?? null;
+                const craneNameForSpecs =
+                  crane.crane_name || selectedCrane?.label || "";
+                const specOptions = getRangeChartSpecOptions({
+                  craneName: craneNameForSpecs,
+                  setupLabel: crane.setup_profile,
+                  sourceLabel: crane.spec_sheet_reference,
+                });
+                const profileOptions = specOptions.profileOptions;
+                const jibOptions = specOptions.jibOptions;
+                return (
+                  <div style={grid2}>
+                    <SelectField
+                      label="Crane option from CRM/spec library"
+                      value={crane.selected_crane_option_value}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "selected_crane_option_value",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                      options={[
+                        { value: "", label: "Select crane…" },
+                        ...additionalCraneSelectOptions.map((option) => ({
+                          value: option.value,
+                          label: option.label,
+                        })),
+                      ]}
+                    />
+                    {!crane.selected_crane_option_value ? (
+                      <Field
+                        label="Manual crane name / model"
+                        value={crane.crane_name}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "crane_name", v)
+                        }
+                        disabled={locked}
+                      />
+                    ) : null}
+                    <Field
+                      label="Use / role for this crane"
+                      value={crane.crane_role}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "crane_role", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Planned day / visit / when used"
+                      value={crane.planned_use}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "planned_use", v)
+                      }
+                      disabled={locked}
+                    />
+                    {profileOptions.length ? (
+                      <SelectField
+                        label="Main boom / profile"
+                        value={crane.selected_profile_key}
+                        onChange={(v) =>
+                          updateAdditionalCrane(
+                            crane.id,
+                            "selected_profile_key",
+                            v,
+                          )
+                        }
+                        disabled={locked}
+                        options={[
+                          { value: "", label: "Select profile from spec…" },
+                          ...profileOptions.map((option) => ({
+                            value: option.key,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                    ) : (
+                      <Field
+                        label="Setup / profile / chart used"
+                        value={crane.setup_profile}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "setup_profile", v)
+                        }
+                        disabled={locked}
+                      />
+                    )}
+                    {jibOptions.length ? (
+                      <SelectField
+                        label="Fly jib / extension option"
+                        value={crane.selected_jib_key}
+                        onChange={(v) =>
+                          updateAdditionalCrane(crane.id, "selected_jib_key", v)
+                        }
+                        disabled={locked}
+                        options={[
+                          { value: "", label: "Select jib/extension…" },
+                          ...jibOptions.map((option) => ({
+                            value: option.key,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                    ) : null}
+                    <Field
+                      label="Spec sheet / chart reference"
+                      value={crane.spec_sheet_reference}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "spec_sheet_reference",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Boom length (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.boom_length_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "boom_length_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Radius (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.radius_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "radius_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Hook / lift height (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.hook_height_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "hook_height_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Chart capacity at radius (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.chart_capacity_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "chart_capacity_kg", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Crane planning / gross weight (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.crane_gross_weight_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "crane_gross_weight_kg",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Planned load on this crane (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.load_share_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "load_share_kg", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Accessories for this crane (kg)"
+                      type="number"
+                      step="1"
+                      value={crane.accessory_weight_kg}
+                      onChange={(v) =>
+                        updateAdditionalCrane(
+                          crane.id,
+                          "accessory_weight_kg",
+                          v,
+                        )
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Mat length (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.mat_length_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "mat_length_m", v)
+                      }
+                      disabled={locked}
+                    />
+                    <Field
+                      label="Mat width (m)"
+                      type="number"
+                      step="0.01"
+                      value={crane.mat_width_m}
+                      onChange={(v) =>
+                        updateAdditionalCrane(crane.id, "mat_width_m", v)
+                      }
+                      disabled={locked}
+                    />
+                  </div>
+                );
+              })()}
+              <div style={summaryGrid}>
+                <ReadOnlyFact
+                  label="Total lifted / planned load"
+                  value={formatKgAndT(totals.totalLiftedKg)}
+                />
+                <ReadOnlyFact
+                  label="Utilisation"
+                  value={
+                    totals.utilisationPercent !== null
+                      ? `${totals.utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}%`
+                      : "—"
+                  }
+                />
+                <ReadOnlyFact
+                  label="Mat area"
+                  value={formatM2(totals.matAreaM2)}
+                />
+                <ReadOnlyFact
+                  label="Est. bearing load"
+                  value={formatKgAndT(totals.bearingLoadKg)}
+                />
+                <ReadOnlyFact
+                  label="Est. bearing pressure"
+                  value={formatPressureKgM2(totals.bearingPressureKgM2)}
+                />
+              </div>
+              {overCapacity ? (
+                <div style={capacityWarningBox}>
+                  Warning: this crane is over 100% of entered chart capacity.
+                  Change crane/setup/load share before approval.
+                </div>
+              ) : null}
+              <TextAreaField
+                label="Verification notes / day-use notes for this crane"
+                value={crane.verification_notes}
+                onChange={(v) =>
+                  updateAdditionalCrane(crane.id, "verification_notes", v)
+                }
+                disabled={locked}
+                rows={3}
+              />
+            </div>
+          );
+        })}
+        <div style={helperText}>
+          For ongoing or multi-day work, list each acceptable crane option
+          separately. This does not mean the lift is tandem unless the lift type
+          above states tandem/shared-load. The pack will show each crane option
+          separately so the appointed person can verify the actual crane used on
+          the day against the correct manufacturer/supplier chart.
+        </div>
+      </Section>
+
+      <Section title="Lift details / accessories">
+        <div style={grid2}>
+          <Field
+            label="Load description"
+            value={form.load_description ?? ""}
+            onChange={(v) => update("load_description", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Sling type"
+            value={form.sling_type ?? ""}
+            onChange={(v) => update("sling_type", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Lifting accessories"
+            value={form.lifting_accessories ?? ""}
+            onChange={(v) => update("lifting_accessories", v)}
+            disabled={locked}
+          />
+        </div>
+        <div style={helperText}>
+          Load weight, lift radius and lift height are saved from the range
+          chart builder above so they are not entered twice.
+        </div>
+      </Section>
+
+      <Section title="Setup & site conditions">
+        <TextAreaField
+          label="Crane configuration"
+          value={form.crane_configuration ?? ""}
+          onChange={(v) => update("crane_configuration", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Outrigger setup"
+          value={form.outrigger_setup ?? ""}
+          onChange={(v) => update("outrigger_setup", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Ground conditions"
+          value={form.ground_conditions ?? ""}
+          onChange={(v) => update("ground_conditions", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Exclusion zone details"
+          value={form.exclusion_zone_details ?? ""}
+          onChange={(v) => update("exclusion_zone_details", v)}
+          disabled={locked}
+        />
+        <TextAreaField
+          label="Weather limitations"
+          value={form.weather_limitations ?? ""}
+          onChange={(v) => update("weather_limitations", v)}
+          disabled={locked}
+        />
+      </Section>
+
+      <Section title="RAMS wording">
+        <TextAreaField
+          label="Method statement"
+          value={form.method_statement ?? ""}
+          onChange={(v) => update("method_statement", v)}
+          disabled={locked}
+          rows={6}
+        />
+        <TextAreaField
+          label="Risk assessment"
+          value={form.risk_assessment ?? ""}
+          onChange={(v) => update("risk_assessment", v)}
+          disabled={locked}
+          rows={6}
+        />
+        <TextAreaField
+          label="Site hazards"
+          value={form.site_hazards ?? ""}
+          onChange={(v) => update("site_hazards", v)}
+          disabled={locked}
+          rows={4}
+        />
+        <TextAreaField
+          label="Control measures"
+          value={form.control_measures ?? ""}
+          onChange={(v) => update("control_measures", v)}
+          disabled={locked}
+          rows={4}
+        />
+        <TextAreaField
+          label="PPE required"
+          value={form.ppe_required ?? ""}
+          onChange={(v) => update("ppe_required", v)}
+          disabled={locked}
+          rows={3}
+        />
+        <TextAreaField
+          label="Emergency procedures"
+          value={form.emergency_procedures ?? ""}
+          onChange={(v) => update("emergency_procedures", v)}
+          disabled={locked}
+          rows={4}
+        />
+      </Section>
+
+      <Section title="Personnel & approval">
+        <div style={grid2}>
+          <SelectField
+            label="Lift supervisor"
+            value={form.lift_supervisor ?? ""}
+            onChange={(v) => update("lift_supervisor", v)}
+            disabled={locked}
+            options={personnelSelectOptions}
+          />
+          <Field
+            label="Appointed person"
+            value={form.appointed_person ?? ""}
+            onChange={(v) => update("appointed_person", v)}
+            disabled={locked}
+          />
+          <SelectField
+            label="Crane operator"
+            value={form.crane_operator ?? ""}
+            onChange={(v) => update("crane_operator", v)}
+            disabled={locked}
+            options={personnelSelectOptions}
+          />
+          <Field
+            label="Approved by"
+            value={form.approved_by ?? ""}
+            onChange={(v) => update("approved_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Approved at"
+            type="datetime-local"
+            value={toInputDateTime(form.approved_at)}
+            onChange={(v) =>
+              update("approved_at", v ? new Date(v).toISOString() : "")
+            }
+            disabled={locked}
+          />
+          <Field
+            label="Finalised at"
+            type="datetime-local"
+            value={toInputDateTime(form.finalised_at)}
+            onChange={(v) =>
+              update("finalised_at", v ? new Date(v).toISOString() : "")
+            }
+            disabled={locked}
+          />
+        </div>
+        <TextAreaField
+          label="Approval notes"
+          value={form.approval_notes ?? ""}
+          onChange={(v) => update("approval_notes", v)}
+          disabled={locked}
+          rows={3}
+        />
+        <div style={grid2}>
+          <Field
+            label="Customer signed by"
+            value={form.customer_signed_by ?? ""}
+            onChange={(v) => update("customer_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Operator signed by"
+            value={form.operator_signed_by ?? ""}
+            onChange={(v) => update("operator_signed_by", v)}
+            disabled={locked}
+          />
+          <Field
+            label="Office signed by"
+            value={form.office_signed_by ?? ""}
+            onChange={(v) => update("office_signed_by", v)}
+            disabled={locked}
+          />
+        </div>
+        <div style={tickRow}>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.rams_complete}
+              onChange={(e) => update("rams_complete", e.target.checked)}
+              disabled={locked}
+            />{" "}
+            RAMS complete
+          </label>
+          <label style={tickLabel}>
+            <input
+              type="checkbox"
+              checked={!!form.lift_plan_complete}
+              onChange={(e) => update("lift_plan_complete", e.target.checked)}
+              disabled={locked}
+            />{" "}
+            Lift plan complete
+          </label>
+          <button
+            type="button"
+            onClick={approveNow}
+            disabled={locked || saving || generating}
+            style={secondaryBtn}
+          >
+            Mark approved now
+          </button>
+        </div>
+      </Section>
+    </div>
+  );
 }
 
-export function calculateRangeChartBearingLoad({
-  craneName,
-  setupLabel,
-  sourceLabel,
-  totalLiftedWeightKg,
-}: {
-  craneName?: string | null;
-  setupLabel?: string | null;
-  sourceLabel?: string | null;
-  totalLiftedWeightKg?: number | null;
-}): RangeChartBearingResult {
-  const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
-  if (rule?.defaultBearingLoadKg) {
-    return {
-      bearingLoadKg: rule.defaultBearingLoadKg,
-      method: "automatic",
-      source: rule.bearingLoadSource || `${rule.title} published outrigger/load reaction`,
-    };
-  }
-
-  const lifted = totalLiftedWeightKg && Number.isFinite(totalLiftedWeightKg) ? totalLiftedWeightKg : null;
-  const planningWeight = rule?.planningWeightKg && Number.isFinite(rule.planningWeightKg) ? rule.planningWeightKg : null;
-  if (rule && planningWeight && lifted !== null) {
-    const factor = rule.estimatedBearingFactor ?? 0.75;
-    const bearingLoadKg = (planningWeight + lifted) * factor;
-    return {
-      bearingLoadKg,
-      method: "automatic",
-      source: `Planning estimate using appointed-person mat calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + gross lifted load) × ${factor}. Use exact outrigger reaction chart if available.`,
-    };
-  }
-
-  return {
-    bearingLoadKg: null,
-    method: "manual",
-    source: rule
-      ? `${rule.title} needs the total lifted weight to estimate bearing load, or an exact outrigger reaction can be entered manually.`
-      : "No recognised crane bearing reaction rule found. Use the exact outrigger reaction chart/manual value.",
-    warning: "Bearing load/reaction cannot be auto-calculated until the crane is recognised and the load/accessory weight is entered, or an exact outrigger reaction is entered.",
-  };
+function EquipmentProfileCard({ profile }: { profile: EquipmentProfile }) {
+  return (
+    <div style={profileCard}>
+      <div style={sectionTitle}>Selected equipment profile</div>
+      <div style={profileTitle}>{profile.title}</div>
+      <div style={profileSummary}>{profile.summary}</div>
+      <div style={grid2}>
+        <ReadOnlyFact label="Machine type" value={profile.machineType} />
+        <ReadOnlyFact
+          label="Max capacity"
+          value={
+            profile.maxCapacityKg
+              ? `${profile.maxCapacityKg.toLocaleString()} kg`
+              : profile.maxCapacityTonnes
+                ? `${profile.maxCapacityTonnes} t`
+                : "—"
+          }
+        />
+        <ReadOnlyFact
+          label="Boom / hydraulic outreach"
+          value={
+            profile.maxBoomLengthM
+              ? `${profile.maxBoomLengthM} m`
+              : profile.maxHydraulicOutreachM
+                ? `${profile.maxHydraulicOutreachM} m`
+                : "—"
+          }
+        />
+        <ReadOnlyFact
+          label="Jib / max outreach"
+          value={
+            profile.maxJibOutreachM
+              ? `${profile.maxJibOutreachM} m`
+              : profile.maxRadiusM
+                ? `${profile.maxRadiusM} m radius`
+                : "—"
+          }
+        />
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <div style={fieldLabel}>Key warnings</div>
+        <ul style={warningList}>
+          {profile.warnings.map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
 }
 
-export function getRangeChartSpecOptions({
-  craneName,
-  setupLabel,
-  sourceLabel,
+function ReadOnlyFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={summaryItem}>
+      <div style={fieldLabel}>{label}</div>
+      <div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div>
+    </div>
+  );
+}
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={sectionStyle}>
+      <div style={sectionTitle}>{title}</div>
+      <div style={{ display: "grid", gap: 12 }}>{children}</div>
+    </div>
+  );
+}
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  step,
+  disabled,
 }: {
-  craneName?: string | null;
-  setupLabel?: string | null;
-  sourceLabel?: string | null;
+  label: string;
+  value: string | number;
+  onChange: (value: string) => void;
+  type?: string;
+  step?: string;
+  disabled?: boolean;
 }) {
-  const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
-  return {
-    rule,
-    profileOptions: rule?.profileOptions ?? [],
-    jibOptions: rule?.jibOptions ?? [],
-  };
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <input
+        type={type}
+        step={step}
+        value={value as any}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={inputStyle}
+      />
+    </label>
+  );
+}
+function SelectField({
+  label,
+  value,
+  onChange,
+  disabled,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  options: Array<{ value: string; label: string }>;
+}) {
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        style={inputStyle}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  disabled,
+  rows = 4,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  rows?: number;
+}) {
+  return (
+    <label style={fieldWrap}>
+      <span style={fieldLabel}>{label}</span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        rows={rows}
+        style={textAreaStyle}
+      />
+    </label>
+  );
 }
 
-export function getRangeChartLimits({
-  craneName,
-  setupLabel,
-  sourceLabel,
-  setupMaxBoomLengthM,
-  setupMaxRadiusM,
-  setupMaxTipHeightM,
-  setupMaxPhysicalJibLengthM,
-}: {
-  craneName?: string | null;
-  setupLabel?: string | null;
-  sourceLabel?: string | null;
-  setupMaxBoomLengthM?: number | null;
-  setupMaxRadiusM?: number | null;
-  setupMaxTipHeightM?: number | null;
-  setupMaxPhysicalJibLengthM?: number | null;
-}) {
-  const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
-  return {
-    rule,
-    maxCapacityKg: rule?.maxCapacityKg ?? null,
-    planningWeightKg: rule?.planningWeightKg ?? null,
-    planningWeightSource: rule?.planningWeightSource ?? null,
-    estimatedBearingFactor: rule?.estimatedBearingFactor ?? null,
-    defaultBearingLoadKg: rule?.defaultBearingLoadKg ?? null,
-    bearingLoadSource: rule?.bearingLoadSource ?? null,
-    maxBoomLengthM: setupMaxBoomLengthM ?? rule?.maxBoomLengthM ?? null,
-    maxPhysicalJibLengthM: setupMaxPhysicalJibLengthM ?? rule?.maxPhysicalJibLengthM ?? null,
-    maxRadiusM: setupMaxRadiusM ?? rule?.maxRadiusM ?? null,
-    maxTipHeightM: setupMaxTipHeightM ?? rule?.maxTipHeightM ?? null,
-  };
-}
+const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
+const topRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+const buttonRow: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
+const helperText: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.75 };
+const sectionStyle: CSSProperties = {
+  background: "rgba(255,255,255,0.72)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 16,
+};
+const profileCard: CSSProperties = {
+  ...sectionStyle,
+  background: "rgba(255,248,225,0.8)",
+};
+const profileTitle: CSSProperties = { fontSize: 18, fontWeight: 900 };
+const profileSummary: CSSProperties = { marginTop: 6, opacity: 0.82 };
+const sectionTitle: CSSProperties = { fontWeight: 900, marginBottom: 12 };
+const grid2: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 12,
+};
+const fieldWrap: CSSProperties = { display: "grid", gap: 6 };
+const fieldLabel: CSSProperties = {
+  fontSize: 13,
+  fontWeight: 800,
+  opacity: 0.82,
+};
+const inputStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 42,
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  padding: "0 12px",
+  fontSize: 14,
+  boxSizing: "border-box",
+  background: "#fff",
+};
+const textAreaStyle: CSSProperties = {
+  width: "100%",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.14)",
+  padding: 12,
+  fontSize: 14,
+  boxSizing: "border-box",
+  background: "#fff",
+  resize: "vertical",
+};
+const versionBox: CSSProperties = {
+  background: "rgba(255,255,255,0.78)",
+  border: "1px solid rgba(0,0,0,0.10)",
+  borderRadius: 14,
+  padding: 14,
+  display: "flex",
+  gap: 12,
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  marginBottom: 14,
+};
+const versionActions: CSSProperties = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  flexWrap: "wrap",
+};
+const versionSelect: CSSProperties = {
+  minWidth: 260,
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.18)",
+  background: "#fff",
+  fontWeight: 800,
+};
+
+const msgBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.08)",
+  border: "1px solid rgba(0,120,255,0.18)",
+};
+const lockedBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(180,0,0,0.10)",
+  border: "1px solid rgba(180,0,0,0.18)",
+  fontWeight: 800,
+};
+const tickRow: CSSProperties = {
+  display: "flex",
+  gap: 16,
+  flexWrap: "wrap",
+  alignItems: "center",
+};
+const tickLabel: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontWeight: 700,
+};
+const warningList: CSSProperties = {
+  margin: "8px 0 0 18px",
+  padding: 0,
+  display: "grid",
+  gap: 6,
+};
+const summaryItem: CSSProperties = {
+  background: "rgba(255,255,255,0.8)",
+  border: "1px solid rgba(0,0,0,0.08)",
+  borderRadius: 12,
+  padding: 12,
+};
+const infoBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(0,120,255,0.08)",
+  border: "1px solid rgba(0,120,255,0.18)",
+  fontSize: 14,
+  lineHeight: 1.45,
+};
+const primaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#111",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const secondaryBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.10)",
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.86)",
+  color: "#111",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const dangerBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#8a1f1f",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const warningBtn: CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "none",
+  textDecoration: "none",
+  background: "#c77d00",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const smallDangerBtn: CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 10,
+  border: "none",
+  background: "#8a1f1f",
+  color: "#fff",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+const multiCraneCard: CSSProperties = {
+  border: "1px solid rgba(0,0,0,0.12)",
+  borderRadius: 14,
+  padding: 14,
+  background: "rgba(255,255,255,0.78)",
+  display: "grid",
+  gap: 12,
+};
+const multiCraneHeader: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 12,
+  alignItems: "center",
+};
+const summaryGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+  gap: 10,
+};
+const capacityWarningBox: CSSProperties = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  background: "rgba(220,0,0,0.10)",
+  border: "1px solid rgba(220,0,0,0.25)",
+  fontWeight: 900,
+};
