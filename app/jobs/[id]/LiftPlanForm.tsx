@@ -521,31 +521,51 @@ function findBestProfileForBoomLength(
     !boomLengthM ||
     !Number.isFinite(boomLengthM) ||
     !profilesHaveDistinctBoomLengths(options)
-  )
+  ) {
     return null;
+  }
 
-  const scored = options
+  const exactMatches = options
     .map((option) => {
       const profileBoomM = profileBoomLengthValue(option);
       if (!profileBoomM) return null;
-      const diff = profileBoomM - boomLengthM;
-      const absoluteDiff = Math.abs(diff);
-      // Prefer an exact manufacturer/spec chart. If the user enters an intermediate telescopic
-      // boom length, use the next longer structured chart as the conservative fallback.
-      const score =
-        absoluteDiff <= 0.35
-          ? absoluteDiff
-          : diff >= 0
-            ? diff + 5
-            : absoluteDiff + 50;
-      return { option, score };
+      const absoluteDiff = Math.abs(profileBoomM - boomLengthM);
+      // Only switch the selected spec/profile automatically when the typed boom length
+      // is genuinely close to a manufacturer chart column. Do not silently jump to a
+      // longer boom chart because that can keep showing a crane as over-capacity even
+      // when the AP meant a shorter telescopic setup.
+      if (absoluteDiff > 0.75) return null;
+      return { option, score: absoluteDiff };
     })
     .filter(Boolean) as Array<{
     option: RangeChartProfileOption;
     score: number;
   }>;
 
-  return scored.sort((a, b) => a.score - b.score)[0]?.option ?? null;
+  return exactMatches.sort((a, b) => a.score - b.score)[0]?.option ?? null;
+}
+
+function profileHasExactBoomLength(
+  option: RangeChartProfileOption | null | undefined,
+  boomLengthM: number | null | undefined,
+) {
+  const profileBoomM = profileBoomLengthValue(option);
+  return Boolean(
+    profileBoomM !== null &&
+    boomLengthM !== null &&
+    boomLengthM !== undefined &&
+    Number.isFinite(boomLengthM) &&
+    Math.abs(profileBoomM - Number(boomLengthM)) <= 0.75,
+  );
+}
+
+function structuredProfileOptionsContainBoomLength(
+  options: RangeChartProfileOption[],
+  boomLengthM: number | null | undefined,
+) {
+  return options.some((option) =>
+    profileHasExactBoomLength(option, boomLengthM),
+  );
 }
 
 function formatKg(value: number | null | undefined) {
@@ -1193,8 +1213,6 @@ export default function LiftPlanForm({
     ).trim();
     const specOptions = getRangeChartSpecOptions({
       craneName,
-      setupLabel: crane.setup_profile,
-      sourceLabel: crane.spec_sheet_reference,
     });
     const enteredBoomLengthM = numberOrNull(crane.boom_length_m);
     const boomMatchedProfile = crane.boom_length_m_manual
@@ -1210,6 +1228,13 @@ export default function LiftPlanForm({
       ) ??
       specOptions.profileOptions[0] ??
       null;
+    const manualBoomHasExactStructuredProfile =
+      !crane.boom_length_m_manual ||
+      !enteredBoomLengthM ||
+      structuredProfileOptionsContainBoomLength(
+        specOptions.profileOptions,
+        enteredBoomLengthM,
+      );
     const selectedJib = crane.selected_jib_key
       ? (specOptions.jibOptions.find(
           (option) => option.key === crane.selected_jib_key,
@@ -1264,20 +1289,28 @@ export default function LiftPlanForm({
       numberOrNull(form.lift_height);
     const jibLengthM = selectedJib?.lengthM ?? 0;
 
-    const capacity = radiusM
-      ? calculateRangeChartCapacity({
-          craneName,
-          setupLabel,
-          sourceLabel:
-            selectedProfile?.source ||
-            selectedJib?.source ||
-            crane.spec_sheet_reference,
-          radiusM,
-          boomLengthM,
-          jibLengthM,
-          totalLiftedWeightKg,
-        })
-      : null;
+    const capacity =
+      radiusM && manualBoomHasExactStructuredProfile
+        ? calculateRangeChartCapacity({
+            craneName,
+            setupLabel,
+            sourceLabel:
+              selectedProfile?.source ||
+              selectedJib?.source ||
+              crane.spec_sheet_reference,
+            radiusM,
+            boomLengthM,
+            jibLengthM,
+            totalLiftedWeightKg,
+          })
+        : null;
+    const manualBoomNeedsManualCapacity = Boolean(
+      radiusM &&
+      crane.boom_length_m_manual &&
+      enteredBoomLengthM &&
+      specOptions.rule &&
+      !manualBoomHasExactStructuredProfile,
+    );
     const bearing = calculateRangeChartBearingLoad({
       craneName,
       setupLabel,
@@ -1313,22 +1346,36 @@ export default function LiftPlanForm({
       crane_gross_weight_kg: limits.planningWeightKg
         ? formatAutoKgInput(limits.planningWeightKg)
         : crane.crane_gross_weight_kg,
-      chart_capacity_kg: capacity?.capacityKg
-        ? formatAutoKgInput(capacity.capacityKg)
-        : capacity?.allowManualCapacityFallback
-          ? crane.chart_capacity_kg
-          : "",
+      chart_capacity_kg: manualBoomNeedsManualCapacity
+        ? crane.chart_capacity_kg
+        : capacity?.capacityKg
+          ? formatAutoKgInput(capacity.capacityKg)
+          : capacity?.allowManualCapacityFallback
+            ? crane.chart_capacity_kg
+            : "",
     };
 
-    if (
-      !next.verification_notes &&
-      (capacity?.setupAdvice || capacity?.source || bearing?.source)
-    ) {
-      next.verification_notes = [
-        capacity?.setupAdvice || capacity?.source,
-        bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
-        "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
-      ]
+    const generatedVerificationNotes = manualBoomNeedsManualCapacity
+      ? [
+          `${specOptions.rule?.title ?? craneName} recognised, but the selected boom length ${Number(enteredBoomLengthM).toLocaleString("en-GB", { maximumFractionDigits: 2 })} m does not have a structured load-chart column in the CRM for this crane. The CRM has not used the longer-boom capacity as this may incorrectly show the crane as over capacity. Enter the verified chart capacity manually from the manufacturer/supplier spec for this exact boom length, radius and setup.`,
+          bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
+          "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
+        ]
+      : [
+          capacity?.setupAdvice || capacity?.source,
+          bearing?.source ? `Bearing/reaction: ${bearing.source}` : null,
+          capacity?.warning,
+          "Final AP check required against the exact manufacturer/supplier chart and actual crane used on the day.",
+        ];
+
+    const existingNotes = String(next.verification_notes ?? "").trim();
+    const looksAutoGenerated =
+      !existingNotes ||
+      /Final AP check required|recognised, but|Selected setup advice|Structured setup advice|Preliminary SPX532/i.test(
+        existingNotes,
+      );
+    if (looksAutoGenerated && generatedVerificationNotes.some(Boolean)) {
+      next.verification_notes = generatedVerificationNotes
         .filter(Boolean)
         .join("\n");
     }
@@ -1396,10 +1443,11 @@ export default function LiftPlanForm({
             (option) => option.value === changed.selected_crane_option_value,
           ) ?? null;
         const craneNameForSpecs = changed.crane_name || selected?.label || "";
+        // Use the full crane spec rule when matching a typed telescopic boom length.
+        // Passing the old setup/source here can lock the lookup to the previous profile,
+        // which is why additional cranes could keep using the old chart after the boom was changed.
         const specOptions = getRangeChartSpecOptions({
           craneName: craneNameForSpecs,
-          setupLabel: changed.setup_profile,
-          sourceLabel: changed.spec_sheet_reference,
         });
         const matchedProfile = findBestProfileForBoomLength(
           specOptions.profileOptions,
@@ -1803,8 +1851,6 @@ export default function LiftPlanForm({
                   crane.crane_name || selectedCrane?.label || "";
                 const specOptions = getRangeChartSpecOptions({
                   craneName: craneNameForSpecs,
-                  setupLabel: crane.setup_profile,
-                  sourceLabel: crane.spec_sheet_reference,
                 });
                 const profileOptions = specOptions.profileOptions;
                 const jibOptions = specOptions.jibOptions;
@@ -1915,7 +1961,7 @@ export default function LiftPlanForm({
                       disabled={locked}
                     />
                     <Field
-                      label="Boom length (m)"
+                      label="Boom length / chart column (m)"
                       type="number"
                       step="0.01"
                       value={crane.boom_length_m}
