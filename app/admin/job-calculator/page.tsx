@@ -60,25 +60,25 @@ export default async function JobCalculatorPage() {
       .select("id, company_name, contact_name, phone, email, address")
       .eq("archived", false)
       .order("company_name", { ascending: true })
-      .limit(500),
+      .limit(1000),
     admin
       .from("jobs")
       .select("id, job_number, client_id, site_name, site_address, job_date, start_date, end_date, status")
       .eq("archived", false)
       .order("job_date", { ascending: false })
-      .limit(250),
+      .limit(500),
     admin
       .from("transport_jobs")
       .select("id, transport_number, client_id, job_type, collection_address, delivery_address, transport_date, delivery_date, status")
       .eq("archived", false)
       .order("transport_date", { ascending: false })
-      .limit(250),
+      .limit(500),
     admin
       .from("quotes")
       .select("id, client_id, subject, quote_date, status, amount, notes, pdf_sections")
       .eq("archived", false)
       .order("quote_date", { ascending: false })
-      .limit(250),
+      .limit(1000),
   ]);
 
   const clients = ((clientsRes.data ?? []) as SlimClient[]).map((client) => ({
