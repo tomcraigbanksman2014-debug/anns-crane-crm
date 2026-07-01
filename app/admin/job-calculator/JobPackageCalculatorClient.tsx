@@ -763,6 +763,15 @@ export default function JobPackageCalculatorClient({
   const visibleBreakdown = useMemo(() => buildCustomerBreakdownText(lines, phases), [lines, phases]);
   const internalCostText = useMemo(() => buildInternalCostText(lines, phases), [lines, phases]);
 
+  const clientNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    clients.forEach((client) => {
+      const label = [client.company_name, client.contact_name].map(clean).filter(Boolean).join(" — ");
+      map.set(client.id, label || "Customer");
+    });
+    return map;
+  }, [clients]);
+
   const filteredCraneJobs = useMemo(
     () => (customerId ? craneJobs.filter((job) => job.client_id === customerId) : craneJobs),
     [customerId, craneJobs]
@@ -773,10 +782,14 @@ export default function JobPackageCalculatorClient({
     [customerId, transportJobs]
   );
 
-  const filteredQuotes = useMemo(
-    () => (customerId ? quotes.filter((quote) => quote.client_id === customerId) : quotes),
-    [customerId, quotes]
-  );
+  const targetQuotes = useMemo(() => {
+    // Do not hide quotes just because the selected customer does not match.
+    // Some older quotes were created without client_id or with a different linked client,
+    // so filtering here made the target dropdown look empty and stopped updates.
+    const selectedCustomerQuotes = customerId ? quotes.filter((quote) => quote.client_id === customerId) : [];
+    const otherQuotes = customerId ? quotes.filter((quote) => quote.client_id !== customerId) : quotes;
+    return [...selectedCustomerQuotes, ...otherQuotes];
+  }, [customerId, quotes]);
 
   const warnings = useMemo(() => {
     const list: string[] = [];
@@ -819,10 +832,13 @@ export default function JobPackageCalculatorClient({
     }
 
     if (target === "quote") {
-      return filteredQuotes.map((quote) => ({
-        id: quote.id,
-        label: `${quote.subject || "Quote"} — ${fmtDate(quote.quote_date)} — ${quote.status || "Draft"} — ${money(quote.amount)}`,
-      }));
+      return targetQuotes.map((quote) => {
+        const customerLabel = quote.client_id ? clientNameById.get(quote.client_id) : "No linked customer";
+        return {
+          id: quote.id,
+          label: `${quote.subject || "Quote"} — ${customerLabel || "Customer"} — ${fmtDate(quote.quote_date)} — ${quote.status || "Draft"} — ${money(quote.amount)}`,
+        };
+      });
     }
 
     return [];
