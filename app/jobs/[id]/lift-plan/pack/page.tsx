@@ -1078,12 +1078,28 @@ function rangeChartCalculated(sections: StringMap) {
   const objectDistanceM = rangeNumber(sections, "range_chart_object_distance_m", Math.max(0, radiusM - 4));
   const objectHeightM = rangeNumber(sections, "range_chart_object_height_m", Math.max(1, tipHeightM - 2));
   const objectWidthM = rangeNumber(sections, "range_chart_object_width_m", 8);
-  const selectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
+  const savedSelectedSetupLabel = rangeText(sections, "range_chart_selected_setup_label", rangeText(sections, "selected_crane_setup_label", ""));
   const craneName = tidyCraneLabel(rangeText(sections, "range_chart_crane_name", ""));
-  const sourceLabel = rangeText(sections, "range_chart_external_spec_document_title", "");
-  const limits = getRangeChartLimits({ craneName, setupLabel: selectedSetupLabel, sourceLabel });
+  const savedSetupKey = rangeText(sections, "range_chart_selected_setup_key", rangeText(sections, "selected_crane_setup_key", ""));
+  const savedJibKey = rangeText(sections, "range_chart_selected_jib_option_key", "");
+  const specOptions = getRangeChartSpecOptions({ craneName });
+  const structuredKey = savedSetupKey.startsWith("profile:") ? savedSetupKey.slice("profile:".length) : savedSetupKey;
+  const activeStructuredProfile = specOptions.profileOptions.find((profile) => profile.key === structuredKey) ?? null;
+  const activeStructuredJib = specOptions.jibOptions.find((jib) => jib.key === savedJibKey) ?? null;
+  const selectedSetupLabel = activeStructuredProfile?.label || savedSelectedSetupLabel;
+  const selectedJibLabel = activeStructuredJib?.label || rangeText(sections, "range_chart_selected_jib_option_label", "");
+  const sourceLabel = [
+    sections.range_chart_selected_setup_source,
+    activeStructuredProfile?.source,
+    sections.range_chart_selected_jib_option_source,
+    activeStructuredJib?.source,
+    sections.range_chart_capacity_source,
+    sections.range_chart_external_spec_document_title,
+  ].filter(Boolean).join(" / ");
+  const setupLabelForChart = [selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / ");
+  const limits = getRangeChartLimits({ craneName, setupLabel: setupLabelForChart, sourceLabel });
   const savedBoomLengthMForJib = parseDecimal(sections.range_chart_boom_length_m);
-  const inferredJibLengthM = inferRangePhysicalJibLengthFromText(selectedSetupLabel);
+  const inferredJibLengthM = inferRangePhysicalJibLengthFromText(setupLabelForChart);
   const rawJibLengthM = rangeNumber(sections, "range_chart_jib_length_m", 0);
   const jibLengthM = normaliseRangePhysicalJibLength(rawJibLengthM, radiusM, savedBoomLengthMForJib, inferredJibLengthM);
   const jibAngleDeg = rangeNumber(sections, "range_chart_jib_angle_deg", 0);
@@ -1108,7 +1124,7 @@ function rangeChartCalculated(sections: StringMap) {
   const totalLiftedWeightKg = rangeKg(sections, "range_chart_total_lifted_weight_kg") ?? ((loadWeightKg ?? 0) + (accessoryWeightKg ?? 0) || null);
   const capacityResult = calculateRangeChartCapacity({
     craneName,
-    setupLabel: selectedSetupLabel,
+    setupLabel: setupLabelForChart,
     sourceLabel,
     radiusM,
     boomLengthM,
@@ -1116,7 +1132,7 @@ function rangeChartCalculated(sections: StringMap) {
     jibAngleDeg,
     totalLiftedWeightKg,
   });
-  const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: selectedSetupLabel, sourceLabel, totalLiftedWeightKg });
+  const bearingResult = calculateRangeChartBearingLoad({ craneName, setupLabel: setupLabelForChart, sourceLabel, totalLiftedWeightKg });
   const requiredBoomExceededForCapacity = Boolean(limits.maxBoomLengthM && boomLengthM > limits.maxBoomLengthM + 0.01);
   const radiusExceededForCapacity = Boolean(limits.maxRadiusM && radiusM > limits.maxRadiusM + 0.01);
   const tipHeightExceededForCapacity = Boolean(limits.maxTipHeightM && tipHeightM > limits.maxTipHeightM + 0.01);
@@ -1993,10 +2009,23 @@ export default async function CraneLiftPlanPackPage({
   const rangeSpecPlanningWeightKg = rangeGroundCalc?.limits?.planningWeightKg ?? null;
   const rangeSelectedJibLabel = String(sections.range_chart_selected_jib_option_label ?? "").trim();
   const rangeSelectedSetupLabel = String(sections.range_chart_selected_setup_label ?? "").trim();
+  const currentCraneWeightSpecOptions = getRangeChartSpecOptions({ craneName });
+  const currentCraneWeightSetupKey = String(sections.range_chart_selected_setup_key ?? sections.selected_crane_setup_key ?? "").trim();
+  const currentCraneWeightStructuredKey = currentCraneWeightSetupKey.startsWith("profile:") ? currentCraneWeightSetupKey.slice("profile:".length) : currentCraneWeightSetupKey;
+  const currentCraneWeightProfile = currentCraneWeightSpecOptions.profileOptions.find((profile) => profile.key === currentCraneWeightStructuredKey) ?? null;
+  const currentCraneWeightJib = currentCraneWeightSpecOptions.jibOptions.find((jib) => jib.key === String(sections.range_chart_selected_jib_option_key ?? "").trim()) ?? null;
   const currentCraneWeightLimits = getRangeChartLimits({
     craneName,
-    setupLabel: [rangeSelectedSetupLabel, rangeSelectedJibLabel].filter(Boolean).join(" / "),
-    sourceLabel: sections.range_chart_external_spec_document_title || sections.selected_crane_spec_source || "",
+    setupLabel: [currentCraneWeightProfile?.label || rangeSelectedSetupLabel, currentCraneWeightJib?.label || rangeSelectedJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: [
+      sections.range_chart_selected_setup_source,
+      currentCraneWeightProfile?.source,
+      sections.range_chart_selected_jib_option_source,
+      currentCraneWeightJib?.source,
+      sections.range_chart_capacity_source,
+      sections.range_chart_external_spec_document_title,
+      sections.selected_crane_spec_source,
+    ].filter(Boolean).join(" / "),
   });
   const currentCranePlanningWeightKg = currentCraneWeightLimits.planningWeightKg ?? null;
 
