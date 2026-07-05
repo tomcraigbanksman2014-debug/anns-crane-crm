@@ -582,6 +582,8 @@ export default async function QuotePrintPage({
               ) : null}
             </div>
           ) : null}
+
+          <QuoteReviewFooter />
         </div>
 
         <div className="quote-sheet" style={sheetStyle}>
@@ -606,11 +608,13 @@ export default async function QuotePrintPage({
             </div>
           </div>
 
-          <div style={footerStyle}>
-            {quoteTermsFooter}
-            <br />
-            Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
-          </div>
+          <QuoteReviewFooter
+            text={<>
+              {quoteTermsFooter}
+              <br />
+              Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
+            </>}
+          />
         </div>
 
         {longTermPages.map((page, index) => (
@@ -628,9 +632,7 @@ export default async function QuotePrintPage({
               ))}
             </div>
 
-            <div style={footerTightStyle}>
-              Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
-            </div>
+            <QuoteReviewFooter />
           </div>
         ))}
 
@@ -644,14 +646,26 @@ export default async function QuotePrintPage({
 
                 <img src={src} alt={`RHA carriage terms page ${index + 1}`} style={termsImageStyle} />
 
-                <div style={footerTightStyle}>
-                  Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk
-                </div>
+                <QuoteReviewFooter />
               </div>
             ))
           : null}
       </body>
     </html>
+  );
+}
+
+function QuoteReviewFooter({ text }: { text?: ReactNode }) {
+  return (
+    <div style={quoteReviewFooterStyle}>
+      <div style={quoteReviewFooterTextStyle}>
+        {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk"}
+      </div>
+      <div style={quoteReviewQrWrapStyle}>
+        <img src="/google-review-qr.png" alt="Google review QR code" style={quoteReviewQrImageStyle} />
+        <div style={quoteReviewQrTextStyle}>Review us</div>
+      </div>
+    </div>
   );
 }
 
@@ -1015,14 +1029,48 @@ const signatureFooterCellStyle: CSSProperties = {
   fontSize: 12.5,
 };
 
-const footerStyle: CSSProperties = {
+const quoteReviewFooterStyle: CSSProperties = {
   marginTop: "auto",
-  fontSize: 11,
-  lineHeight: 1.45,
+  borderTop: "1px solid #dbe2ea",
+  paddingTop: 8,
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  alignItems: "center",
+  gap: 10,
   color: "#475569",
+};
+
+const quoteReviewFooterTextStyle: CSSProperties = {
+  fontSize: 10.5,
+  lineHeight: 1.35,
   textAlign: "center",
 };
 
+const quoteReviewQrWrapStyle: CSSProperties = {
+  display: "grid",
+  justifyItems: "center",
+  alignItems: "center",
+  gap: 2,
+  padding: 2,
+  background: "#fff",
+  border: "1px solid #d8dee8",
+  borderRadius: 4,
+  minWidth: 50,
+};
+
+const quoteReviewQrImageStyle: CSSProperties = {
+  width: 44,
+  height: 44,
+  objectFit: "contain",
+  display: "block",
+};
+
+const quoteReviewQrTextStyle: CSSProperties = {
+  fontSize: 8,
+  lineHeight: 1,
+  fontWeight: 800,
+  color: "#1f2937",
+};
 
 const termsImageStyle: CSSProperties = {
   display: "block",
@@ -1044,10 +1092,3 @@ const longTermParagraphStyle: CSSProperties = {
   textAlign: "left",
 };
 
-const footerTightStyle: CSSProperties = {
-  marginTop: "auto",
-  fontSize: 10.5,
-  lineHeight: 1.35,
-  color: "#475569",
-  textAlign: "center",
-};
