@@ -836,17 +836,29 @@ export function suggestRangeChartSetups({
       if (capacityKg === null || capacityKg < lifted) return null;
 
       const physicalLength = (curve.boomLengthM ?? 0) + Math.max(0, curve.jibLengthM ?? 0);
-      if (requiredBoom !== null && physicalLength > 0 && physicalLength + 0.5 < requiredBoom) return null;
+      // Do not hide a valid load-chart setup purely because of the height box. In this CRM the
+      // height can be entered as load/building height rather than true hook height, and the previous
+      // hard filter was removing setups that are correct on the manufacturer radius/load chart.
+      // Height is now used to rank and warn only. AP must still verify actual hook height/boom angle.
+      const reachesEnteredHeight = requiredBoom === null || physicalLength <= 0 || physicalLength + 0.5 >= requiredBoom;
+      const heightShortfallM = requiredBoom !== null && physicalLength > 0 && !reachesEnteredHeight
+        ? Math.max(0, requiredBoom - physicalLength)
+        : null;
 
       const profile = profileForCapacityCurve(rule, curve);
       const jib = jibOptionForCapacityCurve(rule, curve);
       const utilisationPercent = capacityKg > 0 ? (lifted / capacityKg) * 100 : null;
       const profileText = profile?.label ?? curve.label;
       const jibText = jib?.label ?? (curve.jibLengthM && curve.jibLengthM > 0 ? `${curve.jibLengthM} m extension/jib` : "No jib / main boom only");
-      const heightText = requiredBoom !== null ? ` Required boom length from radius/height is approximately ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m.` : "";
+      const heightText = requiredBoom !== null
+        ? reachesEnteredHeight
+          ? ` Approx required boom length from entered radius/height is ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m.`
+          : ` Radius/load chart is suitable, but entered height suggests approximately ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m boom length; verify hook height/boom angle manually${heightShortfallM ? ` (${heightShortfallM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m short on simple geometry)` : ""}.`
+        : "";
+      const heightFlag = reachesEnteredHeight ? "" : " — height check required";
       return {
         key: curve.key,
-        label: `${profileText}${curve.jibLengthM && curve.jibLengthM > 0 ? ` / ${jibText}` : ""}`,
+        label: `${profileText}${curve.jibLengthM && curve.jibLengthM > 0 ? ` / ${jibText}` : ""}${heightFlag}`,
         capacityKg,
         utilisationPercent,
         boomLengthM: curve.boomLengthM ?? null,
@@ -864,17 +876,20 @@ export function suggestRangeChartSetups({
     .filter((item): item is RangeChartSetupSuggestion => Boolean(item));
 
   return suggestions.sort((a, b) => {
+    const aLength = (a.boomLengthM ?? 999) + Math.max(0, a.jibLengthM ?? 0);
+    const bLength = (b.boomLengthM ?? 999) + Math.max(0, b.jibLengthM ?? 0);
+    const aReachesHeight = requiredBoom === null || aLength <= 0 || aLength + 0.5 >= requiredBoom;
+    const bReachesHeight = requiredBoom === null || bLength <= 0 || bLength + 0.5 >= requiredBoom;
+    if (aReachesHeight !== bReachesHeight) return aReachesHeight ? -1 : 1;
     const aJibPenalty = (a.jibLengthM ?? 0) > 0 ? 1 : 0;
     const bJibPenalty = (b.jibLengthM ?? 0) > 0 ? 1 : 0;
     if (aJibPenalty !== bJibPenalty) return aJibPenalty - bJibPenalty;
-    const aLength = (a.boomLengthM ?? 999) + Math.max(0, a.jibLengthM ?? 0);
-    const bLength = (b.boomLengthM ?? 999) + Math.max(0, b.jibLengthM ?? 0);
     if (Math.abs(aLength - bLength) > 0.01) return aLength - bLength;
     const aCounterweight = a.counterweightT ?? 999;
     const bCounterweight = b.counterweightT ?? 999;
     if (Math.abs(aCounterweight - bCounterweight) > 0.01) return aCounterweight - bCounterweight;
     return a.capacityKg - b.capacityKg;
-  }).slice(0, 5);
+  }).slice(0, 8);
 }
 
 export function calculateRangeChartCapacity({
