@@ -80,6 +80,23 @@ export type RangeChartBearingResult = {
   warning?: string;
 };
 
+export type RangeChartSetupSuggestion = {
+  key: string;
+  label: string;
+  capacityKg: number;
+  utilisationPercent: number | null;
+  boomLengthM: number | null;
+  jibLengthM: number | null;
+  counterweightT?: number | null;
+  profileKey?: string | null;
+  profileLabel?: string | null;
+  jibOptionKey?: string | null;
+  jibOptionLabel?: string | null;
+  boomAngleDeg?: number | null;
+  source: string;
+  advice: string;
+};
+
 function clean(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -215,18 +232,14 @@ const HK40_MAIN_30_3_0T = pointsT([[4.5, 10.3], [5, 10.3], [6, 10.3], [7, 10.3],
 const HK40_MAIN_32_7_0T = pointsT([[6, 8.9], [7, 8.9], [8, 8.8], [9, 8.2], [10, 7.1], [11, 6.2], [12, 5.5], [14, 4.3], [16, 3.4], [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7]]);
 const HK40_MAIN_35_2_0T = pointsT([[6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 6.9], [11, 6.1], [12, 5.4], [14, 4.2], [16, 3.4], [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7], [30, 0.5]]);
 
-const MTK35_MAIN_32 = pointsT([
-  [6, 7.0], [7, 7.0], [8, 7.0], [9, 6.8], [10, 6.5], [12, 5.4], [14, 4.0], [16, 3.1], [18, 2.3],
-  [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7], [28, 0.5],
-]);
-const MTK35_MAIN_26_5 = pointsT([
-  [4, 10.8], [5, 10.8], [6, 10.6], [7, 10.4], [8, 10.2], [9, 7.7], [10, 7.5], [12, 5.4],
-  [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7],
-]);
-const MTK35_MAIN_19_9 = pointsT([
-  [3, 16.5], [3.5, 16.5], [4, 16.5], [5, 16.4], [6, 16.0], [7, 14.2], [8, 11.3], [9, 9.0], [10, 7.4],
-  [12, 5.3], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8],
-]);
+const MTK35_MAIN_32 = pointsT([[6, 7.0], [7, 7.0], [8, 7.0], [9, 6.8], [10, 6.5], [12, 5.4], [14, 4.0], [16, 3.1], [18, 2.3], [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7], [28, 0.5]]);
+const MTK35_MAIN_26_5 = pointsT([[4, 10.8], [5, 10.8], [6, 10.6], [7, 10.4], [8, 10.2], [9, 9.1], [10, 7.5], [12, 5.3], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.7], [22, 1.3]]);
+const MTK35_MAIN_19_9 = pointsT([[3, 16.5], [3.5, 16.5], [4, 16.5], [5, 16.4], [6, 16.0], [7, 14.2], [8, 11.2], [9, 8.9], [10, 7.3], [12, 5.2], [14, 3.8], [16, 2.8]]);
+const MTK35_MAIN_10 = pointsT([[2.5, 35.0], [3, 29.0], [3.5, 24.5], [4, 22.2], [5, 19.0], [6, 16.4], [7, 13.7]]);
+const MTK35_MAIN_13_3 = pointsT([[3, 17.5], [3.5, 17.5], [4, 17.5], [5, 17.5], [6, 16.7], [7, 14.0], [8, 10.8], [9, 8.5], [10, 6.9]]);
+const MTK35_MAIN_16_6 = pointsT([[3, 17.1], [3.5, 17.1], [4, 17.1], [5, 17.1], [6, 16.8], [7, 14.1], [8, 11.0], [9, 8.8], [10, 7.2], [12, 5.1], [14, 3.7]]);
+const MTK35_MAIN_23_2 = pointsT([[3.5, 16.0], [4, 16.0], [5, 16.0], [6, 15.8], [7, 14.2], [8, 11.3], [9, 9.0], [10, 7.4], [12, 5.3], [14, 3.9], [16, 2.9], [18, 2.2], [20, 1.6]]);
+const MTK35_MAIN_29_8 = pointsT([[5, 7.8], [6, 7.8], [7, 7.8], [8, 7.8], [9, 7.7], [10, 7.5], [12, 5.4], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.8], [22, 1.3], [24, 1.0], [26, 0.7]]);
 const MTK35_EXTENSION_8_0 = pointsT([
   [8, 2.7], [10, 2.7], [12, 2.7], [14, 2.7], [16, 2.6], [18, 2.4], [20, 1.9], [22, 1.4], [24, 1.1],
   [26, 0.8], [28, 0.6], [30, 0.4], [32, 0.3], [34, 0.3],
@@ -487,10 +500,16 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     planningWeightSource: "MTK35 spec: total vehicle weight 26 t",
     estimatedBearingFactor: 0.75,
     profileOptions: [
-      profile("mtk35-main-32", "Main boom up to 32 m", 32, 32, 28, 40, "MTK35 main boom 10-32 m chart"),
-      profile("mtk35-main-26-5", "Main boom 26.5 m", 26.5, 26.5, 26, 40, "MTK35 main boom chart"),
-      profile("mtk35-main-19-9", "Main boom 19.9 m", 19.9, 19.9, 20, 40, "MTK35 main boom chart"),
+      profile("mtk35-main-10", "Main boom 10.0 m", 10.0, 10.0, 7, 40, "MTK35 load chart: 10.0 m main boom column"),
+      profile("mtk35-main-13_3", "Main boom 13.3 m", 13.3, 13.3, 10, 40, "MTK35 load chart: 13.3 m main boom column"),
+      profile("mtk35-main-16_6", "Main boom 16.6 m", 16.6, 16.6, 14, 40, "MTK35 load chart: 16.6 m main boom column"),
+      profile("mtk35-main-19_9", "Main boom 19.9 m", 19.9, 19.9, 16, 40, "MTK35 load chart: 19.9 m main boom column"),
+      profile("mtk35-main-23_2", "Main boom 23.2 m", 23.2, 23.2, 20, 40, "MTK35 load chart: 23.2 m main boom column"),
+      profile("mtk35-main-26_5", "Main boom 26.5 m", 26.5, 26.5, 22, 40, "MTK35 load chart: 26.5 m main boom column"),
+      profile("mtk35-main-29_8", "Main boom 29.8 m", 29.8, 29.8, 26, 40, "MTK35 load chart: 29.8 m main boom column"),
+      profile("mtk35-main-32", "Main boom 32.0 m", 32, 32, 28, 40, "MTK35 load chart: 32.0 m main boom column"),
     ],
+
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
       jib("mtk35-extension-8", "8 m lattice extension", 8, 34, 45, "MTK35: 8 m extension, offsets 0°/20°/40°"),
@@ -498,9 +517,14 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     ],
     capacitySource: "MTK35 uploaded load chart: main boom 10-32 m and 32 m + 8/14.5 m extensions.",
     capacityCurves: [
-      curve("mtk35-main-32", "MTK35 32 m main boom", MTK35_MAIN_32, { boomLengthM: 32, jibLengthM: 0, source: "MTK35 load chart: main boom 32.0 m column", setupAdvice: "If capacity is tight, use a shorter main boom chart if the height/radius allows." }),
-      curve("mtk35-main-26-5", "MTK35 26.5 m main boom", MTK35_MAIN_26_5, { boomLengthM: 26.5, jibLengthM: 0, source: "MTK35 load chart: main boom 26.5 m column", setupAdvice: "If this covers the height/radius, the shorter boom gives more capacity than the 32 m boom." }),
-      curve("mtk35-main-19-9", "MTK35 19.9 m main boom", MTK35_MAIN_19_9, { boomLengthM: 19.9, jibLengthM: 0, source: "MTK35 load chart: main boom 19.9 m column", setupAdvice: "Use this only if the height/radius can be achieved with 19.9 m boom." }),
+      curve("mtk35-main-10", "MTK35 10.0 m main boom", MTK35_MAIN_10, { boomLengthM: 10.0, jibLengthM: 0, source: "MTK35 load chart: 10.0 m main boom column", setupAdvice: "Selected MTK35 10.0 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-13_3", "MTK35 13.3 m main boom", MTK35_MAIN_13_3, { boomLengthM: 13.3, jibLengthM: 0, source: "MTK35 load chart: 13.3 m main boom column", setupAdvice: "Selected MTK35 13.3 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-16_6", "MTK35 16.6 m main boom", MTK35_MAIN_16_6, { boomLengthM: 16.6, jibLengthM: 0, source: "MTK35 load chart: 16.6 m main boom column", setupAdvice: "Selected MTK35 16.6 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-19_9", "MTK35 19.9 m main boom", MTK35_MAIN_19_9, { boomLengthM: 19.9, jibLengthM: 0, source: "MTK35 load chart: 19.9 m main boom column", setupAdvice: "Selected MTK35 19.9 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-23_2", "MTK35 23.2 m main boom", MTK35_MAIN_23_2, { boomLengthM: 23.2, jibLengthM: 0, source: "MTK35 load chart: 23.2 m main boom column", setupAdvice: "Selected MTK35 23.2 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-26_5", "MTK35 26.5 m main boom", MTK35_MAIN_26_5, { boomLengthM: 26.5, jibLengthM: 0, source: "MTK35 load chart: 26.5 m main boom column", setupAdvice: "Selected MTK35 26.5 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-29_8", "MTK35 29.8 m main boom", MTK35_MAIN_29_8, { boomLengthM: 29.8, jibLengthM: 0, source: "MTK35 load chart: 29.8 m main boom column", setupAdvice: "Selected MTK35 29.8 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
+      curve("mtk35-main-32", "MTK35 32.0 m main boom", MTK35_MAIN_32, { boomLengthM: 32, jibLengthM: 0, source: "MTK35 load chart: 32.0 m main boom column", setupAdvice: "Selected MTK35 32.0 m main-boom chart. Verify exact LMI, hook block/accessories and ground setup before approval." }),
       curve("mtk35-ext8-0", "MTK35 32 m + 8 m extension at 0°", MTK35_EXTENSION_8_0, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 0, jibAngleMaxDeg: 5, source: "MTK35 extension chart: 8 m extension, 0°", setupAdvice: "Use 8 m extension only where the main boom does not achieve the required height/reach." }),
       curve("mtk35-ext8-20", "MTK35 32 m + 8 m extension at 20°", MTK35_EXTENSION_8_20, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 8 m extension, 20°", setupAdvice: "Use 20° offset only if needed for clearance/reach; check chart before approval." }),
       curve("mtk35-ext8-40", "MTK35 32 m + 8 m extension at 40°", MTK35_EXTENSION_8_40, { boomLengthM: 32, jibLengthM: 8, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 8 m extension, 40°", setupAdvice: "Use 40° offset only if needed for clearance/reach; check chart before approval." }),
@@ -508,7 +532,8 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
       curve("mtk35-ext145-20", "MTK35 32 m + 14.5 m extension at 20°", MTK35_EXTENSION_14_5_20, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 15, jibAngleMaxDeg: 25, source: "MTK35 extension chart: 14.5 m extension, 20°", setupAdvice: "Use 20° offset only if needed; check chart before approval." }),
       curve("mtk35-ext145-40", "MTK35 32 m + 14.5 m extension at 40°", MTK35_EXTENSION_14_5_40, { boomLengthM: 32, jibLengthM: 14.5, jibAngleMinDeg: 35, jibAngleMaxDeg: 45, source: "MTK35 extension chart: 14.5 m extension, 40°", setupAdvice: "Use 40° offset only if needed; check chart before approval." }),
     ],
-    notes: "MTK35 structured data now covers main-boom planning curves and 8 m / 14.5 m extension offsets. Final chart verification is still required.",
+
+    notes: "MTK35 structured data now covers all main-boom chart columns visible on the uploaded spec sheet (10.0 m, 13.3 m, 16.6 m, 19.9 m, 23.2 m, 26.5 m, 29.8 m and 32.0 m) plus 8 m / 14.5 m extension offsets. Final chart/LMI verification is still required.",
   },
 ];
 
@@ -547,11 +572,7 @@ function jibMatches(curve: RangeChartCapacityCurve, jibLengthM?: number | null, 
 
 function boomCurveScore(curve: RangeChartCapacityCurve, boomLengthM?: number | null) {
   if (curve.boomLengthM === null || curve.boomLengthM === undefined || boomLengthM === null || boomLengthM === undefined || !Number.isFinite(boomLengthM)) return 0;
-  const diff = curve.boomLengthM - boomLengthM;
-  if (Math.abs(diff) <= 0.75) return Math.abs(diff);
-  // Prefer a longer chart line where available as a conservative planning check for intermediate boom lengths.
-  if (diff > 0) return diff + 2;
-  return Math.abs(diff) + 20;
+  return Math.abs(curve.boomLengthM - boomLengthM);
 }
 
 function textHasCounterweightSelection(text: string, counterweightT: number | null | undefined) {
@@ -626,9 +647,11 @@ function curveMatches({
   if (!selectedCurveAllowed(rule, curve, setupLabel, sourceLabel)) return false;
   if (!jibMatches(curve, jibLengthM, jibAngleDeg)) return false;
   if (curve.boomLengthM !== null && curve.boomLengthM !== undefined && boomLengthM !== null && boomLengthM !== undefined && Number.isFinite(boomLengthM)) {
-    if (boomLengthM > curve.boomLengthM + 0.75) return false;
-    // A longer published boom chart is normally conservative for preliminary planning when the entered boom is shorter.
-    // Do not block capacity auto-fill just because the exact intermediate boom length has not been structured yet.
+    // Do not silently use a longer boom chart for a shorter telescopic boom. That was making some
+    // lifts show over capacity when the correct shorter-boom chart was within capacity.
+    // Auto capacity is now only allowed when the selected/entered boom length matches the structured
+    // manufacturer chart column. Intermediate boom lengths must be manually verified against the LMI/spec.
+    if (Math.abs(boomLengthM - curve.boomLengthM) > 0.35) return false;
   }
   return true;
 }
@@ -739,6 +762,119 @@ function viableSetupAdvice(
   if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
   const first = viable[0];
   return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+}
+
+
+function approximateRequiredBoomLength(radiusM: number, tipHeightM?: number | null) {
+  const radius = Number(radiusM);
+  const height = Number(tipHeightM ?? 0);
+  if (!Number.isFinite(radius) || radius <= 0) return null;
+  if (!Number.isFinite(height) || height <= 0) return null;
+  return Math.sqrt((radius * radius) + (height * height));
+}
+
+function approximateBoomAngle(radiusM: number, tipHeightM?: number | null) {
+  const radius = Number(radiusM);
+  const height = Number(tipHeightM ?? 0);
+  if (!Number.isFinite(radius) || radius <= 0 || !Number.isFinite(height) || height <= 0) return null;
+  return (Math.atan2(height, radius) * 180) / Math.PI;
+}
+
+function profileForCapacityCurve(rule: RangeChartSpecRule, curve: RangeChartCapacityCurve) {
+  const profiles = rule.profileOptions ?? [];
+  if (!profiles.length) return null;
+  const exactByLabel = profiles.find((item) => lower(item.label) === lower(curve.label));
+  if (exactByLabel) return exactByLabel;
+  const candidates = profiles
+    .map((item) => {
+      const boom = item.defaultBoomLengthM ?? item.maxBoomLengthM ?? null;
+      const boomDiff = boom !== null && curve.boomLengthM !== null && curve.boomLengthM !== undefined
+        ? Math.abs(boom - curve.boomLengthM)
+        : 999;
+      const counterweight = curve.counterweightT;
+      const text = lower(`${item.key} ${item.label} ${item.source ?? ""}`);
+      const counterweightOk = counterweight === null || counterweight === undefined || textHasCounterweightSelection(text, counterweight);
+      return { item, boomDiff, counterweightOk };
+    })
+    .filter((item) => item.counterweightOk)
+    .sort((a, b) => a.boomDiff - b.boomDiff);
+  return candidates[0]?.boomDiff <= 0.75 ? candidates[0].item : null;
+}
+
+function jibOptionForCapacityCurve(rule: RangeChartSpecRule, curve: RangeChartCapacityCurve) {
+  const options = rule.jibOptions ?? [];
+  const target = curve.jibLengthM ?? 0;
+  if (!options.length) return null;
+  const exact = options.find((item) => Math.abs((item.lengthM ?? 0) - target) <= (target ? 0.85 : 0.25));
+  if (exact) return exact;
+  return target <= 0.25 ? options.find((item) => item.key === "none") ?? null : null;
+}
+
+export function suggestRangeChartSetups({
+  craneName,
+  radiusM,
+  tipHeightM,
+  totalLiftedWeightKg,
+}: {
+  craneName?: string | null;
+  radiusM: number;
+  tipHeightM?: number | null;
+  totalLiftedWeightKg?: number | null;
+}): RangeChartSetupSuggestion[] {
+  const rule = findRangeChartSpecRule(craneName);
+  const lifted = Number(totalLiftedWeightKg ?? 0);
+  const radius = Number(radiusM);
+  if (!rule?.capacityCurves?.length || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(lifted) || lifted <= 0) return [];
+
+  const requiredBoom = approximateRequiredBoomLength(radius, tipHeightM);
+  const boomAngleDeg = approximateBoomAngle(radius, tipHeightM);
+
+  const suggestions = rule.capacityCurves
+    .filter((curve) => !isJekkoPendingMainBoomCurve(curve))
+    .map<RangeChartSetupSuggestion | null>((curve) => {
+      const capacityKg = conservativeCapacityFromCurve(curve.points, radius);
+      if (capacityKg === null || capacityKg < lifted) return null;
+
+      const physicalLength = (curve.boomLengthM ?? 0) + Math.max(0, curve.jibLengthM ?? 0);
+      if (requiredBoom !== null && physicalLength > 0 && physicalLength + 0.5 < requiredBoom) return null;
+
+      const profile = profileForCapacityCurve(rule, curve);
+      const jib = jibOptionForCapacityCurve(rule, curve);
+      const utilisationPercent = capacityKg > 0 ? (lifted / capacityKg) * 100 : null;
+      const profileText = profile?.label ?? curve.label;
+      const jibText = jib?.label ?? (curve.jibLengthM && curve.jibLengthM > 0 ? `${curve.jibLengthM} m extension/jib` : "No jib / main boom only");
+      const heightText = requiredBoom !== null ? ` Required boom length from radius/height is approximately ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m.` : "";
+      return {
+        key: curve.key,
+        label: `${profileText}${curve.jibLengthM && curve.jibLengthM > 0 ? ` / ${jibText}` : ""}`,
+        capacityKg,
+        utilisationPercent,
+        boomLengthM: curve.boomLengthM ?? null,
+        jibLengthM: curve.jibLengthM ?? 0,
+        counterweightT: curve.counterweightT ?? null,
+        profileKey: profile?.key ?? null,
+        profileLabel: profile?.label ?? null,
+        jibOptionKey: jib?.key ?? null,
+        jibOptionLabel: jib?.label ?? null,
+        boomAngleDeg,
+        source: curve.source,
+        advice: `Suggested from the structured ${rule.title} load chart for ${Math.round(lifted).toLocaleString("en-GB")} kg at ${radius.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius.${heightText} Verify exact manufacturer/supplier chart, LMI, counterweight, outrigger setup, hook block and accessories before approval.`,
+      };
+    })
+    .filter((item): item is RangeChartSetupSuggestion => Boolean(item));
+
+  return suggestions.sort((a, b) => {
+    const aJibPenalty = (a.jibLengthM ?? 0) > 0 ? 1 : 0;
+    const bJibPenalty = (b.jibLengthM ?? 0) > 0 ? 1 : 0;
+    if (aJibPenalty !== bJibPenalty) return aJibPenalty - bJibPenalty;
+    const aLength = (a.boomLengthM ?? 999) + Math.max(0, a.jibLengthM ?? 0);
+    const bLength = (b.boomLengthM ?? 999) + Math.max(0, b.jibLengthM ?? 0);
+    if (Math.abs(aLength - bLength) > 0.01) return aLength - bLength;
+    const aCounterweight = a.counterweightT ?? 999;
+    const bCounterweight = b.counterweightT ?? 999;
+    if (Math.abs(aCounterweight - bCounterweight) > 0.01) return aCounterweight - bCounterweight;
+    return a.capacityKg - b.capacityKg;
+  }).slice(0, 5);
 }
 
 export function calculateRangeChartCapacity({
