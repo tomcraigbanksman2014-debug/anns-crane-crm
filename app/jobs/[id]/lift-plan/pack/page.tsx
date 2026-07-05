@@ -3219,12 +3219,12 @@ const pageFooter: CSSProperties = {
   paddingTop: 8,
   marginTop: "auto",
   borderTop: "1px solid #bcbcbc",
-  fontSize: 11,
+  fontSize: 10.5,
   color: "#555",
   display: "grid",
   gridTemplateColumns: "1fr auto",
   alignItems: "center",
-  gap: 10,
+  gap: 12,
 };
 
 const pageFooterText: CSSProperties = {
@@ -3237,22 +3237,23 @@ const reviewQrWrap: CSSProperties = {
   justifyItems: "center",
   alignItems: "center",
   gap: 2,
-  padding: 2,
+  padding: 4,
   background: "#fff",
   border: "1px solid #d8dee8",
-  borderRadius: 4,
-  minWidth: 50,
+  borderRadius: 5,
+  minWidth: 92,
 };
 
 const reviewQrImage: CSSProperties = {
-  width: 44,
-  height: 44,
+  width: 82,
+  height: 82,
   objectFit: "contain",
   display: "block",
+  imageRendering: "pixelated",
 };
 
 const reviewQrText: CSSProperties = {
-  fontSize: 8,
+  fontSize: 8.5,
   lineHeight: 1,
   fontWeight: 800,
   color: "#1f2937",
