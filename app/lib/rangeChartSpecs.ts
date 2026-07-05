@@ -184,20 +184,90 @@ const GMK_4080_EXTENSION_21_51_020_193T = pointsT([
   [36, 1.6], [38, 1.6], [40, 1.5], [42, 1.5], [44, 1.5], [46, 1.3], [48, 1.1], [50, 0.9], [52, 0.8], [54, 0.6],
 ]);
 
-const JEKKO_SPX532_MAIN_J7_LONG_BOOM = pointsT([
-  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.90], [7, 0.80], [8, 0.64], [9, 0.52], [9.45, 0.47],
-]);
-const JEKKO_SPX532_MAIN_J6_LONG_BOOM = pointsT([
-  [1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40], [9.45, 0.32],
-]);
+const JEKKO_SPX532_MAIN_J7_BY_BOOM = {
+  "2.6": pointsT([[1, 3.20], [2, 3.20]]),
+  "2.7": pointsT([[1, 3.00], [2, 3.20]]),
+  "3.7": pointsT([[1, 2.65], [2, 2.60], [3, 2.60]]),
+  "4.7": pointsT([[1, 2.40], [2, 2.30], [3, 2.30], [4, 2.25]]),
+  "5.7": pointsT([[1, 2.30], [2, 2.09], [3, 1.95], [4, 1.75], [5, 1.50]]),
+  "6.7": pointsT([[1, 2.10], [2, 1.88], [3, 1.70], [4, 1.55], [5, 1.30], [6, 1.10]]),
+  "7.7": pointsT([[1, 1.73], [2, 1.73], [3, 1.53], [4, 1.35], [5, 1.15], [6, 1.10], [7, 0.80]]),
+  "8.7": pointsT([[1, 1.65], [2, 1.55], [3, 1.41], [4, 1.30], [5, 1.12], [6, 1.04], [7, 0.80], [8, 0.65]]),
+  "9.7": pointsT([[1, 1.55], [2, 1.45], [3, 1.26], [4, 1.18], [5, 1.00], [6, 0.93], [7, 0.80], [8, 0.64], [9, 0.53]]),
+  "10.3": pointsT([[1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.90], [7, 0.80], [8, 0.64], [9, 0.52], [9.45, 0.47]]),
+} as const;
+
+const JEKKO_SPX532_MAIN_J6_BY_BOOM = {
+  "2.6": pointsT([[1, 3.20], [2, 3.20]]),
+  "2.7": pointsT([[1, 3.00], [2, 3.20]]),
+  "3.7": pointsT([[1, 2.65], [2, 2.60], [3, 2.60]]),
+  "4.7": pointsT([[1, 2.40], [2, 2.30], [3, 2.30], [4, 1.70]]),
+  "5.7": pointsT([[1, 2.30], [2, 2.09], [3, 1.95], [4, 1.65], [5, 1.10]]),
+  "6.7": pointsT([[1, 2.10], [2, 1.88], [3, 1.70], [4, 1.50], [5, 1.10], [6, 0.80]]),
+  "7.7": pointsT([[1, 1.73], [2, 1.73], [3, 1.53], [4, 1.35], [5, 1.10], [6, 0.80], [7, 0.60]]),
+  "8.7": pointsT([[1, 1.65], [2, 1.55], [3, 1.41], [4, 1.30], [5, 1.00], [6, 0.80], [7, 0.60], [8, 0.48]]),
+  "9.7": pointsT([[1, 1.55], [2, 1.45], [3, 1.26], [4, 1.18], [5, 1.00], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40]]),
+  "10.3": pointsT([[1, 1.45], [2, 1.27], [3, 1.17], [4, 1.03], [5, 0.96], [6, 0.80], [7, 0.60], [8, 0.48], [9, 0.40], [9.45, 0.32]]),
+} as const;
+
+const JEKKO_SPX532_MAIN_J5_BY_BOOM = {
+  "2.6": pointsT([[1, 1.50], [2, 1.20]]),
+  "2.7": pointsT([[1, 1.50], [2, 1.20]]),
+  "3.7": pointsT([[1, 1.00], [2, 0.70], [3, 0.60]]),
+  "4.7": pointsT([[1, 0.70], [2, 0.50], [3, 0.45], [4, 0.35]]),
+  "5.7": pointsT([[1, 0.40], [2, 0.40], [3, 0.30], [4, 0.28], [5, 0.20]]),
+} as const;
+
+type JekkoStabilityRating = "J7" | "J6" | "J5";
+
+function jekkoMainProfileKey(rating: JekkoStabilityRating, boomLengthM: string) {
+  return `spx532-main-${rating.toLowerCase()}-${boomLengthM.replace(".", "-")}`;
+}
+
+function jekkoMainProfileLabel(rating: JekkoStabilityRating, boomLengthM: string) {
+  const stability = rating === "J7" ? "full stability" : "reduced stability";
+  return `Main boom — ${rating}/${stability} — L ${boomLengthM} m`;
+}
+
+function makeJekkoMainProfiles(): RangeChartProfileOption[] {
+  const items: RangeChartProfileOption[] = [];
+  for (const boom of Object.keys(JEKKO_SPX532_MAIN_J7_BY_BOOM)) {
+    items.push(profile(jekkoMainProfileKey("J7", boom), jekkoMainProfileLabel("J7", boom), Number(boom), 10.8, 9.45, 12.1, `SPX532 page 10: main boom J7, L ${boom} m column`));
+  }
+  for (const boom of Object.keys(JEKKO_SPX532_MAIN_J6_BY_BOOM)) {
+    items.push(profile(jekkoMainProfileKey("J6", boom), jekkoMainProfileLabel("J6", boom), Number(boom), 10.8, 9.45, 12.1, `SPX532 page 10: main boom J6, L ${boom} m column`));
+  }
+  for (const boom of Object.keys(JEKKO_SPX532_MAIN_J5_BY_BOOM)) {
+    items.push(profile(jekkoMainProfileKey("J5", boom), jekkoMainProfileLabel("J5", boom), Number(boom), 10.8, 5, 12.1, `SPX532 page 11: main boom J5, L ${boom} m column`));
+  }
+  return items;
+}
+
+function makeJekkoMainCurves(): RangeChartCapacityCurve[] {
+  const curves: RangeChartCapacityCurve[] = [];
+  for (const [boom, points] of Object.entries(JEKKO_SPX532_MAIN_J7_BY_BOOM)) {
+    curves.push(curve(jekkoMainProfileKey("J7", boom), jekkoMainProfileLabel("J7", boom), points, {
+      boomLengthM: Number(boom), jibLengthM: 0, source: `SPX532 page 10: main boom J7 chart, L ${boom} m column`, setupAdvice: "Use only where outrigger/stability area gives J7/full-stability crane performance. Use multiple-fall block/reeving where the gross suspended load exceeds single-fall capacity.",
+    }));
+  }
+  for (const [boom, points] of Object.entries(JEKKO_SPX532_MAIN_J6_BY_BOOM)) {
+    curves.push(curve(jekkoMainProfileKey("J6", boom), jekkoMainProfileLabel("J6", boom), points, {
+      boomLengthM: Number(boom), jibLengthM: 0, source: `SPX532 page 10: main boom J6 chart, L ${boom} m column`, setupAdvice: "Use only where outrigger/stability area gives J6 crane performance. Use multiple-fall block/reeving where the gross suspended load exceeds single-fall capacity.",
+    }));
+  }
+  for (const [boom, points] of Object.entries(JEKKO_SPX532_MAIN_J5_BY_BOOM)) {
+    curves.push(curve(jekkoMainProfileKey("J5", boom), jekkoMainProfileLabel("J5", boom), points, {
+      boomLengthM: Number(boom), jibLengthM: 0, source: `SPX532 page 11: main boom J5 chart, L ${boom} m column`, setupAdvice: "Use only where outrigger/stability area gives J5 crane performance. Use multiple-fall block/reeving where the gross suspended load exceeds single-fall capacity.",
+    }));
+  }
+  return curves;
+}
+
 // Fallback planning curve used only when the SPX532 is recognised as main-boom work but the exact J-rating
-// has not been selected in the setup dropdown/text yet. It deliberately follows the reduced J6 long-boom line,
+// has not been selected in the setup dropdown/text yet. It deliberately follows the reduced J6 10.3 m line,
 // not the 3.2t maximum machine capacity, so the CRM gives a useful preliminary capacity without hiding the
 // appointed-person verification warning.
-const JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING = JEKKO_SPX532_MAIN_J6_LONG_BOOM;
-const JEKKO_SPX532_MAIN_J5 = pointsT([
-  [1, 0.40], [2, 0.40], [3, 0.30], [4, 0.28], [5, 0.20],
-]);
+const JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING = JEKKO_SPX532_MAIN_J6_BY_BOOM["10.3"];
 const JEKKO_SPX532_JIB1000_J5_51 = pointsT([
   [1, 0.22], [2, 0.21], [3, 0.20], [4, 0.19], [5, 0.18],
 ]);
@@ -373,11 +443,7 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     planningWeightKg: 2520,
     planningWeightSource: "SPX532 spec: dry crane weight 2520 kg",
     estimatedBearingFactor: 0.75,
-    profileOptions: [
-      profile("spx532-main-j7", "Main boom — J7/full-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J7 chart"),
-      profile("spx532-main-j6", "Main boom — J6 reduced-stability planning chart", 10.3, 10.8, 9.7, 12.1, "SPX532 main boom J6 chart"),
-      profile("spx532-main-j5", "Main boom — J5 reduced-stability planning chart", 5.7, 10.8, 5, 12.1, "SPX532 main boom J5 chart"),
-    ],
+    profileOptions: makeJekkoMainProfiles(),
     jibOptions: [
       jib("none", "No jib / main boom only", 0),
       jib("spx532-jib500gr", "JIB500GR grabber jib", 0.5, 12, 14.8, "SPX532 JIB500GR planning chart"),
@@ -387,20 +453,12 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     bearingLoadSource: "Jekko SPX532 spec: static outrigger load 3000 kg",
     capacitySource: "Jekko SPX532 spec: structured J-rating/load charts; exact outrigger/stability rating must be verified.",
     capacityCurves: [
-      curve("spx532-main-j7", "SPX532 main boom J7/full stability", JEKKO_SPX532_MAIN_J7_LONG_BOOM, {
-        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J7 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J7 crane performance.",
-      }),
-      curve("spx532-main-j6", "SPX532 main boom J6", JEKKO_SPX532_MAIN_J6_LONG_BOOM, {
-        boomLengthM: 10.8, jibLengthM: 0, source: "SPX532 page 10: main boom J6 chart, L up to 10.3 m", setupAdvice: "Use only if the outrigger/stability area gives J6 crane performance.",
-      }),
-      curve("spx532-main-j5", "SPX532 main boom J5", JEKKO_SPX532_MAIN_J5, {
-        boomLengthM: 5.7, jibLengthM: 0, source: "SPX532 page 11: main boom J5 chart", setupAdvice: "Use only if the outrigger/stability area gives J5 crane performance.",
-      }),
+      ...makeJekkoMainCurves(),
       curve("spx532-main-pending-j-rating", "SPX532 main boom conservative planning curve pending J-rating verification", JEKKO_SPX532_MAIN_CONSERVATIVE_PENDING_J_RATING, {
-        boomLengthM: 10.8,
+        boomLengthM: 10.3,
         jibLengthM: 0,
-        source: "SPX532 preliminary main-boom planning curve using the reduced J6 long-boom line until exact J-rating/stability is verified",
-        setupAdvice: "Preliminary only: the CRM has used the conservative SPX532 main-boom J6 planning line because the exact J-rating/stability setup has not been selected. The appointed person must verify the actual outrigger spread, stability/J-rating, boom length, hook/accessory allowance and manufacturer chart before approval.",
+        source: "SPX532 preliminary main-boom planning curve using the reduced J6 10.3 m line until exact J-rating/stability/boom column is verified",
+        setupAdvice: "Preliminary only: the CRM has used the conservative SPX532 main-boom J6 10.3 m planning line because the exact J-rating/stability setup has not been selected. The appointed person must verify the actual outrigger spread, stability/J-rating, boom length, hook block/accessory allowance and manufacturer chart before approval.",
       }),
       curve("spx532-jib1000-j5", "SPX532 JIB1000.2H1MX J5", JEKKO_SPX532_JIB1000_J5_51, {
         jibLengthM: 5.1, boomLengthM: 10.8, source: "SPX532 page 14: JIB1000.2H1MX J5 chart, LJ 5.1 m", setupAdvice: "Use only if the selected outrigger/stability area gives J5 crane performance.",
@@ -752,7 +810,7 @@ function viableSetupAdvice(
 
   const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
   if (selectedCurve && selectedCapacity !== null && selectedCapacity >= totalLiftedWeightKg) {
-    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""} Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
   }
   const viable = rule.capacityCurves
     .filter((item) => curveMatches({ rule, curve: item, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel }))
@@ -761,7 +819,7 @@ function viableSetupAdvice(
     .sort((a, b) => (a.capacityKg ?? 0) - (b.capacityKg ?? 0));
   if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
   const first = viable[0];
-  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""} Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
 }
 
 
@@ -809,6 +867,18 @@ function jibOptionForCapacityCurve(rule: RangeChartSpecRule, curve: RangeChartCa
   if (exact) return exact;
   return target <= 0.25 ? options.find((item) => item.key === "none") ?? null : null;
 }
+
+function setupPreferenceRank(rule: RangeChartSpecRule, item: RangeChartSetupSuggestion) {
+  const text = lower(`${item.key} ${item.label} ${item.source}`);
+  if (rule.id === "spx532") {
+    if (/\bj7\b|full[-\s]?stability/.test(text)) return 0;
+    if (/\bj6\b/.test(text)) return 1;
+    if (/\bj5\b/.test(text)) return 2;
+    return 3;
+  }
+  return 0;
+}
+
 
 export function suggestRangeChartSetups({
   craneName,
@@ -870,7 +940,7 @@ export function suggestRangeChartSetups({
         jibOptionLabel: jib?.label ?? null,
         boomAngleDeg,
         source: curve.source,
-        advice: `Suggested from the structured ${rule.title} load chart for ${Math.round(lifted).toLocaleString("en-GB")} kg at ${radius.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius.${heightText} Verify exact manufacturer/supplier chart, LMI, counterweight, outrigger setup, hook block and accessories before approval.`,
+        advice: `Suggested from the structured ${rule.title} load chart for ${Math.round(lifted).toLocaleString("en-GB")} kg at ${radius.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius.${heightText}${rule.id === "spx532" && lifted > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""} Verify exact manufacturer/supplier chart, LMI, counterweight, outrigger setup, hook block and accessories before approval.`,
       };
     })
     .filter((item): item is RangeChartSetupSuggestion => Boolean(item));
@@ -884,6 +954,9 @@ export function suggestRangeChartSetups({
     const aJibPenalty = (a.jibLengthM ?? 0) > 0 ? 1 : 0;
     const bJibPenalty = (b.jibLengthM ?? 0) > 0 ? 1 : 0;
     if (aJibPenalty !== bJibPenalty) return aJibPenalty - bJibPenalty;
+    const aPreference = setupPreferenceRank(rule, a);
+    const bPreference = setupPreferenceRank(rule, b);
+    if (aPreference !== bPreference) return aPreference - bPreference;
     if (Math.abs(aLength - bLength) > 0.01) return aLength - bLength;
     const aCounterweight = a.counterweightT ?? 999;
     const bCounterweight = b.counterweightT ?? 999;
