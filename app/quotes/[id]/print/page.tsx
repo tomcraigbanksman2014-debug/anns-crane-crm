@@ -1036,7 +1036,7 @@ const quoteReviewFooterStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr auto",
   alignItems: "center",
-  gap: 10,
+  gap: 12,
   color: "#475569",
 };
 
@@ -1051,22 +1051,23 @@ const quoteReviewQrWrapStyle: CSSProperties = {
   justifyItems: "center",
   alignItems: "center",
   gap: 2,
-  padding: 2,
+  padding: 4,
   background: "#fff",
   border: "1px solid #d8dee8",
-  borderRadius: 4,
-  minWidth: 50,
+  borderRadius: 5,
+  minWidth: 92,
 };
 
 const quoteReviewQrImageStyle: CSSProperties = {
-  width: 44,
-  height: 44,
+  width: 82,
+  height: 82,
   objectFit: "contain",
   display: "block",
+  imageRendering: "pixelated",
 };
 
 const quoteReviewQrTextStyle: CSSProperties = {
-  fontSize: 8,
+  fontSize: 8.5,
   lineHeight: 1,
   fontWeight: 800,
   color: "#1f2937",
