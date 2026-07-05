@@ -7,7 +7,7 @@ import {
 import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
 import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
-import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../../lib/rangeChartSpecs";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions, suggestRangeChartSetups } from "../../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null>;
 
@@ -761,7 +761,13 @@ function PageHeader({
 function PageFooter({ text }: { text?: ReactNode }) {
   return (
     <div style={pageFooter}>
-      {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk"}
+      <div style={pageFooterText}>
+        {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk"}
+      </div>
+      <div style={reviewQrWrap}>
+        <img src="/google-review-qr.png" alt="Google review QR code" style={reviewQrImage} />
+        <div style={reviewQrText}>Review us</div>
+      </div>
     </div>
   );
 }
@@ -1019,6 +1025,75 @@ function formatRangeNumber(value: number | null | undefined, suffix = "m") {
 function formatRangeKg(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   return `${Math.round(value).toLocaleString("en-GB")} kg`;
+}
+
+function cleanPackSetupLabel(value: unknown) {
+  return tidyRepeatedTextBlock(String(value ?? ""))
+    .replace(/\s*—\s*height\s+check\s+required\s*$/i, "")
+    .replace(/\bmanual\s+chart\s+check\b/gi, "")
+    .replace(/\bmanual\s+reaction\s+check\b/gi, "")
+    .replace(/\bwarning\b:?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildRecommendedSetupText({
+  craneName,
+  radiusM,
+  tipHeightM,
+  totalLiftedWeightKg,
+  selectedSetupLabel,
+  selectedJibLabel,
+  sourceLabel,
+}: {
+  craneName: string;
+  radiusM: number | null | undefined;
+  tipHeightM: number | null | undefined;
+  totalLiftedWeightKg: number | null | undefined;
+  selectedSetupLabel?: string | null;
+  selectedJibLabel?: string | null;
+  sourceLabel?: string | null;
+}) {
+  const radius = Number(radiusM ?? 0);
+  const lifted = Number(totalLiftedWeightKg ?? 0);
+  if (!Number.isFinite(radius) || radius <= 0 || !Number.isFinite(lifted) || lifted <= 0) {
+    const selected = cleanPackSetupLabel([selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / "));
+    return selected || "To be confirmed from the selected crane load chart before the lift proceeds.";
+  }
+
+  const suggestions = suggestRangeChartSetups({
+    craneName,
+    radiusM: radius,
+    tipHeightM: tipHeightM ?? null,
+    totalLiftedWeightKg: lifted,
+  });
+  const best = suggestions[0] ?? null;
+
+  if (!best) {
+    const selected = cleanPackSetupLabel([selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / "));
+    return selected
+      ? `${selected}. Recommended duty to be confirmed against the selected load chart for ${formatKgOnly(lifted)} at ${formatRangeNumber(radius)} radius.`
+      : `Recommended duty to be confirmed against the selected load chart for ${formatKgOnly(lifted)} at ${formatRangeNumber(radius)} radius.`;
+  }
+
+  const setup = cleanPackSetupLabel(best.label) || cleanPackSetupLabel(best.profileLabel) || "Selected chart setup";
+  const parts = [setup];
+  if (best.boomLengthM && Number.isFinite(best.boomLengthM)) parts.push(`boom ${formatRangeNumber(best.boomLengthM)}`);
+  if (best.jibLengthM && best.jibLengthM > 0) parts.push(`jib/extension ${formatRangeNumber(best.jibLengthM)}`);
+  else parts.push("no jib");
+  if (best.counterweightT !== null && best.counterweightT !== undefined && Number.isFinite(best.counterweightT)) {
+    parts.push(`${Number(best.counterweightT).toLocaleString("en-GB", { maximumFractionDigits: 1 })} t counterweight`);
+  }
+
+  const utilText = best.utilisationPercent !== null && best.utilisationPercent !== undefined
+    ? `, ${formatPercentValue(best.utilisationPercent)} utilisation`
+    : "";
+
+  return `${parts.join("; ")}. Chart duty: ${formatKgAndTonnes(best.capacityKg)} at ${formatRangeNumber(radius)} radius for ${formatKgOnly(lifted)} gross lifted load${utilText}.`;
+}
+
+function buildPackCapacitySourceText(method: string | null | undefined) {
+  return method === "automatic" ? "Structured load chart" : "Selected / AP verified load chart";
 }
 
 function formatRangeGap(value: number) {
@@ -1398,8 +1473,17 @@ function RangeChartPackPage({
   const sourceLabel = sourceMode === "external_spec_sheet"
     ? rangeText(sections, "range_chart_external_spec_document_title", "External / job-specific crane spec sheet")
     : sourceMode === "manual"
-    ? "Manual entry / not linked to a stored spec sheet"
+    ? "Selected / AP verified load chart"
     : "Selected CRM crane spec sheets";
+  const recommendedSetup = buildRecommendedSetupText({
+    craneName,
+    radiusM: calc.radiusM,
+    tipHeightM: calc.tipHeightM,
+    totalLiftedWeightKg: calc.totalLiftedWeightKg,
+    selectedSetupLabel: selectedSetup,
+    selectedJibLabel: selectedJibOption,
+    sourceLabel,
+  });
   const maxX = Math.max(calc.radiusM + 4, calc.objectDistanceM + calc.objectWidthM + 4, 12);
   const maxY = Math.max(calc.tipHeightM + 4, calc.objectHeightM + 4, 8);
   const viewWidth = 900;
@@ -1518,8 +1602,9 @@ function RangeChartPackPage({
         <MetricBox label="Load Weight" value={formatRangeKg(calc.loadWeightKg)} />
         <MetricBox label="Accessory Weight" value={formatRangeKg(calc.accessoryWeightKg)} />
         <MetricBox label="Total Lifted Weight" value={formatRangeKg(calc.totalLiftedWeightKg)} />
+        <MetricBox label="Recommended Setup" value={recommendedSetup} />
         <MetricBox label="Chart Capacity" value={formatRangeKg(calc.chartCapacityKg)} />
-        <MetricBox label="Capacity Source" value={`${calc.capacityMethod === "automatic" ? "Auto" : "Manual"} check`} />
+        <MetricBox label="Capacity Source" value={buildPackCapacitySourceText(calc.capacityMethod)} />
         <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "—"} />
         {calc.matAreaM2 ? <MetricBox label="Additional Spreader Area" value={formatAreaM2(calc.matAreaM2)} /> : null}
         <MetricBox label="Bearing Load / Reaction" value={formatRangeKg(calc.bearingLoadKg)} />
@@ -2023,8 +2108,25 @@ export default async function CraneLiftPlanPackPage({
   const craneCapacity = rangeChartCapacityKg
     ? formatKgAndTonnes(rangeChartCapacityKg)
     : rangeTotalLiftedWeightKg
-      ? "See selected load chart / AP verification"
+      ? "Selected / AP verified load chart"
       : formatCapacity(equipmentProfile, crane, craneName);
+  const recommendedSetupText = buildRecommendedSetupText({
+    craneName,
+    radiusM: rangeGroundCalc?.radiusM ?? parseDecimal(sections.range_chart_radius_m),
+    tipHeightM: rangeGroundCalc?.tipHeightM ?? parseDecimal(sections.range_chart_tip_height_m),
+    totalLiftedWeightKg: rangeTotalLiftedWeightKg,
+    selectedSetupLabel: rangeSelectedSetupLabel || currentCraneWeightProfile?.label || sections.selected_crane_setup_label,
+    selectedJibLabel: rangeSelectedJibLabel || currentCraneWeightJib?.label,
+    sourceLabel: [
+      sections.range_chart_selected_setup_source,
+      currentCraneWeightProfile?.source,
+      sections.range_chart_selected_jib_option_source,
+      currentCraneWeightJib?.source,
+      sections.range_chart_capacity_source,
+      sections.range_chart_external_spec_document_title,
+      sections.selected_crane_spec_source,
+    ].filter(Boolean).join(" / "),
+  });
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
   const boomConfig = shortBoomConfiguration(
@@ -2036,10 +2138,6 @@ export default async function CraneLiftPlanPackPage({
   const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
     ? formatPercentValue(rangeUtilisationPercent)
     : "—";
-  // Do not print internal CRM capacity warnings on downloaded lift plans.
-  // The builder/system view still shows warning messages before export.
-  const primaryCapacityWarning = "";
-
   const enteredCraneWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const craneMaxWeightKg = currentCranePlanningWeightKg ?? rangeSpecPlanningWeightKg ?? enteredCraneWeightKg ?? rangePlanningGrossWeightKg;
   const loadMaxWeightKg = rangeTotalLiftedWeightKg ?? parseWeightToKg(sections.ground_bearing_load_max_weight || liftPlan?.load_weight);
@@ -2094,17 +2192,17 @@ export default async function CraneLiftPlanPackPage({
   const introductionText = defaultSectionText(
     sections,
     "introduction",
-    `This Method Statement has been prepared using information provided by ${clientName}, together with the site-specific details and lifting information supplied for the planned works. The operation is to be carried out in accordance with the approved lifting plan, current legislation, BS 7121, LOLER, PUWER and the relevant manufacturer guidance for the selected crane.`
+    `This lift plan has been prepared from the information supplied by ${clientName}, the site details available at planning stage and the lifting information entered for this job. The lift is to be carried out to this plan, BS 7121, LOLER, PUWER and the relevant crane manufacturer guidance.`
   );
   const clientResponsibilitiesText = defaultSectionText(
     sections,
     "client_responsibilities",
-    `The client shall provide accurate load information, safe and suitable access, a suitable crane standing area, traffic and pedestrian controls where required, and details of any restrictions, underground services, permits or other site conditions that may affect the lifting operation. The client remains responsible for the structural integrity of the load and any client-supplied lifting points.`
+    `The client is to provide accurate load details, suitable access, a suitable standing area for the crane, traffic / pedestrian controls where needed and details of any restrictions, underground services, permits or site rules that may affect the lift. The client remains responsible for the condition of the load and any client-supplied lifting points.`
   );
   const contractLiftArrivalText = defaultSectionText(
     sections,
     "contract_lift_arrival",
-    `Upon arrival, the crane and lifting personnel will report to the agreed site contact, complete any required induction and proceed to the planned lifting position under supervision. No lifting activity will commence until the Lift Supervisor has confirmed that the crane is correctly positioned, the exclusion zone is in place, communication is agreed, and the site remains suitable for the planned operation.`
+    `On arrival, the crane and lifting personnel will report to the site contact, complete any required induction and move to the planned lifting position under supervision. The lift must not start until the lift supervisor has confirmed the crane position, ground support, exclusion zone, communication method and general site conditions are suitable.`
   );
   const rawScopeOfWorksText = defaultSectionText(
     sections,
@@ -2127,35 +2225,35 @@ export default async function CraneLiftPlanPackPage({
   const weatherConditionsText = defaultSectionText(
     sections,
     "weather_conditions",
-    sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote || `Lifting operations must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Final permissible wind speed is to be confirmed against the relevant crane chart, selected configuration, load characteristics and the prevailing site conditions before the lift proceeds.`
+    sections.weather_conditions || liftPlan?.weather_limitations || equipmentProfile?.weatherNote || `The lift must not proceed in unsafe wind, lightning, heavy rain or poor visibility. Wind speed is to be checked against the crane chart, selected configuration, load shape and site conditions before lifting starts and monitored during the operation.`
   );
   const siteAccessText = defaultSectionText(
     sections,
     "site_access_egress",
-    `The client must ensure that the crane, support vehicles and lifting personnel have clear and safe access to and egress from the site at all times. Access routes must remain suitable for the crane size, weight and turning requirements.`
+    `The client must keep clear and safe access available for the crane, support vehicles and lifting team. The route to and from the set-up position must be suitable for the crane size, weight, width and turning requirements.`
   );
   const groundConditionsText = defaultSectionText(
     sections,
     "ground_conditions",
-    sections.ground_conditions || liftPlan?.ground_conditions || `Ground conditions are to be confirmed on arrival. The crane must only be set up on firm, level ground capable of supporting the crane, the load and the outrigger reactions. Additional ground protection must be used where required.`
+    sections.ground_conditions || liftPlan?.ground_conditions || `Ground conditions are to be checked on arrival. The crane must be set up on firm, level ground capable of supporting the crane, lifted load and outrigger / stabiliser loads. Mats or additional spreader protection are to be used where required.`
   );
   const overheadText = defaultSectionText(
     sections,
     "overhead_obstructions",
-    sections.overhead_obstructions || liftPlan?.site_hazards || `All overhead obstructions, structures, plant, services and slewing restrictions must be identified and controlled before lifting operations commence.`
+    sections.overhead_obstructions || liftPlan?.site_hazards || `Overhead services, nearby structures, scaffold, plant, trees, public areas and any slewing restrictions must be identified before set-up and controlled throughout the lift.`
   );
   const trafficText = currentCraneSectionText(
     sections,
     "traffic_pedestrian_management",
     liftPlan?.exclusion_zone_details && !textMentionsDifferentKnownCrane(liftPlan.exclusion_zone_details, craneName)
       ? liftPlan.exclusion_zone_details
-      : `Barrier off the lifting area, slewing area and landing zone for ${tidyCraneLabel(craneName)}. Only authorised personnel are permitted inside the exclusion zone while the crane is being set up, the load is suspended or the lift is being completed.`,
+      : `The lifting area, slewing area and landing zone for ${tidyCraneLabel(craneName)} are to be barriered or controlled. Only authorised personnel involved in the operation are to enter the exclusion zone while the crane is set up, the load is suspended or the lift is taking place.`,
     craneName
   );
   const liftingEquipmentText = defaultSectionText(
     sections,
     "lifting_equipment_certification",
-    sections.lifting_equipment_certification || "All lifting tackle must hold current certification and be inspected before use."
+    sections.lifting_equipment_certification || "All lifting accessories must have current certification, be suitable for the load and be visually inspected before use."
   );
   const rawCraneDetailsFallback = equipmentProfile?.summary || `${craneName} to be checked against the current manufacturer specification and load chart.`;
   const craneDetailsFallback = currentCraneIsAk46(craneName)
@@ -2169,38 +2267,42 @@ export default async function CraneLiftPlanPackPage({
     craneDetailsFallback,
     craneName
   );
-  const craneSetupText = tidyRepeatedTextBlock(
+  const craneSetupBaseText =
     safeCraneSetupProcedureSection ||
-      safeLiftPlanCraneConfiguration ||
-      equipmentProfile?.configurationNote ||
-      `The crane is to be rigged and configured in accordance with the manufacturer’s instructions, the selected chart and the approved lift arrangement.`
-  );
+    safeLiftPlanCraneConfiguration ||
+    equipmentProfile?.configurationNote ||
+    `The crane is to be rigged and configured in accordance with the manufacturer instructions, the selected load chart and the approved lift arrangement.`;
+  const craneSetupText = tidyRepeatedTextBlock([
+    `Recommended crane setup for this lift: ${recommendedSetupText}`,
+    craneSetupBaseText,
+    `The final crane set-up on site must be checked against the current manufacturer / supplier load chart, LMI, ground conditions and the actual lift arrangement before the load is lifted.`,
+  ].filter(Boolean).join("\n\n"));
   const liftingProcedureText = currentCraneSectionText(
     sections,
     "lifting_procedure",
     methodStatementLines.length && !textMentionsDifferentKnownCrane(methodStatementLines.join("\n"), craneName)
       ? methodStatementLines.join("\n")
       : [
-          `Attend site at ${projectName} and complete the pre-lift briefing with all involved personnel before lifting starts.`,
-          `Establish the exclusion zone, confirm the load details, lift route, landing area and communication method.`,
-          `Position ${tidyCraneLabel(craneName)} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm level, support and final setup before load is taken.`,
-          `Crane configuration, boom length, counterweight / ballast, radius and duties must be checked against the uploaded specification / load chart for the actual lift.`,
-          `Inspect all lifting accessories, connect the load using the planned certified arrangement, complete a controlled test lift if required and then carry out the lift under the direction of the lift supervisor using the agreed signalling method.`,
-          `Land the load safely, remove lifting accessories, de-rig the crane in accordance with the manufacturer instructions and leave the work area safe and tidy.`,
+          `Attend site at ${projectName} and complete the pre-lift briefing with everyone involved before lifting starts.`,
+          `Set out the exclusion zone and confirm the load details, lifting accessories, lift route, landing area and communication method.`,
+          `Position ${tidyCraneLabel(craneName)} in the planned location, deploy outriggers / stabilisers on suitable mats or pads and confirm the crane is level and correctly supported before the load is taken.`,
+          `The crane configuration, recommended setup, boom length, counterweight / ballast, radius and duty are to be checked against the selected load chart for the actual lift before lifting starts.`,
+          `Inspect the lifting accessories, connect the load using the planned certified arrangement, complete a controlled test lift where required and carry out the lift under the direction of the lift supervisor using the agreed signalling method.`,
+          `Land the load safely, remove lifting accessories, de-rig the crane in line with the manufacturer instructions and leave the work area safe and tidy.`,
         ].join(" "),
     craneName
   );
   const deRigText = defaultSectionText(
     sections,
     "de_rig_procedure",
-    `On completion of the lifting operation, the crane operator and lifting team will remove lifting accessories, de-rig the crane in accordance with the manufacturer’s instructions, recover mats and barriers, and leave the site in a safe and tidy condition.`
+    `On completion, the crane operator and lifting team will remove lifting accessories, de-rig the crane in line with the manufacturer instructions, recover mats and barriers and leave the area safe and tidy.`
   );
   const emergencyProcedureText = currentCraneSectionText(
     sections,
     "emergency_procedure",
     liftPlan?.emergency_procedures && !textMentionsDifferentKnownCrane(liftPlan.emergency_procedures, craneName)
       ? liftPlan.emergency_procedures
-      : `Stop work immediately if unsafe conditions develop, an equipment fault occurs or the load cannot be controlled. Make ${tidyCraneLabel(craneName)} and the load safe where possible, isolate the area, alert site management and emergency services if required, and follow site-specific emergency procedures for injury, instability, contact with services or crane failure.`,
+      : `Stop work immediately if conditions become unsafe, an equipment fault occurs or the load cannot be controlled. Make ${tidyCraneLabel(craneName)} and the load safe where possible, isolate the area, inform site management and contact emergency services if required. Site emergency procedures are to be followed for injury, instability, contact with services or crane failure.`,
     craneName
   );
   const riskSummaryText = currentCraneSectionText(
@@ -2208,7 +2310,7 @@ export default async function CraneLiftPlanPackPage({
     "risk_assessment_summary",
     riskLines.length && !textMentionsDifferentKnownCrane(riskLines.join("\n"), craneName)
       ? riskLines.join("\n")
-      : "Main risks include load drop due to sling / accessory failure, crane instability due to poor ground or incorrect setup, collision with structures or personnel, incorrect chart or setup selection, glass breakage, weather impacts and unauthorised access to the exclusion zone. Final capacity and configuration must be checked against the current applicable chart before approval.",
+      : "Main risks include load drop, sling / accessory failure, crane instability, unsuitable ground, incorrect set-up, collision with structures or personnel, weather changes and unauthorised access to the exclusion zone. Controls include certified lifting accessories, agreed communication, exclusion zones, suitable ground support, pre-lift briefing and checking the selected load chart before lifting.",
     craneName
   );
   const emergencyContactsText = defaultSectionText(sections, "emergency_contacts", emergencyContacts);
@@ -2636,6 +2738,7 @@ export default async function CraneLiftPlanPackPage({
               calculatedInputField("crane_lifting_accessories_weight_text", accessoryWeight),
             ],
             [inputField("cover_label_boom_configuration", "Boom configuration"), <EditableTextarea name="boom_configuration" defaultValue={boomConfigurationText} rows={3} compact />],
+            [inputField("crane_label_minimum_required_setup", "Recommended setup"), calculatedInputField("crane_minimum_required_setup", recommendedSetupText)],
             [inputField("crane_label_outreach_reference", "Boom / outreach reference"), calculatedInputField("crane_outreach_reference", outreachRef)],
             [inputField("crane_label_jib_reference", "Jib / max outreach"), calculatedInputField("crane_jib_reference", jibRef)],
             [inputField("crane_label_max_capacity", "Chart capacity at radius"), calculatedInputField("crane_max_capacity", craneCapacity)],
@@ -2643,9 +2746,7 @@ export default async function CraneLiftPlanPackPage({
           ]}
         />
 
-        {primaryCapacityWarning ? (
-          <div style={packCapacityReviewBox}>{primaryCapacityWarning}</div>
-        ) : null}
+        {/* Internal capacity warnings are kept inside the CRM screen and are not printed on downloaded lift plan packs. */}
 
         <BoxedParagraph title={inputField("ground_bearing_title", "Ground bearing load calculation")}>
           <InfoTable
@@ -2704,7 +2805,7 @@ export default async function CraneLiftPlanPackPage({
                         ["Mat bearing area", calculatedInputField(`additional_crane_${index}_mat_area`, formatAreaM2(calc.matAreaM2))],
                         ["Estimated max outrigger load", calculatedInputField(`additional_crane_${index}_bearing`, formatKgAndTonnes(calc.bearingLoadKg))],
                         ["Mat/spreader pressure reference", calculatedInputField(`additional_crane_${index}_pressure`, calc.bearingPressureKgM2 ? `${calc.bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(calc.bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—")],
-                        ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Verify exact manufacturer/supplier chart, radius, boom/jib setup, load weight, hook block/accessories, outrigger setup, ground conditions and which crane is actually being used before lifting.", 4, true)],
+                        ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Confirm the selected chart, radius, boom / jib setup, load weight, hook block / accessories, outrigger setup and ground conditions before lifting.", 4, true)],
                       ]}
                     />
                     {/* Internal CRM warnings are not printed on downloaded lift-plan packs. */}
@@ -2960,8 +3061,6 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
 }
 
 
-const packCapacityReviewBox: CSSProperties = { marginTop: 10, marginBottom: 10, padding: "10px 12px", border: "1px solid #8a1f11", borderRadius: 8, background: "#fff4f0", color: "#7a1309", fontWeight: 800, whiteSpace: "pre-line" };
-
 const fieldsetStyle: CSSProperties = {
   border: 0,
   margin: 0,
@@ -3117,12 +3216,46 @@ const pageBody: CSSProperties = {
 };
 
 const pageFooter: CSSProperties = {
-  paddingTop: 10,
+  paddingTop: 8,
   marginTop: "auto",
   borderTop: "1px solid #bcbcbc",
   fontSize: 11,
-  textAlign: "center",
   color: "#555",
+  display: "grid",
+  gridTemplateColumns: "1fr auto",
+  alignItems: "center",
+  gap: 10,
+};
+
+const pageFooterText: CSSProperties = {
+  textAlign: "center",
+  lineHeight: 1.35,
+};
+
+const reviewQrWrap: CSSProperties = {
+  display: "grid",
+  justifyItems: "center",
+  alignItems: "center",
+  gap: 2,
+  padding: 2,
+  background: "#fff",
+  border: "1px solid #d8dee8",
+  borderRadius: 4,
+  minWidth: 50,
+};
+
+const reviewQrImage: CSSProperties = {
+  width: 44,
+  height: 44,
+  objectFit: "contain",
+  display: "block",
+};
+
+const reviewQrText: CSSProperties = {
+  fontSize: 8,
+  lineHeight: 1,
+  fontWeight: 800,
+  color: "#1f2937",
 };
 
 const logoStyle: CSSProperties = {
