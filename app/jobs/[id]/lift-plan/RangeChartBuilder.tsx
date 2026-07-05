@@ -3,7 +3,7 @@
 import type { CSSProperties, MutableRefObject, PointerEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CraneSetupOption } from "../../../lib/ai/equipmentProfiles";
-import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../lib/rangeChartSpecs";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions, suggestRangeChartSetups } from "../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null | undefined>;
 
@@ -743,6 +743,13 @@ export default function RangeChartBuilder({
     sourceLabel: effectiveSourceLabel,
     totalLiftedWeightKg: calc.totalLiftedWeight,
   });
+  const setupSuggestions = useMemo(() => suggestRangeChartSetups({
+    craneName: cleanCraneName,
+    radiusM: numbers.radiusM,
+    tipHeightM: numbers.tipHeightM,
+    totalLiftedWeightKg: calc.totalLiftedWeight,
+  }), [cleanCraneName, numbers.radiusM, numbers.tipHeightM, calc.totalLiftedWeight]);
+  const bestSetupSuggestion = setupSuggestions[0] ?? null;
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const displayedMaxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
   const requiredBoomExceededEarly = limits.maxBoomLengthM ? calc.boomLength > limits.maxBoomLengthM + 0.01 : false;
@@ -933,6 +940,23 @@ export default function RangeChartBuilder({
       };
       return next;
     });
+  }
+
+  function applySetupSuggestion(suggestion: ReturnType<typeof suggestRangeChartSetups>[number]) {
+    setChart((prev) => ({
+      ...prev,
+      selectedSetupKey: suggestion.profileKey ? `profile:${suggestion.profileKey}` : prev.selectedSetupKey,
+      selectedSetupLabel: suggestion.profileLabel || suggestion.label || prev.selectedSetupLabel,
+      selectedJibOptionKey: suggestion.jibOptionKey || prev.selectedJibOptionKey || "none",
+      selectedJibOptionLabel: suggestion.jibOptionLabel || prev.selectedJibOptionLabel || "No jib / main boom only",
+      jibLengthM: suggestion.jibLengthM !== null && suggestion.jibLengthM !== undefined ? String(suggestion.jibLengthM) : prev.jibLengthM,
+      jibAngleDeg: suggestion.jibLengthM && suggestion.jibLengthM > 0 ? (prev.jibAngleDeg || "20") : "0",
+      boomLengthM: suggestion.boomLengthM ? String(suggestion.boomLengthM) : prev.boomLengthM,
+      boomAngleDeg: suggestion.boomAngleDeg ? String(round(suggestion.boomAngleDeg, 2)) : prev.boomAngleDeg,
+      chartCapacityKg: "",
+      bearingLoadKg: "",
+      verificationNote: suggestion.advice,
+    }));
   }
 
   function applyExternalSpec(documentId: string) {
@@ -1191,6 +1215,34 @@ export default function RangeChartBuilder({
               />
             ) : null}
             <div style={miniHelpStyle}>Main boom/profile and fly jib/extension are selected separately. Drag the boom-head red dot to set boom length/angle, or drag the hook red dot to set the final hook/radius point.</div>
+            <div style={suggestionBoxStyle}>
+              <div style={{ fontWeight: 900, marginBottom: 6 }}>CRM suggested setup from load chart</div>
+              {bestSetupSuggestion ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div>
+                    <strong>{bestSetupSuggestion.label}</strong><br />
+                    Capacity approx {fmtKg(bestSetupSuggestion.capacityKg)} at {fmt(numbers.radiusM)}.
+                    {bestSetupSuggestion.utilisationPercent ? ` Utilisation ${round(bestSetupSuggestion.utilisationPercent, 1)}%.` : ""}
+                  </div>
+                  <button type="button" onClick={() => applySetupSuggestion(bestSetupSuggestion)} style={smallPrimaryBtnStyle}>Use suggested setup</button>
+                  {setupSuggestions.length > 1 ? (
+                    <details>
+                      <summary style={{ cursor: "pointer", fontWeight: 800 }}>Other viable setups</summary>
+                      <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                        {setupSuggestions.slice(1).map((suggestion) => (
+                          <button key={suggestion.key} type="button" onClick={() => applySetupSuggestion(suggestion)} style={secondaryBtnStyle}>
+                            {suggestion.label} — {fmtKg(suggestion.capacityKg)}
+                            {suggestion.utilisationPercent ? ` / ${round(suggestion.utilisationPercent, 1)}%` : ""}
+                          </button>
+                        ))}
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+              ) : (
+                <div style={{ opacity: 0.75 }}>Enter crane, radius, hook height and gross load to get a suggested setup. If nothing appears, no structured chart in the CRM currently covers those figures.</div>
+              )}
+            </div>
           </Section>
 
           <Section title="Chart dimensions">
@@ -1511,6 +1563,10 @@ const readOnlyInfoStyle: CSSProperties = { minHeight: 38, border: "1px solid rgb
 const inputStyle: CSSProperties = { width: "100%", minHeight: 38, border: "1px solid rgba(0,0,0,0.14)", borderRadius: 9, padding: "0 10px", fontSize: 14, boxSizing: "border-box", background: "#fff" };
 const textAreaStyle: CSSProperties = { width: "100%", border: "1px solid rgba(0,0,0,0.14)", borderRadius: 9, padding: 10, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
 const primaryBtnStyle: CSSProperties = { padding: "10px 14px", borderRadius: 10, border: 0, background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer" };
+
+const smallPrimaryBtnStyle: CSSProperties = { padding: "8px 10px", borderRadius: 9, border: 0, background: "#111", color: "#fff", fontWeight: 900, cursor: "pointer", width: "fit-content" };
+const secondaryBtnStyle: CSSProperties = { padding: "8px 10px", borderRadius: 9, border: "1px solid rgba(0,0,0,0.12)", background: "#fff", color: "#111", fontWeight: 800, cursor: "pointer", textAlign: "left" };
+const suggestionBoxStyle: CSSProperties = { fontSize: 12, lineHeight: 1.35, background: "rgba(0,120,80,0.08)", border: "1px solid rgba(0,120,80,0.18)", borderRadius: 10, padding: "9px 10px" };
 const togglePillStyle: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid rgba(0,0,0,0.12)", borderRadius: 999, padding: "8px 12px", background: "#fff", fontWeight: 900 };
 const messageBoxStyle: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", fontWeight: 700 };
 const autoSyncBoxStyle: CSSProperties = { padding: "8px 10px", borderRadius: 10, background: "rgba(255,255,255,0.62)", border: "1px solid rgba(0,0,0,0.08)", fontSize: 12, fontWeight: 800, color: "#24536a" };
