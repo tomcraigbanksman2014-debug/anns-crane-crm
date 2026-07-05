@@ -745,10 +745,12 @@ export default function RangeChartBuilder({
   });
   const setupSuggestions = useMemo(() => suggestRangeChartSetups({
     craneName: cleanCraneName,
+    setupLabel: [effectiveSetupLabel, effectiveJibLabel].filter(Boolean).join(" / "),
+    sourceLabel: effectiveSourceLabel,
     radiusM: numbers.radiusM,
     tipHeightM: numbers.tipHeightM,
     totalLiftedWeightKg: calc.totalLiftedWeight,
-  }), [cleanCraneName, numbers.radiusM, numbers.tipHeightM, calc.totalLiftedWeight]);
+  }), [cleanCraneName, effectiveSetupLabel, effectiveJibLabel, effectiveSourceLabel, numbers.radiusM, numbers.tipHeightM, calc.totalLiftedWeight]);
   const bestSetupSuggestion = setupSuggestions[0] ?? null;
   const horizontalGapM = numbers.radiusM - numbers.objectDistanceM;
   const displayedMaxBoomExceeded = limits.maxBoomLengthM ? displayedBoomLength > limits.maxBoomLengthM + 0.01 : false;
