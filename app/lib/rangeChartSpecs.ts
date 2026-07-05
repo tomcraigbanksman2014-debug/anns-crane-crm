@@ -870,28 +870,71 @@ function jibOptionForCapacityCurve(rule: RangeChartSpecRule, curve: RangeChartCa
 
 function setupPreferenceRank(rule: RangeChartSpecRule, item: RangeChartSetupSuggestion) {
   const text = lower(`${item.key} ${item.label} ${item.source}`);
+  let rank = 0;
+
+  // For every crane, favour the simplest physical configuration first:
+  // main boom before fly jib/extension, shorter physical length before longer.
+  if ((item.jibLengthM ?? 0) > 0.25) rank += 1000;
+
+  // Spider crane stability: when more than one SPX532 chart covers the lift,
+  // prefer the full-stability chart first, then reduced stability. This is only
+  // a ranking choice; lower J ratings still appear if they cover the lift.
   if (rule.id === "spx532") {
-    if (/\bj7\b|full[-\s]?stability/.test(text)) return 0;
-    if (/\bj6\b/.test(text)) return 1;
-    if (/\bj5\b/.test(text)) return 2;
-    return 3;
+    if (/\bj7\b|full[-\s]?stability/.test(text)) rank += 0;
+    else if (/\bj6\b/.test(text)) rank += 20;
+    else if (/\bj5\b/.test(text)) rank += 40;
+    else rank += 60;
   }
-  return 0;
+
+  // Truck/all-terrain cranes: if two otherwise similar charts cover the lift,
+  // show the lighter counterweight first, but only after boom/jib simplicity.
+  if (rule.id === "hk40" || rule.id === "gmk4080-1") {
+    rank += Math.round((item.counterweightT ?? 0) * 2);
+  }
+
+  return rank;
 }
 
+function physicalLengthForSuggestion(item: Pick<RangeChartSetupSuggestion, "boomLengthM" | "jibLengthM">) {
+  const boom = item.boomLengthM ?? 0;
+  const jib = Math.max(0, item.jibLengthM ?? 0);
+  return boom + jib;
+}
+
+function setupReachesEnteredHeight(item: Pick<RangeChartSetupSuggestion, "boomLengthM" | "jibLengthM">, requiredBoom: number | null) {
+  const length = physicalLengthForSuggestion(item);
+  return requiredBoom === null || length <= 0 || length + 0.5 >= requiredBoom;
+}
+
+function suggestionHeightText(requiredBoom: number | null, reachesHeight: boolean, physicalLength: number) {
+  if (requiredBoom === null) return "";
+  if (reachesHeight) {
+    return ` Approx required boom length from entered radius/height is ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m.`;
+  }
+  const shortfall = Math.max(0, requiredBoom - physicalLength);
+  return ` Radius/load chart is suitable, but entered height suggests approximately ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m boom length; verify hook height/boom angle manually${shortfall ? ` (${shortfall.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m short on simple geometry)` : ""}.`;
+}
 
 export function suggestRangeChartSetups({
   craneName,
+  setupLabel,
+  sourceLabel,
   radiusM,
   tipHeightM,
   totalLiftedWeightKg,
 }: {
   craneName?: string | null;
+  setupLabel?: string | null;
+  sourceLabel?: string | null;
   radiusM: number;
   tipHeightM?: number | null;
   totalLiftedWeightKg?: number | null;
 }): RangeChartSetupSuggestion[] {
-  const rule = findRangeChartSpecRule(craneName);
+  // This must be an all-crane suggestion engine. It must not depend on the user
+  // already picking the right boom/counterweight/J-rating. Its job is to scan
+  // every structured chart curve for the recognised crane and suggest the setup
+  // that covers the entered gross load and radius.
+  const rule = findRangeChartSpecRule(craneName, setupLabel, sourceLabel);
   const lifted = Number(totalLiftedWeightKg ?? 0);
   const radius = Number(radiusM);
   if (!rule?.capacityCurves?.length || !Number.isFinite(radius) || radius <= 0 || !Number.isFinite(lifted) || lifted <= 0) return [];
@@ -905,27 +948,16 @@ export function suggestRangeChartSetups({
       const capacityKg = conservativeCapacityFromCurve(curve.points, radius);
       if (capacityKg === null || capacityKg < lifted) return null;
 
-      const physicalLength = (curve.boomLengthM ?? 0) + Math.max(0, curve.jibLengthM ?? 0);
-      // Do not hide a valid load-chart setup purely because of the height box. In this CRM the
-      // height can be entered as load/building height rather than true hook height, and the previous
-      // hard filter was removing setups that are correct on the manufacturer radius/load chart.
-      // Height is now used to rank and warn only. AP must still verify actual hook height/boom angle.
-      const reachesEnteredHeight = requiredBoom === null || physicalLength <= 0 || physicalLength + 0.5 >= requiredBoom;
-      const heightShortfallM = requiredBoom !== null && physicalLength > 0 && !reachesEnteredHeight
-        ? Math.max(0, requiredBoom - physicalLength)
-        : null;
-
       const profile = profileForCapacityCurve(rule, curve);
       const jib = jibOptionForCapacityCurve(rule, curve);
       const utilisationPercent = capacityKg > 0 ? (lifted / capacityKg) * 100 : null;
+      const physicalLength = (curve.boomLengthM ?? 0) + Math.max(0, curve.jibLengthM ?? 0);
+      const reachesHeight = requiredBoom === null || physicalLength <= 0 || physicalLength + 0.5 >= requiredBoom;
       const profileText = profile?.label ?? curve.label;
       const jibText = jib?.label ?? (curve.jibLengthM && curve.jibLengthM > 0 ? `${curve.jibLengthM} m extension/jib` : "No jib / main boom only");
-      const heightText = requiredBoom !== null
-        ? reachesEnteredHeight
-          ? ` Approx required boom length from entered radius/height is ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m.`
-          : ` Radius/load chart is suitable, but entered height suggests approximately ${requiredBoom.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m boom length; verify hook height/boom angle manually${heightShortfallM ? ` (${heightShortfallM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m short on simple geometry)` : ""}.`
-        : "";
-      const heightFlag = reachesEnteredHeight ? "" : " — height check required";
+      const heightFlag = reachesHeight ? "" : " — height check required";
+      const heightText = suggestionHeightText(requiredBoom, reachesHeight, physicalLength);
+
       return {
         key: curve.key,
         label: `${profileText}${curve.jibLengthM && curve.jibLengthM > 0 ? ` / ${jibText}` : ""}${heightFlag}`,
@@ -946,22 +978,28 @@ export function suggestRangeChartSetups({
     .filter((item): item is RangeChartSetupSuggestion => Boolean(item));
 
   return suggestions.sort((a, b) => {
-    const aLength = (a.boomLengthM ?? 999) + Math.max(0, a.jibLengthM ?? 0);
-    const bLength = (b.boomLengthM ?? 999) + Math.max(0, b.jibLengthM ?? 0);
-    const aReachesHeight = requiredBoom === null || aLength <= 0 || aLength + 0.5 >= requiredBoom;
-    const bReachesHeight = requiredBoom === null || bLength <= 0 || bLength + 0.5 >= requiredBoom;
+    const aLength = physicalLengthForSuggestion(a);
+    const bLength = physicalLengthForSuggestion(b);
+    const aReachesHeight = setupReachesEnteredHeight(a, requiredBoom);
+    const bReachesHeight = setupReachesEnteredHeight(b, requiredBoom);
     if (aReachesHeight !== bReachesHeight) return aReachesHeight ? -1 : 1;
-    const aJibPenalty = (a.jibLengthM ?? 0) > 0 ? 1 : 0;
-    const bJibPenalty = (b.jibLengthM ?? 0) > 0 ? 1 : 0;
-    if (aJibPenalty !== bJibPenalty) return aJibPenalty - bJibPenalty;
+
     const aPreference = setupPreferenceRank(rule, a);
     const bPreference = setupPreferenceRank(rule, b);
     if (aPreference !== bPreference) return aPreference - bPreference;
+
     if (Math.abs(aLength - bLength) > 0.01) return aLength - bLength;
-    const aCounterweight = a.counterweightT ?? 999;
-    const bCounterweight = b.counterweightT ?? 999;
-    if (Math.abs(aCounterweight - bCounterweight) > 0.01) return aCounterweight - bCounterweight;
-    return a.capacityKg - b.capacityKg;
+
+    // Prefer the setup that is comfortably within chart without automatically
+    // jumping to a massive unnecessary chart. Below 90% utilisation, choose the
+    // tighter/more practical setup; above 90%, prefer the setup with more margin.
+    const aUtil = a.utilisationPercent ?? 999;
+    const bUtil = b.utilisationPercent ?? 999;
+    const aComfortable = aUtil <= 90;
+    const bComfortable = bUtil <= 90;
+    if (aComfortable !== bComfortable) return aComfortable ? -1 : 1;
+    if (aComfortable && bComfortable) return bUtil - aUtil;
+    return aUtil - bUtil;
   }).slice(0, 8);
 }
 
