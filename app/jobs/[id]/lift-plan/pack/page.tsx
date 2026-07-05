@@ -1037,7 +1037,7 @@ function formatRangeBoomLength(calc: ReturnType<typeof rangeChartCalculated> | n
   const boom = calc.boomLengthM;
   const boomText = formatRangeNumber(boom);
   if (maxBoom && boom > maxBoom + 0.01) {
-    return `${boomText} required (${formatRangeNumber(maxBoom)} max — manual check)`;
+    return `${boomText} required (${formatRangeNumber(maxBoom)} max)`;
   }
   return boomText;
 }
@@ -1141,14 +1141,6 @@ function rangeChartCalculated(sections: StringMap) {
   const storedManualChartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
   const chartCapacityKg = geometryInvalidForAutoCapacity ? null : capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
   const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : (!geometryInvalidForAutoCapacity && capacityResult.allowManualCapacityFallback ? parseDecimal(sections.range_chart_utilisation_percent) : null);
-  const geometryCapacityWarning = geometryInvalidForAutoCapacity
-    ? [
-        requiredBoomExceededForCapacity ? `Required boom length ${formatRangeNumber(boomLengthM)} is over the ${formatRangeNumber(limits.maxBoomLengthM)} maximum for this crane/setup.` : "",
-        radiusExceededForCapacity ? `Radius ${formatRangeNumber(radiusM)} is over the ${formatRangeNumber(limits.maxRadiusM)} structured maximum for this crane/setup.` : "",
-        tipHeightExceededForCapacity ? `Tip/hook height ${formatRangeNumber(tipHeightM)} is over the ${formatRangeNumber(limits.maxTipHeightM)} structured maximum for this crane/setup.` : "",
-        jibExceededForCapacity ? `Physical jib length ${formatRangeNumber(jibLengthM)} is over the ${formatRangeNumber(limits.maxPhysicalJibLengthM)} maximum for this crane/setup.` : "",
-      ].filter(Boolean).join(" ") + " Manual manufacturer/supplier chart check required before approval."
-    : "";
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
@@ -1210,9 +1202,11 @@ function rangeChartCalculated(sections: StringMap) {
     capacitySource: rangeText(sections, "range_chart_capacity_source", capacityResult.source),
     bearingMethod: rangeText(sections, "range_chart_bearing_method", bearingResult.method),
     bearingSource: rangeText(sections, "range_chart_bearing_source", bearingResult.source),
-    limitWarning: rangeText(sections, "range_chart_limit_warning", ""),
-    capacityWarning: geometryCapacityWarning || capacityResult.warning || "",
-    bearingWarning: bearingResult.warning || "",
+    // Internal CRM warnings are intentionally not printed on downloaded lift-plan packs.
+    // The live builder still shows warnings to the AP/office user.
+    limitWarning: "",
+    capacityWarning: "",
+    bearingWarning: "",
     limits,
   };
 }
@@ -1340,12 +1334,9 @@ function additionalCraneCalc(crane: PackAdditionalCraneEntry, primary: ReturnTyp
   const bearingLoadKg = bearing.bearingLoadKg ?? (grossKg ? (grossKg + totalLiftedKg) * 0.75 : null);
   const bearingPressureKgM2 = bearingLoadKg && matAreaM2 ? bearingLoadKg / matAreaM2 : null;
   const utilisationPercent = chartCapacityKg && totalLiftedKg > 0 ? (totalLiftedKg / chartCapacityKg) * 100 : null;
-  const warnings = [
-    boomClamped ? `Entered boom length ${enteredBoomLengthM}m is over the selected ${craneName || "crane"} setup limit. Pack uses ${boomLengthM}m for the check.` : null,
-    utilisationPercent && utilisationPercent > 100 ? `This crane option is over 100% of the selected chart capacity. Use a different setup/crane, reduce radius/load, or do not approve until corrected.` : null,
-    calculatedCapacity?.warning || null,
-    !chartCapacityKg && radiusM ? `No automatic chart capacity found for this alternative crane at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })}m. Appointed person must verify the exact chart manually.` : null,
-  ].filter(Boolean) as string[];
+  // Do not print internal alternative-crane warning messages on downloaded lift-plan packs.
+  // The live system/builder view remains the place for AP checks and warning prompts.
+  const warnings: string[] = [];
 
   return {
     grossKg,
@@ -1529,7 +1520,7 @@ function RangeChartPackPage({
         <MetricBox label="Total Lifted Weight" value={formatRangeKg(calc.totalLiftedWeightKg)} />
         <MetricBox label="Chart Capacity" value={formatRangeKg(calc.chartCapacityKg)} />
         <MetricBox label="Capacity Source" value={`${calc.capacityMethod === "automatic" ? "Auto" : "Manual"} check`} />
-        <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "Manual check required"} />
+        <MetricBox label="Chart Utilisation" value={calc.utilisationPercent ? `${Number(calc.utilisationPercent).toLocaleString("en-GB", { maximumFractionDigits: 1 })}%` : "—"} />
         {calc.matAreaM2 ? <MetricBox label="Additional Spreader Area" value={formatAreaM2(calc.matAreaM2)} /> : null}
         <MetricBox label="Bearing Load / Reaction" value={formatRangeKg(calc.bearingLoadKg)} />
         {calc.bearingPressureKgM2 ? <MetricBox label="Additional Spreader Pressure" value={calc.bearingPressure} /> : null}
@@ -2032,7 +2023,7 @@ export default async function CraneLiftPlanPackPage({
   const craneCapacity = rangeChartCapacityKg
     ? formatKgAndTonnes(rangeChartCapacityKg)
     : rangeTotalLiftedWeightKg
-      ? "Manual chart check required"
+      ? "See selected load chart / AP verification"
       : formatCapacity(equipmentProfile, crane, craneName);
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
@@ -2044,14 +2035,10 @@ export default async function CraneLiftPlanPackPage({
   const boomLength = shortBoomLength(sections.boom_length, equipmentProfile, craneName);
   const utilisation = rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined
     ? formatPercentValue(rangeUtilisationPercent)
-    : "Manual check required";
-  const primaryCapacityWarning = rangeGroundCalc?.capacityWarning
-    ? `MANUAL CHART CHECK REQUIRED: ${rangeGroundCalc.capacityWarning}`
-    : rangeUtilisationPercent !== null && rangeUtilisationPercent !== undefined && rangeUtilisationPercent > 100
-      ? `CAPACITY REVIEW REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} is over the selected chart capacity ${formatKgAndTonnes(rangeChartCapacityKg)} (${formatPercentValue(rangeUtilisationPercent)}). Select a stronger setup/crane, reduce radius/load, or do not approve until the appointed person has corrected the plan.`
-      : rangeTotalLiftedWeightKg && !rangeChartCapacityKg
-        ? `MANUAL CHART CHECK REQUIRED: total lifted weight ${formatKgAndTonnes(rangeTotalLiftedWeightKg)} has been entered, but the CRM has not matched a safe structured chart capacity at this radius/setup. Do not approve using the crane maximum capacity; check the exact manufacturer/supplier chart and enter/select the correct chart setup first.`
-        : "";
+    : "—";
+  // Do not print internal CRM capacity warnings on downloaded lift plans.
+  // The builder/system view still shows warning messages before export.
+  const primaryCapacityWarning = "";
 
   const enteredCraneWeightKg = parseWeightToKg(sections.ground_bearing_crane_max_weight || sections.crane_gross_weight) ?? parseWeightToKg(crane?.gross_weight || crane?.grossWeight);
   const craneMaxWeightKg = currentCranePlanningWeightKg ?? rangeSpecPlanningWeightKg ?? enteredCraneWeightKg ?? rangePlanningGrossWeightKg;
@@ -2720,9 +2707,7 @@ export default async function CraneLiftPlanPackPage({
                         ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Verify exact manufacturer/supplier chart, radius, boom/jib setup, load weight, hook block/accessories, outrigger setup, ground conditions and which crane is actually being used before lifting.", 4, true)],
                       ]}
                     />
-                    {calc.warnings.length ? (
-                      <div style={packCapacityReviewBox}>{calc.warnings.join("\n")}</div>
-                    ) : null}
+                    {/* Internal CRM warnings are not printed on downloaded lift-plan packs. */}
                   </div>
                 );
               }) : <div>No alternative crane details entered.</div>}
