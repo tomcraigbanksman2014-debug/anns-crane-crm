@@ -35,6 +35,9 @@ type HireAgreementPackProps = {
 const COMPANY_FOOTER =
   "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk,";
 
+const GOOGLE_REVIEW_QR_SRC = "/google-review-qr.png";
+const GOOGLE_REVIEW_QR_LABEL = "Review us";
+
 const KIND_LABELS: Record<AgreementKind, string> = {
   "cpa-hire": "CPA Hire Agreement",
   "contract-lift": "Contract Lift Hire Agreement",
@@ -53,6 +56,19 @@ function splitLines(value: string) {
   return String(value ?? "")
     .split(/\r?\n/g)
     .map((line) => line.trimEnd());
+}
+
+
+function splitContactDetails(value: string) {
+  const parts = String(value || "")
+    .split(/\s*\/\s*|\s*\|\s*|\s*,\s*/g)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const email = parts.find((part) => part.includes("@")) || "";
+  const phone = parts.find((part) => !part.includes("@")) || "";
+
+  return { phone, email };
 }
 
 function addBlankRateLine(lines: AgreementRateLine[]) {
@@ -114,6 +130,15 @@ function TermsImage({ url, alt }: { url: string; alt: string }) {
         setCandidateIndex((current) => (current + 1 < candidates.length ? current + 1 : current));
       }}
     />
+  );
+}
+
+function GoogleReviewQr({ className }: { className?: string }) {
+  return (
+    <div className={className} style={reviewQrStyle}>
+      <img src={GOOGLE_REVIEW_QR_SRC} alt="Google review QR code" loading="eager" decoding="sync" style={reviewQrImageStyle} />
+      <div style={reviewQrLabelStyle}>{GOOGLE_REVIEW_QR_LABEL}</div>
+    </div>
   );
 }
 
@@ -257,7 +282,7 @@ export default function HireAgreementPack({
     background: #fff !important;
   }
   .hire-front-page {
-    padding: 6mm 9mm 6mm !important;
+    padding: 6mm 9mm 8mm !important;
     font-size: 9.2px !important;
     line-height: 1.12 !important;
   }
@@ -279,6 +304,11 @@ export default function HireAgreementPack({
   .hire-front-page .hire-signature-table { margin-top: 2.5mm !important; }
   .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
   .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
+  .hire-footer-row { display: grid !important; grid-template-columns: 1fr 23mm !important; gap: 4mm !important; align-items: end !important; margin-top: 2mm !important; }
+  .hire-review-qr, .terms-review-qr { width: 23mm !important; min-width: 23mm !important; padding: 1.2mm !important; background: #fff !important; border: 0.3mm solid #111827 !important; border-radius: 1.5mm !important; text-align: center !important; box-sizing: border-box !important; }
+  .hire-review-qr img, .terms-review-qr img { width: 20mm !important; height: 20mm !important; display: block !important; margin: 0 auto !important; object-fit: contain !important; }
+  .hire-review-qr div, .terms-review-qr div { margin-top: 0.5mm !important; font-size: 6.2px !important; line-height: 1 !important; font-weight: 900 !important; }
+  .terms-review-qr { position: absolute !important; right: 8mm !important; bottom: 5mm !important; z-index: 3 !important; }
   .terms-page {
     height: auto !important;
     min-height: 0 !important;
@@ -293,6 +323,12 @@ export default function HireAgreementPack({
     object-fit: contain !important;
     display: block !important;
     margin: 0 auto !important;
+  }
+  .terms-page .terms-review-qr img {
+    width: 20mm !important;
+    height: 20mm !important;
+    max-width: none !important;
+    max-height: none !important;
   }
   .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
 </style>
@@ -327,7 +363,10 @@ export default function HireAgreementPack({
   const issueDate = fieldValue(fields, "issueDate");
   const projectDate = fieldValue(fields, "projectDate");
   const contactName = fieldValue(fields, "contactName");
-  const contactDetails = fieldValue(fields, "contactDetails");
+  const legacyContactDetails = fieldValue(fields, "contactDetails");
+  const legacyContactParts = splitContactDetails(legacyContactDetails);
+  const contactPhone = fieldValue(fields, "contactPhone") || legacyContactParts.phone;
+  const contactEmail = fieldValue(fields, "contactEmail") || legacyContactParts.email;
   const siteAddress = fieldValue(fields, "siteAddress");
   const collectionAddress = fieldValue(fields, "collectionAddress");
   const deliveryAddress = fieldValue(fields, "deliveryAddress");
@@ -446,9 +485,15 @@ export default function HireAgreementPack({
               <tr>
                 <th style={thStyle}>Contact Name:</th>
                 <td style={tdStyle}>{contactName}</td>
-                <th style={thStyle}>{kind === "transport" ? "email / Tel:" : "Tel:"}</th>
-                <td style={tdStyle}>{contactDetails}</td>
+                <th style={thStyle}>Tel:</th>
+                <td style={tdStyle}>{contactPhone}</td>
               </tr>
+              {contactEmail ? (
+                <tr>
+                  <th style={thStyle}>Email:</th>
+                  <td colSpan={3} style={tdStyle}>{contactEmail}</td>
+                </tr>
+              ) : null}
               {kind === "transport" ? (
                 <>
                   <tr>
@@ -534,12 +579,16 @@ export default function HireAgreementPack({
             </tbody>
           </table>
 
-          <div className="hire-footer" style={footerStyle}>{COMPANY_FOOTER}</div>
+          <div className="hire-footer-row" style={footerRowStyle}>
+            <div className="hire-footer" style={footerStyle}>{COMPANY_FOOTER}</div>
+            <GoogleReviewQr className="hire-review-qr" />
+          </div>
         </section>
 
         {termsImageUrls.map((url, index) => (
           <section key={url} className="hire-page terms-page" style={termsPageStyle}>
             <TermsImage url={url} alt={`${termsLabel} page ${index + 1}`} />
+            <GoogleReviewQr className="terms-review-qr" />
           </section>
         ))}
       </div>
@@ -724,10 +773,43 @@ const termsBoxStyle: React.CSSProperties = {
   overflow: "hidden",
 };
 
+const footerRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr 82px",
+  gap: 14,
+  alignItems: "end",
+  marginTop: 8,
+};
+
 const footerStyle: React.CSSProperties = {
-  marginTop: 5,
   textAlign: "center",
   fontSize: 8.5,
+};
+
+const reviewQrStyle: React.CSSProperties = {
+  width: 82,
+  minWidth: 82,
+  padding: 5,
+  background: "#fff",
+  border: "1px solid #111827",
+  borderRadius: 6,
+  textAlign: "center",
+  boxSizing: "border-box",
+};
+
+const reviewQrImageStyle: React.CSSProperties = {
+  width: 72,
+  height: 72,
+  display: "block",
+  margin: "0 auto",
+  objectFit: "contain",
+};
+
+const reviewQrLabelStyle: React.CSSProperties = {
+  marginTop: 2,
+  fontSize: 7,
+  lineHeight: 1,
+  fontWeight: 900,
 };
 
 const termsPageStyle: React.CSSProperties = {
@@ -789,7 +871,7 @@ const printCss = `
     background: #fff !important;
   }
   .hire-front-page {
-    padding: 6mm 9mm 6mm !important;
+    padding: 6mm 9mm 8mm !important;
     font-size: 9.2px !important;
     line-height: 1.12 !important;
   }
@@ -811,6 +893,11 @@ const printCss = `
   .hire-front-page .hire-signature-table { margin-top: 2.5mm !important; }
   .hire-front-page .hire-signature-line { height: 18px !important; font-size: 9px !important; letter-spacing: 1px !important; }
   .hire-front-page .hire-footer { margin-top: 2mm !important; font-size: 7.8px !important; line-height: 1.1 !important; }
+  .hire-footer-row { display: grid !important; grid-template-columns: 1fr 23mm !important; gap: 4mm !important; align-items: end !important; margin-top: 2mm !important; }
+  .hire-review-qr, .terms-review-qr { width: 23mm !important; min-width: 23mm !important; padding: 1.2mm !important; background: #fff !important; border: 0.3mm solid #111827 !important; border-radius: 1.5mm !important; text-align: center !important; box-sizing: border-box !important; }
+  .hire-review-qr img, .terms-review-qr img { width: 20mm !important; height: 20mm !important; display: block !important; margin: 0 auto !important; object-fit: contain !important; }
+  .hire-review-qr div, .terms-review-qr div { margin-top: 0.5mm !important; font-size: 6.2px !important; line-height: 1 !important; font-weight: 900 !important; }
+  .terms-review-qr { position: absolute !important; right: 8mm !important; bottom: 5mm !important; z-index: 3 !important; }
   .terms-page {
     height: auto !important;
     min-height: 0 !important;
@@ -825,6 +912,12 @@ const printCss = `
     object-fit: contain !important;
     display: block !important;
     margin: 0 auto !important;
+  }
+  .terms-page .terms-review-qr img {
+    width: 20mm !important;
+    height: 20mm !important;
+    max-width: none !important;
+    max-height: none !important;
   }
   .hire-page:last-child { page-break-after: auto !important; break-after: auto !important; }
 }
