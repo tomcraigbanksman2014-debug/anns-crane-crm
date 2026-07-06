@@ -172,8 +172,9 @@ export default async function JobHireAgreementPage({
     .single();
 
   const client = first((job as any)?.clients);
-  const contactName = client?.contact_name ?? (job as any)?.site_contact ?? "";
-  const contactDetails = [client?.phone, client?.email].filter(Boolean).join(" / ");
+  const contactName = (job as any)?.contact_name ?? client?.contact_name ?? (job as any)?.site_contact ?? "";
+  const contactPhone = (job as any)?.contact_phone ?? client?.phone ?? "";
+  const contactEmail = (job as any)?.contact_email ?? (job as any)?.site_contact_email ?? client?.email ?? "";
   const siteAddress = [(job as any)?.site_name, (job as any)?.site_address].filter(Boolean).join("\n");
   const jobNumber = (job as any)?.job_number ?? params.id;
   const documentFileName = `${client?.company_name ?? "Customer"} - Job ${jobNumber} - ${agreementType === "contract-lift" ? "Contract Lift Hire Agreement" : "CPA Hire Agreement"}`;
@@ -210,7 +211,8 @@ export default async function JobHireAgreementPage({
               { key: "client", label: "Client", value: client?.company_name ?? "" },
               { key: "projectDate", label: "Date & time of project", value: dateRange((job as any)?.start_date ?? (job as any)?.job_date, (job as any)?.end_date ?? (job as any)?.job_date) },
               { key: "contactName", label: "Contact name", value: contactName },
-              { key: "contactDetails", label: "Tel / email", value: contactDetails },
+              { key: "contactPhone", label: "Contact phone", value: contactPhone },
+              { key: "contactEmail", label: "Contact email", value: contactEmail },
               { key: "siteAddress", label: "Site location/address", value: siteAddress, multiline: true },
               {
                 key: "hireType",
