@@ -62,11 +62,19 @@ export default function PublicOnboardingForm({
     address_line_2: "",
     town_city: "",
     county: "",
+    date_of_birth: "",
+    national_insurance_number: "",
+    right_to_work_confirmed: false,
+    willing_travel_distance: "",
     business_type: "",
     company_registration_number: "",
     utr_number: "",
     vat_number: "",
     preferred_payment_type: "",
+    bank_account_name: "",
+    bank_sort_code: "",
+    bank_account_number: "",
+    has_insurance_cover: "",
     insurance_provider: "",
     insurance_policy_number: "",
     insurance_cover_amount: "",
@@ -74,6 +82,7 @@ export default function PublicOnboardingForm({
     emergency_contact_name: "",
     emergency_contact_phone: "",
     notes: "",
+    working_terms_accepted: false,
     declaration_name: "",
     declaration_accepted: false,
     ...initialData,
@@ -274,7 +283,14 @@ export default function PublicOnboardingForm({
           <Field label="Role / trade *" value={data.role} onChange={(v) => updateField("role", v)} placeholder="e.g. Slinger / Mobile Crane Operator" />
           <Field label="Mobile number *" value={data.phone} onChange={(v) => updateField("phone", v)} type="tel" />
           <Field label="Email address *" value={data.email} onChange={(v) => updateField("email", v)} type="email" />
+          <Field label="Date of birth *" value={data.date_of_birth} onChange={(v) => updateField("date_of_birth", v)} type="date" />
+          <Field label="National Insurance number *" value={data.national_insurance_number} onChange={(v) => updateField("national_insurance_number", v)} placeholder="e.g. QQ 12 34 56 C" autoComplete="off" />
+          <Field label="Distance willing to travel *" value={data.willing_travel_distance} onChange={(v) => updateField("willing_travel_distance", v)} placeholder="e.g. Nationwide / up to 100 miles" />
         </div>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={Boolean(data.right_to_work_confirmed)} onChange={(event) => updateField("right_to_work_confirmed", event.target.checked)} />
+          <span>I confirm that I have the right to work in the UK *</span>
+        </label>
       </Section>
 
       <Section title="Home / business address">
@@ -319,9 +335,25 @@ export default function PublicOnboardingForm({
         </div>
       </Section>
 
+      <Section title="Bank details">
+        <div className="privacy-note">
+          These details are encrypted in transit and restricted to authorised admin/payroll users. They are used only to set up payments after approval.
+        </div>
+        <div className="grid three">
+          <Field label="Account name *" value={data.bank_account_name} onChange={(v) => updateField("bank_account_name", v)} autoComplete="name" />
+          <Field label="Sort code *" value={data.bank_sort_code} onChange={(v) => updateField("bank_sort_code", v)} placeholder="00-00-00" inputMode="numeric" autoComplete="off" />
+          <Field label="Account number *" value={data.bank_account_number} onChange={(v) => updateField("bank_account_number", v)} inputMode="numeric" autoComplete="off" />
+        </div>
+      </Section>
 
       <Section title="Insurance">
         <div className="grid three">
+          <SelectField
+            label="Do you have your own insurance cover? *"
+            value={data.has_insurance_cover}
+            onChange={(v) => updateField("has_insurance_cover", v)}
+            options={[["", "Select yes or no"], ["yes", "Yes"], ["no", "No"]]}
+          />
           <Field label="Insurance provider" value={data.insurance_provider} onChange={(v) => updateField("insurance_provider", v)} />
           <Field label="Policy number" value={data.insurance_policy_number} onChange={(v) => updateField("insurance_policy_number", v)} />
           <Field label="Cover amount" value={data.insurance_cover_amount} onChange={(v) => updateField("insurance_cover_amount", v)} placeholder="e.g. £5 million" />
@@ -329,17 +361,17 @@ export default function PublicOnboardingForm({
         </div>
       </Section>
 
-      <Section title="Qualifications and cards">
-        <p className="help">Add each relevant licence, card or qualification. You can upload supporting documents below.</p>
+      <Section title="Qualifications, cards and medicals">
+        <p className="help">Add each relevant licence, CPCS/NPORS card, qualification or medical certificate. Include the start/issue date and expiry date where applicable.</p>
         <div className="qualification-list">
           {data.qualifications.map((qualification, index) => (
             <div className="qualification-card" key={qualification.id}>
               <div className="qualification-heading">
-                <strong>Qualification {index + 1}</strong>
+                <strong>Qualification / medical {index + 1}</strong>
                 <button type="button" className="link-button danger" onClick={() => removeQualification(qualification.id)}>Remove</button>
               </div>
               <div className="grid three">
-                <Field label="Qualification / card name" value={qualification.qualification_name} onChange={(v) => updateQualification(qualification.id, "qualification_name", v)} placeholder="e.g. CPCS A40 Slinger Signaller" />
+                <Field label="Qualification / card / medical name" value={qualification.qualification_name} onChange={(v) => updateQualification(qualification.id, "qualification_name", v)} placeholder="e.g. CPCS A40 Slinger Signaller" />
                 <Field label="Issuer" value={qualification.issuer} onChange={(v) => updateQualification(qualification.id, "issuer", v)} placeholder="e.g. CPCS / NPORS" />
                 <Field label="Certificate / card number" value={qualification.certificate_number} onChange={(v) => updateQualification(qualification.id, "certificate_number", v)} />
                 <Field label="Issue date" value={qualification.issue_date} onChange={(v) => updateQualification(qualification.id, "issue_date", v)} type="date" />
@@ -362,6 +394,8 @@ export default function PublicOnboardingForm({
               options={[
                 ["driving_licence", "Driving licence / photo ID"],
                 ["qualification", "Qualification / CPCS / NPORS card"],
+                ["medical", "Medical certificate"],
+                ["right_to_work", "Right to work document"],
                 ["insurance", "Insurance certificate"],
                 ["company_document", "Company / tax document"],
                 ["other", "Other"],
@@ -409,9 +443,19 @@ export default function PublicOnboardingForm({
         </div>
       </Section>
 
+      <Section title="Working and payment terms">
+        <div className="declaration-text">
+          <strong>Important:</strong> Completed and customer-signed timesheets must be returned after each job. Crane operators must also return the relevant crane check sheet. Limited companies must submit an invoice. Standard rates are based on 10-hour days unless otherwise agreed, overtime must be authorised, and payments are processed every other Friday. You must wear the correct PPE, follow all site rules and may be liable for costs caused by negligence, non-attendance or unrecoverable accommodation bookings.
+        </div>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={Boolean(data.working_terms_accepted)} onChange={(event) => updateField("working_terms_accepted", event.target.checked)} />
+          <span>I have read and agree to the working, timesheet, payment and site requirements above *</span>
+        </label>
+      </Section>
+
       <Section title="Declaration">
         <div className="declaration-text">
-          I confirm that the information and documents supplied are accurate and complete. I understand that AnnS Crane Hire may verify the information and that approval is required before I can be assigned to work.
+          I certify that the answers in this questionnaire accurately describe my current health and safety, environmental and quality arrangements. I confirm that the information and documents supplied are accurate and complete, and I authorise AnnS Crane Hire Ltd to verify them. I understand that approval is required before I can be assigned to work.
         </div>
         <label className="checkbox-row">
           <input type="checkbox" checked={Boolean(data.declaration_accepted)} onChange={(event) => updateField("declaration_accepted", event.target.checked)} />
@@ -538,7 +582,7 @@ const styles = `
   .textarea-field { margin-top:12px; }
   .textarea-field textarea { resize:vertical; min-height:120px; }
   .help, .document-meta, .signature-note { color:#64748b; font-size:13px; line-height:1.45; }
-  .declaration-text { background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:10px; color:#334155; margin-bottom:12px; line-height:1.5; }
+  .privacy-note, .declaration-text { background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:10px; color:#334155; margin-bottom:12px; line-height:1.5; }
   .qualification-list, .document-list { display:grid; gap:10px; margin:12px 0; }
   .qualification-card { border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#f8fafc; }
   .qualification-heading, .document-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
