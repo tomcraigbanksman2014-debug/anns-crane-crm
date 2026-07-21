@@ -18,6 +18,13 @@ function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
 }
 
+function fmtDateTime(value: string | null | undefined) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
+}
+
 function paymentTypeLabel(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toLowerCase();
   if (raw === "limited_company_invoice") return "Limited company - invoice";
@@ -66,6 +73,35 @@ export default async function SubcontractorsPage({
     .in("status", ["invite_sent", "in_progress", "submitted_for_review", "changes_required"])
     .order("updated_at", { ascending: false })
     .limit(20);
+
+  const onboardingIds = (onboardingRows ?? []).map((row: any) => row.id);
+  const { data: deliveryEvents } = onboardingIds.length
+    ? await admin
+        .from("subcontractor_onboarding_events")
+        .select("invite_id, event_type, created_at")
+        .in("invite_id", onboardingIds)
+        .in("event_type", ["email_sent", "whatsapp_opened"])
+        .order("created_at", { ascending: false })
+    : { data: [] as any[] };
+
+  const latestDeliveryByInvite = new Map<string, any>();
+  for (const event of deliveryEvents ?? []) {
+    if (!latestDeliveryByInvite.has(String(event.invite_id))) {
+      latestDeliveryByInvite.set(String(event.invite_id), event);
+    }
+  }
+
+  const onboardingWithDelivery = (onboardingRows ?? []).map((invite: any) => ({
+    ...invite,
+    latestDelivery: latestDeliveryByInvite.get(String(invite.id)) ?? null,
+  }));
+  const submittedOnboarding = onboardingWithDelivery.filter((invite: any) => invite.status === "submitted_for_review");
+  const needsSendingOnboarding = onboardingWithDelivery.filter((invite: any) =>
+    invite.status !== "submitted_for_review" && !invite.latestDelivery && !invite.first_opened_at
+  );
+  const awaitingOnboarding = onboardingWithDelivery.filter((invite: any) =>
+    invite.status !== "submitted_for_review" && (invite.latestDelivery || invite.first_opened_at)
+  );
 
   let query = supabase
     .from("operators")
@@ -213,27 +249,28 @@ export default async function SubcontractorsPage({
           <PublicOnboardingLink />
           {onboardingError ? (
             <div style={setupWarning}>Onboarding tables are not available yet. Run the supplied Supabase onboarding SQL before using invitations.</div>
-          ) : (onboardingRows ?? []).length === 0 ? (
-            <div style={{ opacity: 0.72 }}>No open onboarding invitations.</div>
+          ) : onboardingWithDelivery.length === 0 ? (
+            <div style={{ opacity: 0.72 }}>No open onboarding applications.</div>
           ) : (
-            <div style={onboardingGrid}>
-              {(onboardingRows ?? []).map((invite: any) => {
-                const expired = isInviteExpired(invite);
-                return (
-                  <a key={invite.id} href={`/subcontractors/onboarding/${invite.id}`} style={onboardingRow}>
-                    <div>
-                      <div style={{ fontWeight: 950 }}>{invite.invitee_name || "Unnamed"}</div>
-                      <div style={{ marginTop: 3, fontSize: 13, opacity: 0.75 }}>
-                        {invite.invited_role || invite.invitee_email || invite.invitee_phone || "No role or contact details"}
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                      <span style={{ ...pill, ...onboardingPill(invite.status) }}>{onboardingStatusLabel(invite.status)}</span>
-                      {expired ? <span style={{ ...pill, ...pillRed }}>Expired</span> : null}
-                    </div>
-                  </a>
-                );
-              })}
+            <div style={{ display: "grid", gap: 14 }}>
+              <OnboardingGroup
+                title="Submitted for review"
+                description="Completed applications ready for the office to review."
+                rows={submittedOnboarding}
+                emptyText="No applications are currently awaiting review."
+              />
+              <OnboardingGroup
+                title="Needs link sending"
+                description="No email or WhatsApp action has been recorded and the private form has not been opened."
+                rows={needsSendingOnboarding}
+                emptyText="No applications are waiting for their private link to be sent."
+              />
+              <OnboardingGroup
+                title="Awaiting completion"
+                description="The link has been shared or opened, but the application has not yet been submitted."
+                rows={awaitingOnboarding}
+                emptyText="No applications are currently awaiting completion."
+              />
             </div>
           )}
         </section>
@@ -311,6 +348,47 @@ export default async function SubcontractorsPage({
   );
 }
 
+function OnboardingGroup({ title, description, rows, emptyText }: { title: string; description: string; rows: any[]; emptyText: string }) {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div>
+        <div style={{ fontWeight: 950, fontSize: 17 }}>{title} <span style={{ opacity: 0.55 }}>({rows.length})</span></div>
+        <div style={{ fontSize: 13, opacity: 0.7, marginTop: 2 }}>{description}</div>
+      </div>
+      {rows.length === 0 ? <div style={groupEmpty}>{emptyText}</div> : (
+        <div style={onboardingGrid}>
+          {rows.map((invite: any) => {
+            const expired = isInviteExpired(invite);
+            const delivery = invite.latestDelivery;
+            const deliveryText = delivery?.event_type === "email_sent"
+              ? `Email sent ${fmtDateTime(delivery.created_at)}`
+              : delivery?.event_type === "whatsapp_opened"
+                ? `WhatsApp opened ${fmtDateTime(delivery.created_at)}`
+                : invite.first_opened_at
+                  ? `Form opened ${fmtDateTime(invite.first_opened_at)}`
+                  : "Private link not sent";
+            return (
+              <a key={invite.id} href={`/subcontractors/onboarding/${invite.id}`} style={onboardingRow}>
+                <div>
+                  <div style={{ fontWeight: 950 }}>{invite.invitee_name || "Unnamed"}</div>
+                  <div style={{ marginTop: 3, fontSize: 13, opacity: 0.75 }}>
+                    {invite.invited_role || invite.invitee_email || invite.invitee_phone || "No role or contact details"}
+                  </div>
+                  <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, opacity: 0.72 }}>{deliveryText}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <span style={{ ...pill, ...onboardingPill(invite.status) }}>{onboardingStatusLabel(invite.status)}</span>
+                  {expired ? <span style={{ ...pill, ...pillRed }}>Expired</span> : null}
+                </div>
+              </a>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, name, defaultValue, placeholder, type = "text" }: { label: string; name: string; defaultValue?: string; placeholder?: string; type?: string }) {
   return (
     <div style={{ display: "grid", gap: 6 }}>
@@ -346,5 +424,6 @@ const pillSmall: React.CSSProperties = { display: "inline-block", padding: "4px 
 const onboardingCard: React.CSSProperties = { background: "rgba(255,255,255,0.24)", padding: 16, borderRadius: 14, border: "1px solid rgba(255,255,255,0.48)", boxShadow: "0 8px 30px rgba(0,0,0,0.07)", display: "grid", gap: 12 };
 const onboardingGrid: React.CSSProperties = { display: "grid", gap: 8 };
 const onboardingRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: 12, borderRadius: 11, background: "rgba(255,255,255,.66)", border: "1px solid rgba(0,0,0,.07)", textDecoration: "none", color: "#111" };
+const groupEmpty: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,.42)", border: "1px dashed rgba(0,0,0,.12)", fontSize: 13, opacity: 0.72 };
 const setupWarning: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,.14)", border: "1px solid rgba(245,158,11,.24)", color: "#854d0e", fontWeight: 700 };
 const pillRed: React.CSSProperties = { background: "rgba(190,0,0,.12)", color: "#991b1b", border: "1px solid rgba(190,0,0,.22)" };
