@@ -67,6 +67,9 @@ export default function PublicOnboardingForm({
     utr_number: "",
     vat_number: "",
     preferred_payment_type: "",
+    national_insurance_number: "",
+    right_to_work_confirmed: false,
+    working_terms_accepted: false,
     bank_account_name: "",
     bank_sort_code: "",
     bank_account_number: "",
@@ -277,7 +280,19 @@ export default function PublicOnboardingForm({
           <Field label="Role / trade *" value={data.role} onChange={(v) => updateField("role", v)} placeholder="e.g. Slinger / Mobile Crane Operator" />
           <Field label="Mobile number *" value={data.phone} onChange={(v) => updateField("phone", v)} type="tel" />
           <Field label="Email address *" value={data.email} onChange={(v) => updateField("email", v)} type="email" />
+          <Field label="National Insurance number *" value={data.national_insurance_number} onChange={(v) => updateField("national_insurance_number", v.toUpperCase())} placeholder="e.g. AB 12 34 56 C" />
         </div>
+      </Section>
+
+      <Section title="Right to work">
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={Boolean(data.right_to_work_confirmed)}
+            onChange={(event) => updateField("right_to_work_confirmed", event.target.checked)}
+          />
+          <span>I confirm that I have the legal right to work in the United Kingdom *</span>
+        </label>
       </Section>
 
       <Section title="Home / business address">
@@ -455,6 +470,14 @@ export default function PublicOnboardingForm({
         <div className="declaration-text">
           I confirm that the information and documents supplied are accurate and complete. I understand that AnnS Crane Hire may verify the information and that approval is required before I can be assigned to work.
         </div>
+        <label className="checkbox-row">
+          <input
+            type="checkbox"
+            checked={Boolean(data.working_terms_accepted)}
+            onChange={(event) => updateField("working_terms_accepted", event.target.checked)}
+          />
+          <span>I accept AnnS Crane Hire&apos;s working, timesheet and payment terms *</span>
+        </label>
         <label className="checkbox-row">
           <input type="checkbox" checked={Boolean(data.declaration_accepted)} onChange={(event) => updateField("declaration_accepted", event.target.checked)} />
           <span>I agree to the declaration above *</span>
