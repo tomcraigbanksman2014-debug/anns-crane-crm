@@ -7,7 +7,6 @@ import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
 import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
 import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
-import ShaunDiaryDashboardCard from "../components/ShaunDiaryDashboardCard";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 import { displayUserNameFromEmail } from "../lib/displayUserName";
 
@@ -285,10 +284,6 @@ export default function DashboardPage() {
             ⚠ {stats?.lolerOverdue} asset item{stats?.lolerOverdue === 1 ? "" : "s"} have overdue LOLER.
           </Alert>
         ) : null}
-
-        <section style={{ marginTop: 14 }}>
-          <ShaunDiaryDashboardCard />
-        </section>
 
         <section style={{ marginTop: 14 }}>
           <Panel title="Global search" subtitle="Search customers, jobs, transport, bookings, quotes, equipment and more">
