@@ -73,9 +73,12 @@ function payBasisLabel(operator: any, overrideAmount?: number | string | null | 
 function fmtMoney(value: number) { return `£${value.toFixed(2)}`; }
 function paymentTypeLabel(value: string | null | undefined) {
   const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "limited_company_invoice") return "Limited company - invoice";
+  if (raw === "sole_trader_invoice") return "Sole trader - invoice";
   if (raw === "paye") return "PAYE";
   if (raw === "cis_20") return "CIS 20%";
   if (raw === "cis_30") return "CIS 30%";
+  if (raw === "other") return "Other / confirm with office";
   return "—";
 }
 
