@@ -543,7 +543,7 @@ export default async function OnboardingReviewPage({
                 <OfficeField label="Agreed day rate (£)" name="standard_day_rate" type="number" />
                 <OfficeField label="Agreed hourly rate (£)" name="standard_hourly_rate" type="number" />
                 <OfficeSelect label="Pay basis" name="pay_basis" defaultValue="other" options={[["day_rate","Day rate"],["hourly","Hourly"],["fixed","Fixed"],["other","Other"]]} />
-                <OfficeSelect label="How paid" name="subcontractor_payment_type" defaultValue={submission.preferred_payment_type || ""} options={[["","Select payment type"],["paye","PAYE"],["cis_20","CIS 20%"],["cis_30","CIS 30%"]]} />
+                <OfficeSelect label="How paid" name="subcontractor_payment_type" defaultValue={submission.preferred_payment_type || ""} options={[["","Select payment type"],["limited_company_invoice","Limited company - invoice"],["sole_trader_invoice","Sole trader - invoice"],["paye","PAYE"],["cis_20","CIS 20%"],["cis_30","CIS 30%"],["other","Other / confirm with office"]]} />
               </div>
               <OfficeTextArea label="Payroll notes" name="payroll_notes" />
               <OfficeTextArea label="Approval / internal notes" name="approval_notes" />
