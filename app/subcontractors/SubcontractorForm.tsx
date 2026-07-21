@@ -96,9 +96,12 @@ export default function SubcontractorForm({
             defaultValue={String(init.subcontractor_payment_type ?? "")}
             options={[
               { value: "", label: "Select payment type" },
+              { value: "limited_company_invoice", label: "Limited company - invoice" },
+              { value: "sole_trader_invoice", label: "Sole trader - invoice" },
               { value: "paye", label: "PAYE" },
               { value: "cis_20", label: "CIS 20%" },
               { value: "cis_30", label: "CIS 30%" },
+              { value: "other", label: "Other / confirm with office" },
             ]}
           />
         </div>
