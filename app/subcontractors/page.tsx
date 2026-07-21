@@ -4,6 +4,7 @@ import { geocodeAddress } from "../lib/geocode";
 import { requireOfficeUser } from "../lib/routeGuards";
 import { createSupabaseAdminClient } from "../lib/supabase/admin";
 import { isInviteExpired, onboardingStatusLabel } from "../lib/subcontractorOnboarding";
+import PublicOnboardingLink from "./PublicOnboardingLink";
 
 type SearchParams = {
   q?: string;
@@ -194,7 +195,7 @@ export default async function SubcontractorsPage({
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/subcontractors/pay-report" style={secondaryBtn}>Weekly pay report</a>
             <a href="/subcontractors/new" style={secondaryBtn}>Add manually</a>
-            <a href="/subcontractors/invite" style={primaryBtn}>+ Invite subcontractor</a>
+            <a href="/subcontractor-onboarding" target="_blank" rel="noreferrer" style={primaryBtn}>Open public onboarding form</a>
           </div>
         </div>
 
@@ -202,11 +203,11 @@ export default async function SubcontractorsPage({
         <section style={onboardingCard}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div>
-              <h2 style={{ margin: 0, fontSize: 22 }}>Onboarding invitations</h2>
-              <p style={{ margin: "5px 0 0", opacity: 0.76 }}>Forms awaiting completion, review or changes.</p>
+              <h2 style={{ margin: 0, fontSize: 22 }}>Subcontractor onboarding</h2>
+              <p style={{ margin: "5px 0 0", opacity: 0.76 }}>Public applications and direct invitations awaiting completion, review or changes.</p>
             </div>
-            <a href="/subcontractors/invite" style={primaryBtn}>Create invitation</a>
           </div>
+          <PublicOnboardingLink />
           {onboardingError ? (
             <div style={setupWarning}>Onboarding tables are not available yet. Run the supplied Supabase onboarding SQL before using invitations.</div>
           ) : (onboardingRows ?? []).length === 0 ? (
