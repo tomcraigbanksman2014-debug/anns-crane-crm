@@ -60,6 +60,7 @@ export default async function SubcontractorDetailPage({
     return { ...document, signedUrl: data?.signedUrl || null };
   }));
 
+  const sourceSubmission = (privateDetails?.source_submission_data || {}) as Record<string, any>;
   const qualificationItems = qualifications ?? [];
   const summary = getQualificationSummary(qualificationItems as any);
   const successMessage = searchParams?.success ? decodeURIComponent(searchParams.success) : "";
@@ -144,13 +145,22 @@ export default async function SubcontractorDetailPage({
                   <h2 style={sectionTitle}>Onboarding & private details</h2>
                   <div style={privateWarning}>Sensitive information — admin access only.</div>
                   <Row label="Business type" value={String(privateDetails.business_type || "").replace(/_/g, " ")} />
+                  <Row label="Date of birth" value={sourceSubmission.date_of_birth} />
+                  <Row label="NI number" value={sourceSubmission.national_insurance_number} />
+                  <Row label="Right to work confirmed" value={sourceSubmission.right_to_work_confirmed ? "Yes" : "No"} />
+                  <Row label="Distance willing to travel" value={sourceSubmission.willing_travel_distance} />
                   <Row label="UTR" value={privateDetails.utr_number} />
                   <Row label="VAT number" value={privateDetails.vat_number} />
                   <Row label="Company number" value={privateDetails.company_registration_number} />
+                  <Row label="Bank account name" value={privateDetails.bank_account_name} />
+                  <Row label="Bank sort code" value={privateDetails.bank_sort_code} />
+                  <Row label="Bank account number" value={privateDetails.bank_account_number} />
+                  <Row label="Has own insurance" value={sourceSubmission.has_insurance_cover === "yes" ? "Yes" : sourceSubmission.has_insurance_cover === "no" ? "No" : "—"} />
                   <Row label="Insurance provider" value={privateDetails.insurance_provider} />
                   <Row label="Policy number" value={privateDetails.insurance_policy_number} />
                   <Row label="Insurance cover" value={privateDetails.insurance_cover_amount} />
                   <Row label="Insurance expiry" value={privateDetails.insurance_expiry_date} />
+                  <Row label="Working terms accepted" value={sourceSubmission.working_terms_accepted ? "Yes" : "No"} />
                   <Row label="Declaration" value={privateDetails.declaration_name} />
                 </section>
               ) : null}
