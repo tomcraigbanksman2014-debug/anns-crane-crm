@@ -296,8 +296,8 @@ export default function PublicOnboardingStartPage({
         <div className={styles.eyebrow}>Subcontractor onboarding</div>
         <h1>Apply to join our subcontractor network</h1>
         <p className={styles.intro}>
-          Start your application below. You will then be asked for your business,
-          emergency contact, qualification and supporting document details.
+          Start your application below. You will then be asked for your personal,
+          business, bank, emergency contact, qualification, medical and supporting document details.
         </p>
 
         {errorMessage ? <div className={styles.errorBox}>{errorMessage}</div> : null}
