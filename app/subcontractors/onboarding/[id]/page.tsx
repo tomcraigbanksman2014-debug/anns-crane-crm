@@ -267,6 +267,9 @@ async function approveOnboarding(formData: FormData) {
     utr_number: submission.utr_number || "",
     vat_number: submission.vat_number || "",
     company_registration_number: submission.company_registration_number || "",
+    bank_account_name: submission.bank_account_name || "",
+    bank_sort_code: submission.bank_sort_code || "",
+    bank_account_number: submission.bank_account_number || "",
     insurance_provider: submission.insurance_provider || "",
     insurance_policy_number: submission.insurance_policy_number || "",
     insurance_cover_amount: submission.insurance_cover_amount || "",
@@ -440,6 +443,8 @@ export default async function OnboardingReviewPage({
               {canViewPrivate ? <Row label="UTR" value={submission.utr_number} /> : null}
               <Row label="VAT number" value={submission.vat_number} />
               <Row label="Preferred payment" value={String(submission.preferred_payment_type || "").toUpperCase().replace("_", " ")} />
+              <Row label="Distance willing to travel" value={submission.willing_travel_distance} />
+              <Row label="Right to work confirmed" value={submission.right_to_work_confirmed ? "Yes" : "No"} />
             </section>
 
             <section style={sectionCard}>
@@ -476,8 +481,22 @@ export default async function OnboardingReviewPage({
           </div>
 
           <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
+            {canViewPrivate ? (
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Private identity and bank details</h2>
+                <div style={privateWarning}>Sensitive information - admin access only.</div>
+                <Row label="Date of birth" value={fmtDate(submission.date_of_birth)} />
+                <Row label="NI number" value={submission.national_insurance_number} />
+                <Row label="UTR" value={submission.utr_number} />
+                <Row label="Account name" value={submission.bank_account_name} />
+                <Row label="Sort code" value={submission.bank_sort_code} />
+                <Row label="Account number" value={submission.bank_account_number} />
+              </section>
+            ) : null}
+
             <section style={sectionCard}>
               <h2 style={sectionTitle}>Insurance</h2>
+              <Row label="Has own cover" value={submission.has_insurance_cover === "yes" ? "Yes" : submission.has_insurance_cover === "no" ? "No" : "—"} />
               <Row label="Provider" value={submission.insurance_provider} />
               <Row label="Policy number" value={submission.insurance_policy_number} />
               <Row label="Cover amount" value={submission.insurance_cover_amount} />
@@ -486,6 +505,8 @@ export default async function OnboardingReviewPage({
 
             <section style={sectionCard}>
               <h2 style={sectionTitle}>Declaration</h2>
+              <Row label="Working terms accepted" value={submission.working_terms_accepted ? "Yes" : "No"} />
+              <Row label="Declaration accepted" value={submission.declaration_accepted ? "Yes" : "No"} />
               <Row label="Signed by" value={invite.declaration_name || submission.declaration_name} />
               <Row label="Signed at" value={fmtDate(invite.declaration_signed_at, true)} />
             </section>
