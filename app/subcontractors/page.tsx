@@ -1,6 +1,9 @@
 import ClientShell from "../ClientShell";
 import { createSupabaseServerClient } from "../lib/supabase/server";
 import { geocodeAddress } from "../lib/geocode";
+import { requireOfficeUser } from "../lib/routeGuards";
+import { createSupabaseAdminClient } from "../lib/supabase/admin";
+import { isInviteExpired, onboardingStatusLabel } from "../lib/subcontractorOnboarding";
 
 type SearchParams = {
   q?: string;
@@ -44,12 +47,21 @@ export default async function SubcontractorsPage({
 }: {
   searchParams?: SearchParams;
 }) {
+  await requireOfficeUser();
   const supabase = createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
   const q = String(searchParams?.q ?? "").trim().toLowerCase();
   const qualificationFilter = String(searchParams?.qualification ?? "").trim().toLowerCase();
   const postcode = String(searchParams?.postcode ?? "").trim();
   const radiusMiles = Math.max(0, Number(searchParams?.radius ?? 0) || 0);
   const view = String(searchParams?.view ?? "active").toLowerCase();
+
+  const { data: onboardingRows, error: onboardingError } = await admin
+    .from("subcontractor_onboarding_invites")
+    .select("id, invitee_name, invitee_email, invitee_phone, invited_role, status, expires_at, first_opened_at, last_saved_at, submitted_at, updated_at")
+    .in("status", ["invite_sent", "in_progress", "submitted_for_review", "changes_required"])
+    .order("updated_at", { ascending: false })
+    .limit(20);
 
   let query = supabase
     .from("operators")
@@ -181,9 +193,46 @@ export default async function SubcontractorsPage({
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href="/subcontractors/pay-report" style={secondaryBtn}>Weekly pay report</a>
-            <a href="/subcontractors/new" style={primaryBtn}>+ Add subcontractor</a>
+            <a href="/subcontractors/new" style={secondaryBtn}>Add manually</a>
+            <a href="/subcontractors/invite" style={primaryBtn}>+ Invite subcontractor</a>
           </div>
         </div>
+
+
+        <section style={onboardingCard}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 22 }}>Onboarding invitations</h2>
+              <p style={{ margin: "5px 0 0", opacity: 0.76 }}>Forms awaiting completion, review or changes.</p>
+            </div>
+            <a href="/subcontractors/invite" style={primaryBtn}>Create invitation</a>
+          </div>
+          {onboardingError ? (
+            <div style={setupWarning}>Onboarding tables are not available yet. Run the supplied Supabase onboarding SQL before using invitations.</div>
+          ) : (onboardingRows ?? []).length === 0 ? (
+            <div style={{ opacity: 0.72 }}>No open onboarding invitations.</div>
+          ) : (
+            <div style={onboardingGrid}>
+              {(onboardingRows ?? []).map((invite: any) => {
+                const expired = isInviteExpired(invite);
+                return (
+                  <a key={invite.id} href={`/subcontractors/onboarding/${invite.id}`} style={onboardingRow}>
+                    <div>
+                      <div style={{ fontWeight: 950 }}>{invite.invitee_name || "Unnamed"}</div>
+                      <div style={{ marginTop: 3, fontSize: 13, opacity: 0.75 }}>
+                        {invite.invited_role || invite.invitee_email || invite.invitee_phone || "No role or contact details"}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                      <span style={{ ...pill, ...onboardingPill(invite.status) }}>{onboardingStatusLabel(invite.status)}</span>
+                      {expired ? <span style={{ ...pill, ...pillRed }}>Expired</span> : null}
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <form method="get" style={filterCard}>
           <div style={filterGrid}>
@@ -267,6 +316,13 @@ function Field({ label, name, defaultValue, placeholder, type = "text" }: { labe
   );
 }
 
+function onboardingPill(status: string): React.CSSProperties {
+  if (status === "submitted_for_review") return { background: "rgba(37,99,235,.12)", color: "#1d4ed8", border: "1px solid rgba(37,99,235,.24)" };
+  if (status === "changes_required") return { background: "rgba(245,158,11,.15)", color: "#92400e", border: "1px solid rgba(245,158,11,.28)" };
+  if (status === "revoked") return pillRed;
+  return { background: "rgba(0,0,0,.06)", color: "#111", border: "1px solid rgba(0,0,0,.12)" };
+}
+
 const headerRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" };
 const filterCard: React.CSSProperties = { background: "rgba(255,255,255,0.18)", padding: 16, borderRadius: 14, border: "1px solid rgba(255,255,255,0.40)", boxShadow: "0 8px 30px rgba(0,0,0,0.08)", display: "grid", gap: 12 };
 const filterGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: 12 };
@@ -282,3 +338,9 @@ const pill: React.CSSProperties = { display: "inline-block", padding: "6px 10px"
 const pillGreen: React.CSSProperties = { background: "rgba(0,180,120,0.12)", color: "#0b7a4b", border: "1px solid rgba(0,180,120,0.20)" };
 const pillAmber: React.CSSProperties = { background: "rgba(255,170,0,0.14)", color: "#8a5200", border: "1px solid rgba(255,170,0,0.24)" };
 const pillSmall: React.CSSProperties = { display: "inline-block", padding: "4px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.10)" };
+
+const onboardingCard: React.CSSProperties = { background: "rgba(255,255,255,0.24)", padding: 16, borderRadius: 14, border: "1px solid rgba(255,255,255,0.48)", boxShadow: "0 8px 30px rgba(0,0,0,0.07)", display: "grid", gap: 12 };
+const onboardingGrid: React.CSSProperties = { display: "grid", gap: 8 };
+const onboardingRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: 12, borderRadius: 11, background: "rgba(255,255,255,.66)", border: "1px solid rgba(0,0,0,.07)", textDecoration: "none", color: "#111" };
+const setupWarning: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,.14)", border: "1px solid rgba(245,158,11,.24)", color: "#854d0e", fontWeight: 700 };
+const pillRed: React.CSSProperties = { background: "rgba(190,0,0,.12)", color: "#991b1b", border: "1px solid rgba(190,0,0,.22)" };
