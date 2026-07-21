@@ -35,14 +35,12 @@ export type OnboardingInvite = {
   declaration_signed_at?: string | null;
 };
 
-function onboardingSecret() {
-  const value =
-    String(process.env.SUBCONTRACTOR_ONBOARDING_SECRET ?? "").trim() ||
-    String(process.env.SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
+export function getOnboardingSecret() {
+  const value = String(process.env.SUBCONTRACTOR_ONBOARDING_SECRET ?? "").trim();
 
-  if (!value) {
+  if (value.length < 32) {
     throw new Error(
-      "Server missing SUBCONTRACTOR_ONBOARDING_SECRET or SUPABASE_SERVICE_ROLE_KEY"
+      "Server missing a dedicated SUBCONTRACTOR_ONBOARDING_SECRET of at least 32 characters"
     );
   }
 
@@ -51,7 +49,7 @@ function onboardingSecret() {
 
 function signatureFor(payload: string) {
   return crypto
-    .createHmac("sha256", onboardingSecret())
+    .createHmac("sha256", getOnboardingSecret())
     .update(payload)
     .digest("base64url");
 }
