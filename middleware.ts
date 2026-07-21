@@ -11,20 +11,21 @@ const PUBLIC_PATHS = [
   "/offline.html",
 ];
 
-const PUBLIC_PATH_PREFIXES = [
-  "/unsubscribe",
-  "/api/marketing/unsubscribe",
-  "/subcontractor-onboarding",
-  "/api/subcontractor-onboarding",
+const PUBLIC_ROUTE_PATTERNS = [
+  /^\/unsubscribe(?:\/.*)?$/,
+  /^\/api\/marketing\/unsubscribe(?:\/.*)?$/,
+  /^\/subcontractor-onboarding$/,
+  /^\/subcontractor-onboarding\/[A-Za-z0-9._~-]+$/,
+  /^\/api\/subcontractor-onboarding\/[A-Za-z0-9._~-]+$/,
+  /^\/api\/subcontractor-onboarding\/[A-Za-z0-9._~-]+\/documents\/(?:sign|complete)$/,
+  /^\/api\/subcontractor-onboarding\/[A-Za-z0-9._~-]+\/documents\/[0-9a-fA-F-]{36}$/,
 ];
 
 function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
 
-  for (const publicPrefix of PUBLIC_PATH_PREFIXES) {
-    if (pathname === publicPrefix || pathname.startsWith(`${publicPrefix}/`)) {
-      return true;
-    }
+  if (PUBLIC_ROUTE_PATTERNS.some((pattern) => pattern.test(pathname))) {
+    return true;
   }
 
   if (pathname.startsWith("/_next/")) return true;
