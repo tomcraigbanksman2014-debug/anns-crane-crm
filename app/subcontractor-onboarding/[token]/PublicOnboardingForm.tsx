@@ -160,6 +160,10 @@ export default function PublicOnboardingForm({
       setError("Choose a document to upload.");
       return;
     }
+    if (file.size > 5 * 1024 * 1024) {
+      setError("The maximum file size is 5 MB.");
+      return;
+    }
 
     setBusy("upload");
     setError("");
@@ -201,6 +205,7 @@ export default function PublicOnboardingForm({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
+            upload_intent_id: signed.upload_intent_id,
             path: signed.path,
             category: String(formData.get("category") || "other"),
             original_filename: file.name,
@@ -364,7 +369,7 @@ export default function PublicOnboardingForm({
       </Section>
 
       <Section title="Upload documents">
-        <p className="help">Accepted formats: PDF, JPG, PNG or WEBP. Maximum 10 MB per file.</p>
+        <p className="help">Accepted formats: PDF, JPG, PNG or WEBP. Maximum 5 MB per file, 12 documents and 40 MB total.</p>
         <form onSubmit={uploadDocument} className="upload-form">
           <div className="grid three">
             <SelectFieldUncontrolled
