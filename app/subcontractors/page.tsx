@@ -258,6 +258,7 @@ export default async function SubcontractorsPage({
                 description="Completed applications ready for the office to review."
                 rows={submittedOnboarding}
                 emptyText="No applications are currently awaiting review."
+                defaultOpen={submittedOnboarding.length > 0}
               />
               <OnboardingGroup
                 title="Needs link sending"
@@ -348,44 +349,63 @@ export default async function SubcontractorsPage({
   );
 }
 
-function OnboardingGroup({ title, description, rows, emptyText }: { title: string; description: string; rows: any[]; emptyText: string }) {
+function OnboardingGroup({
+  title,
+  description,
+  rows,
+  emptyText,
+  defaultOpen = false,
+}: {
+  title: string;
+  description: string;
+  rows: any[];
+  emptyText: string;
+  defaultOpen?: boolean;
+}) {
   return (
-    <div style={{ display: "grid", gap: 8 }}>
-      <div>
-        <div style={{ fontWeight: 950, fontSize: 17 }}>{title} <span style={{ opacity: 0.55 }}>({rows.length})</span></div>
-        <div style={{ fontSize: 13, opacity: 0.7, marginTop: 2 }}>{description}</div>
-      </div>
-      {rows.length === 0 ? <div style={groupEmpty}>{emptyText}</div> : (
-        <div style={onboardingGrid}>
-          {rows.map((invite: any) => {
-            const expired = isInviteExpired(invite);
-            const delivery = invite.latestDelivery;
-            const deliveryText = delivery?.event_type === "email_sent"
-              ? `Email sent ${fmtDateTime(delivery.created_at)}`
-              : delivery?.event_type === "whatsapp_opened"
-                ? `WhatsApp opened ${fmtDateTime(delivery.created_at)}`
-                : invite.first_opened_at
-                  ? `Form opened ${fmtDateTime(invite.first_opened_at)}`
-                  : "Private link not sent";
-            return (
-              <a key={invite.id} href={`/subcontractors/onboarding/${invite.id}`} style={onboardingRow}>
-                <div>
-                  <div style={{ fontWeight: 950 }}>{invite.invitee_name || "Unnamed"}</div>
-                  <div style={{ marginTop: 3, fontSize: 13, opacity: 0.75 }}>
-                    {invite.invited_role || invite.invitee_email || invite.invitee_phone || "No role or contact details"}
-                  </div>
-                  <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, opacity: 0.72 }}>{deliveryText}</div>
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                  <span style={{ ...pill, ...onboardingPill(invite.status) }}>{onboardingStatusLabel(invite.status)}</span>
-                  {expired ? <span style={{ ...pill, ...pillRed }}>Expired</span> : null}
-                </div>
-              </a>
-            );
-          })}
+    <details open={defaultOpen} style={onboardingGroupDetails}>
+      <summary style={onboardingGroupSummary}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontWeight: 950, fontSize: 17 }}>
+            {title} <span style={{ opacity: 0.55 }}>({rows.length})</span>
+          </div>
+          <div style={{ fontSize: 13, opacity: 0.7, marginTop: 2 }}>{description}</div>
         </div>
-      )}
-    </div>
+        <span aria-hidden="true" style={dropdownHint}>Open / close</span>
+      </summary>
+      <div style={{ paddingTop: 10 }}>
+        {rows.length === 0 ? <div style={groupEmpty}>{emptyText}</div> : (
+          <div style={onboardingGrid}>
+            {rows.map((invite: any) => {
+              const expired = isInviteExpired(invite);
+              const delivery = invite.latestDelivery;
+              const deliveryText = delivery?.event_type === "email_sent"
+                ? `Email sent ${fmtDateTime(delivery.created_at)}`
+                : delivery?.event_type === "whatsapp_opened"
+                  ? `WhatsApp opened ${fmtDateTime(delivery.created_at)}`
+                  : invite.first_opened_at
+                    ? `Form opened ${fmtDateTime(invite.first_opened_at)}`
+                    : "Private link not sent";
+              return (
+                <a key={invite.id} href={`/subcontractors/onboarding/${invite.id}`} style={onboardingRow}>
+                  <div>
+                    <div style={{ fontWeight: 950 }}>{invite.invitee_name || "Unnamed"}</div>
+                    <div style={{ marginTop: 3, fontSize: 13, opacity: 0.75 }}>
+                      {invite.invited_role || invite.invitee_email || invite.invitee_phone || "No role or contact details"}
+                    </div>
+                    <div style={{ marginTop: 5, fontSize: 12, fontWeight: 800, opacity: 0.72 }}>{deliveryText}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                    <span style={{ ...pill, ...onboardingPill(invite.status) }}>{onboardingStatusLabel(invite.status)}</span>
+                    {expired ? <span style={{ ...pill, ...pillRed }}>Expired</span> : null}
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
 
@@ -422,6 +442,9 @@ const pillAmber: React.CSSProperties = { background: "rgba(255,170,0,0.14)", col
 const pillSmall: React.CSSProperties = { display: "inline-block", padding: "4px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800, background: "rgba(0,0,0,0.06)", border: "1px solid rgba(0,0,0,0.10)" };
 
 const onboardingCard: React.CSSProperties = { background: "rgba(255,255,255,0.24)", padding: 16, borderRadius: 14, border: "1px solid rgba(255,255,255,0.48)", boxShadow: "0 8px 30px rgba(0,0,0,0.07)", display: "grid", gap: 12 };
+const onboardingGroupDetails: React.CSSProperties = { borderRadius: 12, border: "1px solid rgba(0,0,0,.08)", background: "rgba(255,255,255,.18)", padding: "0 12px 12px" };
+const onboardingGroupSummary: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, cursor: "pointer", padding: "12px 0", listStyle: "none" };
+const dropdownHint: React.CSSProperties = { flexShrink: 0, fontSize: 12, fontWeight: 850, opacity: 0.58 };
 const onboardingGrid: React.CSSProperties = { display: "grid", gap: 8 };
 const onboardingRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: 12, borderRadius: 11, background: "rgba(255,255,255,.66)", border: "1px solid rgba(0,0,0,.07)", textDecoration: "none", color: "#111" };
 const groupEmpty: React.CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,.42)", border: "1px dashed rgba(0,0,0,.12)", fontSize: 13, opacity: 0.72 };
