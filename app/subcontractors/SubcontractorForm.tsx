@@ -106,7 +106,7 @@ export default function SubcontractorForm({
       </section>
 
       <section style={sectionCard}>
-        <h2 style={sectionTitle}>Contacts / cards</h2>
+        <h2 style={sectionTitle}>Emergency contact and qualifications</h2>
         <div style={grid3}>
           <Field label="Emergency contact name" name="emergency_contact_name" defaultValue={init.emergency_contact_name ?? ""} />
           <Field label="Emergency contact phone" name="emergency_contact_phone" defaultValue={init.emergency_contact_phone ?? ""} />
@@ -120,7 +120,7 @@ export default function SubcontractorForm({
           {submitLabel}
         </ServerSubmitButton>
         <div style={{ fontSize: 13, opacity: 0.75 }}>
-          This creates an assignable subcontractor record only. No CRM login is created.
+          This is an office-created assignable subcontractor record. No CRM login is created.
         </div>
       </div>
     </form>
