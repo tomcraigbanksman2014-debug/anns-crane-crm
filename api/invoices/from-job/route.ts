@@ -1,0 +1,86 @@
+import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
+
+function makeInvoiceNumber() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  const hh = `${d.getHours()}`.padStart(2, "0");
+  const mm = `${d.getMinutes()}`.padStart(2, "0");
+  const ss = `${d.getSeconds()}`.padStart(2, "0");
+  return `INV-${y}${m}${day}-${hh}${mm}${ss}`;
+}
+
+function addDaysIso(days: number) {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
+export async function POST(req: Request) {
+  try {
+    const body = await req.json().catch(() => null);
+    const jobId = String(body?.job_id ?? "").trim();
+
+    if (!jobId) {
+      return NextResponse.json({ error: "Job ID is required." }, { status: 400 });
+    }
+
+    const supabase = createSupabaseServerClient();
+
+    const { data: job, error: readError } = await supabase
+      .from("jobs")
+      .select(`
+        id,
+        job_number,
+        status,
+        invoice_status,
+        invoice_number,
+        invoice_created_at,
+        invoice_due_date,
+        invoice_notes,
+        invoice_subtotal,
+        invoice_vat,
+        invoice_total,
+        cross_hire_cost_total
+      `)
+      .eq("id", jobId)
+      .single();
+
+    if (readError || !job) {
+      return NextResponse.json(
+        { error: readError?.message || "Job not found." },
+        { status: 404 }
+      );
+    }
+
+    const subtotal = Number(job.invoice_subtotal ?? job.cross_hire_cost_total ?? 0) || 0;
+    const vat = Number(job.invoice_vat ?? subtotal * 0.2) || 0;
+    const total = Number(job.invoice_total ?? subtotal + vat) || 0;
+
+    const payload = {
+      invoice_status: "ready_to_send",
+      invoice_number: job.invoice_number || makeInvoiceNumber(),
+      invoice_created_at: job.invoice_created_at || new Date().toISOString(),
+      invoice_due_date: job.invoice_due_date || addDaysIso(30),
+      invoice_subtotal: subtotal,
+      invoice_vat: vat,
+      invoice_total: total,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from("jobs").update(payload).eq("id", jobId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Server error." },
+      { status: 500 }
+    );
+  }
+}

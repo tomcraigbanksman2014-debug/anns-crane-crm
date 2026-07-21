@@ -1,5 +1,11 @@
 {
   "git": {
     "deploymentEnabled": false
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/shaun-diary/push/check",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

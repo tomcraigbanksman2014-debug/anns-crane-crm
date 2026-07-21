@@ -1,0 +1,12 @@
+import ClientShell from "../ClientShell";
+import PlannerBoard from "./PlannerBoard";
+
+export default function PlannerPage() {
+  return (
+    <ClientShell>
+      <div style={{ width: "min(1460px, 99vw)", margin: "0 auto" }}>
+        <PlannerBoard />
+      </div>
+    </ClientShell>
+  );
+}

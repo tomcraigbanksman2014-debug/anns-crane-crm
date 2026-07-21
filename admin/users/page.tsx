@@ -1,0 +1,454 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import ClientShell from "../../ClientShell";
+
+type StaffUser = {
+  id: string;
+  email: string | null;
+  username: string;
+  role: string;
+  created_at?: string | null;
+  last_login_at?: string | null;
+  must_change_password?: boolean;
+  password_changed_at?: string | null;
+};
+
+function passwordStatus(user: StaffUser) {
+  if (user.must_change_password) return "Must change now";
+  if (!user.password_changed_at) return "Unknown";
+
+  const changed = new Date(user.password_changed_at);
+  if (Number.isNaN(changed.getTime())) return "Unknown";
+
+  const expiry = new Date(changed);
+  expiry.setDate(expiry.getDate() + 183);
+
+  const now = new Date();
+  const diff = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diff <= 0) return "Expired";
+  if (diff <= 14) return `Expires in ${diff}d`;
+  return "OK";
+}
+
+export default function AdminUsersPage() {
+  const [users, setUsers] = useState<StaffUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("staff");
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function loadUsers() {
+    setLoadingUsers(true);
+    try {
+      const res = await fetch("/api/admin/users");
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "Could not load users.");
+        return;
+      }
+
+      setUsers(data?.users ?? []);
+    } catch {
+      setMsg("Could not load users.");
+    } finally {
+      setLoadingUsers(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function onCreate(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+
+    if (!username.trim()) {
+      setMsg("Username is required.");
+      return;
+    }
+
+    if (password.trim().length < 6) {
+      setMsg("Password must be at least 6 characters.");
+      return;
+    }
+
+    if (role === "operator" && !fullName.trim()) {
+      setMsg("Full name is required for operator accounts.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          role,
+          full_name: fullName,
+          phone,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "Could not create user.");
+        return;
+      }
+
+      setMsg(`User "${data.username}" created successfully.`);
+      setUsername("");
+      setPassword("");
+      setRole("staff");
+      setFullName("");
+      setPhone("");
+      await loadUsers();
+    } catch {
+      setMsg("Something went wrong. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function onDelete(userId: string, username: string) {
+    if (!confirm(`Delete user "${username}"?`)) return;
+
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "DELETE",
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "Could not delete user.");
+        return;
+      }
+
+      setMsg(`User "${username}" deleted.`);
+      await loadUsers();
+    } catch {
+      setMsg("Something went wrong. Try again.");
+    }
+  }
+
+  async function onResetPassword(userId: string, username: string) {
+    const newPassword = prompt(`Enter a new password for "${username}"`);
+    if (!newPassword) return;
+
+    if (newPassword.trim().length < 6) {
+      setMsg("Password must be at least 6 characters.");
+      return;
+    }
+
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: newPassword }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setMsg(data?.error || "Could not reset password.");
+        return;
+      }
+
+      setMsg(`Password reset for "${username}".`);
+      await loadUsers();
+    } catch {
+      setMsg("Something went wrong. Try again.");
+    }
+  }
+
+  const successMessage =
+    !!msg &&
+    (msg.includes("successfully") || msg.includes("deleted") || msg.includes("reset"));
+
+  return (
+    <ClientShell>
+      <div style={{ width: "min(1150px, 95vw)", margin: "0 auto" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            gap: 12,
+            alignItems: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <h1 style={{ margin: 0, fontSize: 32 }}>Admin: Staff accounts</h1>
+            <p style={{ marginTop: 6, opacity: 0.8 }}>
+              Create login accounts for admin, staff and operators. Operator accounts are linked automatically.
+            </p>
+          </div>
+
+          <a href="/dashboard" style={btnStyle}>
+            ← Back to dashboard
+          </a>
+        </div>
+
+        {msg && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: "10px 12px",
+              borderRadius: 10,
+              background: successMessage
+                ? "rgba(0,180,120,0.10)"
+                : "rgba(255,0,0,0.10)",
+              border: successMessage
+                ? "1px solid rgba(0,180,120,0.25)"
+                : "1px solid rgba(255,0,0,0.25)",
+            }}
+          >
+            {msg}
+          </div>
+        )}
+
+        <form onSubmit={onCreate} style={card}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Create login account</h2>
+          <p style={{ marginTop: 6, opacity: 0.8 }}>
+            Username is case-insensitive. Password remains case-sensitive. Choosing <strong>operator</strong> also creates or updates the operator record.
+          </p>
+
+          <div style={grid12}>
+            <Field span={4} label="Username">
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                style={input}
+                placeholder="e.g. dave.driver"
+              />
+            </Field>
+
+            <Field span={4} label="Password">
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                style={input}
+                placeholder="Set a strong password"
+              />
+            </Field>
+
+            <Field span={4} label="Role">
+              <select value={role} onChange={(e) => setRole(e.target.value)} style={input}>
+                <option value="staff">staff</option>
+                <option value="admin">admin</option>
+                <option value="operator">operator</option>
+              </select>
+            </Field>
+
+            <Field span={6} label="Full name (required for operator)">
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                style={input}
+                placeholder="e.g. Dave Smith"
+              />
+            </Field>
+
+            <Field span={6} label="Phone (optional)">
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                style={input}
+                placeholder="e.g. 07700 900123"
+              />
+            </Field>
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <button type="submit" disabled={loading} style={primaryBtn}>
+              {loading ? "Creating..." : "Create user"}
+            </button>
+          </div>
+        </form>
+
+        <div style={card}>
+          <h2 style={{ margin: 0, fontSize: 20 }}>Existing users</h2>
+          <p style={{ marginTop: 6, opacity: 0.8 }}>
+            Reset passwords, view last login and delete unused accounts.
+          </p>
+
+          {loadingUsers ? (
+            <p style={{ marginTop: 14 }}>Loading users...</p>
+          ) : users.length === 0 ? (
+            <p style={{ marginTop: 14 }}>No users found.</p>
+          ) : (
+            <div style={{ overflowX: "auto", marginTop: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr>
+                    <th align="left" style={thStyle}>Username</th>
+                    <th align="left" style={thStyle}>Role</th>
+                    <th align="left" style={thStyle}>Last login</th>
+                    <th align="left" style={thStyle}>Password status</th>
+                    <th align="left" style={thStyle}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.map((u) => (
+                    <tr key={u.id}>
+                      <td style={tdStyle}>{u.username}</td>
+                      <td style={tdStyle}>{u.role}</td>
+                      <td style={tdStyle}>
+                        {u.last_login_at
+                          ? new Date(u.last_login_at).toLocaleString("en-GB")
+                          : "Never"}
+                      </td>
+                      <td style={tdStyle}>{passwordStatus(u)}</td>
+                      <td style={tdStyle}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            onClick={() => onResetPassword(u.id, u.username)}
+                            style={actionBtn}
+                          >
+                            Reset password
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onDelete(u.id, u.username)}
+                            style={dangerBtn}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </ClientShell>
+  );
+}
+
+function Field({
+  label,
+  children,
+  span,
+}: {
+  label: string;
+  children: React.ReactNode;
+  span: number;
+}) {
+  return (
+    <div style={{ gridColumn: `span ${span}` }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const card: React.CSSProperties = {
+  marginTop: 16,
+  background: "rgba(255,255,255,0.18)",
+  padding: 18,
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.4)",
+  boxShadow: "0 8px 30px rgba(0,0,0,0.08)",
+};
+
+const grid12: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(12, minmax(0, 1fr))",
+  gap: 12,
+  marginTop: 12,
+};
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  marginBottom: 6,
+  opacity: 0.85,
+};
+
+const input: React.CSSProperties = {
+  width: "100%",
+  height: 44,
+  padding: "0 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.15)",
+  outline: "none",
+  fontSize: 15,
+  background: "rgba(255,255,255,0.85)",
+  boxSizing: "border-box",
+};
+
+const primaryBtn: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: 10,
+  border: "none",
+  background: "#111",
+  color: "white",
+  fontSize: 15,
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const actionBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(0,0,0,0.10)",
+  background: "rgba(255,255,255,0.55)",
+  color: "#111",
+  fontWeight: 800,
+  cursor: "pointer",
+};
+
+const dangerBtn: React.CSSProperties = {
+  padding: "8px 10px",
+  borderRadius: 9,
+  border: "1px solid rgba(255,0,0,0.25)",
+  background: "rgba(255,0,0,0.10)",
+  color: "#b00020",
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const btnStyle: React.CSSProperties = {
+  display: "inline-block",
+  padding: "10px 14px",
+  borderRadius: 10,
+  border: "1px solid rgba(0,0,0,0.12)",
+  background: "rgba(255,255,255,0.45)",
+  textDecoration: "none",
+  color: "#111",
+  fontWeight: 800,
+};
+
+const thStyle: React.CSSProperties = {
+  padding: "10px 10px",
+  borderBottom: "1px solid rgba(0,0,0,0.10)",
+  fontSize: 12,
+  opacity: 0.8,
+};
+
+const tdStyle: React.CSSProperties = {
+  padding: "12px 10px",
+  borderBottom: "1px solid rgba(0,0,0,0.08)",
+  fontSize: 14,
+};
