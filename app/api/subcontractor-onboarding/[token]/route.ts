@@ -35,6 +35,7 @@ const SIMPLE_FIELDS: Record<string, number> = {
   utr_number: 40,
   vat_number: 40,
   preferred_payment_type: 40,
+  national_insurance_number: 20,
   bank_account_name: 160,
   bank_sort_code: 20,
   bank_account_number: 20,
@@ -73,6 +74,8 @@ function sanitizeSubmission(raw: any) {
   result.email = String(result.email || "").toLowerCase();
   result.bank_sort_code = digitsOnly(result.bank_sort_code, 6);
   result.bank_account_number = digitsOnly(result.bank_account_number, 8);
+  result.right_to_work_confirmed = raw?.right_to_work_confirmed === true;
+  result.working_terms_accepted = raw?.working_terms_accepted === true;
   result.declaration_accepted = raw?.declaration_accepted === true;
   result.qualifications = sanitizeQualifications(raw?.qualifications);
   return result;
@@ -91,6 +94,8 @@ function validateForSubmission(data: Record<string, any>) {
   if (!data.address_line_1) missing.push("address line 1");
   if (!data.town_city) missing.push("town / city");
   if (!data.base_postcode) missing.push("postcode");
+  if (!data.national_insurance_number) missing.push("National Insurance number");
+  if (!data.right_to_work_confirmed) missing.push("right to work confirmation");
   if (!data.business_type) missing.push("how you trade");
   if (!data.preferred_payment_type) missing.push("payment method");
   if (data.business_type === "limited_company" && !data.company_registration_number) {
@@ -108,6 +113,7 @@ function validateForSubmission(data: Record<string, any>) {
   if (data.bank_account_number.length !== 8) missing.push("valid 8-digit bank account number");
   if (!data.emergency_contact_name) missing.push("emergency contact name");
   if (!data.emergency_contact_phone) missing.push("emergency contact phone");
+  if (!data.working_terms_accepted) missing.push("working terms acceptance");
   if (!data.declaration_accepted) missing.push("declaration confirmation");
   if (!data.declaration_name) missing.push("typed signature");
   return missing;
