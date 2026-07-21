@@ -6,7 +6,9 @@ import styles from "./public-onboarding.module.css";
 import {
   buildOnboardingLink,
   cleanSubmissionValue,
+  type OnboardingInvite,
 } from "../lib/subcontractorOnboarding";
+import { sendSubcontractorOnboardingEmail } from "../lib/subcontractorOnboardingEmail";
 import {
   createPublicFormProof,
   getClientIp,
@@ -80,70 +82,158 @@ async function startApplication(formData: FormData) {
     `${email}|${normalisePhone(phone)}`
   );
 
+  // Connection-level controls remain in place, but the limits are high enough for
+  // legitimate users sharing a mobile carrier, workplace or site connection.
   try {
     await requireOnboardingRateLimit(admin, {
       keyHash: ipHash,
-      action: "public_start_hour",
+      action: "public_start_ip_hour_v2",
       windowSeconds: 60 * 60,
-      maxRequests: 8,
+      maxRequests: 30,
     });
     await requireOnboardingRateLimit(admin, {
       keyHash: ipHash,
-      action: "public_start_day",
+      action: "public_start_ip_day_v2",
       windowSeconds: 24 * 60 * 60,
-      maxRequests: 25,
-    });
-    await requireOnboardingRateLimit(admin, {
-      keyHash: identityHash,
-      action: "public_identity_day",
-      windowSeconds: 24 * 60 * 60,
-      maxRequests: 2,
-    });
-    await requireOnboardingRateLimit(admin, {
-      keyHash: hashOnboardingValue("global", "public-start"),
-      action: "public_start_global_hour",
-      windowSeconds: 60 * 60,
       maxRequests: 100,
+    });
+    await requireOnboardingRateLimit(admin, {
+      keyHash: hashOnboardingValue("global", "public-start-v2"),
+      action: "public_start_global_hour_v2",
+      windowSeconds: 60 * 60,
+      maxRequests: 500,
     });
   } catch (error: any) {
     if (error?.message === "ONBOARDING_RATE_LIMITED") {
-      redirectWithError("Too many applications have been started. Please wait and try again.");
+      redirectWithError(
+        "There have been too many recent attempts from this connection. Please wait and try again, or contact the AnnS office."
+      );
     }
     redirectWithError("The onboarding service is temporarily unavailable. Please try again later.");
   }
 
   const duplicateCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const openStatuses = ["invite_sent", "in_progress", "changes_required", "submitted_for_review"];
-  const [{ data: matchingEmail, error: emailLookupError }, { data: matchingPhone, error: phoneLookupError }] =
-    await Promise.all([
-      admin
-        .from("subcontractor_onboarding_invites")
-        .select("id")
-        .eq("invitee_email", email)
-        .in("status", openStatuses)
-        .gte("created_at", duplicateCutoff)
-        .limit(1),
-      admin
-        .from("subcontractor_onboarding_invites")
-        .select("id")
-        .eq("invitee_phone", phone)
-        .in("status", openStatuses)
-        .gte("created_at", duplicateCutoff)
-        .limit(1),
-    ]);
+  const openStatuses = [
+    "invite_sent",
+    "in_progress",
+    "changes_required",
+    "submitted_for_review",
+  ];
 
-  if (emailLookupError || phoneLookupError) {
+  const [emailLookup, phoneLookup] = await Promise.all([
+    admin
+      .from("subcontractor_onboarding_invites")
+      .select("id, token_version, invitee_name, invitee_email, invitee_phone, status, expires_at")
+      .eq("invitee_email", email)
+      .in("status", openStatuses)
+      .gte("created_at", duplicateCutoff)
+      .order("created_at", { ascending: false })
+      .limit(1),
+    admin
+      .from("subcontractor_onboarding_invites")
+      .select("id, token_version, invitee_name, invitee_email, invitee_phone, status, expires_at")
+      .eq("invitee_phone", phone)
+      .in("status", openStatuses)
+      .gte("created_at", duplicateCutoff)
+      .order("created_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  if (emailLookup.error || phoneLookup.error) {
     console.error("Public onboarding duplicate check failed", {
-      email: emailLookupError?.message,
-      phone: phoneLookupError?.message,
+      email: emailLookup.error?.message,
+      phone: phoneLookup.error?.message,
     });
     redirectWithError("The application could not be started. Please try again later.");
   }
 
-  if ((matchingEmail?.length ?? 0) > 0 || (matchingPhone?.length ?? 0) > 0) {
+  const emailMatch = (emailLookup.data?.[0] ?? null) as OnboardingInvite | null;
+  const phoneMatch = (phoneLookup.data?.[0] ?? null) as OnboardingInvite | null;
+  const matchingInvite = emailMatch || phoneMatch;
+
+  if (matchingInvite) {
+    if (matchingInvite.status === "submitted_for_review") {
+      redirectWithError(
+        "An application using these contact details has already been submitted and is awaiting review."
+      );
+    }
+
+    // Only send a continuation link when the entered email exactly matches the
+    // existing application. This avoids sending a private link to a changed address.
+    if (emailMatch && String(emailMatch.invitee_email || "").toLowerCase() === email) {
+      let continuationSent = false;
+
+      try {
+        await requireOnboardingRateLimit(admin, {
+          keyHash: identityHash,
+          action: "public_resume_email_hour_v2",
+          windowSeconds: 60 * 60,
+          maxRequests: 3,
+          inviteId: emailMatch.id,
+        });
+
+        const link = buildOnboardingLink(emailMatch, currentOrigin());
+        await sendSubcontractorOnboardingEmail({
+          admin,
+          to: email,
+          subject: "Continue your AnnS subcontractor application",
+          heading: "Continue your subcontractor application",
+          paragraphs: [
+            `Hi ${String(emailMatch.invitee_name || fullName).split(/\s+/)[0] || "there"},`,
+            "An application using your details has already been started. Use the secure button below to continue where you left off.",
+          ],
+          buttonLabel: "Continue application",
+          buttonUrl: link,
+        });
+
+        await admin.from("subcontractor_onboarding_events").insert({
+          invite_id: emailMatch.id,
+          event_type: "continuation_link_resent",
+          actor_type: "subcontractor",
+          detail: { source: "public_onboarding_link", ip_hash: ipHash },
+        });
+
+        continuationSent = true;
+      } catch (error: any) {
+        if (error?.message === "ONBOARDING_RATE_LIMITED") {
+          redirectWithError(
+            "A continuation email has already been requested recently. Please check your inbox and junk folder."
+          );
+        }
+        console.error("Public onboarding continuation email failed", {
+          inviteId: emailMatch.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      if (continuationSent) {
+        redirectWithError(
+          "An application already exists. We have emailed your secure continuation link."
+        );
+      }
+    }
+
     redirectWithError(
-      "An application using these contact details has already been started recently. Use your existing secure link or contact the AnnS office."
+      "An application using these contact details already exists. Please use your secure continuation link or contact the AnnS office."
     );
+  }
+
+  // This identity limit is checked only when a new application is actually eligible
+  // to be created. Repeat visits to an existing application no longer consume it.
+  try {
+    await requireOnboardingRateLimit(admin, {
+      keyHash: identityHash,
+      action: "public_identity_create_day_v2",
+      windowSeconds: 24 * 60 * 60,
+      maxRequests: 3,
+    });
+  } catch (error: any) {
+    if (error?.message === "ONBOARDING_RATE_LIMITED") {
+      redirectWithError(
+        "An application has already been started recently using these contact details."
+      );
+    }
+    redirectWithError("The onboarding service is temporarily unavailable. Please try again later.");
   }
 
   const now = new Date();
@@ -185,7 +275,7 @@ async function startApplication(formData: FormData) {
     detail: { source: "public_onboarding_link", ip_hash: ipHash },
   });
 
-  redirect(buildOnboardingLink(invite as any, currentOrigin()));
+  redirect(buildOnboardingLink(invite as OnboardingInvite, currentOrigin()));
 }
 
 export default function PublicOnboardingStartPage({
@@ -207,7 +297,7 @@ export default function PublicOnboardingStartPage({
         <h1>Apply to join our subcontractor network</h1>
         <p className={styles.intro}>
           Start your application below. You will then be asked for your business,
-          payment, emergency contact, qualification and supporting document details.
+          emergency contact, qualification and supporting document details.
         </p>
 
         {errorMessage ? <div className={styles.errorBox}>{errorMessage}</div> : null}
