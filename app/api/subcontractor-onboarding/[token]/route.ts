@@ -34,12 +34,7 @@ const SIMPLE_FIELDS: Record<string, number> = {
   company_registration_number: 80,
   utr_number: 40,
   vat_number: 40,
-  requested_day_rate: 30,
-  requested_hourly_rate: 30,
   preferred_payment_type: 40,
-  bank_account_name: 160,
-  bank_sort_code: 20,
-  bank_account_number: 20,
   insurance_provider: 160,
   insurance_policy_number: 120,
   insurance_cover_amount: 80,
@@ -63,18 +58,12 @@ function sanitizeQualifications(value: unknown) {
   }));
 }
 
-function digitsOnly(value: string, maxLength: number) {
-  return value.replace(/\D/g, "").slice(0, maxLength);
-}
-
 function sanitizeSubmission(raw: any) {
   const result: Record<string, any> = {};
   for (const [key, maxLength] of Object.entries(SIMPLE_FIELDS)) {
     result[key] = cleanSubmissionValue(raw?.[key], maxLength);
   }
   result.email = String(result.email || "").toLowerCase();
-  result.bank_sort_code = digitsOnly(result.bank_sort_code, 6);
-  result.bank_account_number = digitsOnly(result.bank_account_number, 8);
   result.declaration_accepted = raw?.declaration_accepted === true;
   result.qualifications = sanitizeQualifications(raw?.qualifications);
   return result;
@@ -94,9 +83,6 @@ function validateForSubmission(data: Record<string, any>) {
   if (!data.town_city) missing.push("town / city");
   if (!data.base_postcode) missing.push("postcode");
   if (!data.business_type) missing.push("business type");
-  if (!data.bank_account_name) missing.push("bank account name");
-  if (data.bank_sort_code.length !== 6) missing.push("valid 6-digit bank sort code");
-  if (data.bank_account_number.length !== 8) missing.push("valid 8-digit bank account number");
   if (!data.emergency_contact_name) missing.push("emergency contact name");
   if (!data.emergency_contact_phone) missing.push("emergency contact phone");
   if (!data.declaration_accepted) missing.push("declaration confirmation");
