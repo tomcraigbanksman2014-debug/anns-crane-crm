@@ -18,12 +18,14 @@
     "leaflet": "^1.9.4",
     "react-leaflet": "^4.2.1",
     "leaflet-defaulticon-compatibility": "^0.1.2",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "@types/web-push": "^3.6.4"
   }
 }

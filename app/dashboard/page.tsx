@@ -7,6 +7,7 @@ import DashboardSearch from "../components/DashboardSearch";
 import StatusPill from "../components/StatusPill";
 import OperatorQualificationAlertSummary from "../components/OperatorQualificationAlertSummary";
 import OperatorComplianceAlerts from "../components/OperatorComplianceAlerts";
+import ShaunDiaryDashboardCard from "../components/ShaunDiaryDashboardCard";
 import { createSupabaseBrowserClient } from "../lib/supabase/browser";
 import { displayUserNameFromEmail } from "../lib/displayUserName";
 
@@ -221,6 +222,7 @@ export default function DashboardPage() {
     return (
       <ClientShell>
         <div className="dash-shell" style={shellStyle}>
+        <ShaunDiaryDashboardCard />
           <Panel title="Loading dashboard">
             <EmptyState text="Loading..." />
           </Panel>

@@ -1,5 +1,8 @@
 {
-  "git": {
-    "deploymentEnabled": false
-  }
+  "crons": [
+    {
+      "path": "/api/cron/shaun-diary-reminders",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
