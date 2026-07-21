@@ -147,16 +147,6 @@ export default async function SubcontractorDetailPage({
                   <Row label="UTR" value={privateDetails.utr_number} />
                   <Row label="VAT number" value={privateDetails.vat_number} />
                   <Row label="Company number" value={privateDetails.company_registration_number} />
-                  <Row label="Requested day rate" value={fmtMoney(privateDetails.requested_day_rate)} />
-                  <Row label="Requested hourly rate" value={fmtMoney(privateDetails.requested_hourly_rate)} />
-                  <details style={{ marginTop: 10 }}>
-                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>Show bank details</summary>
-                    <div style={{ marginTop: 8 }}>
-                      <Row label="Account name" value={privateDetails.bank_account_name} />
-                      <Row label="Sort code" value={privateDetails.bank_sort_code} />
-                      <Row label="Account number" value={privateDetails.bank_account_number} />
-                    </div>
-                  </details>
                   <Row label="Insurance provider" value={privateDetails.insurance_provider} />
                   <Row label="Policy number" value={privateDetails.insurance_policy_number} />
                   <Row label="Insurance cover" value={privateDetails.insurance_cover_amount} />
