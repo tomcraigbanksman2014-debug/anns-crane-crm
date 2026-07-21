@@ -47,11 +47,6 @@ function fmtDate(value: any, includeTime = false) {
   if (!Number.isFinite(date.getTime())) return fmt(value);
   return date.toLocaleString("en-GB", includeTime ? { dateStyle: "medium", timeStyle: "short" } : { dateStyle: "medium" });
 }
-function fmtMoney(value: any) {
-  if (value === null || value === undefined || value === "") return "—";
-  const number = Number(value);
-  return Number.isFinite(number) ? `£${number.toFixed(2)}` : "—";
-}
 
 async function sendInviteEmail(formData: FormData) {
   "use server";
@@ -272,11 +267,6 @@ async function approveOnboarding(formData: FormData) {
     utr_number: submission.utr_number || "",
     vat_number: submission.vat_number || "",
     company_registration_number: submission.company_registration_number || "",
-    bank_account_name: submission.bank_account_name || "",
-    bank_sort_code: submission.bank_sort_code || "",
-    bank_account_number: submission.bank_account_number || "",
-    requested_day_rate: submission.requested_day_rate || "",
-    requested_hourly_rate: submission.requested_hourly_rate || "",
     insurance_provider: submission.insurance_provider || "",
     insurance_policy_number: submission.insurance_policy_number || "",
     insurance_cover_amount: submission.insurance_cover_amount || "",
@@ -449,8 +439,6 @@ export default async function OnboardingReviewPage({
               <Row label="Company number" value={submission.company_registration_number} />
               {canViewPrivate ? <Row label="UTR" value={submission.utr_number} /> : null}
               <Row label="VAT number" value={submission.vat_number} />
-              <Row label="Requested day rate" value={fmtMoney(submission.requested_day_rate)} />
-              <Row label="Requested hourly rate" value={fmtMoney(submission.requested_hourly_rate)} />
               <Row label="Preferred payment" value={String(submission.preferred_payment_type || "").toUpperCase().replace("_", " ")} />
             </section>
 
@@ -488,21 +476,6 @@ export default async function OnboardingReviewPage({
           </div>
 
           <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
-            {canViewPrivate ? (
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Private payment details</h2>
-                <div style={privateWarning}>Sensitive information — admin access only.</div>
-                <Row label="Account name" value={submission.bank_account_name} />
-                <Row label="Sort code" value={submission.bank_sort_code} />
-                <Row label="Account number" value={submission.bank_account_number} />
-              </section>
-            ) : (
-              <section style={sectionCard}>
-                <h2 style={sectionTitle}>Private payment details</h2>
-                <div style={privateWarning}>Bank and tax details are restricted to admin users.</div>
-              </section>
-            )}
-
             <section style={sectionCard}>
               <h2 style={sectionTitle}>Insurance</h2>
               <Row label="Provider" value={submission.insurance_provider} />
@@ -542,13 +515,13 @@ export default async function OnboardingReviewPage({
         {invite.status === "submitted_for_review" && canApprove ? (
           <section style={{ ...sectionCard, border: "2px solid rgba(0,140,80,.35)" }}>
             <h2 style={sectionTitle}>Approve and create active subcontractor</h2>
-            <p style={{ marginTop: 0, opacity: 0.8 }}>Check the submission and documents, then set the office-agreed rates and payroll details. Requested rates are not applied automatically.</p>
+            <p style={{ marginTop: 0, opacity: 0.8 }}>Check the submission and documents, then enter any office-agreed rates and payroll details.</p>
             <form action={approveOnboarding} style={{ display: "grid", gap: 12 }}>
               <input type="hidden" name="invite_id" value={invite.id} />
               <div style={formGrid}>
-                <OfficeField label="Agreed day rate (£)" name="standard_day_rate" defaultValue={submission.requested_day_rate || ""} type="number" />
-                <OfficeField label="Agreed hourly rate (£)" name="standard_hourly_rate" defaultValue={submission.requested_hourly_rate || ""} type="number" />
-                <OfficeSelect label="Pay basis" name="pay_basis" defaultValue={submission.requested_day_rate ? "day_rate" : submission.requested_hourly_rate ? "hourly" : "other"} options={[["day_rate","Day rate"],["hourly","Hourly"],["fixed","Fixed"],["other","Other"]]} />
+                <OfficeField label="Agreed day rate (£)" name="standard_day_rate" type="number" />
+                <OfficeField label="Agreed hourly rate (£)" name="standard_hourly_rate" type="number" />
+                <OfficeSelect label="Pay basis" name="pay_basis" defaultValue="other" options={[["day_rate","Day rate"],["hourly","Hourly"],["fixed","Fixed"],["other","Other"]]} />
                 <OfficeSelect label="How paid" name="subcontractor_payment_type" defaultValue={submission.preferred_payment_type || ""} options={[["","Select payment type"],["paye","PAYE"],["cis_20","CIS 20%"],["cis_30","CIS 30%"]]} />
               </div>
               <OfficeTextArea label="Payroll notes" name="payroll_notes" />
@@ -559,7 +532,7 @@ export default async function OnboardingReviewPage({
         ) : null}
 
         {invite.status === "submitted_for_review" && !canApprove ? (
-          <div style={warningBox}>Only an admin user can view bank and tax details or approve this subcontractor. You can still return the form for changes.</div>
+          <div style={warningBox}>Only an admin user can approve this subcontractor. You can still return the form for changes.</div>
         ) : null}
 
         {invite.status === "submitted_for_review" ? (
