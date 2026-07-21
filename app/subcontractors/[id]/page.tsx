@@ -1,6 +1,9 @@
 import ClientShell from "../../ClientShell";
 import { createSupabaseServerClient } from "../../lib/supabase/server";
 import { getQualificationSummary } from "../../lib/utils/qualificationStatus";
+import { requireOfficeUser } from "../../lib/routeGuards";
+import { createSupabaseAdminClient } from "../../lib/supabase/admin";
+import { SUBCONTRACTOR_DOCUMENT_BUCKET } from "../../lib/subcontractorOnboarding";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -34,12 +37,23 @@ export default async function SubcontractorDetailPage({
   params: { id: string };
   searchParams?: { success?: string };
 }) {
+  await requireOfficeUser();
   const supabase = createSupabaseServerClient();
+  const admin = createSupabaseAdminClient();
 
-  const [{ data: operator, error }, { data: qualifications }] = await Promise.all([
+  const [{ data: operator, error }, { data: qualifications }, { data: privateDetails }, { data: onboardingDocuments }] = await Promise.all([
     supabase.from("operators").select("*").eq("id", params.id).eq("employment_type", "subcontractor").single(),
     supabase.from("operator_qualifications").select("*").eq("operator_id", params.id).order("expiry_date", { ascending: true }),
+    admin.from("subcontractor_private_details").select("*").eq("operator_id", params.id).maybeSingle(),
+    admin.from("subcontractor_onboarding_documents").select("*").eq("operator_id", params.id).order("created_at", { ascending: false }),
   ]);
+
+  const signedOnboardingDocuments = await Promise.all((onboardingDocuments ?? []).map(async (document: any) => {
+    const { data } = await admin.storage
+      .from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET)
+      .createSignedUrl(document.storage_path, 60 * 60);
+    return { ...document, signedUrl: data?.signedUrl || null };
+  }));
 
   const qualificationItems = qualifications ?? [];
   const summary = getQualificationSummary(qualificationItems as any);
@@ -120,6 +134,52 @@ export default async function SubcontractorDetailPage({
                 </div>
               </section>
 
+              {privateDetails ? (
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Onboarding & private details</h2>
+                  <div style={privateWarning}>Sensitive information — authorised office use only.</div>
+                  <Row label="Business type" value={String(privateDetails.business_type || "").replace(/_/g, " ")} />
+                  <Row label="UTR" value={privateDetails.utr_number} />
+                  <Row label="VAT number" value={privateDetails.vat_number} />
+                  <Row label="Company number" value={privateDetails.company_registration_number} />
+                  <Row label="Requested day rate" value={fmtMoney(privateDetails.requested_day_rate)} />
+                  <Row label="Requested hourly rate" value={fmtMoney(privateDetails.requested_hourly_rate)} />
+                  <details style={{ marginTop: 10 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 900 }}>Show bank details</summary>
+                    <div style={{ marginTop: 8 }}>
+                      <Row label="Account name" value={privateDetails.bank_account_name} />
+                      <Row label="Sort code" value={privateDetails.bank_sort_code} />
+                      <Row label="Account number" value={privateDetails.bank_account_number} />
+                    </div>
+                  </details>
+                  <Row label="Insurance provider" value={privateDetails.insurance_provider} />
+                  <Row label="Policy number" value={privateDetails.insurance_policy_number} />
+                  <Row label="Insurance cover" value={privateDetails.insurance_cover_amount} />
+                  <Row label="Insurance expiry" value={privateDetails.insurance_expiry_date} />
+                  <Row label="Declaration" value={privateDetails.declaration_name} />
+                </section>
+              ) : null}
+
+              {signedOnboardingDocuments.length > 0 ? (
+                <section style={sectionCard}>
+                  <h2 style={sectionTitle}>Onboarding documents</h2>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {signedOnboardingDocuments.map((document: any) => (
+                      <div key={document.id} style={documentRow}>
+                        <div>
+                          <div style={{ fontWeight: 900 }}>{document.original_filename}</div>
+                          <div style={{ marginTop: 3, fontSize: 12, opacity: 0.72 }}>
+                            {String(document.category || "other").replace(/_/g, " ")}
+                            {document.expiry_date ? ` • Expires ${document.expiry_date}` : ""}
+                          </div>
+                        </div>
+                        {document.signedUrl ? <a href={document.signedUrl} target="_blank" rel="noreferrer" style={openDocBtn}>Open</a> : null}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
               <section style={sectionCard}>
                 <h2 style={sectionTitle}>Emergency contact</h2>
                 <Row label="Name" value={operator.emergency_contact_name} />
@@ -162,3 +222,7 @@ const pillNeutral: React.CSSProperties = { display: "inline-block", padding: "6p
 const pillWarn: React.CSSProperties = { ...pillNeutral, background: "rgba(255,170,0,0.14)", color: "#8a5200", border: "1px solid rgba(255,170,0,0.24)" };
 const pillBad: React.CSSProperties = { ...pillNeutral, background: "rgba(255,0,0,0.12)", color: "#b00020", border: "1px solid rgba(255,0,0,0.22)" };
 const miniCard: React.CSSProperties = { borderRadius: 12, border: "1px solid rgba(0,0,0,0.08)", background: "rgba(255,255,255,0.72)", padding: 12 };
+
+const privateWarning: React.CSSProperties = { padding: "8px 10px", borderRadius: 9, background: "rgba(190,0,0,.08)", border: "1px solid rgba(190,0,0,.14)", color: "#7f1d1d", fontSize: 12, fontWeight: 800, marginBottom: 8 };
+const documentRow: React.CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: 10, borderRadius: 10, background: "rgba(255,255,255,.62)", border: "1px solid rgba(0,0,0,.07)" };
+const openDocBtn: React.CSSProperties = { padding: "6px 9px", borderRadius: 8, background: "#111", color: "#fff", textDecoration: "none", fontWeight: 850, fontSize: 12 };
