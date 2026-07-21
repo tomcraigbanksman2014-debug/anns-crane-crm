@@ -30,9 +30,6 @@ const SIMPLE_FIELDS: Record<string, number> = {
   address_line_2: 240,
   town_city: 120,
   county: 120,
-  date_of_birth: 20,
-  national_insurance_number: 30,
-  willing_travel_distance: 120,
   business_type: 80,
   company_registration_number: 80,
   utr_number: 40,
@@ -41,7 +38,6 @@ const SIMPLE_FIELDS: Record<string, number> = {
   bank_account_name: 160,
   bank_sort_code: 20,
   bank_account_number: 20,
-  has_insurance_cover: 10,
   insurance_provider: 160,
   insurance_policy_number: 120,
   insurance_cover_amount: 80,
@@ -65,14 +61,18 @@ function sanitizeQualifications(value: unknown) {
   }));
 }
 
+function digitsOnly(value: string, maxLength: number) {
+  return value.replace(/\D/g, "").slice(0, maxLength);
+}
+
 function sanitizeSubmission(raw: any) {
   const result: Record<string, any> = {};
   for (const [key, maxLength] of Object.entries(SIMPLE_FIELDS)) {
     result[key] = cleanSubmissionValue(raw?.[key], maxLength);
   }
   result.email = String(result.email || "").toLowerCase();
-  result.right_to_work_confirmed = raw?.right_to_work_confirmed === true;
-  result.working_terms_accepted = raw?.working_terms_accepted === true;
+  result.bank_sort_code = digitsOnly(result.bank_sort_code, 6);
+  result.bank_account_number = digitsOnly(result.bank_account_number, 8);
   result.declaration_accepted = raw?.declaration_accepted === true;
   result.qualifications = sanitizeQualifications(raw?.qualifications);
   return result;
@@ -88,21 +88,26 @@ function validateForSubmission(data: Record<string, any>) {
   if (!data.phone) missing.push("phone number");
   if (!data.email || !isEmail(data.email)) missing.push("valid email address");
   if (!data.role) missing.push("role / trade");
-  if (!data.date_of_birth) missing.push("date of birth");
-  if (!data.national_insurance_number) missing.push("National Insurance number");
-  if (!data.right_to_work_confirmed) missing.push("right to work confirmation");
-  if (!data.willing_travel_distance) missing.push("distance willing to travel");
   if (!data.address_line_1) missing.push("address line 1");
   if (!data.town_city) missing.push("town / city");
   if (!data.base_postcode) missing.push("postcode");
-  if (!data.business_type) missing.push("business type");
+  if (!data.business_type) missing.push("how you trade");
+  if (!data.preferred_payment_type) missing.push("payment method");
+  if (data.business_type === "limited_company" && !data.company_registration_number) {
+    missing.push("company registration number");
+  }
+  const utrRequired =
+    data.business_type === "limited_company" ||
+    data.business_type === "sole_trader" ||
+    data.business_type === "paye_cis" ||
+    data.preferred_payment_type === "cis_20" ||
+    data.preferred_payment_type === "cis_30";
+  if (utrRequired && !data.utr_number) missing.push("UTR number");
   if (!data.bank_account_name) missing.push("bank account name");
-  if (!data.bank_sort_code) missing.push("bank sort code");
-  if (!data.bank_account_number) missing.push("bank account number");
-  if (!data.has_insurance_cover) missing.push("insurance cover confirmation");
+  if (data.bank_sort_code.length !== 6) missing.push("valid 6-digit bank sort code");
+  if (data.bank_account_number.length !== 8) missing.push("valid 8-digit bank account number");
   if (!data.emergency_contact_name) missing.push("emergency contact name");
   if (!data.emergency_contact_phone) missing.push("emergency contact phone");
-  if (!data.working_terms_accepted) missing.push("working and payment terms confirmation");
   if (!data.declaration_accepted) missing.push("declaration confirmation");
   if (!data.declaration_name) missing.push("typed signature");
   return missing;
