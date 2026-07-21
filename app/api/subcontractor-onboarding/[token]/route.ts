@@ -7,6 +7,14 @@ import {
   readInviteFromToken,
 } from "../../../lib/subcontractorOnboarding";
 import { sendSubcontractorOnboardingEmail } from "../../../lib/subcontractorOnboardingEmail";
+import {
+  getClientIp,
+  hashOnboardingValue,
+  publicApiError,
+  readJsonBodyLimited,
+  requestBodyTooLarge,
+  requireOnboardingRateLimit,
+} from "../../../lib/subcontractorOnboardingSecurity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,11 +63,18 @@ function sanitizeQualifications(value: unknown) {
   }));
 }
 
+function digitsOnly(value: string, maxLength: number) {
+  return value.replace(/\D/g, "").slice(0, maxLength);
+}
+
 function sanitizeSubmission(raw: any) {
   const result: Record<string, any> = {};
   for (const [key, maxLength] of Object.entries(SIMPLE_FIELDS)) {
     result[key] = cleanSubmissionValue(raw?.[key], maxLength);
   }
+  result.email = String(result.email || "").toLowerCase();
+  result.bank_sort_code = digitsOnly(result.bank_sort_code, 6);
+  result.bank_account_number = digitsOnly(result.bank_account_number, 8);
   result.declaration_accepted = raw?.declaration_accepted === true;
   result.qualifications = sanitizeQualifications(raw?.qualifications);
   return result;
@@ -80,8 +95,8 @@ function validateForSubmission(data: Record<string, any>) {
   if (!data.base_postcode) missing.push("postcode");
   if (!data.business_type) missing.push("business type");
   if (!data.bank_account_name) missing.push("bank account name");
-  if (!data.bank_sort_code) missing.push("bank sort code");
-  if (!data.bank_account_number) missing.push("bank account number");
+  if (data.bank_sort_code.length !== 6) missing.push("valid 6-digit bank sort code");
+  if (data.bank_account_number.length !== 8) missing.push("valid 8-digit bank account number");
   if (!data.emergency_contact_name) missing.push("emergency contact name");
   if (!data.emergency_contact_phone) missing.push("emergency contact phone");
   if (!data.declaration_accepted) missing.push("declaration confirmation");
@@ -90,12 +105,13 @@ function validateForSubmission(data: Record<string, any>) {
 }
 
 async function recordEvent(admin: any, inviteId: string, eventType: string, detail: any = {}) {
-  await admin.from("subcontractor_onboarding_events").insert({
+  const { error } = await admin.from("subcontractor_onboarding_events").insert({
     invite_id: inviteId,
     event_type: eventType,
     actor_type: "subcontractor",
     detail,
   });
+  if (error) console.error("Could not record onboarding event", eventType, error.message);
 }
 
 export async function POST(
@@ -103,12 +119,16 @@ export async function POST(
   { params }: { params: { token: string } }
 ) {
   try {
+    if (requestBodyTooLarge(request.headers, 128 * 1024)) {
+      return NextResponse.json({ error: "The submitted form is too large." }, { status: 413 });
+    }
+
     const admin = createSupabaseAdminClient();
     const resolved = await readInviteFromToken(admin, params.token);
 
     if (!resolved.invite) {
       const status = resolved.error === "expired" ? 410 : 404;
-      return NextResponse.json({ error: resolved.error }, { status });
+      return NextResponse.json({ error: "This secure link is invalid or expired." }, { status });
     }
 
     const invite = resolved.invite;
@@ -119,8 +139,44 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
+    const ipHash = hashOnboardingValue("ip", getClientIp(request.headers));
+    await requireOnboardingRateLimit(admin, {
+      keyHash: ipHash,
+      action: "form_save_ip_hour",
+      windowSeconds: 60 * 60,
+      maxRequests: 60,
+      inviteId: invite.id,
+    });
+    await requireOnboardingRateLimit(admin, {
+      keyHash: hashOnboardingValue("invite", invite.id),
+      action: "form_save_invite_hour",
+      windowSeconds: 60 * 60,
+      maxRequests: 120,
+      inviteId: invite.id,
+    });
+
+    const body = await readJsonBodyLimited(request, 131072);
     const action = String(body?.action ?? "save").toLowerCase();
+    if (action !== "save" && action !== "submit") {
+      return NextResponse.json({ error: "Invalid form action." }, { status: 400 });
+    }
+
+    if (action === "submit") {
+      await requireOnboardingRateLimit(admin, {
+        keyHash: ipHash,
+        action: "form_submit_ip_hour",
+        windowSeconds: 60 * 60,
+        maxRequests: 5,
+        inviteId: invite.id,
+      });
+      await requireOnboardingRateLimit(admin, {
+        keyHash: hashOnboardingValue("global", "form-submit"),
+        action: "form_submit_global_hour",
+        windowSeconds: 60 * 60,
+        maxRequests: 25,
+      });
+    }
+
     const data = sanitizeSubmission(body?.data ?? {});
 
     if (data.email && !isEmail(data.email)) {
@@ -161,15 +217,17 @@ export async function POST(
     const { error } = await admin
       .from("subcontractor_onboarding_invites")
       .update(updatePayload)
-      .eq("id", invite.id);
+      .eq("id", invite.id)
+      .eq("token_version", invite.token_version)
+      .in("status", Array.from(ONBOARDING_EDITABLE_STATUSES));
 
-    if (error) throw new Error(error.message);
+    if (error) throw error;
 
     await recordEvent(admin, invite.id, action === "submit" ? "submitted" : "saved", {
       email: data.email || null,
+      ip_hash: ipHash,
     });
 
-    let notificationWarning: string | null = null;
     if (action === "submit") {
       const notifyEmail = String(
         process.env.SUBCONTRACTOR_ONBOARDING_NOTIFY_EMAIL || "info@annscranehire.co.uk"
@@ -196,12 +254,15 @@ export async function POST(
           detail: { email: notifyEmail },
         });
       } catch (emailError: any) {
-        notificationWarning = emailError?.message || "Office notification email could not be sent.";
+        console.error("Subcontractor onboarding notification failed", emailError);
         await admin.from("subcontractor_onboarding_events").insert({
           invite_id: invite.id,
           event_type: "office_notification_failed",
           actor_type: "system",
-          detail: { email: notifyEmail, error: notificationWarning },
+          detail: {
+            email: notifyEmail,
+            error: String(emailError?.message || "Notification failed").slice(0, 500),
+          },
         });
       }
     }
@@ -213,12 +274,10 @@ export async function POST(
         action === "submit"
           ? "Your information has been submitted to AnnS Crane Hire for review."
           : "Progress saved.",
-      notificationWarning,
     });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error?.message || "Could not save the onboarding form." },
-      { status: 500 }
-    );
+    console.error("Public subcontractor onboarding save failed", error);
+    const response = publicApiError(error, "Could not save the onboarding form.");
+    return NextResponse.json({ error: response.error }, { status: response.status });
   }
 }
