@@ -14,6 +14,8 @@ const PUBLIC_PATHS = [
 const PUBLIC_PATH_PREFIXES = [
   "/unsubscribe",
   "/api/marketing/unsubscribe",
+  "/subcontractor-onboarding",
+  "/api/subcontractor-onboarding",
 ];
 
 function isPublicPath(pathname: string) {
