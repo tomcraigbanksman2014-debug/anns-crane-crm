@@ -15,6 +15,7 @@ import { sendSubcontractorOnboardingEmail } from "../../../lib/subcontractorOnbo
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import CopyInviteLink from "./CopyInviteLink";
+import WhatsAppInviteButton from "./WhatsAppInviteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -398,7 +399,7 @@ export default async function OnboardingReviewPage({
             </div>
           )}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-            {whatsappUrl && editableLinkActive ? <a href={whatsappUrl} target="_blank" rel="noreferrer" style={whatsappBtn}>Send by WhatsApp</a> : null}
+            {whatsappUrl && editableLinkActive ? <WhatsAppInviteButton inviteId={invite.id} whatsappUrl={whatsappUrl} /> : null}
             {invite.invitee_email && editableLinkActive ? (
               <form action={sendInviteEmail}>
                 <input type="hidden" name="invite_id" value={invite.id} />
