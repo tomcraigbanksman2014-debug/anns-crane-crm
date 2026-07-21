@@ -189,8 +189,20 @@ export async function POST(
           buttonLabel: "Review onboarding",
           buttonUrl: `${origin}/subcontractors/onboarding/${invite.id}`,
         });
+        await admin.from("subcontractor_onboarding_events").insert({
+          invite_id: invite.id,
+          event_type: "office_notification_sent",
+          actor_type: "system",
+          detail: { email: notifyEmail },
+        });
       } catch (emailError: any) {
         notificationWarning = emailError?.message || "Office notification email could not be sent.";
+        await admin.from("subcontractor_onboarding_events").insert({
+          invite_id: invite.id,
+          event_type: "office_notification_failed",
+          actor_type: "system",
+          detail: { email: notifyEmail, error: notificationWarning },
+        });
       }
     }
 
