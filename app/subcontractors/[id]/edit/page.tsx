@@ -21,7 +21,7 @@ function cleanNumber(value: FormDataEntryValue | null) {
 
 function normalisePaymentType(value: FormDataEntryValue | null) {
   const raw = clean(value).toLowerCase();
-  if (raw === "paye" || raw === "cis_20" || raw === "cis_30") return raw;
+  if (["limited_company_invoice", "sole_trader_invoice", "paye", "cis_20", "cis_30", "other"].includes(raw)) return raw;
   return null;
 }
 
