@@ -66,12 +66,7 @@ export default function PublicOnboardingForm({
     company_registration_number: "",
     utr_number: "",
     vat_number: "",
-    requested_day_rate: "",
-    requested_hourly_rate: "",
     preferred_payment_type: "",
-    bank_account_name: "",
-    bank_sort_code: "",
-    bank_account_number: "",
     insurance_provider: "",
     insurance_policy_number: "",
     insurance_cover_amount: "",
@@ -321,20 +316,9 @@ export default function PublicOnboardingForm({
               ["cis_30", "CIS 30%"],
             ]}
           />
-          <Field label="Requested day rate (£)" value={data.requested_day_rate} onChange={(v) => updateField("requested_day_rate", v)} type="number" />
-          <Field label="Requested hourly rate (£)" value={data.requested_hourly_rate} onChange={(v) => updateField("requested_hourly_rate", v)} type="number" />
         </div>
-        <p className="help">Requested rates are for review only. Final agreed rates are confirmed by the AnnS office.</p>
       </Section>
 
-      <Section title="Bank details">
-        <div className="privacy-note">These details are stored securely and are visible only to authorised office users.</div>
-        <div className="grid three">
-          <Field label="Account name *" value={data.bank_account_name} onChange={(v) => updateField("bank_account_name", v)} autoComplete="name" />
-          <Field label="Sort code *" value={data.bank_sort_code} onChange={(v) => updateField("bank_sort_code", v)} placeholder="00-00-00" inputMode="numeric" />
-          <Field label="Account number *" value={data.bank_account_number} onChange={(v) => updateField("bank_account_number", v)} inputMode="numeric" />
-        </div>
-      </Section>
 
       <Section title="Insurance">
         <div className="grid three">
@@ -554,7 +538,7 @@ const styles = `
   .textarea-field { margin-top:12px; }
   .textarea-field textarea { resize:vertical; min-height:120px; }
   .help, .document-meta, .signature-note { color:#64748b; font-size:13px; line-height:1.45; }
-  .privacy-note, .declaration-text { background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:10px; color:#334155; margin-bottom:12px; line-height:1.5; }
+  .declaration-text { background:#f8fafc; border:1px solid #e2e8f0; padding:12px; border-radius:10px; color:#334155; margin-bottom:12px; line-height:1.5; }
   .qualification-list, .document-list { display:grid; gap:10px; margin:12px 0; }
   .qualification-card { border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#f8fafc; }
   .qualification-heading, .document-row { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
