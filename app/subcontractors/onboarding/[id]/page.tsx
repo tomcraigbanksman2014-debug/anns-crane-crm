@@ -1,7 +1,7 @@
 import ClientShell from "../../../ClientShell";
 import ServerSubmitButton from "../../../components/ServerSubmitButton";
 import { geocodeAddress } from "../../../lib/geocode";
-import { requireOfficeUser } from "../../../lib/routeGuards";
+import { requireAdmin, requireOfficeUser } from "../../../lib/routeGuards";
 import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
 import {
   buildOnboardingLink,
@@ -224,7 +224,7 @@ async function reissueInvite(formData: FormData) {
 
 async function approveOnboarding(formData: FormData) {
   "use server";
-  const access = await requireOfficeUser();
+  const access = await requireAdmin();
   const admin = createSupabaseAdminClient();
   const id = clean(formData.get("invite_id"), 60);
   const { data: invite, error } = await admin.from("subcontractor_onboarding_invites").select("*").eq("id", id).single();
@@ -329,7 +329,9 @@ export default async function OnboardingReviewPage({
   params: { id: string };
   searchParams?: { success?: string; error?: string; message?: string };
 }) {
-  await requireOfficeUser();
+  const access = await requireOfficeUser();
+  const canViewPrivate = access.role === "admin";
+  const canApprove = access.role === "admin";
   const admin = createSupabaseAdminClient();
   const [{ data: invite, error }, { data: documents }, { data: events }] = await Promise.all([
     admin.from("subcontractor_onboarding_invites").select("*").eq("id", params.id).single(),
@@ -356,7 +358,7 @@ export default async function OnboardingReviewPage({
   const expired = isInviteExpired(invite as any);
   const editableLinkActive = !expired && ONBOARDING_EDITABLE_STATUSES.has(invite.status);
   const signedDocuments = await Promise.all((documents || []).map(async (document: any) => {
-    const { data } = await admin.storage.from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET).createSignedUrl(document.storage_path, 60 * 60);
+    const { data } = await admin.storage.from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET).createSignedUrl(document.storage_path, 60 * 60, { download: document.original_filename || "document" });
     return { ...document, signedUrl: data?.signedUrl || null };
   }));
   const qualifications = Array.isArray(submission.qualifications) ? submission.qualifications : [];
@@ -445,7 +447,7 @@ export default async function OnboardingReviewPage({
               <Row label="Email" value={submission.email || invite.invitee_email} />
               <Row label="Business type" value={String(submission.business_type || "").replace(/_/g, " ")} />
               <Row label="Company number" value={submission.company_registration_number} />
-              <Row label="UTR" value={submission.utr_number} />
+              {canViewPrivate ? <Row label="UTR" value={submission.utr_number} /> : null}
               <Row label="VAT number" value={submission.vat_number} />
               <Row label="Requested day rate" value={fmtMoney(submission.requested_day_rate)} />
               <Row label="Requested hourly rate" value={fmtMoney(submission.requested_hourly_rate)} />
@@ -486,13 +488,20 @@ export default async function OnboardingReviewPage({
           </div>
 
           <div style={{ display: "grid", gap: 16, alignContent: "start" }}>
-            <section style={sectionCard}>
-              <h2 style={sectionTitle}>Private payment details</h2>
-              <div style={privateWarning}>Sensitive information — authorised office use only.</div>
-              <Row label="Account name" value={submission.bank_account_name} />
-              <Row label="Sort code" value={submission.bank_sort_code} />
-              <Row label="Account number" value={submission.bank_account_number} />
-            </section>
+            {canViewPrivate ? (
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Private payment details</h2>
+                <div style={privateWarning}>Sensitive information — admin access only.</div>
+                <Row label="Account name" value={submission.bank_account_name} />
+                <Row label="Sort code" value={submission.bank_sort_code} />
+                <Row label="Account number" value={submission.bank_account_number} />
+              </section>
+            ) : (
+              <section style={sectionCard}>
+                <h2 style={sectionTitle}>Private payment details</h2>
+                <div style={privateWarning}>Bank and tax details are restricted to admin users.</div>
+              </section>
+            )}
 
             <section style={sectionCard}>
               <h2 style={sectionTitle}>Insurance</h2>
@@ -530,7 +539,7 @@ export default async function OnboardingReviewPage({
           </div>
         </div>
 
-        {invite.status === "submitted_for_review" ? (
+        {invite.status === "submitted_for_review" && canApprove ? (
           <section style={{ ...sectionCard, border: "2px solid rgba(0,140,80,.35)" }}>
             <h2 style={sectionTitle}>Approve and create active subcontractor</h2>
             <p style={{ marginTop: 0, opacity: 0.8 }}>Check the submission and documents, then set the office-agreed rates and payroll details. Requested rates are not applied automatically.</p>
@@ -547,6 +556,10 @@ export default async function OnboardingReviewPage({
               <div><ServerSubmitButton style={approveButton} pendingText="Approving…">Approve subcontractor</ServerSubmitButton></div>
             </form>
           </section>
+        ) : null}
+
+        {invite.status === "submitted_for_review" && !canApprove ? (
+          <div style={warningBox}>Only an admin user can view bank and tax details or approve this subcontractor. You can still return the form for changes.</div>
         ) : null}
 
         {invite.status === "submitted_for_review" ? (
