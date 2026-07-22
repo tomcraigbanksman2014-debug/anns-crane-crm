@@ -104,7 +104,6 @@ function validateForSubmission(data: Record<string, any>) {
   const utrRequired =
     data.business_type === "limited_company" ||
     data.business_type === "sole_trader" ||
-    data.business_type === "paye_cis" ||
     data.preferred_payment_type === "cis_20" ||
     data.preferred_payment_type === "cis_30";
   if (utrRequired && !data.utr_number) missing.push("UTR number");
