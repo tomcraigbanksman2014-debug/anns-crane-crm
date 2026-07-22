@@ -1,5 +1,6 @@
 import ClientShell from "../../../ClientShell";
 import ServerSubmitButton from "../../../components/ServerSubmitButton";
+import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { geocodeAddress } from "../../../lib/geocode";
 import { requireAdmin, requireOfficeUser } from "../../../lib/routeGuards";
 import { createSupabaseAdminClient } from "../../../lib/supabase/admin";
@@ -84,10 +85,11 @@ async function sendInviteEmail(formData: FormData) {
       actor_username: actorName(access.user?.email) || null,
       detail: { email: invite.invitee_email },
     });
-    redirect(`/subcontractors/onboarding/${id}?success=${encodeURIComponent(`Onboarding link emailed to ${invite.invitee_email}.`)}`);
   } catch (caught: any) {
     redirect(`/subcontractors/onboarding/${id}?error=${encodeURIComponent(caught?.message || "Could not send the email.")}`);
   }
+
+  redirect(`/subcontractors/onboarding/${id}?success=${encodeURIComponent(`Onboarding link emailed to ${invite.invitee_email}.`)}`);
 }
 
 async function returnForChanges(formData: FormData) {
@@ -352,7 +354,7 @@ export default async function OnboardingReviewPage({
   const expired = isInviteExpired(invite as any);
   const editableLinkActive = !expired && ONBOARDING_EDITABLE_STATUSES.has(invite.status);
   const signedDocuments = await Promise.all((documents || []).map(async (document: any) => {
-    const { data } = await admin.storage.from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET).createSignedUrl(document.storage_path, 60 * 60, { download: document.original_filename || "document" });
+    const { data } = await admin.storage.from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET).createSignedUrl(document.storage_path, 60 * 60);
     return { ...document, signedUrl: data?.signedUrl || null };
   }));
   const qualifications = Array.isArray(submission.qualifications) ? submission.qualifications : [];
@@ -525,7 +527,7 @@ export default async function OnboardingReviewPage({
                           {document.expiry_date ? ` • Expires ${fmtDate(document.expiry_date)}` : ""}
                         </div>
                       </div>
-                      {document.signedUrl ? <a href={document.signedUrl} target="_blank" rel="noreferrer" style={smallLink}>Open</a> : <span style={{ fontSize: 12 }}>Unavailable</span>}
+                      {document.signedUrl ? <DocumentPreviewModal document={{ id: document.id, name: document.original_filename || "Document", url: document.signedUrl, mimeType: document.mime_type || document.content_type || null }} /> : <span style={{ fontSize: 12 }}>Unavailable</span>}
                     </div>
                   ))}
                 </div>
