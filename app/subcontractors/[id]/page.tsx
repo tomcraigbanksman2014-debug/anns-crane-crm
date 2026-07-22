@@ -4,6 +4,7 @@ import { getQualificationSummary } from "../../lib/utils/qualificationStatus";
 import { requireOfficeUser } from "../../lib/routeGuards";
 import { createSupabaseAdminClient } from "../../lib/supabase/admin";
 import { SUBCONTRACTOR_DOCUMENT_BUCKET } from "../../lib/subcontractorOnboarding";
+import DocumentPreviewModal from "../../components/DocumentPreviewModal";
 
 function fmtText(value: string | null | undefined) {
   return value && String(value).trim().length ? value : "—";
@@ -59,7 +60,7 @@ export default async function SubcontractorDetailPage({
   const signedOnboardingDocuments = await Promise.all((onboardingDocuments ?? []).map(async (document: any) => {
     const { data } = await admin.storage
       .from(document.storage_bucket || SUBCONTRACTOR_DOCUMENT_BUCKET)
-      .createSignedUrl(document.storage_path, 60 * 60, { download: document.original_filename || "document" });
+      .createSignedUrl(document.storage_path, 60 * 60);
     return { ...document, signedUrl: data?.signedUrl || null };
   }));
 
@@ -181,7 +182,7 @@ export default async function SubcontractorDetailPage({
                             {document.expiry_date ? ` • Expires ${document.expiry_date}` : ""}
                           </div>
                         </div>
-                        {document.signedUrl ? <a href={document.signedUrl} target="_blank" rel="noreferrer" style={openDocBtn}>Open</a> : null}
+                        {document.signedUrl ? <DocumentPreviewModal document={{ id: document.id, name: document.original_filename || "Document", url: document.signedUrl, mimeType: document.mime_type || document.content_type || null }} /> : null}
                       </div>
                     ))}
                   </div>
