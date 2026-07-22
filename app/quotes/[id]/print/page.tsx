@@ -416,6 +416,15 @@ export default async function QuotePrintPage({
                 break-inside: avoid;
                 page-break-inside: avoid;
               }
+              .quote-rha-sheet {
+                overflow: hidden;
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
+              .quote-rha-sheet img {
+                break-inside: avoid;
+                page-break-inside: avoid;
+              }
               @media screen and (max-width: 760px) {
                 body { background: #fff; }
                 .quote-sheet {
@@ -531,7 +540,16 @@ export default async function QuotePrintPage({
             </Panel>
           </div>
 
-          {hasCommercialContent ? (
+          <QuoteReviewFooter />
+        </div>
+
+        {hasCommercialContent ? (
+          <div className="quote-sheet" style={sheetStyle}>
+            <div style={pageHeaderStyle}>
+              <div style={pageHeaderTitleStyle}>Quote breakdown</div>
+              <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
+            </div>
+
             <div style={compactCommercialWrapStyle}>
               {breakdownRows.length > 0 ? (
                 <Panel title="Breakdown of current charges / rates" className="quote-rate-breakdown">
@@ -579,23 +597,20 @@ export default async function QuotePrintPage({
                 ) : null}
               </div>
 
+              {displayAdditionalNotes.length > 0 ? (
+                <Panel title="Additional quote notes" className="quote-small-section">
+                  <div style={preLineTextStyle}>{displayAdditionalNotes.join("\n")}</div>
+                </Panel>
+              ) : null}
             </div>
-          ) : null}
-
-          <QuoteReviewFooter />
-        </div>
+          </div>
+        ) : null}
 
         <div className="quote-sheet" style={sheetStyle}>
           <div style={pageHeaderStyle}>
             <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
             <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
           </div>
-
-          {displayAdditionalNotes.length > 0 ? (
-            <Panel title="Additional quote notes" className="quote-small-section">
-              <div style={preLineTextStyle}>{displayAdditionalNotes.join("\n")}</div>
-            </Panel>
-          ) : null}
 
           <div style={termsCardStyle}>{markdownishNodes(quoteAdditionalTermsText)}</div>
 
@@ -643,7 +658,7 @@ export default async function QuotePrintPage({
 
         {showRhaTerms
           ? RHA_TERMS_IMAGE_URLS.map((src, index) => (
-              <div key={`rha-terms-${index}`} className="quote-sheet terms-page" style={sheetStyle}>
+              <div key={`rha-terms-${index}`} className="quote-sheet terms-page quote-rha-sheet" style={sheetStyle}>
                 <div style={pageHeaderStyle}>
                   <div style={pageHeaderTitleStyle}>Road Haulage Association (RHA)</div>
                   <div style={pageHeaderSubStyle}>Conditions of carriage</div>
