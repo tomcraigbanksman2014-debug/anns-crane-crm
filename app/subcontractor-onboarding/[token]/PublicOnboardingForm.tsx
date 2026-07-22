@@ -351,7 +351,6 @@ export default function PublicOnboardingForm({
 
           {data.business_type === "limited_company" ||
           data.business_type === "sole_trader" ||
-          data.business_type === "paye_cis" ||
           data.preferred_payment_type === "cis_20" ||
           data.preferred_payment_type === "cis_30" ? (
             <Field label="UTR number *" value={data.utr_number} onChange={(v) => updateField("utr_number", v)} />
