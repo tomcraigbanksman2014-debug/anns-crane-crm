@@ -408,8 +408,16 @@ export default async function QuotePrintPage({
                 break-after: page;
                 overflow: hidden;
               }
-              .quote-sheet.terms-page { height: 277mm; }
-              .quote-sheet.terms-page > img { flex: 1 1 auto; min-height: 0; }
+              .quote-sheet.terms-page {
+                height: 277mm;
+                display: flex;
+                flex-direction: column;
+              }
+              .quote-sheet.terms-page > img {
+                flex: 1 1 auto;
+                min-height: 0;
+                height: auto !important;
+              }
               .quote-sheet:last-of-type {
                 page-break-after: auto;
                 break-after: auto;
