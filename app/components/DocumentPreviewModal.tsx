@@ -9,7 +9,7 @@ type PreviewDocument = {
   mimeType?: string | null;
 };
 
-export default function DocumentPreviewModal({ document }: { document: PreviewDocument }) {
+export default function DocumentPreviewModal({ document: previewDocument }: { document: PreviewDocument }) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -26,38 +26,38 @@ export default function DocumentPreviewModal({ document }: { document: PreviewDo
   }, [open]);
 
   const previewType = useMemo(() => {
-    const mime = String(document.mimeType || "").toLowerCase();
-    const name = document.name.toLowerCase();
+    const mime = String(previewDocument.mimeType || "").toLowerCase();
+    const name = previewDocument.name.toLowerCase();
     if (mime.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(name)) return "image";
     if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
     return "other";
-  }, [document.mimeType, document.name]);
+  }, [previewDocument.mimeType, previewDocument.name]);
 
   return (
     <>
       <button type="button" onClick={() => setOpen(true)} style={openButton}>Open</button>
       {open ? (
-        <div role="dialog" aria-modal="true" aria-label={`Preview ${document.name}`} style={backdrop} onMouseDown={() => setOpen(false)}>
+        <div role="dialog" aria-modal="true" aria-label={`Preview ${previewDocument.name}`} style={backdrop} onMouseDown={() => setOpen(false)}>
           <div style={modalCard} onMouseDown={(event) => event.stopPropagation()}>
             <div style={header}>
               <div style={{ minWidth: 0 }}>
-                <div style={title}>{document.name}</div>
+                <div style={title}>{previewDocument.name}</div>
                 <div style={subtitle}>Secure document preview</div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <a href={document.url} download={document.name} style={downloadButton}>Download</a>
+                <a href={previewDocument.url} download={previewDocument.name} style={downloadButton}>Download</a>
                 <button type="button" onClick={() => setOpen(false)} aria-label="Close preview" style={closeButton}>×</button>
               </div>
             </div>
             <div style={previewArea}>
               {previewType === "image" ? (
-                <img src={document.url} alt={document.name} style={imageStyle} />
+                <img src={previewDocument.url} alt={previewDocument.name} style={imageStyle} />
               ) : previewType === "pdf" ? (
-                <iframe src={document.url} title={document.name} style={frameStyle} />
+                <iframe src={previewDocument.url} title={previewDocument.name} style={frameStyle} />
               ) : (
                 <div style={fallback}>
                   <p style={{ marginTop: 0 }}>This file type cannot be previewed inside the CRM.</p>
-                  <a href={document.url} target="_blank" rel="noreferrer" style={downloadButton}>Open in a new tab</a>
+                  <a href={previewDocument.url} target="_blank" rel="noreferrer" style={downloadButton}>Open in a new tab</a>
                 </div>
               )}
             </div>
