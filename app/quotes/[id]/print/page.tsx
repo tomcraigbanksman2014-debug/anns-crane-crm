@@ -471,6 +471,10 @@ export default async function QuotePrintPage({
           <div style={mastheadStyle}>
             <div style={logoBlockStyle}>
               <img src="/logo.png" alt="Anns Crane Hire" style={logoStyle} />
+              <div style={headerQrWrapStyle}>
+                <img src="/google-review-qr.png" alt="Google review QR code" style={headerQrImageStyle} />
+                <div style={headerQrTextStyle}>Review us</div>
+              </div>
             </div>
             <div style={companyBlockStyle}>
               <div style={companyNameStyle}>Anns Crane Hire Ltd</div>
@@ -527,18 +531,7 @@ export default async function QuotePrintPage({
             </Panel>
           </div>
 
-
-
-          <QuoteReviewFooter />
-        </div>
-
-        {hasCommercialContent ? (
-          <div className="quote-sheet" style={sheetStyle}>
-            <div style={pageHeaderStyle}>
-              <div style={pageHeaderTitleStyle}>Quote breakdown</div>
-              <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
-            </div>
-
+          {hasCommercialContent ? (
             <div style={compactCommercialWrapStyle}>
               {breakdownRows.length > 0 ? (
                 <Panel title="Breakdown of current charges / rates" className="quote-rate-breakdown">
@@ -586,22 +579,23 @@ export default async function QuotePrintPage({
                 ) : null}
               </div>
 
-              {displayAdditionalNotes.length > 0 ? (
-                <Panel title="Additional quote notes" className="quote-small-section">
-                  <div style={preLineTextStyle}>{displayAdditionalNotes.join("\n")}</div>
-                </Panel>
-              ) : null}
             </div>
+          ) : null}
 
-            <QuoteReviewFooter />
-          </div>
-        ) : null}
+          <QuoteReviewFooter />
+        </div>
 
         <div className="quote-sheet" style={sheetStyle}>
           <div style={pageHeaderStyle}>
             <div style={pageHeaderTitleStyle}>Standard terms and conditions</div>
             <div style={pageHeaderSubStyle}>{displaySubject || displayClientCompany || "Quote"}</div>
           </div>
+
+          {displayAdditionalNotes.length > 0 ? (
+            <Panel title="Additional quote notes" className="quote-small-section">
+              <div style={preLineTextStyle}>{displayAdditionalNotes.join("\n")}</div>
+            </Panel>
+          ) : null}
 
           <div style={termsCardStyle}>{markdownishNodes(quoteAdditionalTermsText)}</div>
 
@@ -656,8 +650,6 @@ export default async function QuotePrintPage({
                 </div>
 
                 <img src={src} alt={`RHA carriage terms page ${index + 1}`} style={termsImageStyle} />
-
-                <QuoteReviewFooter />
               </div>
             ))
           : null}
@@ -671,10 +663,6 @@ function QuoteReviewFooter({ text }: { text?: ReactNode }) {
     <div style={quoteReviewFooterStyle}>
       <div style={quoteReviewFooterTextStyle}>
         {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk"}
-      </div>
-      <div style={quoteReviewQrWrapStyle}>
-        <img src="/google-review-qr.png" alt="Google review QR code" style={quoteReviewQrImageStyle} />
-        <div style={quoteReviewQrTextStyle}>Review us</div>
       </div>
     </div>
   );
@@ -756,6 +744,7 @@ const logoBlockStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  gap: 10,
 };
 
 const logoStyle: CSSProperties = {
@@ -764,6 +753,28 @@ const logoStyle: CSSProperties = {
   maxHeight: 88,
   objectFit: "contain",
   display: "block",
+};
+
+const headerQrWrapStyle: CSSProperties = {
+  display: "grid",
+  justifyItems: "center",
+  gap: 1,
+  flex: "0 0 auto",
+};
+
+const headerQrImageStyle: CSSProperties = {
+  width: 58,
+  height: 58,
+  objectFit: "contain",
+  display: "block",
+  imageRendering: "pixelated",
+};
+
+const headerQrTextStyle: CSSProperties = {
+  fontSize: 7.5,
+  lineHeight: 1,
+  fontWeight: 800,
+  color: "#1f2937",
 };
 
 const companyBlockStyle: CSSProperties = {
@@ -1043,11 +1054,7 @@ const signatureFooterCellStyle: CSSProperties = {
 const quoteReviewFooterStyle: CSSProperties = {
   marginTop: "auto",
   borderTop: "1px solid #dbe2ea",
-  paddingTop: 8,
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  alignItems: "center",
-  gap: 12,
+  paddingTop: 6,
   color: "#475569",
 };
 
@@ -1057,39 +1064,12 @@ const quoteReviewFooterTextStyle: CSSProperties = {
   textAlign: "center",
 };
 
-const quoteReviewQrWrapStyle: CSSProperties = {
-  display: "grid",
-  justifyItems: "center",
-  alignItems: "center",
-  gap: 2,
-  padding: 4,
-  background: "#fff",
-  border: "1px solid #d8dee8",
-  borderRadius: 5,
-  minWidth: 92,
-};
-
-const quoteReviewQrImageStyle: CSSProperties = {
-  width: 82,
-  height: 82,
-  objectFit: "contain",
-  display: "block",
-  imageRendering: "pixelated",
-};
-
-const quoteReviewQrTextStyle: CSSProperties = {
-  fontSize: 8.5,
-  lineHeight: 1,
-  fontWeight: 800,
-  color: "#1f2937",
-};
-
 const termsImageStyle: CSSProperties = {
   display: "block",
   width: "100%",
-  maxHeight: "1040px",
+  maxHeight: "235mm",
   objectFit: "contain",
-  marginTop: 16,
+  marginTop: 10,
 };
 
 const longTermsStyle: CSSProperties = {
