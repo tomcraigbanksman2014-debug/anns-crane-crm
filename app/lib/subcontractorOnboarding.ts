@@ -147,7 +147,9 @@ export function buildWhatsAppInviteUrl(args: {
   const phone = normaliseWhatsAppNumber(args.phone);
   if (!phone) return "";
   const firstName = String(args.name ?? "").trim().split(/\s+/)[0] || "there";
-  const message = `Hi ${firstName}, AnnS Crane Hire has sent you a secure subcontractor onboarding form. Please complete it using this link: ${args.link}`;
+  const message = `Hi ${firstName}, it looks like your subcontractor form has been started but not completed or submitted yet. Please reopen the link, complete all sections, upload the required documents and press submit at the end. Let me know if you have any problems.
+
+${args.link}`;
   return `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 }
 
