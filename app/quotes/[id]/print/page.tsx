@@ -143,14 +143,6 @@ function fmtMoney(value: number | string | null | undefined) {
   return `£${n.toFixed(2)}`;
 }
 
-function moneyNumber(value: string | null | undefined) {
-  if (!value) return null;
-  const cleaned = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
-  if (!cleaned) return null;
-  const number = Number(cleaned[0]);
-  return Number.isFinite(number) ? number : null;
-}
-
 function hasText(value: string | null | undefined) {
   return Boolean(value && value.trim());
 }
@@ -338,15 +330,6 @@ export default async function QuotePrintPage({
   ].filter(Boolean).join(" - ");
 
   const breakdownRows = parseBreakdownRows(fields.breakdown);
-  const breakdownSubtotal = breakdownRows.reduce((total, row) => total + (moneyNumber(row.rate) ?? 0), 0);
-  const quotedSubtotal = Number((quote as any)?.amount);
-  const subtotal = Number.isFinite(quotedSubtotal) && quotedSubtotal > 0
-    ? quotedSubtotal
-    : breakdownSubtotal > 0
-      ? breakdownSubtotal
-      : moneyNumber(fields.costSummary);
-  const vatAmount = subtotal !== null ? subtotal * 0.2 : null;
-  const grossTotal = subtotal !== null ? subtotal + (vatAmount ?? 0) : null;
   const additionalEquipment = splitBulletLines(fields.additionalEquipment);
   const includedItems = splitBulletLines(fields.includedItems);
   const additionalNotes = splitLines(fields.additionalNotes);
@@ -406,17 +389,6 @@ export default async function QuotePrintPage({
                 padding: 10mm;
                 page-break-after: always;
                 break-after: page;
-                overflow: hidden;
-              }
-              .quote-sheet.terms-page {
-                height: 277mm;
-                display: flex;
-                flex-direction: column;
-              }
-              .quote-sheet.terms-page > img {
-                flex: 1 1 auto;
-                min-height: 0;
-                height: auto !important;
               }
               .quote-sheet:last-of-type {
                 page-break-after: auto;
@@ -474,20 +446,12 @@ export default async function QuotePrintPage({
                 .quote-hide-print { display: none !important; }
                 .quote-sheet {
                   width: 190mm !important;
-                  min-height: 277mm !important;
-                  height: auto !important;
-                  max-height: none !important;
+                  min-height: auto !important;
                   margin: 0 auto !important;
                   border: none !important;
                   box-shadow: none !important;
                   padding: 0 !important;
                   overflow: visible !important;
-                }
-                .quote-sheet.terms-page {
-                  display: flex !important;
-                  height: 277mm !important;
-                  max-height: 277mm !important;
-                  overflow: hidden !important;
                 }
               }
             `,
@@ -507,6 +471,10 @@ export default async function QuotePrintPage({
           <div style={mastheadStyle}>
             <div style={logoBlockStyle}>
               <img src="/logo.png" alt="Anns Crane Hire" style={logoStyle} />
+              <div style={headerQrWrapStyle}>
+                <img src="/google-review-qr.png" alt="Google review QR code" style={headerQrImageStyle} />
+                <div style={headerQrTextStyle}>Review us</div>
+              </div>
             </div>
             <div style={companyBlockStyle}>
               <div style={companyNameStyle}>Anns Crane Hire Ltd</div>
@@ -526,30 +494,31 @@ export default async function QuotePrintPage({
           </div>
 
           <div style={topGridStyle}>
-            <Panel title="Customer">
-              <DataRow label="Company" value={displayClientCompany || "Customer"} />
-              {hasText(fields.contactName || client?.contact_name) ? <DataRow label="Contact" value={fields.contactName || client?.contact_name} /> : null}
-              {hasText(fields.contactPhone || client?.phone) ? <DataRow label="Telephone" value={fields.contactPhone || client?.phone} /> : null}
+            <Panel title="Client">
+              <DataRow label="Company" value={displayClientCompany || "—"} />
+              <DataRow label="Contact name" value={fields.contactName || client?.contact_name || "—"} />
+              <DataRow label="Tel" value={fields.contactPhone || client?.phone || "—"} />
               {hasText(contactRole) ? <DataRow label="Contact role" value={contactRole} /> : null}
               {hasText(fields.siteLocation) ? (
-                <DataRow label="Site / location" value={fields.siteLocation} />
+                <DataRow label="Site location" value={fields.siteLocation} />
               ) : client?.address ? (
-                <DataRow label="Site / location" value={client.address} />
+                <DataRow label="Site location" value={client.address} />
               ) : null}
             </Panel>
 
-            <Panel title="Job details">
-              {hasText(fields.projectDateTime) ? <DataRow label="Project date & time" value={fields.projectDateTime} /> : null}
-              {hasText(fields.hireType) ? <DataRow label="Hire type" value={fields.hireType} /> : null}
+            <Panel title="Quote details">
+              <DataRow label="Date & time of project" value={fields.projectDateTime || "—"} />
+              <DataRow label="Hire type" value={fields.hireType || "—"} />
               {hasText(collection) ? <DataRow label="Collection" value={collection} /> : null}
               {hasText(delivery) ? <DataRow label="Delivery" value={delivery} /> : null}
-              {!hasText(collection) && !hasText(delivery) && hasText(fields.workLocation) ? (
-                <DataRow label="Location" value={fields.workLocation} />
+              {!hasText(collection) && !hasText(delivery) ? (
+                <DataRow label="Location" value={fields.workLocation || "—"} />
               ) : null}
-              {hasText(fields.workDates) ? <DataRow label="Date(s)" value={fields.workDates} /> : null}
-              {hasText(fields.duration) ? <DataRow label="Duration" value={fields.duration} /> : null}
-              {hasText(fields.workingHours) ? <DataRow label="Working pattern" value={fields.workingHours} /> : null}
-              {hasText(displayValidUntil) && displayValidUntil !== "—" ? <DataRow label="Valid until" value={displayValidUntil} /> : null}
+              <DataRow label="Date(s)" value={fields.workDates || "—"} />
+              <DataRow label="Duration" value={fields.duration || "—"} />
+              <DataRow label="Working pattern" value={fields.workingHours || "—"} />
+              <DataRow label="Valid until" value={displayValidUntil || "—"} />
+              <DataRow label="Amount" value={fields.costSummary || fmtMoney((quote as any)?.amount)} />
             </Panel>
           </div>
 
@@ -586,14 +555,6 @@ export default async function QuotePrintPage({
                     </tbody>
                   </table>
                 </Panel>
-              ) : null}
-
-              {subtotal !== null ? (
-                <div style={priceSummaryStyle}>
-                  <div style={priceSummaryLineStyle}><span>Subtotal</span><strong>{fmtMoney(subtotal)}</strong></div>
-                  <div style={priceSummaryLineStyle}><span>VAT (20%)</span><strong>{fmtMoney(vatAmount)}</strong></div>
-                  <div style={priceSummaryTotalStyle}><span>Total including VAT</span><strong>{fmtMoney(grossTotal)}</strong></div>
-                </div>
               ) : null}
 
               <div style={smallGridStyle}>
@@ -702,10 +663,6 @@ function QuoteReviewFooter({ text }: { text?: ReactNode }) {
       <div style={quoteReviewFooterTextStyle}>
         {text ?? "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB, tel: 01792 641653, e-mail: info@annscranehire.co.uk"}
       </div>
-      <div style={quoteReviewQrWrapStyle}>
-        <img src="/google-review-qr.png" alt="Google review QR code" style={quoteReviewQrImageStyle} />
-        <div style={quoteReviewQrTextStyle}>Review us</div>
-      </div>
     </div>
   );
 }
@@ -786,6 +743,7 @@ const logoBlockStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
+  gap: 10,
 };
 
 const logoStyle: CSSProperties = {
@@ -794,6 +752,28 @@ const logoStyle: CSSProperties = {
   maxHeight: 88,
   objectFit: "contain",
   display: "block",
+};
+
+const headerQrWrapStyle: CSSProperties = {
+  display: "grid",
+  justifyItems: "center",
+  gap: 1,
+  flex: "0 0 auto",
+};
+
+const headerQrImageStyle: CSSProperties = {
+  width: 58,
+  height: 58,
+  objectFit: "contain",
+  display: "block",
+  imageRendering: "pixelated",
+};
+
+const headerQrTextStyle: CSSProperties = {
+  fontSize: 7.5,
+  lineHeight: 1,
+  fontWeight: 800,
+  color: "#1f2937",
 };
 
 const companyBlockStyle: CSSProperties = {
@@ -868,35 +848,6 @@ const compactCommercialWrapStyle: CSSProperties = {
   gap: 10,
 };
 
-const priceSummaryStyle: CSSProperties = {
-  marginLeft: "auto",
-  width: "min(100%, 360px)",
-  border: "2px solid #0f172a",
-  borderRadius: 10,
-  overflow: "hidden",
-  breakInside: "avoid",
-  pageBreakInside: "avoid",
-};
-
-const priceSummaryLineStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 20,
-  padding: "8px 12px",
-  borderBottom: "1px solid #dbe2ea",
-  fontSize: 13,
-};
-
-const priceSummaryTotalStyle: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: 20,
-  padding: "11px 12px",
-  background: "#e8f2fb",
-  fontSize: 15,
-  fontWeight: 900,
-};
-
 const smallGridStyle: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
@@ -906,10 +857,9 @@ const smallGridStyle: CSSProperties = {
 const panelStyle: CSSProperties = {
   border: "1px solid #d8dee8",
   borderRadius: 10,
-  padding: 10,
+  padding: 12,
   display: "grid",
-  gap: 6,
-  alignContent: "start",
+  gap: 8,
   breakInside: "avoid",
   pageBreakInside: "avoid",
 };
@@ -1103,11 +1053,7 @@ const signatureFooterCellStyle: CSSProperties = {
 const quoteReviewFooterStyle: CSSProperties = {
   marginTop: "auto",
   borderTop: "1px solid #dbe2ea",
-  paddingTop: 8,
-  display: "grid",
-  gridTemplateColumns: "1fr auto",
-  alignItems: "center",
-  gap: 12,
+  paddingTop: 6,
   color: "#475569",
 };
 
@@ -1117,41 +1063,12 @@ const quoteReviewFooterTextStyle: CSSProperties = {
   textAlign: "center",
 };
 
-const quoteReviewQrWrapStyle: CSSProperties = {
-  display: "grid",
-  justifyItems: "center",
-  alignItems: "center",
-  gap: 2,
-  padding: 4,
-  background: "#fff",
-  border: "1px solid #d8dee8",
-  borderRadius: 5,
-  minWidth: 92,
-};
-
-const quoteReviewQrImageStyle: CSSProperties = {
-  width: 82,
-  height: 82,
-  objectFit: "contain",
-  display: "block",
-  imageRendering: "pixelated",
-};
-
-const quoteReviewQrTextStyle: CSSProperties = {
-  fontSize: 8.5,
-  lineHeight: 1,
-  fontWeight: 800,
-  color: "#1f2937",
-};
-
 const termsImageStyle: CSSProperties = {
   display: "block",
   width: "100%",
-  height: "100%",
-  minHeight: 0,
+  maxHeight: "235mm",
   objectFit: "contain",
-  objectPosition: "center top",
-  marginTop: 8,
+  marginTop: 10,
 };
 
 const longTermsStyle: CSSProperties = {
