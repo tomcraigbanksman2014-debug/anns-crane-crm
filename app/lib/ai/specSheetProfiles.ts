@@ -15,7 +15,11 @@ type CraneLike = {
   make?: string | null;
   model?: string | null;
   capacity?: string | number | null;
+  reg_number?: string | null;
+  vehicle_type?: string | null;
+  trailer_type?: string | null;
   crane_documents?: StoredCraneSpecDocument[] | null;
+  vehicle_documents?: StoredCraneSpecDocument[] | null;
 };
 
 function clean(value: unknown) {
@@ -511,7 +515,10 @@ export function buildExtractedCraneProfileJson({
 export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefined): EquipmentProfile | null {
   if (!crane) return null;
 
-  const docs = Array.isArray(crane.crane_documents) ? crane.crane_documents : [];
+  const docs = [
+    ...(Array.isArray(crane.crane_documents) ? crane.crane_documents : []),
+    ...(Array.isArray(crane.vehicle_documents) ? crane.vehicle_documents : []),
+  ];
   const usefulDocs = docs.filter((doc) => {
     const kind = lower(doc.document_type);
     return kind === "spec_sheet" || kind === "load_chart" || kind === "manual" || !!doc.extracted_profile || !!doc.extracted_text;
@@ -561,18 +568,34 @@ export function buildSpecSheetEquipmentProfile(crane: CraneLike | null | undefin
     }),
   ]);
 
+  const machineIdentity = lower([
+    title,
+    crane.name,
+    crane.make,
+    crane.model,
+    crane.vehicle_type,
+    crane.trailer_type,
+    allText,
+  ].filter(Boolean).join(" "));
+  const machineType: EquipmentProfile["machineType"] = /\b(hiab|loader crane|palfinger|x[- ]?hipro|knuckle boom)\b/.test(machineIdentity)
+    ? "hiab"
+    : "crane";
+
   const aliases = unique([
     title,
     clean(crane.name),
     clean(crane.make),
     clean(crane.model),
+    clean(crane.reg_number),
+    clean(crane.vehicle_type),
+    clean(crane.trailer_type),
     [crane.make, crane.model].filter(Boolean).join(" "),
   ]).map((value) => value.toLowerCase());
 
   return {
     id: `spec-sheet-${String(crane.id ?? title).replace(/[^a-zA-Z0-9_-]/g, "-").toLowerCase()}`,
     title,
-    machineType: "crane",
+    machineType,
     manufacturer,
     model,
     aliases,

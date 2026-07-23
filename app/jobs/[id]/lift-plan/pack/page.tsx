@@ -7,7 +7,7 @@ import {
 import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocuments";
 import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
-import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions, suggestRangeChartSetups } from "../../../../lib/rangeChartSpecs";
+import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../../lib/rangeChartSpecs";
 
 type StringMap = Record<string, string | null>;
 
@@ -523,7 +523,7 @@ function currentCraneScopeWeightText({
   }
   const liftedText = `Gross lifted load is ${formatRangeKg(totalLiftedWeightKg)}`;
   if (bearingLoadKg && Number.isFinite(bearingLoadKg) && bearingLoadKg > 0) {
-    return `${craneText}. ${liftedText}. Estimated maximum outrigger load for the basic ground-bearing check is (${formatRangeKg(craneWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}.`;
+    return `${craneText}. ${liftedText}. Worst-case outrigger load used for the ground-bearing calculation is (${formatRangeKg(craneWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}.`;
   }
   return `${craneText}. ${liftedText}.`;
 }
@@ -555,7 +555,7 @@ function fixScopeOfWorksForCurrentCrane({
   if (!currentWeightText) return selected;
 
   const stale = scopeWeightLooksStale(selected, currentCraneName, craneWeightKg);
-  const hasGeneratedWeightLine = /crane\s*\/\s*machine\s+weight\s+is|total\s+weight\s+used\s+for\s+basic\s+ground\s+bearing\s+calculation|planning\s*\/\s*gross\s+weight\s+is|estimated\s+maximum\s+outrigger\s+load/i.test(selected);
+  const hasGeneratedWeightLine = /crane\s*\/\s*machine\s+weight\s+is|total\s+weight\s+used\s+for\s+basic\s+ground\s+bearing\s+calculation|planning\s*\/\s*gross\s+weight\s+is|(?:estimated\s+maximum|worst-case)\s+outrigger\s+load/i.test(selected);
 
   if (!stale && !hasGeneratedWeightLine) return selected;
 
@@ -564,7 +564,7 @@ function fixScopeOfWorksForCurrentCrane({
     .replace(/\s*Total\s+weight\s+used\s+for\s+basic\s+ground\s+bearing\s+calculation\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
     .replace(/\s*(?:[A-Z0-9 /-]+\s+)?planning\s*\/\s*gross\s+weight\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
     .replace(/\s*Gross\s+lifted\s+load\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
-    .replace(/\s*Estimated\s+maximum\s+outrigger\s+load\s+for\s+the\s+basic\s+ground[- ]bearing\s+check\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
+    .replace(/\s*(?:Estimated\s+maximum\s+outrigger\s+load\s+for\s+the\s+basic\s+ground[- ]bearing\s+check|Worst-case\s+outrigger\s+load\s+used\s+for\s+the\s+ground[- ]bearing\s+calculation)\s+is\s+[^.\n]*(?:\.|\n|$)/gi, " ")
     .replace(/\s*(?:×|x)\s*0\.75\s*=\s*[0-9,]+(?:\s*kg)?\.?/gi, " ")
     .replace(/\s*\b75\s*=\s*[0-9,]+\s*kg\.?/gi, " ")
     .replace(/\s*\b[0-9,]+\s*=\s*[0-9,]+\s*kg\.?/gi, " ")
@@ -1038,13 +1038,12 @@ function cleanPackSetupLabel(value: unknown) {
 }
 
 function buildRecommendedSetupText({
-  craneName,
   radiusM,
-  tipHeightM,
   totalLiftedWeightKg,
   selectedSetupLabel,
   selectedJibLabel,
-  sourceLabel,
+  chartCapacityKg,
+  utilisationPercent,
 }: {
   craneName: string;
   radiusM: number | null | undefined;
@@ -1053,43 +1052,34 @@ function buildRecommendedSetupText({
   selectedSetupLabel?: string | null;
   selectedJibLabel?: string | null;
   sourceLabel?: string | null;
+  chartCapacityKg?: number | null;
+  utilisationPercent?: number | null;
 }) {
+  // The issued pack must use the setup saved and verified by the AP.  It must never run the
+  // recommendation engine again during rendering, because doing so can select a different
+  // boom/counterweight chart from the one that was saved on the lift plan.
+  const selected = cleanPackSetupLabel([selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / "));
+  const setup = selected || "Selected / AP verified crane setup";
   const radius = Number(radiusM ?? 0);
   const lifted = Number(totalLiftedWeightKg ?? 0);
+  const capacity = Number(chartCapacityKg ?? 0);
+
   if (!Number.isFinite(radius) || radius <= 0 || !Number.isFinite(lifted) || lifted <= 0) {
-    const selected = cleanPackSetupLabel([selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / "));
-    return selected || "To be confirmed from the selected crane load chart before the lift proceeds.";
+    return setup;
   }
 
-  const suggestions = suggestRangeChartSetups({
-    craneName,
-    radiusM: radius,
-    tipHeightM: tipHeightM ?? null,
-    totalLiftedWeightKg: lifted,
-  });
-  const best = suggestions[0] ?? null;
-
-  if (!best) {
-    const selected = cleanPackSetupLabel([selectedSetupLabel, selectedJibLabel].filter(Boolean).join(" / "));
-    return selected
-      ? `${selected}. Recommended duty to be confirmed against the selected load chart for ${formatKgOnly(lifted)} at ${formatRangeNumber(radius)} radius.`
-      : `Recommended duty to be confirmed against the selected load chart for ${formatKgOnly(lifted)} at ${formatRangeNumber(radius)} radius.`;
+  if (!Number.isFinite(capacity) || capacity <= 0) {
+    return `${setup}. Duty to be confirmed against the selected load chart for ${formatKgOnly(lifted)} at ${formatRangeNumber(radius)} radius.`;
   }
 
-  const setup = cleanPackSetupLabel(best.label) || cleanPackSetupLabel(best.profileLabel) || "Selected chart setup";
-  const parts = [setup];
-  if (best.boomLengthM && Number.isFinite(best.boomLengthM)) parts.push(`boom ${formatRangeNumber(best.boomLengthM)}`);
-  if (best.jibLengthM && best.jibLengthM > 0) parts.push(`jib/extension ${formatRangeNumber(best.jibLengthM)}`);
-  else parts.push("no jib");
-  if (best.counterweightT !== null && best.counterweightT !== undefined && Number.isFinite(best.counterweightT)) {
-    parts.push(`${Number(best.counterweightT).toLocaleString("en-GB", { maximumFractionDigits: 1 })} t counterweight`);
-  }
-
-  const utilText = best.utilisationPercent !== null && best.utilisationPercent !== undefined
-    ? `, ${formatPercentValue(best.utilisationPercent)} utilisation`
+  const calculatedUtilisation = Number.isFinite(Number(utilisationPercent))
+    ? Number(utilisationPercent)
+    : (lifted / capacity) * 100;
+  const utilText = Number.isFinite(calculatedUtilisation)
+    ? `, ${formatPercentValue(calculatedUtilisation)} utilisation`
     : "";
 
-  return `${parts.join("; ")}. Chart duty: ${formatKgAndTonnes(best.capacityKg)} at ${formatRangeNumber(radius)} radius for ${formatKgOnly(lifted)} gross lifted load${utilText}.`;
+  return `${setup}. Selected chart duty: ${formatKgAndTonnes(capacity)} at ${formatRangeNumber(radius)} radius for ${formatKgOnly(lifted)} gross lifted load${utilText}.`;
 }
 
 function buildPackCapacitySourceText(method: string | null | undefined) {
@@ -1188,10 +1178,11 @@ function rangeChartCalculated(sections: StringMap) {
   const calculatedBoomAngle = (Math.atan2(boomEndY - pivotHeight, boomEndX) * 180) / Math.PI;
   const storedBoomLengthM = rangeNumber(sections, "range_chart_boom_length_m", calculatedBoomLength);
   const storedBoomAngleDeg = rangeNumber(sections, "range_chart_boom_angle_deg", calculatedBoomAngle);
-  // If old saved data capped the boom at a crane maximum but the saved radius/tip height actually
-  // requires more, use the true required length for the check/pack. Otherwise the pack can falsely
-  // show 46 m and still auto-clear capacity when the geometry really needs more than 46 m.
-  const boomLengthM = Math.max(storedBoomLengthM || 0, calculatedBoomLength || 0) || calculatedBoomLength;
+  const selectedChartBoomLengthM = activeStructuredProfile?.defaultBoomLengthM ?? null;
+  // The saved structured profile is an exact load-chart column. Keep that selected chart boom
+  // length throughout the issued pack, while still using the larger true geometry requirement
+  // if the planned hook point cannot physically be reached by the selected duty.
+  const boomLengthM = Math.max(selectedChartBoomLengthM || 0, storedBoomLengthM || 0, calculatedBoomLength || 0) || calculatedBoomLength;
   const boomAngleDeg = Math.abs(boomLengthM - calculatedBoomLength) <= 0.1 ? calculatedBoomAngle : storedBoomAngleDeg;
   const clearanceM = rangeNumber(sections, "range_chart_clearance_m", hookY - objectHeightM);
   const loadWeightKg = rangeKg(sections, "range_chart_load_weight_kg");
@@ -1213,9 +1204,17 @@ function rangeChartCalculated(sections: StringMap) {
   const tipHeightExceededForCapacity = Boolean(limits.maxTipHeightM && tipHeightM > limits.maxTipHeightM + 0.01);
   const jibExceededForCapacity = Boolean(limits.maxPhysicalJibLengthM && jibLengthM > limits.maxPhysicalJibLengthM + 0.01);
   const geometryInvalidForAutoCapacity = requiredBoomExceededForCapacity || radiusExceededForCapacity || tipHeightExceededForCapacity || jibExceededForCapacity;
-  const storedManualChartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
-  const chartCapacityKg = geometryInvalidForAutoCapacity ? null : capacityResult.capacityKg ?? (capacityResult.allowManualCapacityFallback ? storedManualChartCapacityKg : null);
-  const utilisationPercent = totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : (!geometryInvalidForAutoCapacity && capacityResult.allowManualCapacityFallback ? parseDecimal(sections.range_chart_utilisation_percent) : null);
+  const savedChartCapacityKg = rangeKg(sections, "range_chart_chart_capacity_kg");
+  // The issued PDF is a record of the AP-saved duty. Do not silently replace a saved chart
+  // capacity during rendering with a newly calculated value; new/edited plans are recalculated
+  // and validated in the builder before they can be approved or finalised.
+  const chartCapacityKg = savedChartCapacityKg && savedChartCapacityKg > 0
+    ? savedChartCapacityKg
+    : (geometryInvalidForAutoCapacity ? null : capacityResult.capacityKg);
+  const savedUtilisationPercent = parseDecimal(sections.range_chart_utilisation_percent);
+  const utilisationPercent = savedUtilisationPercent !== null
+    ? savedUtilisationPercent
+    : (totalLiftedWeightKg && chartCapacityKg ? (totalLiftedWeightKg / chartCapacityKg) * 100 : null);
   const matLengthM = rangeNumber(sections, "range_chart_mat_length_m", parseDecimal(sections.ground_bearing_mat_length_m) ?? 0);
   const matWidthM = rangeNumber(sections, "range_chart_mat_width_m", parseDecimal(sections.ground_bearing_mat_width_m) ?? 0);
   const matCount = Math.max(1, Math.round(parseDecimal(sections.range_chart_mats_under_loaded_outrigger) ?? parseDecimal(sections.ground_bearing_mats_under_loaded_outrigger) ?? 1));
@@ -1240,8 +1239,8 @@ function rangeChartCalculated(sections: StringMap) {
     : bearingLoadKg && planningEstimateKg
       ? `(${formatRangeKg(limits.planningWeightKg)} + ${formatRangeKg(totalLiftedWeightKg)}) × ${estimatedBearingFactor} = ${formatRangeKg(bearingLoadKg)}`
       : bearingLoadKg
-        ? `Estimated max outrigger load = ${formatRangeKg(bearingLoadKg)}`
-        : "Estimated max outrigger load requires crane and load details";
+        ? `Worst-case outrigger load = ${formatRangeKg(bearingLoadKg)}`
+        : "Worst-case outrigger load requires crane and load details";
 
   return {
     radiusM,
@@ -1483,6 +1482,8 @@ function RangeChartPackPage({
     selectedSetupLabel: selectedSetup,
     selectedJibLabel: selectedJibOption,
     sourceLabel,
+    chartCapacityKg: calc.chartCapacityKg,
+    utilisationPercent: calc.utilisationPercent,
   });
   const maxX = Math.max(calc.radiusM + 4, calc.objectDistanceM + calc.objectWidthM + 4, 12);
   const maxY = Math.max(calc.tipHeightM + 4, calc.objectHeightM + 4, 8);
@@ -2022,7 +2023,16 @@ export default async function CraneLiftPlanPackPage({
       } as PackAppendixAssetItem;
     })
     .filter(Boolean) as PackAppendixAssetItem[];
-  const specAppendixAssets = [...craneAppendixAssets, ...jobSpecAppendixAssets];
+  // When the selected crane has its current managed specification attached, do not also
+  // print an older job-level copy for the same HK40 family. The previous HK40 document
+  // has been removed from the crane record and the newly uploaded correct document must
+  // be the sole HK40 technical reference in newly generated/regenerated packs.
+  const currentCraneAppendixText = `${craneNameForAppendix} ${(crane as any)?.make ?? ""} ${(crane as any)?.model ?? ""}`.toLowerCase();
+  const isSelectedHk40 = /\bhk\s*40\b|tadano\s*faun|faun\s*hk/i.test(currentCraneAppendixText);
+  const filteredJobSpecAppendixAssets = isSelectedHk40
+    ? jobSpecAppendixAssets.filter((asset) => !/\bhk\s*40\b|tadano\s*faun|faun\s*hk/i.test(`${asset.title ?? ""} ${asset.description ?? ""}`))
+    : jobSpecAppendixAssets;
+  const specAppendixAssets = [...craneAppendixAssets, ...filteredJobSpecAppendixAssets];
   const selectedAppendixKeys = parseSelectedAppendixKeys(sections.selected_appendix_keys);
   const selectedAppendixKeySet = selectedAppendixKeys === null ? null : new Set(selectedAppendixKeys);
   const selectedSpecAppendixAssets = selectedAppendixKeySet
@@ -2040,15 +2050,12 @@ export default async function CraneLiftPlanPackPage({
     sections.cover_project ||
     (job as any)?.site_name ||
     `Job ${(job as any)?.job_number ?? ""}`.trim();
-  const isShaunRobinsonName = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z]+/g, " ").trim() === "shaun robinson";
   const appointedPerson = liftPlan?.appointed_person || liftPlan?.approved_by || "Shaun Robinson";
   const approvedBy = liftPlan?.approved_by || appointedPerson;
-  const rawLiftSupervisor = String(liftPlan?.lift_supervisor ?? "").trim();
-  const liftSupervisor = isShaunRobinsonName(rawLiftSupervisor) ? "" : rawLiftSupervisor;
+  const liftSupervisor = String(liftPlan?.lift_supervisor ?? "").trim();
   const liftSupervisorField = (key: string, align: "left" | "right" = "left") => {
     const saved = defaultSectionText(sections, key, "");
-    const value = isShaunRobinsonName(saved) ? "" : saved || liftSupervisor;
-    return <EditableInput name={key} defaultValue={value} align={align} emptyPrintValue="" />;
+    return <EditableInput name={key} defaultValue={saved || liftSupervisor} align={align} emptyPrintValue="" />;
   };
   const craneName = craneNameForAppendix;
   const safeLiftPlanCraneConfiguration = currentCraneSafeText(liftPlan?.crane_configuration, craneName);
@@ -2074,6 +2081,7 @@ export default async function CraneLiftPlanPackPage({
   const rangeBearingMethod = String(rangeGroundCalc?.bearingMethod ?? "").toLowerCase();
   const rangeBearingUsesPlanningFormula = rangeBearingMethod === "automatic" && (
     rangeBearingSource.includes("planning estimate") ||
+    rangeBearingSource.includes("worst-case ground-bearing") ||
     rangeBearingSource.includes("planning/gross weight") ||
     rangeBearingSource.includes("existing lift-plan formula") ||
     rangeBearingSource.includes("appointed-person mat calculation") ||
@@ -2126,6 +2134,8 @@ export default async function CraneLiftPlanPackPage({
       sections.range_chart_external_spec_document_title,
       sections.selected_crane_spec_source,
     ].filter(Boolean).join(" / "),
+    chartCapacityKg: rangeChartCapacityKg,
+    utilisationPercent: rangeUtilisationPercent,
   });
   const loadWeight = rangeLoadWeightKg ? formatKgOnly(rangeLoadWeightKg) : (liftPlan?.load_weight ? `${liftPlan.load_weight} kg` : "—");
   const accessoryWeight = rangeAccessoryWeightKg ? formatKgOnly(rangeAccessoryWeightKg) : "—";
@@ -2154,7 +2164,7 @@ export default async function CraneLiftPlanPackPage({
   const matSizeText = enteredMatSpread && matLengthM && matWidthM ? `${matLengthM}m x ${matWidthM}m × ${matCount} under worst-case loaded outrigger` : "Mat/spreader dimensions not entered";
   const primaryGroundLoadingFormula = rangeGroundCalc?.bearingPressureFormula || (bearingLoadKg && craneMaxWeightKg && loadMaxWeightKg
     ? `(${formatRangeKg(craneMaxWeightKg)} + ${formatRangeKg(loadMaxWeightKg)}) × 0.75 = ${formatRangeKg(bearingLoadKg)}`
-    : "Estimated max outrigger load requires crane and load details");
+    : "Worst-case outrigger load requires crane and load details");
   const primaryAdditionalSpreaderFormula = enteredMatSpread && bearingLoadKg && matAreaM2 && bearingPressure !== "—"
     ? `${formatRangeKg(bearingLoadKg)} ÷ ${formatAreaM2(matAreaM2)} = ${bearingPressure}`
     : "";
@@ -2754,10 +2764,10 @@ export default async function CraneLiftPlanPackPage({
               [inputField("ground_bearing_label_crane_max", "Crane planning / gross weight"), calculatedInputField("ground_bearing_crane_max_weight", formatKgAndTonnes(craneMaxWeightKg))],
               [inputField("ground_bearing_label_load_max", "Total lifted load"), calculatedInputField("ground_bearing_load_max_weight", formatKgAndTonnes(loadMaxWeightKg))],
               [inputField("ground_bearing_label_combined", "Crane + lifted load reference"), calculatedInputField("ground_bearing_combined_weight", formatKgAndTonnes(combinedMaxWeightKg))],
-              [inputField("ground_bearing_label_factor", "Crane + lifted load factor"), calculatedInputField("ground_bearing_factor", "0.75")],
-              [inputField("ground_bearing_label_result", "Estimated max outrigger load"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
+              [inputField("ground_bearing_label_factor", "Worst-case outrigger load factor"), calculatedInputField("ground_bearing_factor", "0.75")],
+              [inputField("ground_bearing_label_result", "Worst-case outrigger load"), calculatedInputField("ground_bearing_result", formatKgAndTonnes(estimatedGroundBearingKg))],
               [inputField("ground_bearing_label_mat_size", "Mat / spreader dimensions"), calculatedInputField("ground_bearing_mat_size", matSizeText)],
-              [inputField("ground_bearing_label_bearing_load", "Max outrigger load used for AnnS ground-loading check"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
+              [inputField("ground_bearing_label_bearing_load", "Worst-case outrigger load used for ground-bearing calculation"), calculatedInputField("ground_bearing_bearing_load", formatKgAndTonnes(bearingLoadKg))],
               ...(enteredMatSpread ? ([
                 [inputField("ground_bearing_label_mat_count", "Mats/spreader pieces under worst-case loaded outrigger"), calculatedInputField("ground_bearing_mat_count", String(matCount))],
                 [inputField("ground_bearing_label_single_mat_area", "Single support piece area"), calculatedInputField("ground_bearing_single_mat_area", formatAreaM2(singleMatAreaM2))],
@@ -2803,7 +2813,7 @@ export default async function CraneLiftPlanPackPage({
                         ["Utilisation", calculatedInputField(`additional_crane_${index}_utilisation`, formatAdditionalPercent(calc.utilisationPercent))],
                         ["Selected mat / spreader", calculatedInputField(`additional_crane_${index}_mat`, calc.matLengthM && calc.matWidthM ? `${calc.matLengthM}m x ${calc.matWidthM}m` : "—")],
                         ["Mat bearing area", calculatedInputField(`additional_crane_${index}_mat_area`, formatAreaM2(calc.matAreaM2))],
-                        ["Estimated max outrigger load", calculatedInputField(`additional_crane_${index}_bearing`, formatKgAndTonnes(calc.bearingLoadKg))],
+                        ["Worst-case outrigger load", calculatedInputField(`additional_crane_${index}_bearing`, formatKgAndTonnes(calc.bearingLoadKg))],
                         ["Mat/spreader pressure reference", calculatedInputField(`additional_crane_${index}_pressure`, calc.bearingPressureKgM2 ? `${calc.bearingPressureKgM2.toLocaleString("en-GB", { maximumFractionDigits: 0 })} kg/m² / ${(calc.bearingPressureKgM2 / 1000).toLocaleString("en-GB", { maximumFractionDigits: 2 })} t/m²` : "—")],
                         ["Verification notes", areaField(`additional_crane_${index}_notes`, additionalCrane.verification_notes || "Confirm the selected chart, radius, boom / jib setup, load weight, hook block / accessories, outrigger setup and ground conditions before lifting.", 4, true)],
                       ]}
@@ -2993,7 +3003,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
 
         <div style={signatureGrid}>
           <SignatureRow title={inputField("signature_title_ap", "Appointed Person signature")} name={appointedPerson} nameField="signature_ap_name" dateField="signature_ap_date" sections={sections} />
-          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} nameField="signature_ls_name" dateField="signature_ls_date" sections={{ ...sections, signature_ls_name: isShaunRobinsonName(sections.signature_ls_name) ? "" : sections.signature_ls_name }} />
+          <SignatureRow title={inputField("signature_title_ls", "Lift Supervisor signature")} name={liftSupervisor} nameField="signature_ls_name" dateField="signature_ls_date" sections={sections} />
           <SignatureRow title={inputField("signature_title_operator", "Crane Operator signature")} name={liftPlan?.crane_operator || operator?.full_name} nameField="signature_operator_name" dateField="signature_operator_date" sections={sections} />
           <SignatureRow title={inputField("signature_title_client", "Client completion sign-off")} name={(job as any)?.contact_name} nameField="signature_client_name" dateField="signature_client_date" sections={sections} />
         </div>

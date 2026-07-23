@@ -146,8 +146,9 @@ const PRESETS: AssetAppendixPreset[] = [
     assetType: "crane",
     bundles: [
       { key: "spec", title: "HK40 SPEC / DIMENSIONS", documentType: "spec_sheet", appendixOrder: 10, pages: [1, 2, 3] },
-      { key: "main_boom", title: "HK40 MAIN BOOM CHARTS", documentType: "load_chart", appendixOrder: 20, pages: [4, 5, 6] },
-      { key: "extension", title: "HK40 EXTENSION / RANGE", documentType: "load_chart", appendixOrder: 30, pages: [7, 8, 9] },
+      { key: "main_boom", title: "HK40 MAIN BOOM CHARTS", documentType: "load_chart", appendixOrder: 20, pages: [4, 5, 6, 7, 8, 9, 10, 11] },
+      { key: "extension", title: "HK40 9 M BOOM EXTENSION", documentType: "load_chart", appendixOrder: 30, pages: [12, 13] },
+      { key: "technical", title: "HK40 TECHNICAL DATA", documentType: "manual", appendixOrder: 40, pages: [14, 15, 16] },
     ],
   },
   {
@@ -165,8 +166,8 @@ const PRESETS: AssetAppendixPreset[] = [
     label: "HIAB X-HIPRO 858",
     assetType: "vehicle",
     bundles: [
-      { key: "spec", title: "X-HIPRO SPEC", documentType: "spec_sheet", appendixOrder: 10, pages: [2] },
-      { key: "chart", title: "X-HIPRO LOAD DIAGRAM", documentType: "load_chart", appendixOrder: 20, pages: [3] },
+      { key: "spec", title: "X-HIPRO 858 EP-6 TECHNICAL DATA", documentType: "spec_sheet", appendixOrder: 10, pages: [2] },
+      { key: "chart", title: "X-HIPRO 858 EP-6 LOAD DIAGRAM", documentType: "load_chart", appendixOrder: 20, pages: [3] },
     ],
   },
   {
@@ -174,10 +175,9 @@ const PRESETS: AssetAppendixPreset[] = [
     label: "Palfinger PK 65002 SH",
     assetType: "vehicle",
     bundles: [
-      { key: "spec", title: "PK65002 SPEC", documentType: "spec_sheet", appendixOrder: 10, pages: [11] },
-      { key: "boom", title: "PK65002 BOOM CHARTS", documentType: "load_chart", appendixOrder: 20, pages: [8] },
-      { key: "fly", title: "PK65002 FLY JIB / DPS", documentType: "load_chart", appendixOrder: 30, pages: [9] },
-      { key: "dimensions", title: "PK65002 DIMENSIONS", documentType: "manual", appendixOrder: 40, pages: [10] },
+      { key: "spec", title: "PK65002 SH TECHNICAL SPECIFICATION", documentType: "spec_sheet", appendixOrder: 10, pages: [11] },
+      { key: "boom", title: "PK65002 SH E MAIN BOOM CHART", documentType: "load_chart", appendixOrder: 20, pages: [8] },
+      { key: "dimensions", title: "PK65002 SH DIMENSIONS", documentType: "manual", appendixOrder: 30, pages: [10] },
     ],
   },
 ];

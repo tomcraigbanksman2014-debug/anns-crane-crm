@@ -1,8 +1,9 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { EquipmentProfile } from "../../lib/ai/equipmentProfiles";
+import { calculateHiabTechnicalSections } from "../../lib/liftPlanTechnicalValidation";
 
 type TransportLiftPlanData = {
   job_summary?: string | null;
@@ -42,6 +43,7 @@ type TransportLiftPlanData = {
   office_signed_by?: string | null;
   finalised_at?: string | null;
   paperwork_locked?: boolean;
+  pack_sections?: Record<string, unknown> | null;
 };
 
 
@@ -86,6 +88,10 @@ export default function TransportLiftPlanForm({
   initial: TransportLiftPlanData | null;
   equipmentProfile?: EquipmentProfile | null;
 }) {
+  const verifiedSetup = equipmentProfile?.setupOptions?.[0] ?? null;
+  const isUploadedSpecProfile = Boolean(equipmentProfile?.id?.startsWith("spec-sheet-"));
+  const initialSections = ((initial?.pack_sections as Record<string, unknown> | null) ?? {});
+
   const [form, setForm] = useState<TransportLiftPlanData>({
     job_summary: initial?.job_summary ?? "",
     load_description: initial?.load_description ?? "",
@@ -124,6 +130,16 @@ export default function TransportLiftPlanForm({
     office_signed_by: initial?.office_signed_by ?? "",
     finalised_at: initial?.finalised_at ?? "",
     paperwork_locked: initial?.paperwork_locked ?? false,
+    pack_sections: {
+      ...initialSections,
+      hiab_profile_id: initialSections.hiab_profile_id ?? equipmentProfile?.id ?? null,
+      hiab_profile_title: initialSections.hiab_profile_title ?? equipmentProfile?.title ?? null,
+      hiab_verified_configuration: initialSections.hiab_verified_configuration ?? verifiedSetup?.label ?? equipmentProfile?.title ?? null,
+      hiab_chart_source: initialSections.hiab_chart_source ?? verifiedSetup?.sourceLabel ?? equipmentProfile?.sourceLabel ?? null,
+      hiab_accessory_weight_kg: initialSections.hiab_accessory_weight_kg ?? "0",
+      hiab_ground_bearing_factor: initialSections.hiab_ground_bearing_factor ?? "0.75",
+      hiab_mats_under_loaded_outrigger: initialSections.hiab_mats_under_loaded_outrigger ?? "1",
+    },
   });
 
   const [saving, setSaving] = useState(false);
@@ -132,16 +148,47 @@ export default function TransportLiftPlanForm({
   const [msg, setMsg] = useState("");
   const locked = !!form.paperwork_locked;
 
+  const technical = useMemo(() => calculateHiabTechnicalSections({
+    profileId: equipmentProfile?.id ?? null,
+    profileTitle: equipmentProfile?.title ?? null,
+    setupLabel: verifiedSetup?.label ?? equipmentProfile?.title ?? null,
+    sourceLabel: verifiedSetup?.sourceLabel ?? equipmentProfile?.sourceLabel ?? null,
+    loadWeightKg: form.load_weight ?? null,
+    radiusM: form.lift_radius ?? null,
+    sections: form.pack_sections ?? {},
+  }), [equipmentProfile, verifiedSetup, form.load_weight, form.lift_radius, form.pack_sections]);
+
+  function withTechnicalSections(payload: TransportLiftPlanData): TransportLiftPlanData {
+    const calculated = calculateHiabTechnicalSections({
+      profileId: equipmentProfile?.id ?? null,
+      profileTitle: equipmentProfile?.title ?? null,
+      setupLabel: verifiedSetup?.label ?? equipmentProfile?.title ?? null,
+      sourceLabel: verifiedSetup?.sourceLabel ?? equipmentProfile?.sourceLabel ?? null,
+      loadWeightKg: payload.load_weight ?? null,
+      radiusM: payload.lift_radius ?? null,
+      sections: payload.pack_sections ?? {},
+    });
+    return { ...payload, pack_sections: calculated.sections };
+  }
+
   function update(key: keyof TransportLiftPlanData, value: any) {
     if (locked) return;
     setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateSection(key: string, value: string) {
+    if (locked) return;
+    setForm((prev) => ({
+      ...prev,
+      pack_sections: { ...(prev.pack_sections ?? {}), [key]: value },
+    }));
   }
 
   async function postForm(payload: TransportLiftPlanData) {
     const res = await fetch(`/api/transport-jobs/${transportJobId}/lift-plan`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(withTechnicalSections(payload)),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.error || "Error saving transport lift plan.");
@@ -183,7 +230,9 @@ export default function TransportLiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
-      await postForm(form);
+      const calculatedForm = withTechnicalSections(form);
+      await postForm(calculatedForm);
+      setForm(calculatedForm);
       setMsg("Transport lift plan / RAMS saved.");
     } catch (e: any) {
       setMsg(e?.message || "Error saving transport lift plan.");
@@ -194,8 +243,12 @@ export default function TransportLiftPlanForm({
 
   function approveNow() {
     if (locked) return;
+    if (technical.errors.length) {
+      setMsg(`Cannot approve yet: ${technical.errors.join(" ")}`);
+      return;
+    }
     const now = new Date().toISOString();
-    setForm((prev) => ({ ...prev, approved_at: now, rams_complete: true, lift_plan_complete: true }));
+    setForm((prev) => ({ ...withTechnicalSections(prev), approved_at: now, rams_complete: true, lift_plan_complete: true }));
   }
 
   async function finaliseNow() {
@@ -203,7 +256,10 @@ export default function TransportLiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
-      const finalPayload: TransportLiftPlanData = { ...form, finalised_at: new Date().toISOString(), paperwork_locked: true };
+      if (technical.errors.length) {
+        throw new Error(`Cannot finalise yet: ${technical.errors.join(" ")}`);
+      }
+      const finalPayload: TransportLiftPlanData = withTechnicalSections({ ...form, finalised_at: new Date().toISOString(), paperwork_locked: true });
       await postForm(finalPayload);
       setForm(finalPayload);
       setMsg("Paperwork finalised and locked.");
@@ -267,6 +323,35 @@ export default function TransportLiftPlanForm({
           <Field label="Lift radius (m)" type="number" step="0.01" value={form.lift_radius ?? ""} onChange={(v) => update("lift_radius", v)} disabled={locked} />
           <Field label="Lift height (m)" type="number" step="0.01" value={form.lift_height ?? ""} onChange={(v) => update("lift_height", v)} disabled={locked} />
           <Field label="Operator name" value={form.operator_name ?? ""} onChange={(v) => update("operator_name", v)} disabled={locked} />
+        </div>
+      </Section>
+
+      <Section title="Verified HIAB chart & ground-bearing check">
+        <div style={grid2}>
+          <ReadOnlyFact label="Verified fitted configuration" value={technical.selectedSetup || "—"} />
+          <ReadOnlyFact label="Manufacturer chart source" value={technical.capacitySource || "—"} />
+          {isUploadedSpecProfile ? <Field label="AP-checked chart capacity at planned radius (kg)" type="number" step="1" value={String(form.pack_sections?.hiab_manual_chart_capacity_kg ?? "")} onChange={(v) => updateSection("hiab_manual_chart_capacity_kg", v)} disabled={locked} /> : null}
+          {isUploadedSpecProfile ? <Field label="Manufacturer / supplier chart and page used" value={String(form.pack_sections?.hiab_manual_chart_source ?? "")} onChange={(v) => updateSection("hiab_manual_chart_source", v)} disabled={locked} /> : null}
+          {isUploadedSpecProfile ? <Field label="Chart verified by" value={String(form.pack_sections?.hiab_chart_verified_by ?? "")} onChange={(v) => updateSection("hiab_chart_verified_by", v)} disabled={locked} /> : null}
+          <Field label="Lifting accessories / hook weight (kg)" type="number" step="0.01" value={String(form.pack_sections?.hiab_accessory_weight_kg ?? "0")} onChange={(v) => updateSection("hiab_accessory_weight_kg", v)} disabled={locked} />
+          <ReadOnlyFact label="Gross lifted load" value={technical.totalLiftedWeightKg === null ? "—" : `${technical.totalLiftedWeightKg.toLocaleString("en-GB")} kg`} />
+          <ReadOnlyFact label="Chart capacity at planned radius" value={technical.capacityKg === null ? "—" : `${technical.capacityKg.toLocaleString("en-GB")} kg`} />
+          <ReadOnlyFact label="Chart utilisation" value={technical.utilisationPercent === null ? "—" : `${technical.utilisationPercent}%`} />
+          <Field label="Vehicle operating / gross planning weight (kg)" type="number" step="1" value={String(form.pack_sections?.hiab_vehicle_operating_weight_kg ?? "")} onChange={(v) => updateSection("hiab_vehicle_operating_weight_kg", v)} disabled={locked} />
+          <ReadOnlyFact label="Worst-case outrigger load" value={technical.worstCaseOutriggerLoadKg === null ? "—" : `${technical.worstCaseOutriggerLoadKg.toLocaleString("en-GB")} kg`} />
+          <Field label="Mat / spreader length (m)" type="number" step="0.01" value={String(form.pack_sections?.hiab_mat_length_m ?? "")} onChange={(v) => updateSection("hiab_mat_length_m", v)} disabled={locked} />
+          <Field label="Mat / spreader width (m)" type="number" step="0.01" value={String(form.pack_sections?.hiab_mat_width_m ?? "")} onChange={(v) => updateSection("hiab_mat_width_m", v)} disabled={locked} />
+          <Field label="Pieces under worst-case loaded stabiliser" type="number" step="1" value={String(form.pack_sections?.hiab_mats_under_loaded_outrigger ?? "1")} onChange={(v) => updateSection("hiab_mats_under_loaded_outrigger", v)} disabled={locked} />
+          <ReadOnlyFact label="Worst-case ground pressure" value={technical.pressureKgM2 === null ? "—" : `${technical.pressureKgM2.toLocaleString("en-GB")} kg/m² / ${technical.pressureTM2?.toLocaleString("en-GB")} t/m²`} />
+        </div>
+        <div style={grid2}>
+          <Field label="Selected stabiliser / support position" value={String(form.pack_sections?.hiab_stabiliser_position ?? "")} onChange={(v) => updateSection("hiab_stabiliser_position", v)} disabled={locked} />
+          <Field label="Permitted working sector" value={String(form.pack_sections?.hiab_working_sector ?? "")} onChange={(v) => updateSection("hiab_working_sector", v)} disabled={locked} />
+        </div>
+        <div style={technical.errors.length ? validationErrorBox : validationOkBox}>
+          {technical.errors.length
+            ? <><strong>Complete before approval/finalisation:</strong> {technical.errors.join(" ")}</>
+            : <><strong>Technical check complete.</strong> The exact saved configuration, chart capacity, gross lifted load and worst-case ground-bearing values will be used throughout the printed pack.</>}
         </div>
       </Section>
 
@@ -341,6 +426,8 @@ const inputStyle: CSSProperties = { width: "100%", minHeight: 42, borderRadius: 
 const textAreaStyle: CSSProperties = { width: "100%", borderRadius: 10, border: "1px solid rgba(0,0,0,0.14)", padding: 12, fontSize: 14, boxSizing: "border-box", background: "#fff", resize: "vertical" };
 const msgBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)" };
 const lockedBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", fontWeight: 800 };
+const validationErrorBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.10)", border: "1px solid rgba(180,0,0,0.18)", lineHeight: 1.5 };
+const validationOkBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(0,130,70,0.10)", border: "1px solid rgba(0,130,70,0.20)", lineHeight: 1.5 };
 const tickRow: CSSProperties = { display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" };
 const tickLabel: CSSProperties = { display: "flex", alignItems: "center", gap: 8, fontWeight: 700 };
 const warningList: CSSProperties = { margin: "8px 0 0 18px", padding: 0, display: "grid", gap: 6 };

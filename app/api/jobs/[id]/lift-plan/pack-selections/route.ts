@@ -50,7 +50,7 @@ function inferredPlanningGrossWeightFromRangeChart(sections: DynamicPackSections
 
   // Only reverse the lift-plan estimate when the bearing value came from the planning formula.
   // Do not reverse-calculate published outrigger/reaction values such as a spec-sheet reaction.
-  const isPlanningEstimate = source.includes("planning estimate") || source.includes("planning/gross weight") || source.includes("existing lift-plan formula");
+  const isPlanningEstimate = source.includes("planning estimate") || source.includes("worst-case ground-bearing") || source.includes("planning/gross weight") || source.includes("existing lift-plan formula");
   if (bearingLoad === null || totalLifted === null || method !== "automatic" || !isPlanningEstimate) return null;
 
   const planningGrossWeight = bearingLoad / 0.75 - totalLifted;

@@ -31,7 +31,15 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
       load_description,
       notes,
       clients:client_id (company_name, contact_name, phone, email),
-      vehicles:vehicle_id (name, reg_number, vehicle_type, trailer_type, capacity),
+      vehicles:vehicle_id (
+        id,
+        name,
+        reg_number,
+        vehicle_type,
+        trailer_type,
+        capacity,
+        vehicle_documents (id, title, document_type, extracted_text, extracted_profile, uploaded_at)
+      ),
       operators:operator_id (full_name)
     `).eq("id", params.id).maybeSingle(),
     supabase.from("transport_lift_plans").select("*").eq("transport_job_id", params.id).maybeSingle(),

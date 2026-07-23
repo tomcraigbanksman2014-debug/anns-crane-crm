@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
+import { validateMobileCraneApprovalSections } from "../../../../lib/liftPlanTechnicalValidation";
 
 
 function getAdminClient() {
@@ -191,6 +192,18 @@ export async function POST(
     }
 
     const packSectionsFromPayload = packSectionsFromBody(body);
+    const mergedPackSections = {
+      ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
+      ...packSectionsFromPayload,
+    };
+    const completionRequested = cleanBool(body.paperwork_locked) || cleanBool(body.lift_plan_complete) || Boolean(body.approved_at);
+    const approvalErrors = completionRequested ? validateMobileCraneApprovalSections(mergedPackSections) : [];
+    if (approvalErrors.length) {
+      return NextResponse.json(
+        { error: `Lift plan cannot be approved or finalised: ${approvalErrors.join(" ")}` },
+        { status: 400 }
+      );
+    }
 
     const payload = {
       job_id: params.id,
@@ -232,11 +245,6 @@ export async function POST(
     let versionSaved = false;
 
     if (existing?.id) {
-      const mergedPackSections = {
-        ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
-        ...packSectionsFromPayload,
-      };
-
       versionSaved = await safeCreateLiftPlanVersion({ admin, existing, user, reason: "before_save_draft" });
 
       const { error: updateError } = await supabase
@@ -264,7 +272,7 @@ export async function POST(
         .from("lift_plans")
         .insert({
           ...payload,
-          pack_sections: packSectionsFromPayload,
+          pack_sections: mergedPackSections,
           created_at: new Date().toISOString(),
         })
         .select("id")

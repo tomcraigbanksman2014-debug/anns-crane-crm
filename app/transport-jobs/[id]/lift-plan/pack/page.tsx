@@ -2,6 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
 import { getVehicleAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
+import { getPackAppendixAssets } from "../../../../lib/ai/packAppendixAssets";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -46,6 +47,18 @@ function splitLines(value: string | null | undefined) {
 
 function yesNo(value: boolean | null | undefined) {
   return value ? "Yes" : "No";
+}
+
+function numberValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtNumber(value: unknown, digits = 0) {
+  const n = numberValue(value);
+  if (n === null) return "—";
+  return n.toLocaleString("en-GB", { maximumFractionDigits: digits });
 }
 
 
@@ -214,6 +227,102 @@ function SignatureRow({
   );
 }
 
+function HiabPlanDrawing({
+  profileId,
+  vehicleLabel,
+  radiusM,
+  liftHeightM,
+  loadDescription,
+  supportPosition,
+  workingSector,
+}: {
+  profileId?: string | null;
+  vehicleLabel: string;
+  radiusM?: number | null;
+  liftHeightM?: number | null;
+  loadDescription?: string | null;
+  supportPosition?: string | null;
+  workingSector?: string | null;
+}) {
+  const isArtic = profileId === "hiab-x-hipro-858" || /\b(?:artic|arctic|tractor)\b/i.test(vehicleLabel);
+  const radiusLabel = radiusM && Number.isFinite(radiusM) ? `${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m planned radius` : "Planned radius";
+  const heightLabel = liftHeightM && Number.isFinite(liftHeightM) ? `${liftHeightM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m lift height` : "Lift height to be confirmed";
+  const bodyEnd = isArtic ? 610 : 510;
+  const craneX = isArtic ? 238 : 218;
+  const loadX = 700;
+
+  return (
+    <div style={drawingGrid}>
+      <div style={drawingPanel}>
+        <div style={drawingTitle}>Plan view — vehicle, supports, working sector and load</div>
+        <svg viewBox="0 0 820 390" role="img" aria-label="HIAB lift plan view" style={drawingSvg}>
+          <defs>
+            <marker id={`arrow-${profileId || "hiab"}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#111" />
+            </marker>
+          </defs>
+          <rect x="70" y="145" width="150" height="100" rx="8" fill="#e8eef4" stroke="#111" strokeWidth="3" />
+          <text x="145" y="198" textAnchor="middle" fontSize="18" fontWeight="700">CAB</text>
+          <rect x="220" y="125" width={bodyEnd - 220} height="140" rx="5" fill="#f7f7f7" stroke="#111" strokeWidth="3" />
+          <text x={(220 + bodyEnd) / 2} y="200" textAnchor="middle" fontSize="17" fontWeight="700">{isArtic ? "TRACTOR / TRAILER LINE" : "RIGID FLATBED BODY"}</text>
+          {isArtic ? <rect x="470" y="115" width="250" height="160" rx="4" fill="none" stroke="#555" strokeWidth="2" strokeDasharray="8 5" /> : null}
+          <circle cx={craneX} cy="195" r="25" fill="#cf2e2e" stroke="#111" strokeWidth="3" />
+          <text x={craneX} y="202" textAnchor="middle" fill="#fff" fontSize="14" fontWeight="800">HIAB</text>
+          <line x1={craneX - 15} y1="118" x2={craneX - 15} y2="272" stroke="#111" strokeWidth="5" />
+          <line x1={craneX + 115} y1="118" x2={craneX + 115} y2="272" stroke="#111" strokeWidth="5" />
+          {[craneX - 15, craneX + 115].map((x, index) => (
+            <g key={index}>
+              <rect x={x - 32} y="95" width="64" height="22" fill="#ddd" stroke="#111" strokeWidth="2" />
+              <rect x={x - 32} y="273" width="64" height="22" fill="#ddd" stroke="#111" strokeWidth="2" />
+            </g>
+          ))}
+          <path d={`M ${craneX} 195 C ${craneX + 115} 65, ${loadX - 120} 65, ${loadX} 195`} fill="none" stroke="#2d69a7" strokeWidth="5" />
+          <path d={`M ${craneX} 195 A 280 280 0 0 1 ${craneX + 275} 30`} fill="none" stroke="#8a1f1f" strokeWidth="2" strokeDasharray="10 7" />
+          <path d={`M ${craneX} 195 A 280 280 0 0 0 ${craneX + 275} 360`} fill="none" stroke="#8a1f1f" strokeWidth="2" strokeDasharray="10 7" />
+          <rect x={loadX - 55} y="155" width="110" height="80" fill="#e7c86d" stroke="#111" strokeWidth="3" />
+          <text x={loadX} y="190" textAnchor="middle" fontSize="15" fontWeight="800">LOAD</text>
+          <text x={loadX} y="212" textAnchor="middle" fontSize="11">{String(loadDescription || "Planned load").slice(0, 22)}</text>
+          <line x1={craneX + 35} y1="330" x2={loadX - 20} y2="330" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-${profileId || "hiab"})`} />
+          <line x1={loadX - 20} y1="330" x2={craneX + 35} y2="330" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-${profileId || "hiab"})`} />
+          <text x={(craneX + loadX) / 2} y="320" textAnchor="middle" fontSize="16" fontWeight="800">{radiusLabel}</text>
+          <text x="70" y="35" fontSize="15" fontWeight="800">Vehicle: {vehicleLabel}</text>
+          <text x="70" y="58" fontSize="13">Support position: {supportPosition || "Recorded in technical schedule"}</text>
+          <text x="70" y="80" fontSize="13">Permitted sector: {workingSector || "Recorded in technical schedule"}</text>
+        </svg>
+      </div>
+      <div style={drawingPanel}>
+        <div style={drawingTitle}>Side elevation — boom, radius, height and set-down point</div>
+        <svg viewBox="0 0 820 390" role="img" aria-label="HIAB lift side elevation" style={drawingSvg}>
+          <defs>
+            <marker id={`arrow-side-${profileId || "hiab"}`} markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+              <path d="M0,0 L8,4 L0,8 z" fill="#111" />
+            </marker>
+          </defs>
+          <line x1="40" y1="320" x2="790" y2="320" stroke="#111" strokeWidth="3" />
+          <rect x="80" y="235" width="150" height="75" rx="8" fill="#e8eef4" stroke="#111" strokeWidth="3" />
+          <circle cx="115" cy="320" r="22" fill="#333" /><circle cx="198" cy="320" r="22" fill="#333" />
+          <rect x="230" y="250" width={isArtic ? 330 : 270} height="55" fill="#f7f7f7" stroke="#111" strokeWidth="3" />
+          <circle cx={craneX} cy="245" r="22" fill="#cf2e2e" stroke="#111" strokeWidth="3" />
+          <polyline points={`${craneX},245 ${craneX + 80},150 ${loadX - 110},80 ${loadX},105`} fill="none" stroke="#2d69a7" strokeWidth="12" strokeLinecap="round" strokeLinejoin="round" />
+          <line x1={loadX} y1="105" x2={loadX} y2="215" stroke="#111" strokeWidth="3" />
+          <rect x={loadX - 55} y="215" width="110" height="80" fill="#e7c86d" stroke="#111" strokeWidth="3" />
+          <line x1={craneX} y1="345" x2={loadX} y2="345" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-side-${profileId || "hiab"})`} />
+          <line x1={loadX} y1="345" x2={craneX} y2="345" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-side-${profileId || "hiab"})`} />
+          <text x={(craneX + loadX) / 2} y="375" textAnchor="middle" fontSize="16" fontWeight="800">{radiusLabel}</text>
+          <line x1="760" y1="320" x2="760" y2="105" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-side-${profileId || "hiab"})`} />
+          <line x1="760" y1="105" x2="760" y2="320" stroke="#111" strokeWidth="2" markerEnd={`url(#arrow-side-${profileId || "hiab"})`} />
+          <text x="750" y="205" textAnchor="end" fontSize="15" fontWeight="800" transform="rotate(-90 750 205)">{heightLabel}</text>
+          <line x1={craneX - 25} y1="305" x2={craneX - 25} y2="330" stroke="#111" strokeWidth="6" />
+          <rect x={craneX - 55} y="330" width="60" height="15" fill="#ddd" stroke="#111" strokeWidth="2" />
+          <line x1={craneX + 95} y1="305" x2={craneX + 95} y2="330" stroke="#111" strokeWidth="6" />
+          <rect x={craneX + 65} y="330" width="60" height="15" fill="#ddd" stroke="#111" strokeWidth="2" />
+          <text x="60" y="40" fontSize="14" fontWeight="800">Schematic lifting arrangement — dimensions shown are the saved lift-plan values; drawing not to scale.</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 function AppendixPage({
   asset,
   index,
@@ -279,11 +388,20 @@ export default async function TransportLiftPlanPackPage({
           email
         ),
         vehicles:vehicle_id (
+          id,
           name,
           reg_number,
           vehicle_type,
           trailer_type,
-          capacity
+          capacity,
+          vehicle_documents (
+            id,
+            title,
+            document_type,
+            extracted_text,
+            extracted_profile,
+            uploaded_at
+          )
         ),
         operators:operator_id (
           full_name,
@@ -312,7 +430,7 @@ export default async function TransportLiftPlanPackPage({
   const sections: StringMap = ((liftPlan as any)?.pack_sections as Record<string, string | null> | null) ?? {};
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const appendixAssets = await getVehicleAppendixAssetsForPack(
+  const vehicleAppendixAssets = await getVehicleAppendixAssetsForPack(
     vehicle?.id ?? null,
     {
       jobType: (job as any)?.job_type || linkedJob?.lift_type || null,
@@ -337,6 +455,30 @@ export default async function TransportLiftPlanPackPage({
         .join("\n"),
     }
   );
+  const staticAppendixAssets: PackAppendixAssetItem[] = getPackAppendixAssets(equipmentProfile?.id).map((asset, index) => ({
+    key: `static-${equipmentProfile?.id || "hiab"}-${index + 1}`,
+    title: asset.title,
+    description: asset.description ?? null,
+    image_url: asset.publicPath,
+    document_type: index === 0 ? "spec_sheet" : "load_chart",
+    page_number: index + 1,
+    appendix_order: (index + 1) * 10,
+    source_type: "vehicle",
+    source_document_id: null,
+  }));
+  const ownedStaticProfile = ["hiab-x-hipro-858", "palfinger-pk65002-sh"].includes(String(equipmentProfile?.id ?? ""));
+  const supplementaryVehicleAssets = ownedStaticProfile
+    ? vehicleAppendixAssets.filter((asset) => {
+        const technicalDocument = ["spec_sheet", "load_chart"].includes(String(asset.document_type ?? "").toLowerCase());
+        const sameOwnedModel = equipmentProfile?.id === "hiab-x-hipro-858"
+          ? /(?:x[- ]?hipro|\b858\b)/i.test(asset.title)
+          : /(?:palfinger|65002)/i.test(asset.title);
+        return !(technicalDocument && sameOwnedModel);
+      })
+    : vehicleAppendixAssets;
+  const appendixAssets = ownedStaticProfile
+    ? [...staticAppendixAssets, ...supplementaryVehicleAssets]
+    : (vehicleAppendixAssets.length ? vehicleAppendixAssets : staticAppendixAssets);
 
   const projectName = sections.cover_project || (job as any)?.load_description || `Transport ${(job as any)?.transport_number ?? ""}`.trim();
   const clientName = client?.company_name || "the client";
@@ -345,15 +487,9 @@ export default async function TransportLiftPlanPackPage({
     "Transport Lift Plan Pack",
     (job as any)?.transport_number ? `Transport ${(job as any).transport_number}` : null,
   ].filter(Boolean).join(" - ");
-  const isShaunRobinsonName = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/[^a-z]+/g, " ").trim() === "shaun robinson";
   const operatorName = liftPlan?.operator_name || operator?.full_name || "—";
   const appointedPerson = liftPlan?.appointed_person || "Shaun Robinson";
-  const rawSupervisor = String(liftPlan?.lift_supervisor ?? "").trim();
-  const supervisor = isShaunRobinsonName(rawSupervisor) ? "" : rawSupervisor;
-  const supervisorValue = (key: string, fallback = supervisor) => {
-    const saved = defaultSectionText(sections, key, "");
-    return isShaunRobinsonName(saved) ? "" : saved || fallback;
-  };
+  const supervisor = String(liftPlan?.lift_supervisor ?? "").trim();
   const vehicleLabel = [vehicle?.name, vehicle?.vehicle_type, vehicle?.reg_number].filter(Boolean).join(" ") || vehicle?.name || "—";
   const hiabConfig = shortConfig(sections.hiab_configuration || liftPlan?.hiab_configuration, equipmentProfile?.title || "Planned HIAB setup");
   const vehicleConfig = sections.vehicle_configuration || liftPlan?.vehicle_configuration || vehicleLabel;
@@ -365,6 +501,21 @@ export default async function TransportLiftPlanPackPage({
   const emergencyContacts = splitLines(sections.emergency_contacts || "").join("\n");
   const equipmentList = splitLines(sections.equipment_list || "").join("\n");
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
+  const technicalProfileId = sections.hiab_profile_id || equipmentProfile?.id || null;
+  const technicalConfiguration = sections.hiab_verified_configuration || equipmentProfile?.setupOptions?.[0]?.label || equipmentProfile?.title || "—";
+  const technicalRadiusM = numberValue(liftPlan?.lift_radius);
+  const technicalHeightM = numberValue(liftPlan?.lift_height);
+  const chartCapacityKg = numberValue(sections.hiab_chart_capacity_kg);
+  const accessoryWeightKg = numberValue(sections.hiab_accessory_weight_kg) ?? 0;
+  const totalLiftedWeightKg = numberValue(sections.hiab_total_lifted_weight_kg);
+  const utilisationPercent = numberValue(sections.hiab_utilisation_percent);
+  const worstCaseOutriggerLoadKg = numberValue(sections.hiab_worst_case_outrigger_load_kg);
+  const matLengthM = numberValue(sections.hiab_mat_length_m);
+  const matWidthM = numberValue(sections.hiab_mat_width_m);
+  const matCount = numberValue(sections.hiab_mats_under_loaded_outrigger);
+  const totalMatAreaM2 = numberValue(sections.hiab_total_mat_area_m2);
+  const pressureKgM2 = numberValue(sections.hiab_ground_pressure_kg_m2);
+  const pressureTM2 = numberValue(sections.hiab_ground_pressure_t_m2);
 
   return (
     <div className="print-document-root" style={wrapper}>
@@ -549,8 +700,57 @@ export default async function TransportLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
+      <PageShell sectionTitle="Verified Technical Schedule">
+        <SectionTitle>4. Verified HIAB chart and load calculation</SectionTitle>
+        <InfoTable
+          rows={[
+            ["HIAB profile", equipmentProfile?.title || sections.hiab_profile_title || "—"],
+            ["Verified fitted configuration", technicalConfiguration],
+            ["Planned lifting radius", technicalRadiusM === null ? "—" : `${fmtNumber(technicalRadiusM, 2)} m`],
+            ["Load weight", liftPlan?.load_weight ? `${fmtNumber(liftPlan.load_weight, 1)} kg` : "—"],
+            ["Hook / lifting accessories", `${fmtNumber(accessoryWeightKg, 1)} kg`],
+            ["Gross lifted load", totalLiftedWeightKg === null ? "—" : `${fmtNumber(totalLiftedWeightKg, 1)} kg`],
+            ["Chart capacity at planned radius", chartCapacityKg === null ? "—" : `${fmtNumber(chartCapacityKg)} kg`],
+            ["Chart utilisation", utilisationPercent === null ? "—" : `${fmtNumber(utilisationPercent, 1)}%`],
+            ["Manufacturer chart source", sections.hiab_chart_source || "—"],
+            ["Selected stabiliser / support position", sections.hiab_stabiliser_position || liftPlan?.outrigger_setup || "—"],
+            ["Permitted working sector", sections.hiab_working_sector || "—"],
+          ]}
+        />
+
+        <SectionTitle>5. Worst-case ground-bearing calculation</SectionTitle>
+        <InfoTable
+          rows={[
+            ["Vehicle operating / gross planning weight", sections.hiab_vehicle_operating_weight_kg ? `${fmtNumber(sections.hiab_vehicle_operating_weight_kg)} kg` : "—"],
+            ["Gross lifted load", totalLiftedWeightKg === null ? "—" : `${fmtNumber(totalLiftedWeightKg, 1)} kg`],
+            ["Worst-case load factor", sections.hiab_ground_bearing_factor || "0.75"],
+            ["Worst-case outrigger load used for ground-bearing calculation", worstCaseOutriggerLoadKg === null ? "—" : `${fmtNumber(worstCaseOutriggerLoadKg)} kg`],
+            ["Mat / spreader dimensions", matLengthM && matWidthM ? `${fmtNumber(matLengthM, 2)} m × ${fmtNumber(matWidthM, 2)} m` : "—"],
+            ["Pieces under worst-case loaded stabiliser", matCount === null ? "—" : fmtNumber(matCount)],
+            ["Total bearing area", totalMatAreaM2 === null ? "—" : `${fmtNumber(totalMatAreaM2, 3)} m²`],
+            ["Worst-case ground pressure", pressureKgM2 === null ? "—" : `${fmtNumber(pressureKgM2)} kg/m² / ${fmtNumber(pressureTM2, 2)} t/m²`],
+          ]}
+        />
+        <BoxedParagraph title="Calculation basis">
+          The worst-case outrigger load shown is the vehicle operating / gross planning weight plus the gross lifted load, multiplied by the saved 0.75 factor. The pressure value uses the saved total mat / spreader bearing area under the worst-case loaded stabiliser. Where an exact manufacturer or supplier support reaction is available for the selected configuration, that published value must take precedence.
+        </BoxedParagraph>
+      </PageShell>
+
+      <PageShell sectionTitle="Lift Arrangement Drawing">
+        <SectionTitle>6. CAD-style lift arrangement</SectionTitle>
+        <HiabPlanDrawing
+          profileId={technicalProfileId}
+          vehicleLabel={vehicleLabel}
+          radiusM={technicalRadiusM}
+          liftHeightM={technicalHeightM}
+          loadDescription={liftPlan?.load_description || (job as any)?.load_description}
+          supportPosition={sections.hiab_stabiliser_position || liftPlan?.outrigger_setup}
+          workingSector={sections.hiab_working_sector}
+        />
+      </PageShell>
+
       <PageShell sectionTitle="Method, Risk & Sign Off">
-        <SectionTitle>4. Load handling, lifting accessories and securing</SectionTitle>
+        <SectionTitle>7. Load handling, lifting accessories and securing</SectionTitle>
         <InfoTable
           rows={[
             ["Load description", liftPlan?.load_description],
@@ -561,10 +761,10 @@ export default async function TransportLiftPlanPackPage({
           ]}
         />
 
-        <SectionTitle>5. Delivery / lifting procedure</SectionTitle>
+        <SectionTitle>8. Delivery / lifting procedure</SectionTitle>
         <BoxedParagraph>{methodText}</BoxedParagraph>
 
-        <SectionTitle>6. Emergency procedure</SectionTitle>
+        <SectionTitle>9. Emergency procedure</SectionTitle>
         <BoxedParagraph>
           {para(
             sections.emergency_procedure || liftPlan?.emergency_procedures,
@@ -572,7 +772,7 @@ export default async function TransportLiftPlanPackPage({
           )}
         </BoxedParagraph>
 
-        <SectionTitle>7. Risk assessment summary</SectionTitle>
+        <SectionTitle>10. Risk assessment summary</SectionTitle>
         <TwoColumnBoxes
           leftTitle="Risk summary"
           leftBody={riskText}
@@ -819,6 +1019,31 @@ const signatureBox: CSSProperties = {
   border: "1px solid #333",
   padding: 10,
   breakInside: "avoid",
+};
+
+const drawingGrid: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr",
+  gap: 14,
+};
+
+const drawingPanel: CSSProperties = {
+  border: "1px solid #333",
+  padding: 10,
+  breakInside: "avoid",
+};
+
+const drawingTitle: CSSProperties = {
+  fontSize: 15,
+  fontWeight: 900,
+  marginBottom: 6,
+};
+
+const drawingSvg: CSSProperties = {
+  width: "100%",
+  height: "auto",
+  display: "block",
+  background: "#fff",
 };
 
 const appendixPageStyle: CSSProperties = {

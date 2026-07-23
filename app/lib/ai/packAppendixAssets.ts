@@ -55,26 +55,26 @@ const PROFILE_APPENDIX_MAP: Record<string, PackAppendixAsset[]> = {
   ],
   "hiab-x-hipro-858": [
     {
-      title: "HIAB X-HIPRO 858 specification sheet",
+      title: "HIAB X-HIPRO 858 EP-6 technical data",
       publicPath: "/lift-plan-assets/hiab-x-hipro-858-spec.png",
-      description: "Reference technical data page for the HIAB X-HIPRO 858.",
+      description: "Verified EP-6 technical data for AnnS artic HIAB SN74 XPX.",
     },
     {
-      title: "HIAB X-HIPRO 858 chart page",
+      title: "HIAB X-HIPRO 858 EP-6 load diagram",
       publicPath: "/lift-plan-assets/hiab-x-hipro-858-chart.png",
-      description: "Reference chart page for the HIAB X-HIPRO 858.",
+      description: "Verified EP-6 main-boom load diagram for AnnS artic HIAB SN74 XPX.",
     },
   ],
   "palfinger-pk65002-sh": [
     {
-      title: "Palfinger PK 65002 SH specification sheet",
+      title: "Palfinger PK 65002 SH technical specification",
       publicPath: "/lift-plan-assets/palfinger-pk65002-sh-spec.png",
-      description: "Reference technical specification page for the Palfinger PK 65002 SH.",
+      description: "Technical specification page for AnnS rigid HIAB SF25 XNB.",
     },
     {
-      title: "Palfinger PK 65002 SH chart page",
+      title: "Palfinger PK 65002 SH E main-boom chart",
       publicPath: "/lift-plan-assets/palfinger-pk65002-sh-chart.png",
-      description: "Reference chart page for the Palfinger PK 65002 SH.",
+      description: "Verified E-configuration main-boom chart for AnnS rigid HIAB SF25 XNB.",
     },
   ],
 };
