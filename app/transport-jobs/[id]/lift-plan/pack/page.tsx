@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
 import { getVehicleAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import { getPackAppendixAssets } from "../../../../lib/ai/packAppendixAssets";
+import HiabTechnicalDrawing from "../../../../components/HiabTechnicalDrawing";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -737,8 +738,8 @@ export default async function TransportLiftPlanPackPage({
       </PageShell>
 
       <PageShell sectionTitle="Lift Arrangement Drawing">
-        <SectionTitle>6. CAD-style lift arrangement</SectionTitle>
-        <HiabPlanDrawing
+        <SectionTitle>6. Lift arrangement drawing</SectionTitle>
+        <HiabTechnicalDrawing
           profileId={technicalProfileId}
           vehicleLabel={vehicleLabel}
           radiusM={technicalRadiusM}
