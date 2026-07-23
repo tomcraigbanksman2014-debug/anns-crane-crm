@@ -496,6 +496,13 @@ export default async function TransportLiftPlanPackPage({
   const vehicleConfig = sections.vehicle_configuration || liftPlan?.vehicle_configuration || vehicleLabel;
   const routeText = para(sections.route_notes || liftPlan?.route_notes, "Route to be checked for access restrictions, width, height, turning space and any site delivery constraints before movement.");
   const accessText = para(sections.access_notes || liftPlan?.access_notes, "Collection and delivery access points are to be confirmed before positioning the HIAB vehicle. The working area must remain clear and suitable for stabiliser deployment.");
+  const jobSummary = para(liftPlan?.job_summary, projectName);
+  const pickupMethod = para(sections.pickup_method || liftPlan?.pickup_method, "Collection method to be confirmed by the appointed lifting team before the operation.");
+  const deliveryMethod = para(sections.delivery_method || liftPlan?.delivery_method, "Delivery and final set-down method to be confirmed by the appointed lifting team before the operation.");
+  const exclusionZone = para(sections.exclusion_zone_details || liftPlan?.exclusion_zone_details, "A controlled exclusion zone is to be established around the vehicle, stabilisers, suspended load and landing area.");
+  const siteHazards = para(sections.site_hazards || liftPlan?.site_hazards, "Site-specific hazards are to be reviewed at the pre-lift briefing and controlled before lifting starts.");
+  const controlMeasures = para(sections.control_measures || liftPlan?.control_measures, "Use competent personnel, suitable stabiliser support, clear communication and a controlled work area throughout the operation.");
+  const ppeRequired = para(sections.ppe_required || liftPlan?.ppe_required, "Safety helmet, high-visibility clothing, safety footwear and task-specific gloves.");
   const loadSecuring = para(sections.load_securing_method || liftPlan?.load_securing_method, "The load is to be secured using suitable rated restraints and checked before departure and after positioning, in accordance with the planned transport method.");
   const methodText = sections.lifting_procedure || liftPlan?.method_statement || "1. Arrive on site and confirm access / set-down area. 2. Establish exclusion zone and stabiliser area. 3. Deploy stabilisers on suitable support. 4. Connect the load using the planned accessories. 5. Carry out a controlled lift, transfer and set-down under the direction of the designated signaller. 6. Secure or release the load as planned and recover equipment safely.";
   const riskText = sections.risk_assessment_summary || liftPlan?.risk_assessment || "Key risks include vehicle instability, poor stabiliser support, load movement, overhead obstructions, communication failure, adverse weather, public interface and unsafe delivery / set-down conditions.";
@@ -634,10 +641,7 @@ export default async function TransportLiftPlanPackPage({
 
         <TwoColumnBoxes
           leftTitle="Collection and delivery sequence"
-          leftBody={para(
-            sections.pickup_method || liftPlan?.pickup_method,
-            `The collection and delivery sequence is to be controlled by the appointed lifting team. Vehicle position, stabiliser deployment, lifting radius and delivery / set-down area are to be checked before any lift is undertaken.`
-          )}
+          leftBody={`COLLECTION\n${pickupMethod}\n\nDELIVERY / SET-DOWN\n${deliveryMethod}`}
           rightTitle="Route and access"
           rightBody={`${routeText}\n\n${accessText}`}
         />
@@ -675,6 +679,10 @@ export default async function TransportLiftPlanPackPage({
             sections.hiab_details,
             equipmentProfile?.summary || "Selected HIAB profile to be checked against the current specification and chart."
           )}
+        </BoxedParagraph>
+
+        <BoxedParagraph title="Job summary">
+          {jobSummary}
         </BoxedParagraph>
 
         <SectionTitle>3. Ground, access and stabiliser controls</SectionTitle>
@@ -747,6 +755,13 @@ export default async function TransportLiftPlanPackPage({
           loadDescription={liftPlan?.load_description || (job as any)?.load_description}
           supportPosition={sections.hiab_stabiliser_position || liftPlan?.outrigger_setup}
           workingSector={sections.hiab_working_sector}
+          collectionAddress={(job as any)?.collection_address}
+          deliveryAddress={(job as any)?.delivery_address}
+          loadWeightKg={numberValue(liftPlan?.load_weight)}
+          chartCapacityKg={chartCapacityKg}
+          utilisationPercent={utilisationPercent}
+          exclusionZone={exclusionZone}
+          groundConditions={liftPlan?.ground_conditions}
         />
       </PageShell>
 
@@ -759,6 +774,8 @@ export default async function TransportLiftPlanPackPage({
             ["Lifting accessories", liftPlan?.lifting_accessories],
             ["Load securing method", loadSecuring],
             ["Route notes", routeText],
+            ["Pickup method", pickupMethod],
+            ["Delivery / set-down method", deliveryMethod],
           ]}
         />
 
@@ -775,14 +792,12 @@ export default async function TransportLiftPlanPackPage({
 
         <SectionTitle>10. Risk assessment summary</SectionTitle>
         <TwoColumnBoxes
-          leftTitle="Risk summary"
-          leftBody={riskText}
-          rightTitle="Control measures"
-          rightBody={para(
-            liftPlan?.control_measures,
-            `Use competent personnel, confirm stabiliser support, maintain communication, control the work area, monitor weather and follow the approved pack and manufacturer guidance throughout the operation.`
-          )}
+          leftTitle="Site hazards and risk summary"
+          leftBody={`${siteHazards}\n\n${riskText}`}
+          rightTitle="Control measures and exclusion zone"
+          rightBody={`${controlMeasures}\n\n${exclusionZone}`}
         />
+        <BoxedParagraph title="Personal protective equipment">{ppeRequired}</BoxedParagraph>
       </PageShell>
 
       <PageShell sectionTitle="Sign Offs">
@@ -793,6 +808,9 @@ export default async function TransportLiftPlanPackPage({
             ["Approved by", liftPlan?.approved_by],
             ["Approved at", fmtDateTime(liftPlan?.approved_at)],
             ["Approval notes", liftPlan?.approval_notes],
+            ["Customer signed by", liftPlan?.customer_signed_by],
+            ["Operator signed by", liftPlan?.operator_signed_by],
+            ["Office signed by", liftPlan?.office_signed_by],
           ]}
         />
 
