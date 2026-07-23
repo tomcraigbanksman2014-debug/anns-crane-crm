@@ -27,6 +27,7 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
     { data: job, error: jobError },
     { data: liftPlan, error: liftPlanError },
     { data: transportDocuments, error: documentError },
+    { data: personnelRows, error: personnelError },
   ] = await Promise.all([
     supabase.from("transport_jobs").select(`
       id,
@@ -59,6 +60,11 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
       .select("id, file_name, file_path, file_type, document_type, created_at")
       .eq("transport_job_id", params.id)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("operators")
+      .select("id, full_name, status, archived")
+      .or("archived.is.null,archived.eq.false")
+      .order("full_name", { ascending: true }),
   ]);
 
   const client = one((job as any)?.clients) as any;
@@ -76,12 +82,37 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
   }
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const errorMessage = jobError?.message || liftPlanError?.message || documentError?.message || "";
+  const errorMessage = jobError?.message || liftPlanError?.message || documentError?.message || personnelError?.message || "";
   const appendixDocuments = (transportDocuments ?? []).filter((doc: any) =>
     ["site_drawing", "drawing", "photo", "dimension_sheet", "weight_sheet", "vehicle_configuration", "rams"]
       .includes(String(doc.document_type ?? "").toLowerCase())
   );
   const vehicleDocuments = Array.isArray(vehicle?.vehicle_documents) ? vehicle.vehicle_documents : [];
+  const personnelOptions = ((personnelRows as any[]) ?? [])
+    .filter((row) => String(row?.full_name ?? "").trim())
+    .map((row) => ({
+      value: String(row.full_name).trim(),
+      label: String(row.full_name).trim(),
+    }));
+  const liftPlanInitial = {
+    ...((liftPlan as any) ?? {}),
+    job_summary:
+      (liftPlan as any)?.job_summary ??
+      [
+        (job as any)?.transport_number ? `Transport ${(job as any).transport_number}` : null,
+        (job as any)?.job_type,
+        client?.company_name,
+      ].filter(Boolean).join(" - "),
+    load_description: (liftPlan as any)?.load_description ?? (job as any)?.load_description ?? "",
+    route_notes:
+      (liftPlan as any)?.route_notes ??
+      [
+        (job as any)?.collection_address ? `Collection: ${(job as any).collection_address}` : null,
+        (job as any)?.delivery_address ? `Delivery: ${(job as any).delivery_address}` : null,
+      ].filter(Boolean).join("\n"),
+    access_notes: (liftPlan as any)?.access_notes ?? (job as any)?.notes ?? "",
+    operator_name: (liftPlan as any)?.operator_name ?? operator?.full_name ?? "",
+  };
 
   return (
     <ClientShell>
@@ -180,8 +211,9 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
 
         <TransportLiftPlanForm
           transportJobId={params.id}
-          initial={(liftPlan as any) ?? null}
+          initial={liftPlanInitial}
           equipmentProfile={equipmentProfile}
+          personnelOptions={personnelOptions}
         />
       </div>
     </ClientShell>
