@@ -3,6 +3,8 @@ import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
 import TransportLiftPlanForm from "../TransportLiftPlanForm";
+import TransportDocumentUploadForm from "../TransportDocumentUploadForm";
+import TransportDocumentDeleteButton from "../TransportDocumentDeleteButton";
 
 function line(label: string, value: string | null | undefined) {
   return { label, value: String(value ?? "—").trim() || "—" };
@@ -13,10 +15,19 @@ function one<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] ?? null : value;
 }
 
+function publicDocumentUrl(filePath: string | null | undefined) {
+  if (!filePath || !process.env.NEXT_PUBLIC_SUPABASE_URL) return "#";
+  return `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/job-documents/${filePath}`;
+}
+
 export default async function TransportJobLiftPlanPage({ params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }] = await Promise.all([
+  const [
+    { data: job, error: jobError },
+    { data: liftPlan, error: liftPlanError },
+    { data: transportDocuments, error: documentError },
+  ] = await Promise.all([
     supabase.from("transport_jobs").select(`
       id,
       transport_number,
@@ -43,6 +54,11 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
       operators:operator_id (full_name)
     `).eq("id", params.id).maybeSingle(),
     supabase.from("transport_lift_plans").select("*").eq("transport_job_id", params.id).maybeSingle(),
+    supabase
+      .from("transport_job_documents")
+      .select("id, file_name, file_path, file_type, document_type, created_at")
+      .eq("transport_job_id", params.id)
+      .order("created_at", { ascending: false }),
   ]);
 
   const client = one((job as any)?.clients) as any;
@@ -53,34 +69,41 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
   if ((job as any)?.linked_job_id) {
     const { data } = await supabase
       .from("jobs")
-      .select(`id, job_number, site_name, site_address, notes, lift_type, hire_type, cranes:crane_id (name, make, model, capacity)`)
+      .select("id, job_number, site_name, site_address, notes, lift_type, hire_type, cranes:crane_id (name, make, model, capacity)")
       .eq("id", (job as any).linked_job_id)
       .maybeSingle();
     linkedJob = data ?? null;
   }
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const errorMessage = jobError?.message || liftPlanError?.message || "";
+  const errorMessage = jobError?.message || liftPlanError?.message || documentError?.message || "";
+  const appendixDocuments = (transportDocuments ?? []).filter((doc: any) =>
+    ["site_drawing", "drawing", "photo", "dimension_sheet", "weight_sheet", "vehicle_configuration", "rams"]
+      .includes(String(doc.document_type ?? "").toLowerCase())
+  );
+  const vehicleDocuments = Array.isArray(vehicle?.vehicle_documents) ? vehicle.vehicle_documents : [];
 
   return (
     <ClientShell>
       <div style={{ width: "min(1180px, 95vw)", margin: "0 auto", display: "grid", gap: 16 }}>
         <div style={topRow}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 32 }}>HIAB Transport Lift Plan</h1>
-            <div style={{ marginTop: 6, opacity: 0.8 }}>Create and review lift plan / RAMS paperwork for transport and HIAB jobs.</div>
+            <h1 style={{ margin: 0, fontSize: 32 }}>HIAB Lift Plan</h1>
+            <div style={{ marginTop: 6, opacity: 0.8 }}>
+              Create and review lift plan / RAMS paperwork using the same workflow as crane lift plans.
+            </div>
           </div>
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             <a href={`/transport-jobs/${params.id}`} style={secondaryBtn}>← Back to transport job</a>
-            <a href={`/transport-jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>Full HIAB pack</a>
-            <a href={`/transport-jobs/${params.id}/lift-plan/pack/edit`} style={secondaryBtn}>Edit pack sections</a>
+            <a href={`/transport-jobs/${params.id}/lift-plan/pack`} target="_blank" style={secondaryBtn}>Full lift plan pack / edit</a>
+            <a href={`/transport-jobs/${params.id}/lift-plan/pack/edit`} style={secondaryBtn}>Pack wording</a>
           </div>
         </div>
 
         {errorMessage ? <div style={errorBox}>{errorMessage}</div> : null}
 
         <div style={summaryCard}>
-          <div style={summaryTitle}>Transport job summary</div>
+          <div style={summaryTitle}>Job summary</div>
           <div style={summaryGrid}>
             {[
               line("Transport job", (job as any)?.transport_number),
@@ -90,16 +113,76 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
               line("Delivery", (job as any)?.delivery_address),
               line("Dates", `${(job as any)?.transport_date ?? "—"} to ${(job as any)?.delivery_date ?? (job as any)?.transport_date ?? "—"}`),
               line("Times", `${(job as any)?.collection_time ?? "—"} to ${(job as any)?.delivery_time ?? "—"}`),
-              line("Vehicle", [vehicle?.name, vehicle?.vehicle_type, vehicle?.reg_number].filter(Boolean).join(" ")),
-              line("Operator", operator?.full_name),
+              line("Selected HIAB", [vehicle?.name, vehicle?.vehicle_type, vehicle?.reg_number].filter(Boolean).join(" ")),
+              line("Main operator", operator?.full_name),
               line("Linked crane job", linkedJob?.job_number ? `#${linkedJob.job_number}` : (job as any)?.linked_job_id),
-            ].map((item) => <div key={item.label} style={summaryItem}><div style={summaryLabel}>{item.label}</div><div style={summaryValue}>{item.value}</div></div>)}
+            ].map((item) => (
+              <div key={item.label} style={summaryItem}>
+                <div style={summaryLabel}>{item.label}</div>
+                <div style={summaryValue}>{item.value}</div>
+              </div>
+            ))}
           </div>
           {(job as any)?.load_description ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Load description</div><div style={notesBox}>{(job as any).load_description}</div></div> : null}
-          {(job as any)?.notes ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Transport notes</div><div style={notesBox}>{(job as any).notes}</div></div> : null}
+          {(job as any)?.notes ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Job notes</div><div style={notesBox}>{(job as any).notes}</div></div> : null}
         </div>
 
-        <TransportLiftPlanForm transportJobId={params.id} initial={(liftPlan as any) ?? null} equipmentProfile={equipmentProfile} />
+        <div style={summaryCard}>
+          <div style={summaryTitle}>Lift plan appendix uploads</div>
+          <div style={introText}>
+            Upload HIAB position sketches, marked-up site drawings, dimension sheets, photographs and supporting RAMS here, as on the crane lift-plan page.
+          </div>
+          <TransportDocumentUploadForm transportJobId={params.id} />
+          <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
+            {appendixDocuments.length ? appendixDocuments.map((doc: any) => (
+              <div key={doc.id} style={documentCard}>
+                <div>
+                  <div style={{ fontWeight: 900 }}>{doc.file_name || "Document"}</div>
+                  <div style={documentMeta}>{String(doc.document_type || "other").replace(/_/g, " ")} • {doc.created_at || ""}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <a href={publicDocumentUrl(doc.file_path)} target="_blank" rel="noreferrer" style={secondaryBtn}>Open</a>
+                  <TransportDocumentDeleteButton transportJobId={params.id} documentId={doc.id} />
+                </div>
+              </div>
+            )) : <div style={emptyState}>No lift-plan drawings or supporting documents uploaded yet.</div>}
+          </div>
+        </div>
+
+        <div style={summaryCard}>
+          <div style={summaryTitle}>Selected HIAB specification and load charts</div>
+          <div style={introText}>
+            The selected vehicle profile and verified manufacturer chart drive the technical check. A hired HIAB must have its supplier specification attached before the plan is finalised.
+          </div>
+          <div style={summaryGrid}>
+            <div style={summaryItem}>
+              <div style={summaryLabel}>Matched machine profile</div>
+              <div style={summaryValue}>{equipmentProfile?.title || "No verified HIAB profile matched"}</div>
+            </div>
+            <div style={summaryItem}>
+              <div style={summaryLabel}>Vehicle specification documents</div>
+              <div style={summaryValue}>{vehicleDocuments.length}</div>
+            </div>
+          </div>
+          {vehicleDocuments.length ? (
+            <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
+              {vehicleDocuments.map((doc: any) => (
+                <div key={doc.id} style={documentCard}>
+                  <div>
+                    <div style={{ fontWeight: 900 }}>{doc.title || "Vehicle document"}</div>
+                    <div style={documentMeta}>{String(doc.document_type || "document").replace(/_/g, " ")}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <TransportLiftPlanForm
+          transportJobId={params.id}
+          initial={(liftPlan as any) ?? null}
+          equipmentProfile={equipmentProfile}
+        />
       </div>
     </ClientShell>
   );
@@ -113,5 +196,9 @@ const summaryItem: CSSProperties = { background: "rgba(255,255,255,0.72)", borde
 const summaryLabel: CSSProperties = { fontSize: 12, fontWeight: 800, opacity: 0.7 };
 const summaryValue: CSSProperties = { marginTop: 6, fontWeight: 800 };
 const notesBox: CSSProperties = { marginTop: 6, background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12, whiteSpace: "pre-wrap" };
+const introText: CSSProperties = { fontSize: 14, opacity: 0.8, marginBottom: 12 };
+const documentCard: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 12 };
+const documentMeta: CSSProperties = { marginTop: 4, fontSize: 12, opacity: 0.72, textTransform: "capitalize" };
+const emptyState: CSSProperties = { padding: 14, borderRadius: 12, border: "1px dashed rgba(0,0,0,0.18)", opacity: 0.72 };
 const errorBox: CSSProperties = { padding: "10px 12px", borderRadius: 10, background: "rgba(180,0,0,0.12)", border: "1px solid rgba(180,0,0,0.16)" };
 const secondaryBtn: CSSProperties = { display: "inline-block", padding: "10px 14px", borderRadius: 10, background: "rgba(255,255,255,0.82)", color: "#111", fontWeight: 800, textDecoration: "none", border: "1px solid rgba(0,0,0,0.10)" };
