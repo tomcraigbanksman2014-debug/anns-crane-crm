@@ -4,6 +4,16 @@ import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import type { EquipmentProfile } from "../../lib/ai/equipmentProfiles";
 import { calculateHiabTechnicalSections } from "../../lib/liftPlanTechnicalValidation";
+import LiftArrangementEditor from "../../components/lift-drawing/LiftArrangementEditor";
+import type { LiftMachineType, LiftTechnicalSchedule } from "../../components/lift-drawing/types";
+import {
+  parseLiftDrawingModel,
+  serialiseLiftDrawingModel,
+} from "../../lib/liftDrawingPersistence";
+import {
+  liftDrawingApprovalErrors,
+  validateLiftDrawing,
+} from "../../lib/liftDrawingValidation";
 
 type TransportLiftPlanData = {
   job_summary?: string | null;
@@ -46,11 +56,6 @@ type TransportLiftPlanData = {
   pack_sections?: Record<string, unknown> | null;
 };
 
-type PersonOption = {
-  value: string;
-  label: string;
-};
-
 
 function hasDraftValue(value: unknown) {
   if (value === null || value === undefined) return false;
@@ -88,12 +93,10 @@ export default function TransportLiftPlanForm({
   transportJobId,
   initial,
   equipmentProfile,
-  personnelOptions,
 }: {
   transportJobId: string;
   initial: TransportLiftPlanData | null;
   equipmentProfile?: EquipmentProfile | null;
-  personnelOptions?: PersonOption[];
 }) {
   const verifiedSetup = equipmentProfile?.setupOptions?.[0] ?? null;
   const isUploadedSpecProfile = Boolean(equipmentProfile?.id?.startsWith("spec-sheet-"));
@@ -154,21 +157,6 @@ export default function TransportLiftPlanForm({
   const [unlocking, setUnlocking] = useState(false);
   const [msg, setMsg] = useState("");
   const locked = !!form.paperwork_locked;
-  const personnelSelectOptions = useMemo(() => {
-    const options = new Map<string, PersonOption>();
-    options.set("", { value: "", label: "Select person..." });
-    for (const option of personnelOptions ?? []) {
-      const value = String(option.value ?? "").trim();
-      if (value) options.set(value.toLowerCase(), { value, label: option.label || value });
-    }
-    for (const current of [form.lift_supervisor, form.operator_name]) {
-      const value = String(current ?? "").trim();
-      if (value && !options.has(value.toLowerCase())) {
-        options.set(value.toLowerCase(), { value, label: value });
-      }
-    }
-    return Array.from(options.values());
-  }, [personnelOptions, form.lift_supervisor, form.operator_name]);
 
   const technical = useMemo(() => calculateHiabTechnicalSections({
     profileId: equipmentProfile?.id ?? null,
@@ -179,6 +167,58 @@ export default function TransportLiftPlanForm({
     radiusM: form.lift_radius ?? null,
     sections: form.pack_sections ?? {},
   }), [equipmentProfile, verifiedSetup, form.load_weight, form.lift_radius, form.pack_sections]);
+
+  const machineType: LiftMachineType = /artic|x-hipro|x hipro|858/i.test(
+    `${equipmentProfile?.id ?? ""} ${equipmentProfile?.title ?? ""}`,
+  )
+    ? "hiab-artic"
+    : "hiab-rigid";
+  const drawingSchedule = useMemo<LiftTechnicalSchedule>(() => ({
+    loadDescription: form.load_description,
+    loadWeightKg: technical.loadWeightKg,
+    accessoryWeightKg: technical.accessoryWeightKg,
+    grossLiftedWeightKg: technical.totalLiftedWeightKg,
+    radiusM: technical.radiusM,
+    boomLengthM: Number(form.pack_sections?.hiab_boom_length_m) || null,
+    boomAngleDeg: Number(form.pack_sections?.hiab_boom_angle_deg) || null,
+    hookHeightM: form.lift_height,
+    chartCapacityKg: technical.capacityKg,
+    chartSource: technical.capacitySource,
+    chartPage: String(form.pack_sections?.hiab_chart_page ?? "").trim(),
+    utilisationPercent: technical.utilisationPercent,
+    exactConfiguration: technical.selectedSetup,
+    stabiliserSetup: String(form.pack_sections?.hiab_stabiliser_position ?? "").trim(),
+    workingSector: String(form.pack_sections?.hiab_working_sector ?? "").trim(),
+    operatingWeightKg: technical.vehicleOperatingWeightKg,
+    groundPressureKgM2: technical.pressureKgM2,
+    matLengthM: technical.matLengthM,
+    matWidthM: technical.matWidthM,
+    liftingAccessories: form.lifting_accessories,
+    siteHazards: form.site_hazards,
+    controlMeasures: form.control_measures,
+  }), [form, technical]);
+  const drawingModel = useMemo(
+    () => parseLiftDrawingModel(
+      form.pack_sections?.lift_drawing_model_json,
+      {
+        machineType,
+        machineLabel: equipmentProfile?.title ?? "",
+        drawingNumber: `HIAB-${transportJobId.slice(0, 8).toUpperCase()}`,
+      },
+    ),
+    [equipmentProfile?.title, form.pack_sections?.lift_drawing_model_json, machineType, transportJobId],
+  );
+  const drawingValidation = useMemo(
+    () => validateLiftDrawing(drawingModel, drawingSchedule),
+    [drawingModel, drawingSchedule],
+  );
+  const approvalErrors = useMemo(
+    () => Array.from(new Set([
+      ...technical.errors,
+      ...liftDrawingApprovalErrors(drawingModel, drawingSchedule),
+    ])),
+    [drawingModel, drawingSchedule, technical.errors],
+  );
 
   function withTechnicalSections(payload: TransportLiftPlanData): TransportLiftPlanData {
     const calculated = calculateHiabTechnicalSections({
@@ -265,8 +305,8 @@ export default function TransportLiftPlanForm({
 
   function approveNow() {
     if (locked) return;
-    if (technical.errors.length) {
-      setMsg(`Cannot approve yet: ${technical.errors.join(" ")}`);
+    if (approvalErrors.length) {
+      setMsg(`Cannot approve yet: ${approvalErrors.join(" ")}`);
       return;
     }
     const now = new Date().toISOString();
@@ -278,8 +318,8 @@ export default function TransportLiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
-      if (technical.errors.length) {
-        throw new Error(`Cannot finalise yet: ${technical.errors.join(" ")}`);
+      if (approvalErrors.length) {
+        throw new Error(`Cannot finalise yet: ${approvalErrors.join(" ")}`);
       }
       const finalPayload: TransportLiftPlanData = withTechnicalSections({ ...form, finalised_at: new Date().toISOString(), paperwork_locked: true });
       await postForm(finalPayload);
@@ -322,7 +362,6 @@ export default function TransportLiftPlanForm({
           <div style={helperText}>Generate a draft for HIAB transport work, then review and finalise manually.</div>
         </div>
         <div style={buttonRow}>
-          <a href={`/transport-jobs/${transportJobId}/lift-plan/pack`} target="_blank" style={secondaryBtn}>Printable full pack</a>
           {locked ? (
             <button type="button" onClick={unlockNow} disabled={unlocking || generating || saving} style={warningBtn}>
               {unlocking ? "Unlocking…" : "Unlock for edits"}
@@ -334,38 +373,31 @@ export default function TransportLiftPlanForm({
         </div>
       </div>
 
-      <div style={infoBox}>
-        The verified HIAB configuration, load weight, radius, height, manufacturer chart duty, utilisation,
-        stabiliser loading and ground-bearing values are controlled in the technical section below. The same
-        saved values are used throughout the full lift-plan pack.
-      </div>
+      {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
       {locked ? <div style={lockedBox}>Paperwork is locked. Use <strong>Unlock for edits</strong> to reopen it, then finalise it again when you are done.</div> : null}
       {msg ? <div style={msgBox}>{msg}</div> : null}
 
-      {equipmentProfile ? <EquipmentProfileCard profile={equipmentProfile} /> : null}
-
-      <Section title="Lift details / accessories">
+      <Section title="Transport & load details">
         <div style={grid2}>
           <Field label="Job summary" value={form.job_summary ?? ""} onChange={(v) => update("job_summary", v)} disabled={locked} />
           <Field label="Load description" value={form.load_description ?? ""} onChange={(v) => update("load_description", v)} disabled={locked} />
           <Field label="Load weight (kg)" type="number" step="0.01" value={form.load_weight ?? ""} onChange={(v) => update("load_weight", v)} disabled={locked} />
           <Field label="Lift radius (m)" type="number" step="0.01" value={form.lift_radius ?? ""} onChange={(v) => update("lift_radius", v)} disabled={locked} />
           <Field label="Lift height (m)" type="number" step="0.01" value={form.lift_height ?? ""} onChange={(v) => update("lift_height", v)} disabled={locked} />
-          <Field label="Lifting accessories" value={form.lifting_accessories ?? ""} onChange={(v) => update("lifting_accessories", v)} disabled={locked} />
+          <Field label="Operator name" value={form.operator_name ?? ""} onChange={(v) => update("operator_name", v)} disabled={locked} />
         </div>
       </Section>
 
-      <Section title="HIAB range chart / lift sketch builder">
-        <div style={helperText}>
-          Use the exact fitted HIAB configuration and manufacturer chart. These technical values drive the
-          calculations, drawing and every matching reference in the printed pack.
-        </div>
+      <Section title="Verified HIAB chart & ground-bearing check">
         <div style={grid2}>
           <ReadOnlyFact label="Verified fitted configuration" value={technical.selectedSetup || "—"} />
           <ReadOnlyFact label="Manufacturer chart source" value={technical.capacitySource || "—"} />
           {isUploadedSpecProfile ? <Field label="AP-checked chart capacity at planned radius (kg)" type="number" step="1" value={String(form.pack_sections?.hiab_manual_chart_capacity_kg ?? "")} onChange={(v) => updateSection("hiab_manual_chart_capacity_kg", v)} disabled={locked} /> : null}
           {isUploadedSpecProfile ? <Field label="Manufacturer / supplier chart and page used" value={String(form.pack_sections?.hiab_manual_chart_source ?? "")} onChange={(v) => updateSection("hiab_manual_chart_source", v)} disabled={locked} /> : null}
           {isUploadedSpecProfile ? <Field label="Chart verified by" value={String(form.pack_sections?.hiab_chart_verified_by ?? "")} onChange={(v) => updateSection("hiab_chart_verified_by", v)} disabled={locked} /> : null}
+          <Field label="Manufacturer / supplier chart page used" value={String(form.pack_sections?.hiab_chart_page ?? "")} onChange={(v) => updateSection("hiab_chart_page", v)} disabled={locked} />
+          <Field label="Boom length used (m)" type="number" step="0.01" value={String(form.pack_sections?.hiab_boom_length_m ?? "")} onChange={(v) => updateSection("hiab_boom_length_m", v)} disabled={locked} />
+          <Field label="Boom angle used (degrees)" type="number" step="0.1" value={String(form.pack_sections?.hiab_boom_angle_deg ?? "")} onChange={(v) => updateSection("hiab_boom_angle_deg", v)} disabled={locked} />
           <Field label="Lifting accessories / hook weight (kg)" type="number" step="0.01" value={String(form.pack_sections?.hiab_accessory_weight_kg ?? "0")} onChange={(v) => updateSection("hiab_accessory_weight_kg", v)} disabled={locked} />
           <ReadOnlyFact label="Gross lifted load" value={technical.totalLiftedWeightKg === null ? "—" : `${technical.totalLiftedWeightKg.toLocaleString("en-GB")} kg`} />
           <ReadOnlyFact label="Chart capacity at planned radius" value={technical.capacityKg === null ? "—" : `${technical.capacityKg.toLocaleString("en-GB")} kg`} />
@@ -388,7 +420,22 @@ export default function TransportLiftPlanForm({
         </div>
       </Section>
 
-      <Section title="Setup & site conditions">
+      <LiftArrangementEditor
+        value={drawingModel}
+        onChange={(model) => updateSection("lift_drawing_model_json", serialiseLiftDrawingModel(model))}
+        schedule={drawingSchedule}
+        machineType={machineType}
+        machineLabel={equipmentProfile?.title ?? ""}
+        drawingNumber={`HIAB-${transportJobId.slice(0, 8).toUpperCase()}`}
+        disabled={locked}
+      />
+      {drawingValidation.errors.length ? (
+        <div style={validationErrorBox}>
+          <strong>Technical drawing incomplete:</strong> {drawingValidation.errors.join(" ")}
+        </div>
+      ) : null}
+
+      <Section title="Vehicle setup & movement plan">
         <TextAreaField label="Vehicle configuration" value={form.vehicle_configuration ?? ""} onChange={(v) => update("vehicle_configuration", v)} disabled={locked} />
         <TextAreaField label="HIAB configuration" value={form.hiab_configuration ?? ""} onChange={(v) => update("hiab_configuration", v)} disabled={locked} />
         <TextAreaField label="Outrigger setup" value={form.outrigger_setup ?? ""} onChange={(v) => update("outrigger_setup", v)} disabled={locked} />
@@ -402,6 +449,7 @@ export default function TransportLiftPlanForm({
       </Section>
 
       <Section title="RAMS wording">
+        <TextAreaField label="Lifting accessories" value={form.lifting_accessories ?? ""} onChange={(v) => update("lifting_accessories", v)} disabled={locked} rows={3} />
         <TextAreaField label="Exclusion zone details" value={form.exclusion_zone_details ?? ""} onChange={(v) => update("exclusion_zone_details", v)} disabled={locked} rows={3} />
         <TextAreaField label="Method statement" value={form.method_statement ?? ""} onChange={(v) => update("method_statement", v)} disabled={locked} rows={6} />
         <TextAreaField label="Risk assessment" value={form.risk_assessment ?? ""} onChange={(v) => update("risk_assessment", v)} disabled={locked} rows={6} />
@@ -414,9 +462,8 @@ export default function TransportLiftPlanForm({
 
       <Section title="Personnel & approval">
         <div style={grid2}>
-          <SelectField label="Lift supervisor" value={form.lift_supervisor ?? ""} onChange={(v) => update("lift_supervisor", v)} disabled={locked} options={personnelSelectOptions} />
+          <Field label="Lift supervisor" value={form.lift_supervisor ?? ""} onChange={(v) => update("lift_supervisor", v)} disabled={locked} />
           <Field label="Appointed person" value={form.appointed_person ?? ""} onChange={(v) => update("appointed_person", v)} disabled={locked} />
-          <SelectField label="HIAB operator" value={form.operator_name ?? ""} onChange={(v) => update("operator_name", v)} disabled={locked} options={personnelSelectOptions} />
           <Field label="Approved by" value={form.approved_by ?? ""} onChange={(v) => update("approved_by", v)} disabled={locked} />
           <Field label="Approved at" type="datetime-local" value={toInputDateTime(form.approved_at)} onChange={(v) => update("approved_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
           <Field label="Finalised at" type="datetime-local" value={toInputDateTime(form.finalised_at)} onChange={(v) => update("finalised_at", v ? new Date(v).toISOString() : "")} disabled={locked} />
@@ -441,14 +488,12 @@ function EquipmentProfileCard({ profile }: { profile: EquipmentProfile }) { retu
 function ReadOnlyFact({ label, value }: { label: string; value: string }) { return <div style={summaryItem}><div style={fieldLabel}>{label}</div><div style={{ marginTop: 6, fontWeight: 800 }}>{value}</div></div>; }
 function Section({ title, children }: { title: string; children: ReactNode }) { return <div style={sectionStyle}><div style={sectionTitle}>{title}</div><div style={{ display: "grid", gap: 12 }}>{children}</div></div>; }
 function Field({ label, value, onChange, type = "text", step, disabled }: { label: string; value: string | number; onChange: (value: string) => void; type?: string; step?: string; disabled?: boolean; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><input type={type} step={step} value={value as any} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle} /></label>; }
-function SelectField({ label, value, onChange, disabled, options }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; options: PersonOption[]; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} style={inputStyle}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>; }
 function TextAreaField({ label, value, onChange, disabled, rows = 4 }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean; rows?: number; }) { return <label style={fieldWrap}><span style={fieldLabel}>{label}</span><textarea value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} rows={rows} style={textAreaStyle} /></label>; }
 
 const wrapStyle: CSSProperties = { display: "grid", gap: 16 };
 const topRow: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "center" };
 const buttonRow: CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap" };
 const helperText: CSSProperties = { marginTop: 6, fontSize: 13, opacity: 0.75 };
-const infoBox: CSSProperties = { padding: "12px 14px", borderRadius: 12, background: "rgba(0,120,255,0.08)", border: "1px solid rgba(0,120,255,0.18)", lineHeight: 1.5 };
 const sectionStyle: CSSProperties = { background: "rgba(255,255,255,0.72)", border: "1px solid rgba(0,0,0,0.08)", borderRadius: 12, padding: 16 };
 const profileCard: CSSProperties = { ...sectionStyle, background: "rgba(255,248,225,0.8)" };
 const profileTitle: CSSProperties = { fontSize: 18, fontWeight: 900 };

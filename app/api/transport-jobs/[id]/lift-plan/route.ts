@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { calculateHiabTechnicalSections } from "../../../../lib/liftPlanTechnicalValidation";
+import { liftDrawingApprovalErrors } from "../../../../lib/liftDrawingValidation";
 
 function cleanNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -107,9 +108,36 @@ export async function POST(
     });
 
     const completionRequested = cleanBool(body.paperwork_locked) || cleanBool(body.lift_plan_complete) || Boolean(body.approved_at);
-    if (completionRequested && technical.errors.length) {
+    const drawingErrors = completionRequested
+      ? liftDrawingApprovalErrors(technical.sections.lift_drawing_model_json, {
+          loadDescription: cleanText(body.load_description),
+          loadWeightKg: technical.loadWeightKg,
+          accessoryWeightKg: technical.accessoryWeightKg,
+          grossLiftedWeightKg: technical.totalLiftedWeightKg,
+          radiusM: technical.radiusM,
+          boomLengthM: cleanNumber(technical.sections.hiab_boom_length_m),
+          boomAngleDeg: cleanNumber(technical.sections.hiab_boom_angle_deg),
+          hookHeightM: cleanNumber(body.lift_height),
+          chartCapacityKg: technical.capacityKg,
+          chartSource: technical.capacitySource,
+          chartPage: cleanText(technical.sections.hiab_chart_page),
+          utilisationPercent: technical.utilisationPercent,
+          exactConfiguration: technical.selectedSetup,
+          stabiliserSetup: cleanText(technical.sections.hiab_stabiliser_position),
+          workingSector: cleanText(technical.sections.hiab_working_sector),
+          operatingWeightKg: technical.vehicleOperatingWeightKg,
+          groundPressureKgM2: technical.pressureKgM2,
+          matLengthM: technical.matLengthM,
+          matWidthM: technical.matWidthM,
+          liftingAccessories: cleanText(body.lifting_accessories),
+          siteHazards: cleanText(body.site_hazards),
+          controlMeasures: cleanText(body.control_measures),
+        })
+      : [];
+    const approvalErrors = Array.from(new Set([...technical.errors, ...drawingErrors]));
+    if (completionRequested && approvalErrors.length) {
       return NextResponse.json(
-        { error: `HIAB lift plan cannot be approved or finalised: ${technical.errors.join(" ")}` },
+        { error: `HIAB lift plan cannot be approved or finalised: ${approvalErrors.join(" ")}` },
         { status: 400 }
       );
     }

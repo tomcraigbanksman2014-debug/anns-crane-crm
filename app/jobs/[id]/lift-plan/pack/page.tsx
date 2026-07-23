@@ -8,6 +8,10 @@ import { attachCraneSpecDocumentsToJob } from "../../../../lib/ai/craneSpecDocum
 import { getCraneAppendixAssetsForPack, getJobSpecAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import PrintPackButton from "./PrintPackButton";
 import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../../lib/rangeChartSpecs";
+import LiftArrangementDrawing from "../../../../components/lift-drawing/LiftArrangementDrawing";
+import type { LiftMachineType } from "../../../../components/lift-drawing/types";
+import { parseLiftDrawingModel } from "../../../../lib/liftDrawingPersistence";
+import { validateLiftDrawing } from "../../../../lib/liftDrawingValidation";
 
 type StringMap = Record<string, string | null>;
 
@@ -2373,6 +2377,67 @@ export default async function CraneLiftPlanPackPage({
   const saveOk = String(searchParams?.saved ?? "") === "1";
   const saveError = String(searchParams?.error ?? "").trim();
   const isLocked = Boolean((liftPlan as any)?.paperwork_locked);
+  const drawingMachineType: LiftMachineType = /jekko|spider/i.test(
+    `${equipmentProfile?.machineType ?? ""} ${craneName}`,
+  )
+    ? "spider-crane"
+    : "mobile-crane";
+  const drawingModel = parseLiftDrawingModel(
+    sections.lift_drawing_model_json,
+    {
+      machineType: drawingMachineType,
+      machineLabel: craneName,
+      drawingNumber: `LP-${params.id.slice(0, 8).toUpperCase()}`,
+    },
+  );
+  const drawingSchedule = {
+    loadDescription: liftPlan?.load_description,
+    loadWeightKg:
+      parseDecimal(sections.range_chart_load_weight_kg) ??
+      parseDecimal(liftPlan?.load_weight),
+    accessoryWeightKg:
+      parseDecimal(sections.range_chart_accessory_weight_kg) ?? 0,
+    grossLiftedWeightKg:
+      parseDecimal(sections.range_chart_total_lifted_weight_kg),
+    radiusM:
+      parseDecimal(sections.range_chart_radius_m) ??
+      parseDecimal(liftPlan?.lift_radius),
+    boomLengthM: parseDecimal(sections.range_chart_boom_length_m),
+    boomAngleDeg: parseDecimal(sections.range_chart_boom_angle_deg),
+    hookHeightM:
+      parseDecimal(sections.range_chart_tip_height_m) ??
+      parseDecimal(liftPlan?.lift_height),
+    chartCapacityKg: parseDecimal(sections.range_chart_chart_capacity_kg),
+    chartSource: sections.range_chart_capacity_source,
+    chartPage: sections.range_chart_capacity_page,
+    utilisationPercent: parseDecimal(sections.range_chart_utilisation_percent),
+    exactConfiguration:
+      sections.range_chart_selected_setup_label ??
+      sections.selected_crane_setup_label ??
+      liftPlan?.crane_configuration,
+    stabiliserSetup:
+      liftPlan?.outrigger_setup ?? sections.configuration_outrigger_note,
+    workingSector: drawingModel.technical.workingSector,
+    operatingWeightKg: drawingModel.technical.operatingWeightKg,
+    groundPressureKgM2:
+      parseDecimal(sections.range_chart_bearing_pressure_kg_m2) ??
+      drawingModel.technical.groundPressureKgM2,
+    matLengthM:
+      parseDecimal(sections.range_chart_mat_length_m) ??
+      parseDecimal(sections.ground_bearing_mat_length_m),
+    matWidthM:
+      parseDecimal(sections.range_chart_mat_width_m) ??
+      parseDecimal(sections.ground_bearing_mat_width_m),
+    liftingAccessories: liftPlan?.lifting_accessories,
+    siteHazards: liftPlan?.site_hazards,
+    controlMeasures: liftPlan?.control_measures,
+  };
+  const drawingValidation = validateLiftDrawing(drawingModel, drawingSchedule);
+  const draftIncomplete =
+    !isLocked ||
+    !liftPlan?.lift_plan_complete ||
+    drawingModel.status !== "verified" ||
+    drawingValidation.errors.length > 0;
 
   const outreachRef = rangeGroundCalc?.radiusM
     ? `${rangeGroundCalc.radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius`
@@ -2384,8 +2449,25 @@ export default async function CraneLiftPlanPackPage({
     : formatJibReference(equipmentProfile);
 
   return (
-    <div className="print-document-root" style={wrapper}>
+    <div className={`print-document-root${draftIncomplete ? " draft-incomplete" : ""}`} style={wrapper}>
       <style>{`
+        .lift-pack-page { position: relative; }
+        .draft-incomplete .lift-pack-page::after {
+          content: "DRAFT - TECHNICAL INFORMATION INCOMPLETE - NOT FOR USE";
+          position: absolute;
+          z-index: 20;
+          top: 48%;
+          left: -5%;
+          width: 110%;
+          transform: rotate(-24deg);
+          text-align: center;
+          font-size: 26px;
+          line-height: 1.2;
+          font-weight: 950;
+          letter-spacing: .04em;
+          color: rgba(170, 0, 0, .14);
+          pointer-events: none;
+        }
         @media screen and (max-width: 760px) {
           .lift-pack-page {
             width: 100% !important;
@@ -2585,6 +2667,7 @@ export default async function CraneLiftPlanPackPage({
             ["toc_item_12", "12. Traffic and Pedestrian Management"],
             ["toc_item_13", "13. Lifting Equipment to be used & Certification"],
             ["toc_item_14", "14. Crane Details"],
+            ["toc_item_drawing", "Technical Drawing - Plan View & Side Elevation"],
             ["toc_item_15", "15. Variation from Method Statement"],
             ["toc_item_16", "16. Toolbox Talk Attendance"],
             ["toc_item_17", "17. Crane Set-up Procedure"],
@@ -2839,6 +2922,40 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         <BoxedParagraph title={inputField("load_chart_note_title", "Load chart note")}>
           {areaField("load_chart_note", "Final radius, boom length, hook block weight, accessories, outrigger arrangement, ground conditions and any partial set-up restrictions must be checked against the current applicable chart before the lift proceeds.", 5)}
         </BoxedParagraph>
+      </PageShell>
+
+      <PageShell
+        sectionTitle="Technical Drawing - Plan View"
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={monthInputField("page_header_month", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <LiftArrangementDrawing
+          model={drawingModel}
+          client={clientName}
+          project={coverProjectText}
+          jobNumber={(job as any)?.job_number ? `#${(job as any).job_number}` : params.id}
+          view="plan"
+          forceDraft={draftIncomplete}
+        />
+      </PageShell>
+
+      <PageShell
+        sectionTitle="Technical Drawing - Side Elevation"
+        headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
+        headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
+        headerMonth={monthInputField("page_header_month", "right")}
+        footerText={inputField("page_footer_text", "Anns Crane Hire Ltd, 6 Bay St, Port Tennant, Swansea, SA1 8LB • 01792 641653 • info@annscranehire.co.uk")}
+      >
+        <LiftArrangementDrawing
+          model={drawingModel}
+          client={clientName}
+          project={coverProjectText}
+          jobNumber={(job as any)?.job_number ? `#${(job as any).job_number}` : params.id}
+          view="elevation"
+          forceDraft={draftIncomplete}
+        />
       </PageShell>
 
       <PageShell

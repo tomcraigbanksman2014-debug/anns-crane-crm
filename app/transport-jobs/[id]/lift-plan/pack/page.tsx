@@ -3,7 +3,10 @@ import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../../lib/ai/matchEquipmentProfile";
 import { getVehicleAppendixAssetsForPack, type PackAppendixAssetItem } from "../../../../lib/assetDocuments";
 import { getPackAppendixAssets } from "../../../../lib/ai/packAppendixAssets";
-import HiabTechnicalDrawing from "../../../../components/HiabTechnicalDrawing";
+import LiftArrangementDrawing from "../../../../components/lift-drawing/LiftArrangementDrawing";
+import type { LiftMachineType } from "../../../../components/lift-drawing/types";
+import { parseLiftDrawingModel } from "../../../../lib/liftDrawingPersistence";
+import { validateLiftDrawing } from "../../../../lib/liftDrawingValidation";
 import PrintPackButton from "./PrintPackButton";
 
 type StringMap = Record<string, string | null>;
@@ -509,7 +512,6 @@ export default async function TransportLiftPlanPackPage({
   const emergencyContacts = splitLines(sections.emergency_contacts || "").join("\n");
   const equipmentList = splitLines(sections.equipment_list || "").join("\n");
   const toolboxNotes = splitLines(sections.toolbox_notes || "").join("\n");
-  const technicalProfileId = sections.hiab_profile_id || equipmentProfile?.id || null;
   const technicalConfiguration = sections.hiab_verified_configuration || equipmentProfile?.setupOptions?.[0]?.label || equipmentProfile?.title || "—";
   const technicalRadiusM = numberValue(liftPlan?.lift_radius);
   const technicalHeightM = numberValue(liftPlan?.lift_height);
@@ -524,10 +526,71 @@ export default async function TransportLiftPlanPackPage({
   const totalMatAreaM2 = numberValue(sections.hiab_total_mat_area_m2);
   const pressureKgM2 = numberValue(sections.hiab_ground_pressure_kg_m2);
   const pressureTM2 = numberValue(sections.hiab_ground_pressure_t_m2);
+  const drawingMachineType: LiftMachineType = /artic|x-hipro|x hipro|858/i.test(
+    `${equipmentProfile?.id ?? ""} ${equipmentProfile?.title ?? ""}`,
+  )
+    ? "hiab-artic"
+    : "hiab-rigid";
+  const drawingModel = parseLiftDrawingModel(
+    sections.lift_drawing_model_json,
+    {
+      machineType: drawingMachineType,
+      machineLabel: equipmentProfile?.title ?? vehicleLabel,
+      drawingNumber: `HIAB-${params.id.slice(0, 8).toUpperCase()}`,
+    },
+  );
+  const drawingSchedule = {
+    loadDescription: liftPlan?.load_description,
+    loadWeightKg: numberValue(liftPlan?.load_weight),
+    accessoryWeightKg,
+    grossLiftedWeightKg: totalLiftedWeightKg,
+    radiusM: technicalRadiusM,
+    boomLengthM: numberValue(sections.hiab_boom_length_m),
+    boomAngleDeg: numberValue(sections.hiab_boom_angle_deg),
+    hookHeightM: technicalHeightM,
+    chartCapacityKg,
+    chartSource: sections.hiab_chart_source,
+    chartPage: sections.hiab_chart_page,
+    utilisationPercent,
+    exactConfiguration: technicalConfiguration,
+    stabiliserSetup: sections.hiab_stabiliser_position || liftPlan?.outrigger_setup,
+    workingSector: sections.hiab_working_sector,
+    operatingWeightKg: numberValue(sections.hiab_vehicle_operating_weight_kg),
+    groundPressureKgM2: pressureKgM2,
+    matLengthM,
+    matWidthM,
+    liftingAccessories: liftPlan?.lifting_accessories,
+    siteHazards: liftPlan?.site_hazards,
+    controlMeasures: liftPlan?.control_measures,
+  };
+  const drawingValidation = validateLiftDrawing(drawingModel, drawingSchedule);
+  const isLocked = Boolean(liftPlan?.paperwork_locked);
+  const draftIncomplete =
+    !isLocked ||
+    !liftPlan?.lift_plan_complete ||
+    drawingModel.status !== "verified" ||
+    drawingValidation.errors.length > 0;
 
   return (
-    <div className="print-document-root" style={wrapper}>
+    <div className={`print-document-root${draftIncomplete ? " draft-incomplete" : ""}`} style={wrapper}>
       <style>{`
+        .lift-pack-page { position: relative; }
+        .draft-incomplete .lift-pack-page::after {
+          content: "DRAFT - TECHNICAL INFORMATION INCOMPLETE - NOT FOR USE";
+          position: absolute;
+          z-index: 20;
+          top: 48%;
+          left: -5%;
+          width: 110%;
+          transform: rotate(-24deg);
+          text-align: center;
+          font-size: 26px;
+          line-height: 1.2;
+          font-weight: 950;
+          letter-spacing: .04em;
+          color: rgba(170, 0, 0, .14);
+          pointer-events: none;
+        }
         @media screen and (max-width: 760px) {
           .lift-pack-page {
             width: 100% !important;
@@ -722,6 +785,7 @@ export default async function TransportLiftPlanPackPage({
             ["Chart capacity at planned radius", chartCapacityKg === null ? "—" : `${fmtNumber(chartCapacityKg)} kg`],
             ["Chart utilisation", utilisationPercent === null ? "—" : `${fmtNumber(utilisationPercent, 1)}%`],
             ["Manufacturer chart source", sections.hiab_chart_source || "—"],
+            ["Manufacturer chart page", sections.hiab_chart_page || "—"],
             ["Selected stabiliser / support position", sections.hiab_stabiliser_position || liftPlan?.outrigger_setup || "—"],
             ["Permitted working sector", sections.hiab_working_sector || "—"],
           ]}
@@ -745,23 +809,25 @@ export default async function TransportLiftPlanPackPage({
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell sectionTitle="Lift Arrangement Drawing">
-        <SectionTitle>6. Lift arrangement drawing</SectionTitle>
-        <HiabTechnicalDrawing
-          profileId={technicalProfileId}
-          vehicleLabel={vehicleLabel}
-          radiusM={technicalRadiusM}
-          liftHeightM={technicalHeightM}
-          loadDescription={liftPlan?.load_description || (job as any)?.load_description}
-          supportPosition={sections.hiab_stabiliser_position || liftPlan?.outrigger_setup}
-          workingSector={sections.hiab_working_sector}
-          collectionAddress={(job as any)?.collection_address}
-          deliveryAddress={(job as any)?.delivery_address}
-          loadWeightKg={numberValue(liftPlan?.load_weight)}
-          chartCapacityKg={chartCapacityKg}
-          utilisationPercent={utilisationPercent}
-          exclusionZone={exclusionZone}
-          groundConditions={liftPlan?.ground_conditions}
+      <PageShell sectionTitle="Technical Drawing - Plan View">
+        <LiftArrangementDrawing
+          model={drawingModel}
+          client={clientName}
+          project={projectName}
+          jobNumber={(job as any)?.transport_number}
+          view="plan"
+          forceDraft={draftIncomplete}
+        />
+      </PageShell>
+
+      <PageShell sectionTitle="Technical Drawing - Side Elevation">
+        <LiftArrangementDrawing
+          model={drawingModel}
+          client={clientName}
+          project={projectName}
+          jobNumber={(job as any)?.transport_number}
+          view="elevation"
+          forceDraft={draftIncomplete}
         />
       </PageShell>
 

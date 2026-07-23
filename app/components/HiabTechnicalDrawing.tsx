@@ -8,13 +8,6 @@ type Props = {
   loadDescription?: string | null;
   supportPosition?: string | null;
   workingSector?: string | null;
-  collectionAddress?: string | null;
-  deliveryAddress?: string | null;
-  loadWeightKg?: number | null;
-  chartCapacityKg?: number | null;
-  utilisationPercent?: number | null;
-  exclusionZone?: string | null;
-  groundConditions?: string | null;
 };
 
 function finite(value: number | null | undefined) {
@@ -23,7 +16,7 @@ function finite(value: number | null | undefined) {
 
 function metres(value: number | null) {
   return value === null
-    ? "—"
+    ? "NOT SPECIFIED"
     : `${value.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m`;
 }
 
@@ -67,13 +60,6 @@ export default function HiabTechnicalDrawing({
   loadDescription,
   supportPosition,
   workingSector,
-  collectionAddress,
-  deliveryAddress,
-  loadWeightKg,
-  chartCapacityKg,
-  utilisationPercent,
-  exclusionZone,
-  groundConditions,
 }: Props) {
   const isArtic =
     profileId === "hiab-x-hipro-858" ||
@@ -81,13 +67,9 @@ export default function HiabTechnicalDrawing({
   const radius = finite(radiusM);
   const height = finite(liftHeightM);
   const label = cleanVehicleLabel(vehicleLabel, isArtic);
-  const support = shortText(supportPosition, "To be confirmed on site", 72);
-  const sector = shortText(workingSector, "As shown and controlled by the lift supervisor", 72);
-  const load = shortText(loadDescription, "Planned load", 72);
-  const collection = shortText(collectionAddress, "Collection location shown in job details", 96);
-  const delivery = shortText(deliveryAddress, "Delivery location shown in job details", 96);
-  const zone = shortText(exclusionZone, "Controlled lifting area", 96);
-  const ground = shortText(groundConditions, "Confirm suitability before stabiliser deployment", 96);
+  const support = shortText(supportPosition, "NOT SPECIFIED", 44);
+  const sector = shortText(workingSector, "NOT SPECIFIED", 44);
+  const load = shortText(loadDescription, "PLANNED LOAD", 30);
 
   // Drawing geometry is scaled from the saved lift radius and height. The
   // vehicle footprint remains diagrammatic because site survey dimensions
@@ -102,11 +84,9 @@ export default function HiabTechnicalDrawing({
   const boomTipY = targetY;
   const planVehicleEnd = isArtic ? 615 : 535;
   const planCraneX = isArtic ? 227 : 220;
-  const dutyText = [
-    loadWeightKg ? `${loadWeightKg.toLocaleString("en-GB")} kg load` : null,
-    chartCapacityKg ? `${chartCapacityKg.toLocaleString("en-GB")} kg chart capacity` : null,
-    utilisationPercent ? `${utilisationPercent.toLocaleString("en-GB", { maximumFractionDigits: 1 })}% utilisation` : null,
-  ].filter(Boolean).join(" • ") || "Refer to verified technical schedule";
+  const sheetStatus = radius !== null && height !== null && support !== "NOT SPECIFIED" && sector !== "NOT SPECIFIED"
+    ? "DIMENSIONED FROM SAVED LIFT-PLAN DATA"
+    : "DRAFT - TECHNICAL VALUES INCOMPLETE";
 
   return (
     <div style={sheet}>
@@ -115,13 +95,7 @@ export default function HiabTechnicalDrawing({
           <div style={eyebrow}>LIFT ARRANGEMENT DRAWING</div>
           <div style={sheetTitle}>{label}</div>
         </div>
-        <div style={statusBox}>SCHEMATIC ARRANGEMENT • NOT TO SCALE</div>
-      </div>
-
-      <div style={drawingSchedule}>
-        <TechnicalCell label="LIFTING DUTY" value={dutyText} />
-        <TechnicalCell label="COLLECTION" value={collection} />
-        <TechnicalCell label="DELIVERY / LANDING" value={delivery} />
+        <div style={statusBox}>{sheetStatus}</div>
       </div>
 
       <div style={drawingPanel}>
@@ -145,10 +119,10 @@ export default function HiabTechnicalDrawing({
             <text x="765" y="76" textAnchor="middle" fontSize="12" fontWeight="800">N</text>
           </g>
 
-          <rect x="75" y="133" width="142" height="96" rx="3" fill="#fff" stroke="#111827" strokeWidth="2" />
-          <path d="M75 166H48V202H75" fill="#fff" stroke="#111827" strokeWidth="2" />
+          <rect x="75" y="133" width="142" height="96" rx="7" fill="#edf2f7" stroke="#1f2937" strokeWidth="2" />
+          <path d="M75 166H48V202H75" fill="#edf2f7" stroke="#1f2937" strokeWidth="2" />
           <text x="146" y="185" textAnchor="middle" fontSize="14" fontWeight="800">CAB</text>
-          <rect x="217" y="119" width={planVehicleEnd - 217} height="124" rx="1" fill="#fff" stroke="#111827" strokeWidth="2" />
+          <rect x="217" y="119" width={planVehicleEnd - 217} height="124" rx="3" fill="#f8fafc" stroke="#1f2937" strokeWidth="2" />
           {isArtic ? (
             <>
               <line x1="305" y1="119" x2="305" y2="243" stroke="#64748b" strokeWidth="1.5" strokeDasharray="6 4" />
@@ -158,7 +132,7 @@ export default function HiabTechnicalDrawing({
             <text x="385" y="185" textAnchor="middle" fontSize="13" fontWeight="700">RIGID LOAD BED</text>
           )}
 
-          <circle cx={planCraneX} cy="181" r="19" fill="#111827" stroke="#111827" strokeWidth="2" />
+          <circle cx={planCraneX} cy="181" r="19" fill="#b91c1c" stroke="#111827" strokeWidth="2" />
           <text x={planCraneX} y="185" textAnchor="middle" fill="#fff" fontSize="9" fontWeight="900">CRANE</text>
 
           <g aria-label="stabilisers">
@@ -175,22 +149,22 @@ export default function HiabTechnicalDrawing({
           <path
             d={`M ${planCraneX} 181 A 255 255 0 0 1 ${planCraneX + 214} 22`}
             fill="none"
-            stroke="#334155"
+            stroke="#9f1239"
             strokeWidth="1.8"
             strokeDasharray="8 6"
           />
           <path
             d={`M ${planCraneX} 181 A 255 255 0 0 0 ${planCraneX + 214} 340`}
             fill="none"
-            stroke="#334155"
+            stroke="#9f1239"
             strokeWidth="1.8"
             strokeDasharray="8 6"
           />
-          <text x={planCraneX + 172} y="48" fontSize="11" fontWeight="700" fill="#111827">CONTROLLED WORKING SECTOR</text>
+          <text x={planCraneX + 172} y="48" fontSize="11" fontWeight="700" fill="#9f1239">PERMITTED WORKING SECTOR</text>
 
-          <line x1={planCraneX} y1="181" x2="690" y2="181" stroke="#111827" strokeWidth="3.5" />
-          <circle cx="690" cy="181" r="5" fill="#111827" />
-          <rect x="654" y="143" width="72" height="76" fill="#fff" stroke="#111827" strokeWidth="2" />
+          <line x1={planCraneX} y1="181" x2="690" y2="181" stroke="#2563eb" strokeWidth="3.5" />
+          <circle cx="690" cy="181" r="5" fill="#2563eb" />
+          <rect x="654" y="143" width="72" height="76" fill="#f8d36d" stroke="#111827" strokeWidth="2" />
           <text x="690" y="171" textAnchor="middle" fontSize="11" fontWeight="900">LOAD</text>
           <text x="690" y="190" textAnchor="middle" fontSize="8.5">{load.slice(0, 16)}</text>
 
@@ -222,24 +196,24 @@ export default function HiabTechnicalDrawing({
           <rect x="1" y="1" width="818" height="363" fill="url(#hiab-side-grid)" />
           <line x1="42" y1="288" x2="782" y2="288" stroke="#111827" strokeWidth="2.5" />
 
-          <rect x="72" y="222" width="142" height="60" rx="3" fill="#fff" stroke="#111827" strokeWidth="2" />
-          <path d="M72 244H50V276H72" fill="#fff" stroke="#111827" strokeWidth="2" />
-          <rect x="214" y="235" width={isArtic ? 338 : 275} height="43" fill="#fff" stroke="#111827" strokeWidth="2" />
+          <rect x="72" y="222" width="142" height="60" rx="7" fill="#edf2f7" stroke="#1f2937" strokeWidth="2" />
+          <path d="M72 244H50V276H72" fill="#edf2f7" stroke="#1f2937" strokeWidth="2" />
+          <rect x="214" y="235" width={isArtic ? 338 : 275} height="43" fill="#f8fafc" stroke="#1f2937" strokeWidth="2" />
           <circle cx="104" cy="288" r="16" fill="#334155" />
           <circle cx="180" cy="288" r="16" fill="#334155" />
           <circle cx={isArtic ? 495 : 445} cy="288" r="16" fill="#334155" />
 
-          <circle cx={boomStartX} cy={boomStartY} r="18" fill="#111827" stroke="#111827" strokeWidth="2" />
+          <circle cx={boomStartX} cy={boomStartY} r="18" fill="#b91c1c" stroke="#111827" strokeWidth="2" />
           <polyline
             points={`${boomStartX},${boomStartY} ${elbowX},${elbowY} ${loadX},${boomTipY}`}
             fill="none"
-            stroke="#111827"
-            strokeWidth="7"
+            stroke="#2563eb"
+            strokeWidth="9"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
           <line x1={loadX} y1={boomTipY} x2={loadX} y2={loadTopY} stroke="#111827" strokeWidth="2" />
-          <rect x={loadX - 48} y={loadTopY} width="96" height="72" fill="#fff" stroke="#111827" strokeWidth="2" />
+          <rect x={loadX - 48} y={loadTopY} width="96" height="72" fill="#f8d36d" stroke="#111827" strokeWidth="2" />
           <text x={loadX} y={loadTopY + 31} textAnchor="middle" fontSize="11" fontWeight="900">LOAD</text>
           <text x={loadX} y={loadTopY + 49} textAnchor="middle" fontSize="8.5">{load.slice(0, 19)}</text>
 
@@ -276,12 +250,7 @@ export default function HiabTechnicalDrawing({
         <TechnicalCell label="LOAD" value={load} />
         <TechnicalCell label="SUPPORT POSITION" value={support} />
         <TechnicalCell label="WORKING SECTOR" value={sector} />
-        <TechnicalCell label="RADIUS / HEIGHT" value={`${metres(radius)} / ${metres(height)}`} />
-      </div>
-      <div style={drawingSchedule}>
-        <TechnicalCell label="EXCLUSION ZONE" value={zone} />
-        <TechnicalCell label="GROUND / SUPPORT BASIS" value={ground} />
-        <TechnicalCell label="DRAWING BASIS" value="Lift-plan schematic. Confirm final position and clearances at the pre-lift briefing." />
+        <TechnicalCell label="DRAWING BASIS" value="SCHEMATIC - NOT FOR CONSTRUCTION" />
       </div>
     </div>
   );
@@ -351,12 +320,6 @@ const svg: CSSProperties = {
 const technicalStrip: CSSProperties = {
   display: "grid",
   gridTemplateColumns: "1fr 1.25fr 1.25fr 1.25fr",
-  border: "1px solid #64748b",
-};
-
-const drawingSchedule: CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
   border: "1px solid #64748b",
 };
 

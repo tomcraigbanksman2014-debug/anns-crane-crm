@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { validateMobileCraneApprovalSections } from "../../../../lib/liftPlanTechnicalValidation";
+import { liftDrawingApprovalErrors } from "../../../../lib/liftDrawingValidation";
 
 
 function getAdminClient() {
@@ -79,6 +80,27 @@ const PACK_SECTION_KEYS = [
   "multi_crane_lift_type",
   "multi_crane_notes",
   "additional_cranes_json",
+  "range_chart_enabled",
+  "range_chart_crane_name",
+  "range_chart_selected_setup_label",
+  "range_chart_radius_m",
+  "range_chart_tip_height_m",
+  "range_chart_boom_length_m",
+  "range_chart_boom_angle_deg",
+  "range_chart_load_weight_kg",
+  "range_chart_accessory_weight_kg",
+  "range_chart_total_lifted_weight_kg",
+  "range_chart_chart_capacity_kg",
+  "range_chart_capacity_source",
+  "range_chart_capacity_page",
+  "range_chart_utilisation_percent",
+  "range_chart_bearing_load_kg",
+  "range_chart_bearing_pressure_kg_m2",
+  "range_chart_mat_length_m",
+  "range_chart_mat_width_m",
+  "range_chart_mats_under_loaded_outrigger",
+  "range_chart_verification_note",
+  "lift_drawing_model_json",
 ];
 
 function packSectionsFromBody(body: Record<string, unknown>) {
@@ -197,7 +219,76 @@ export async function POST(
       ...packSectionsFromPayload,
     };
     const completionRequested = cleanBool(body.paperwork_locked) || cleanBool(body.lift_plan_complete) || Boolean(body.approved_at);
-    const approvalErrors = completionRequested ? validateMobileCraneApprovalSections(mergedPackSections) : [];
+    const approvalErrors = completionRequested
+      ? Array.from(new Set([
+          ...validateMobileCraneApprovalSections(mergedPackSections),
+          ...liftDrawingApprovalErrors(mergedPackSections.lift_drawing_model_json, {
+            loadDescription: cleanText(body.load_description),
+            loadWeightKg: cleanNumber(
+              mergedPackSections.range_chart_load_weight_kg ?? body.load_weight,
+            ),
+            accessoryWeightKg: cleanNumber(
+              mergedPackSections.range_chart_accessory_weight_kg,
+            ),
+            grossLiftedWeightKg: cleanNumber(
+              mergedPackSections.range_chart_total_lifted_weight_kg,
+            ),
+            radiusM: cleanNumber(
+              mergedPackSections.range_chart_radius_m ?? body.lift_radius,
+            ),
+            boomLengthM: cleanNumber(
+              mergedPackSections.range_chart_boom_length_m,
+            ),
+            boomAngleDeg: cleanNumber(
+              mergedPackSections.range_chart_boom_angle_deg,
+            ),
+            hookHeightM: cleanNumber(
+              mergedPackSections.range_chart_tip_height_m ?? body.lift_height,
+            ),
+            chartCapacityKg: cleanNumber(
+              mergedPackSections.range_chart_chart_capacity_kg,
+            ),
+            chartSource: cleanText(
+              mergedPackSections.range_chart_capacity_source,
+            ),
+            chartPage: cleanText(
+              mergedPackSections.range_chart_capacity_page,
+            ),
+            utilisationPercent: cleanNumber(
+              mergedPackSections.range_chart_utilisation_percent,
+            ),
+            exactConfiguration: cleanText(
+              mergedPackSections.range_chart_selected_setup_label ??
+                mergedPackSections.selected_crane_setup_label,
+            ),
+            stabiliserSetup: cleanText(
+              body.outrigger_setup ??
+                mergedPackSections.configuration_outrigger_note,
+            ),
+            workingSector: cleanText(
+              mergedPackSections.range_chart_working_sector ??
+                mergedPackSections.configuration_outrigger_note,
+            ),
+            operatingWeightKg: cleanNumber(
+              mergedPackSections.range_chart_crane_operating_weight_kg,
+            ),
+            groundPressureKgM2: cleanNumber(
+              mergedPackSections.range_chart_bearing_pressure_kg_m2,
+            ),
+            matLengthM: cleanNumber(
+              mergedPackSections.range_chart_mat_length_m ??
+                mergedPackSections.ground_bearing_mat_length_m,
+            ),
+            matWidthM: cleanNumber(
+              mergedPackSections.range_chart_mat_width_m ??
+                mergedPackSections.ground_bearing_mat_width_m,
+            ),
+            liftingAccessories: cleanText(body.lifting_accessories),
+            siteHazards: cleanText(body.site_hazards),
+            controlMeasures: cleanText(body.control_measures),
+          }),
+        ]))
+      : [];
     if (approvalErrors.length) {
       return NextResponse.json(
         { error: `Lift plan cannot be approved or finalised: ${approvalErrors.join(" ")}` },
