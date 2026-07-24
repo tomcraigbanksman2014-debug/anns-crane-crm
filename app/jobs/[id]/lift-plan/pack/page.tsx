@@ -2368,7 +2368,7 @@ export default async function CraneLiftPlanPackPage({
     <EditableInput name={key} defaultValue={currentCraneFieldText(sections, key, fallback, craneName)} align={align} />
   );
   const calculatedInputField = (key: string, value: string, align: "left" | "right" = "left") => (
-    <EditableInput name={key} defaultValue={value} align={align} />
+    <EditableInput name={key} defaultValue={fieldText(key, value)} align={align} />
   );
   const monthInputField = (key: string, align: "left" | "right" = "left") => (
     <EditableInput name={key} defaultValue={packMonthText(key)} align={align} />
@@ -2439,11 +2439,14 @@ export default async function CraneLiftPlanPackPage({
     controlMeasures: liftPlan?.control_measures,
   };
   const drawingValidation = validateLiftDrawing(drawingModel, drawingSchedule);
+  const drawingIncomplete =
+    includeTechnicalDrawing &&
+    (drawingModel.status !== "verified" ||
+      drawingValidation.errors.length > 0);
   const draftIncomplete =
     !isLocked ||
     !liftPlan?.lift_plan_complete ||
-    drawingModel.status !== "verified" ||
-    drawingValidation.errors.length > 0;
+    drawingIncomplete;
 
   const outreachRef = rangeGroundCalc?.radiusM
     ? `${rangeGroundCalc.radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m radius`
@@ -2563,6 +2566,20 @@ export default async function CraneLiftPlanPackPage({
             document.addEventListener("input", function (event) {
               var target = event.target;
               if (!target || !target.name) return;
+              if (target.name === "pack_edit_changed_keys") return;
+              var changedInput = document.getElementById("crane-pack-changed-keys");
+              if (changedInput) {
+                var changedKeys = [];
+                try {
+                  changedKeys = JSON.parse(changedInput.value || "[]");
+                } catch (error) {
+                  changedKeys = [];
+                }
+                if (changedKeys.indexOf(target.name) === -1) {
+                  changedKeys.push(target.name);
+                  changedInput.value = JSON.stringify(changedKeys);
+                }
+              }
               var fields = document.getElementsByName(target.name);
               for (var i = 0; i < fields.length; i += 1) {
                 var field = fields[i];
@@ -2576,6 +2593,12 @@ export default async function CraneLiftPlanPackPage({
       />
 
       <form action={`/api/jobs/${params.id}/lift-plan/pack-selections`} method="post">
+        <input
+          id="crane-pack-changed-keys"
+          type="hidden"
+          name="pack_edit_changed_keys"
+          defaultValue="[]"
+        />
         <div className="print-hide" style={toolbar}>
           <a href={`/jobs/${params.id}/lift-plan`} style={buttonStyle}>
             ← Back to lift plan
@@ -2593,7 +2616,7 @@ export default async function CraneLiftPlanPackPage({
             This lift plan is locked. Pack fields are read-only on this page until the lock is removed.
           </div>
         ) : null}
-        {saveOk ? <div className="print-hide" style={saveOkStyle}>Pack edits saved.</div> : null}
+        {saveOk ? <div className="print-hide" style={saveOkStyle}>Pack edits saved and the corresponding lift-plan fields were updated.</div> : null}
         {saveError ? <div className="print-hide" style={saveErrorStyle}>{saveError}</div> : null}
 
       <fieldset disabled={isLocked} style={fieldsetStyle}>
