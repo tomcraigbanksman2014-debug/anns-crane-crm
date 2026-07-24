@@ -364,39 +364,21 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   return next;
 }
 
-async function saveSections(
-  jobId: string,
-  sections: DynamicPackSectionsPayload,
-  changedKeys: string[],
-) {
-  const supabase = createSupabaseServerClient();
-
-  const { data: existing, error: existingError } = await supabase
-    .from("lift_plans")
-    .select("id, pack_sections, paperwork_locked, selected_job_equipment_id")
-    .eq("job_id", jobId)
-    .maybeSingle();
-
-  if (existingError) {
-    throw new Error(existingError.message);
-  }
-
-  if (existing?.paperwork_locked) {
-    throw new Error("This lift plan is locked and cannot be edited.");
-  }
-
-  const currentCraneName = await resolveCurrentJobCraneName(
-    supabase,
-    jobId,
-    (existing as any)?.selected_job_equipment_id ?? null,
-  );
-  const existingSections =
-    ((existing?.pack_sections as Record<string, unknown> | null) ?? {}) as
-      DynamicPackSectionsPayload;
+export function prepareCranePackSavePayload({
+  existingSections,
+  incomingSections,
+  changedKeys,
+  currentCraneName,
+}: {
+  existingSections: DynamicPackSectionsPayload;
+  incomingSections: DynamicPackSectionsPayload;
+  changedKeys: string[];
+  currentCraneName?: string | null;
+}) {
   const incomingSafeSections = normaliseForCurrentCrane(
-    sections,
+    incomingSections,
     currentCraneName ??
-      sections.range_chart_crane_name ??
+      incomingSections.range_chart_crane_name ??
       existingSections.range_chart_crane_name,
   );
   const mergedInputSections = {
@@ -421,13 +403,51 @@ async function saveSections(
   );
   const isRangeChartPayload =
     changedKeys.length === 0 &&
-    Object.keys(sections).some((key) => key.startsWith("range_chart_"));
+    Object.keys(incomingSections).some((key) => key.startsWith("range_chart_"));
   const liftPlanPatch = {
     ...(isRangeChartPayload
       ? liftPlanColumnPatchFromRangeChart(mergedSections)
       : {}),
     ...buildLiftPlanPatchFromPackEdits(mergedSections, changedKeys),
   };
+
+  return { mergedSections, liftPlanPatch };
+}
+
+export async function saveCranePackSectionsWithClient(
+  supabase: any,
+  jobId: string,
+  sections: DynamicPackSectionsPayload,
+  changedKeys: string[],
+) {
+  const { data: existing, error: existingError } = await supabase
+    .from("lift_plans")
+    .select("id, pack_sections, paperwork_locked, selected_job_equipment_id")
+    .eq("job_id", jobId)
+    .maybeSingle();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  if (existing?.paperwork_locked) {
+    throw new Error("This lift plan is locked and cannot be edited.");
+  }
+
+  const currentCraneName = await resolveCurrentJobCraneName(
+    supabase,
+    jobId,
+    (existing as any)?.selected_job_equipment_id ?? null,
+  );
+  const existingSections =
+    ((existing?.pack_sections as Record<string, unknown> | null) ?? {}) as
+      DynamicPackSectionsPayload;
+  const { mergedSections, liftPlanPatch } = prepareCranePackSavePayload({
+    existingSections,
+    incomingSections: sections,
+    changedKeys,
+    currentCraneName,
+  });
 
   if (existing?.id) {
     const { error } = await supabase
@@ -451,6 +471,19 @@ async function saveSections(
   }
 
   return mergedSections;
+}
+
+async function saveSections(
+  jobId: string,
+  sections: DynamicPackSectionsPayload,
+  changedKeys: string[],
+) {
+  return saveCranePackSectionsWithClient(
+    createSupabaseServerClient(),
+    jobId,
+    sections,
+    changedKeys,
+  );
 }
 
 export async function POST(

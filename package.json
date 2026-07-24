@@ -7,7 +7,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/**/*.test.ts",
+    "prebuild": "node scripts/check-supabase-environment.mjs && tsx scripts/test-crane-pdf-sync-staging.ts",
+    "verify:lift-plan": "node scripts/verify-lift-plan-upgrade.mjs",
+    "test:safe": "npm run typecheck && npm test && npm run verify:lift-plan"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",

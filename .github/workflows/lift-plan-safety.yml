@@ -1,0 +1,39 @@
+name: Lift Plan Safety Checks
+
+on:
+  push:
+    branches:
+      - main
+      - lift-plan-production-upgrade
+      - crane-pdf-fix-backup
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-code-tests:
+    name: Isolated code tests (no Supabase credentials)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: TypeScript check
+        run: npm run typecheck
+
+      - name: Automated regression tests
+        run: npm test
+
+      - name: Lift-plan production verification
+        run: npm run verify:lift-plan
