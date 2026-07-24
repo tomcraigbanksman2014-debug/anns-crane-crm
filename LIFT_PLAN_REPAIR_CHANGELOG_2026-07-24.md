@@ -30,6 +30,18 @@ to production.
 - The old fixed `HiabPlanDrawing` function is not rendered by the pack. The
   active output uses `LiftArrangementDrawing`.
 
+## Preview regression repair
+
+- Fixed the transport/HIAB pack server crash identified on preview with digest
+  `1477070205`.
+- The normalised technical-plan parser now rebuilds every nested machine, load,
+  duty, ground-bearing, personnel, narrative, verification, and validation
+  section defensively instead of trusting partial saved JSON.
+- Invalid normalised-plan JSON falls back to the legacy saved technical fields.
+- Non-object legacy `pack_sections` values are ignored safely.
+- Added regression tests proving that partial and malformed normalised HIAB
+  records can be converted to the print schedule without throwing.
+
 ## Data storage
 
 No SQL migration is required. The per-plan flag is stored inside the existing
@@ -46,7 +58,7 @@ Existing `lift_drawing_model_json` data remains untouched.
 ## Validation performed
 
 - `npm run typecheck`: passed with zero diagnostics.
-- `npm test`: 17 tests passed, 0 failed.
+- `npm test`: 19 tests passed, 0 failed.
 - `npm run build`: passed completely using non-secret placeholder Supabase
   values for build-time client creation. All 177 static pages generated and
   Next.js completed page optimisation and build-trace collection.
