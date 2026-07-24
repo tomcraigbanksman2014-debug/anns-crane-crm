@@ -2696,7 +2696,9 @@ export default async function CraneLiftPlanPackPage({
             ["toc_item_12", "12. Traffic and Pedestrian Management"],
             ["toc_item_13", "13. Lifting Equipment to be used & Certification"],
             ["toc_item_14", "14. Crane Details"],
-            ["toc_item_drawing", "Technical Drawing - Plan View & Side Elevation"],
+            ...(includeTechnicalDrawing
+              ? [["toc_item_drawing", "Technical Drawing - Plan View & Side Elevation"]]
+              : []),
             ["toc_item_15", "15. Variation from Method Statement"],
             ["toc_item_16", "16. Toolbox Talk Attendance"],
             ["toc_item_17", "17. Crane Set-up Procedure"],
