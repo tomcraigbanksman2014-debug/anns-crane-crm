@@ -43,11 +43,28 @@ export function validateLiftDrawing(
   const overheadClearance = nearestOverheadClearanceM(model);
   const centre = machineCentreOfRotation(model);
 
+  if (
+    model.normalisation?.state === "invalid" ||
+    model.normalisation?.state === "migrated"
+  ) {
+    errors.push(
+      "Review and re-save the restored drawing data before verification.",
+    );
+  }
+  if (model.scaleMode !== "verified-scale" || !model.site.scaleCalibrated) {
+    errors.push("Calibrate the site drawing to a verified scale.");
+  }
   if (!present(model.drawingNumber)) errors.push("Enter a drawing number.");
   if (!present(model.revision)) errors.push("Enter a drawing revision.");
   if (!positive(model.site.widthM) || !positive(model.site.depthM)) errors.push("Enter the verified site width and depth.");
   if (!present(model.machine.label)) errors.push("Confirm the exact machine.");
   if (!positive(model.machine.lengthM) || !positive(model.machine.widthM)) errors.push("Enter the actual machine length and width.");
+  if (!model.machine.dimensionsVerified || !present(model.machine.dimensionsSource)) {
+    errors.push("Verify the machine dimensions against the selected machine profile or supplier document.");
+  }
+  if (!model.machine.supportGeometryVerified) {
+    errors.push("Verify the stabiliser/outrigger geometry for the selected configuration.");
+  }
   if (model.machine.stabilisers.length < 4) errors.push("Record all four stabiliser/outrigger positions.");
   if (model.machine.stabilisers.some((item) => !positive(item.padLengthM) || !positive(item.padWidthM))) {
     errors.push("Enter pad/mat dimensions for every stabiliser.");
