@@ -469,7 +469,13 @@ export default async function TransportLiftPlanPackPage({
     ),
   } as any;
   const verifiedSetup = equipmentProfile?.setupOptions?.[0] ?? null;
-  const savedSections = ((liftPlan as any)?.pack_sections as Record<string, unknown> | null) ?? {};
+  const rawSavedSections = (liftPlan as any)?.pack_sections;
+  const savedSections: Record<string, unknown> =
+    rawSavedSections &&
+    typeof rawSavedSections === "object" &&
+    !Array.isArray(rawSavedSections)
+      ? rawSavedSections
+      : {};
   const savedTechnicalPlan = parseNormalisedTechnicalPlan(
     savedSections[NORMALISED_TECHNICAL_PLAN_KEY],
   );
