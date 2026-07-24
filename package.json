@@ -5,7 +5,12 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node scripts/run-tests.mjs",
+    "prebuild": "node scripts/check-supabase-environment.mjs && tsx scripts/test-crane-pdf-sync-staging.ts",
+    "verify:lift-plan": "node scripts/verify-lift-plan-upgrade.mjs",
+    "test:safe": "npm run typecheck && npm test && npm run verify:lift-plan"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
@@ -26,6 +31,7 @@
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
     "typescript": "^5.0.0",
-    "@types/web-push": "^3.6.4"
+    "@types/web-push": "^3.6.4",
+    "tsx": "^4.20.3"
   }
 }

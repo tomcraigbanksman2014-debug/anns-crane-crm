@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
+import { calculateHiabTechnicalSections } from "../../../../lib/liftPlanTechnicalValidation";
+import { liftDrawingApprovalErrors } from "../../../../lib/liftDrawingValidation";
+import { technicalDrawingEnabled } from "../../../../lib/liftDrawingPersistence";
 
 function cleanNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -15,6 +18,18 @@ function cleanText(value: unknown) {
 
 function cleanBool(value: unknown) {
   return value === true;
+}
+
+function cleanPackSections(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {} as Record<string, unknown>;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, item]) => {
+      if (item === null || item === undefined) return [key, null];
+      if (typeof item === "number" || typeof item === "boolean") return [key, item];
+      const normalised = String(item).trim();
+      return [key, normalised.length ? normalised : null];
+    })
+  );
 }
 
 export async function GET(
@@ -63,7 +78,7 @@ export async function POST(
 
     const { data: existing, error: existingError } = await supabase
       .from("transport_lift_plans")
-      .select("id, paperwork_locked")
+      .select("id, paperwork_locked, pack_sections")
       .eq("transport_job_id", params.id)
       .maybeSingle();
 
@@ -75,6 +90,57 @@ export async function POST(
       return NextResponse.json(
         { error: "Paperwork is locked and can no longer be edited." },
         { status: 403 }
+      );
+    }
+
+    const mergedPackSections = {
+      ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
+      ...cleanPackSections(body.pack_sections),
+    };
+
+    const technical = calculateHiabTechnicalSections({
+      profileId: cleanText(mergedPackSections.hiab_profile_id),
+      profileTitle: cleanText(mergedPackSections.hiab_profile_title),
+      setupLabel: cleanText(mergedPackSections.hiab_verified_configuration),
+      sourceLabel: cleanText(mergedPackSections.hiab_chart_source),
+      loadWeightKg: cleanNumber(body.load_weight),
+      radiusM: cleanNumber(body.lift_radius),
+      sections: mergedPackSections,
+    });
+
+    const completionRequested = cleanBool(body.paperwork_locked) || cleanBool(body.lift_plan_complete) || Boolean(body.approved_at);
+    const drawingErrors = completionRequested &&
+      technicalDrawingEnabled(technical.sections.include_technical_drawing)
+      ? liftDrawingApprovalErrors(technical.sections.lift_drawing_model_json, {
+          loadDescription: cleanText(body.load_description),
+          loadWeightKg: technical.loadWeightKg,
+          accessoryWeightKg: technical.accessoryWeightKg,
+          grossLiftedWeightKg: technical.totalLiftedWeightKg,
+          radiusM: technical.radiusM,
+          boomLengthM: cleanNumber(technical.sections.hiab_boom_length_m),
+          boomAngleDeg: cleanNumber(technical.sections.hiab_boom_angle_deg),
+          hookHeightM: cleanNumber(body.lift_height),
+          chartCapacityKg: technical.capacityKg,
+          chartSource: technical.capacitySource,
+          chartPage: cleanText(technical.sections.hiab_chart_page),
+          utilisationPercent: technical.utilisationPercent,
+          exactConfiguration: technical.selectedSetup,
+          stabiliserSetup: cleanText(technical.sections.hiab_stabiliser_position),
+          workingSector: cleanText(technical.sections.hiab_working_sector),
+          operatingWeightKg: technical.vehicleOperatingWeightKg,
+          groundPressureKgM2: technical.pressureKgM2,
+          matLengthM: technical.matLengthM,
+          matWidthM: technical.matWidthM,
+          liftingAccessories: cleanText(body.lifting_accessories),
+          siteHazards: cleanText(body.site_hazards),
+          controlMeasures: cleanText(body.control_measures),
+        })
+      : [];
+    const approvalErrors = Array.from(new Set([...technical.errors, ...drawingErrors]));
+    if (completionRequested && approvalErrors.length) {
+      return NextResponse.json(
+        { error: `HIAB lift plan cannot be approved or finalised: ${approvalErrors.join(" ")}` },
+        { status: 400 }
       );
     }
 
@@ -117,6 +183,7 @@ export async function POST(
       office_signed_by: cleanText(body.office_signed_by),
       finalised_at: body.finalised_at ? new Date(body.finalised_at).toISOString() : null,
       paperwork_locked: cleanBool(body.paperwork_locked),
+      pack_sections: technical.sections,
       updated_at: new Date().toISOString(),
     };
 

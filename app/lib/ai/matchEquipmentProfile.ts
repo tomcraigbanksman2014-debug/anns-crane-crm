@@ -493,42 +493,44 @@ export function matchCraneJobEquipmentProfile(job: any): EquipmentProfile | null
 
 export function matchTransportJobEquipmentProfile(job: any, linkedJob?: any): EquipmentProfile | null {
   const vehicle = firstObject(job?.vehicles) ?? job?.vehicle ?? null;
-  const text = joinBits([
-    vehicle,
+  const vehicleIdentity = joinBits([
     vehicle?.name,
     vehicle?.reg_number,
     vehicle?.vehicle_type,
     vehicle?.trailer_type,
     vehicle?.capacity,
+  ]);
+
+  // SN25 XRA was a historic hire vehicle. Keep old records intact but never attach
+  // either owned AnnS HIAB chart to it automatically.
+  if (/\bsn25\s*xra\b/i.test(vehicleIdentity)) return null;
+
+  // Exact owned vehicle/model aliases take precedence over any uploaded generic brochure.
+  const ownedMatched = matchByAliases(vehicleIdentity);
+  if (ownedMatched) return ownedMatched;
+
+  // Hired HIABs are profile-driven from the specification/load-chart documents uploaded
+  // against the vehicle. The resulting profile still requires an AP-checked chart duty
+  // at the planned radius before approval/finalisation.
+  const uploadedSpecProfile = buildSpecSheetEquipmentProfile({
+    ...(vehicle ?? {}),
+    make: vehicle?.vehicle_type ?? null,
+    model: vehicle?.trailer_type ?? null,
+    vehicle_documents: vehicle?.vehicle_documents ?? [],
+  });
+  if (uploadedSpecProfile) return uploadedSpecProfile;
+
+  const text = joinBits([
+    vehicle,
     job?.job_type,
     job?.load_description,
     job?.notes,
     linkedJob,
   ]);
-
   const matched = matchByAliases(text);
   if (matched) return matched;
 
-  const hiabHints = [
-    toText(vehicle?.name),
-    toText(vehicle?.vehicle_type),
-    toText(vehicle?.trailer_type),
-    toText(job?.job_type),
-    toText(job?.load_description),
-    toText(job?.notes),
-  ].join(" ");
-
-  if (hiabHints.includes("rigid hiab") || hiabHints.includes("rigid")) {
-    return EQUIPMENT_PROFILES.find((profile) => profile.id === "hiab-x-hipro-858") ?? null;
-  }
-
-  if (hiabHints.includes("artic hiab") || hiabHints.includes("artic")) {
-    return EQUIPMENT_PROFILES.find((profile) => profile.id === "palfinger-pk65002-sh") ?? null;
-  }
-
-  if (hiabHints.includes("hiab") || hiabHints.includes("loader crane")) {
-    return EQUIPMENT_PROFILES.find((profile) => profile.id === "hiab-x-hipro-858") ?? null;
-  }
-
+  // Generic words such as "HIAB", "rigid" or "artic" are not enough to select a
+  // technical profile. This prevents a hired machine inheriting an owned vehicle chart.
   return null;
 }

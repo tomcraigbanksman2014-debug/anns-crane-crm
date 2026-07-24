@@ -673,8 +673,8 @@ export default function RangeChartBuilder({
     chart.externalSpecDocumentTitle,
   ].filter(Boolean).join(" / ");
   const setupMaxBoom = activeStructuredProfile?.maxBoomLengthM ?? activeStructuredProfile?.defaultBoomLengthM ?? maybeNumber(activeSetup?.boomLengthM);
-  const setupMaxRadius = activeStructuredProfile?.maxRadiusM ?? activeJibOption?.maxRadiusM ?? maybeNumber(activeSetup?.maxRadiusM);
-  const setupMaxTipHeight = activeStructuredProfile?.maxTipHeightM ?? activeJibOption?.maxTipHeightM ?? maybeNumber(activeSetup?.maxTipHeightM);
+  const setupMaxRadius = activeJibOption?.maxRadiusM ?? activeStructuredProfile?.maxRadiusM ?? maybeNumber(activeSetup?.maxRadiusM);
+  const setupMaxTipHeight = activeJibOption?.maxTipHeightM ?? activeStructuredProfile?.maxTipHeightM ?? maybeNumber(activeSetup?.maxTipHeightM);
   const setupMaxJib = activeJibOption ? activeJibOption.lengthM : inferredSetupJibLength;
   const setupSelectOptions = structuredProfileOptions.length
     ? structuredProfileOptions.map((profile) => ({ value: `profile:${profile.key}`, label: profile.label }))
@@ -725,7 +725,11 @@ export default function RangeChartBuilder({
   });
   const enteredBoomLength = numberOrNull(chart.boomLengthM);
   const enteredBoomAngle = numberOrNull(chart.boomAngleDeg);
-  const displayedBoomLength = enteredBoomLength ?? calc.boomLength;
+  // Structured profile options are exact load-chart columns. Once selected, the chart boom
+  // length is authoritative for capacity, saving and print; the hook/radius geometry remains
+  // the planned lift geometry and is still checked against that selected boom limit.
+  const selectedChartBoomLength = activeStructuredProfile?.defaultBoomLengthM ?? null;
+  const displayedBoomLength = selectedChartBoomLength ?? enteredBoomLength ?? calc.boomLength;
   const displayedBoomAngle = enteredBoomAngle ?? calc.boomAngle;
   const capacityResult = calculateRangeChartCapacity({
     craneName: cleanCraneName,
@@ -786,8 +790,8 @@ export default function RangeChartBuilder({
     : effectiveBearingLoadKg && planningEstimateKg
       ? `(${fmtKg(limits.planningWeightKg)} + ${fmtKg(calc.totalLiftedWeight)}) × ${estimatedBearingFactor} = ${fmtKg(effectiveBearingLoadKg)}`
       : effectiveBearingLoadKg
-        ? `Estimated max outrigger load = ${fmtKg(effectiveBearingLoadKg)}`
-        : "Estimated max outrigger load requires crane and load details";
+        ? `Worst-case outrigger load = ${fmtKg(effectiveBearingLoadKg)}`
+        : "Worst-case outrigger load requires crane and load details";
   const matPressureFormulaText = effectiveBearingLoadKg && calc.matArea && effectivePressureKgM2
     ? `${bearingFormulaBase}. ${fmtKg(effectiveBearingLoadKg)} ÷ ${fmtArea(calc.matArea)} = ${fmtPressure(effectivePressureKgM2)}`
     : bearingFormulaBase;
@@ -884,11 +888,14 @@ export default function RangeChartBuilder({
           externalSpecDocumentTitle: "",
           chartCapacityKg: "",
           bearingLoadKg: "",
-          // Selecting a profile sets the limit/chart family only. Clear any previously stored boom geometry
-          // so the chart and pack recalculate from the current hook/radius position instead of keeping
-          // a stale max-extension/Jekko boom length.
-          boomLengthM: "",
-          boomAngleDeg: "",
+          // Lock the saved duty to the exact structured chart column selected by the AP. The planned
+          // hook radius/height stay unchanged, while the selected chart boom length is carried through
+          // calculation, saving and the issued pack instead of being replaced by a second recommendation.
+          boomLengthM:
+            profile.defaultBoomLengthM !== null && profile.defaultBoomLengthM !== undefined
+              ? String(profile.defaultBoomLengthM)
+              : "",
+          boomAngleDeg: prev.boomAngleDeg || "",
           verificationNote:
             profile.source ||
             prev.verificationNote ||
@@ -1055,7 +1062,7 @@ export default function RangeChartBuilder({
       range_chart_bearing_pressure_t_m2: effectivePressureKgM2 ? String(round(effectivePressureKgM2 / 1000, 4)) : "",
       range_chart_bearing_pressure: matPressureText === "—" ? "" : matPressureText,
       range_chart_bearing_pressure_formula: effectivePressureKgM2
-        ? `${matPressureFormulaText}. Reference only — estimated max outrigger load is calculated as (crane planning/gross weight + gross lifted load) × 0.75. Mat/spreader pressure is calculated only from the dimensions entered; no standard mats are assumed.`
+        ? `${matPressureFormulaText}. Reference only — the worst-case outrigger load used for ground-bearing calculation is (crane planning/gross weight + gross lifted load) × 0.75. Mat/spreader pressure is calculated only from the dimensions entered; no standard mats are assumed.`
         : "",
       range_chart_limit_warning: chartWarnings.join(" "),
       range_chart_verification_note: chart.verificationNote,
@@ -1270,7 +1277,7 @@ export default function RangeChartBuilder({
               <Field label="Mat/spreader width (m)" type="number" value={chart.matWidthM} onChange={(value) => update("matWidthM", value)} helper="Any entered support size is used in the bearing pressure calculation." />
               <Field label="Mats/spreader pieces under worst-case loaded outrigger" type="number" value={chart.matCount} onChange={(value) => update("matCount", value)} helper="This is the number of support pieces under the one calculated worst-case outrigger, not the total pieces across the whole crane." />
               <ReadOnlyInfo label="Mat/spreader bearing area" value={matAreaText} helper="Blank means no support-area pressure calculation has been entered." />
-              <ReadOnlyInfo label="Estimated max outrigger load" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
+              <ReadOnlyInfo label="Worst-case outrigger load" value={bearingLoadText} helper={formatComputedSource(bearingResult.method, bearingResult.source)} />
               <ReadOnlyInfo label="Mat/spreader pressure reference" value={matPressureText} helper={matPressureFormulaText} />
             </div>
             <TextArea label="Verification note" value={chart.verificationNote} onChange={(value) => update("verificationNote", value)} rows={3} />
@@ -1312,13 +1319,13 @@ export default function RangeChartBuilder({
             <Metric label="Clearance" value={fmt(calc.clearance)} tone={calc.clearance < 0 ? "danger" : "normal"} />
             <Metric label="Total lifted weight" value={totalWeightText} />
             <Metric label="Chart capacity" value={chartCapacityText} tone={effectiveChartCapacityKg && calc.totalLiftedWeight && calc.totalLiftedWeight > effectiveChartCapacityKg ? "danger" : "normal"} />
-            <Metric label="Estimated max outrigger load" value={bearingLoadText} />
+            <Metric label="Worst-case outrigger load" value={bearingLoadText} />
             {calc.matArea ? <Metric label="Mat/spreader bearing area" value={matAreaText} /> : null}
             <Metric label="Chart utilisation" value={effectiveUtilisation ? `${round(effectiveUtilisation, 1)}%` : "Manual check"} tone={effectiveUtilisation && effectiveUtilisation > 100 ? "danger" : "normal"} />
             {effectivePressureKgM2 ? <Metric label="Mat/spreader pressure" value={matPressureText} /> : null}
           </div>
           <div style={warningBoxStyle}>
-            Planning sketch only. Estimated max outrigger load uses the appointed-person planning formula: (crane planning/gross weight + gross lifted load) × 0.75. Mat/spreader bearing pressure is only calculated where mat/spreader dimensions are entered: {matPressureFormulaText}. Final ground suitability, support area and outrigger reactions must be verified before lifting.
+            Planning sketch only. The worst-case outrigger load used for the ground-bearing calculation is (crane planning/gross weight + gross lifted load) × 0.75 unless an exact manufacturer/supplier reaction is used. Mat/spreader bearing pressure is calculated only where support dimensions are entered: {matPressureFormulaText}. Final ground suitability, support area and outrigger reactions must be verified before lifting.
           </div>
         </div>
       </div>

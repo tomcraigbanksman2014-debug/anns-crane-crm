@@ -302,6 +302,30 @@ const HK40_MAIN_30_3_0T = pointsT([[4.5, 10.3], [5, 10.3], [6, 10.3], [7, 10.3],
 const HK40_MAIN_32_7_0T = pointsT([[6, 8.9], [7, 8.9], [8, 8.8], [9, 8.2], [10, 7.1], [11, 6.2], [12, 5.5], [14, 4.3], [16, 3.4], [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7]]);
 const HK40_MAIN_35_2_0T = pointsT([[6, 7.6], [7, 7.6], [8, 7.6], [9, 7.6], [10, 6.9], [11, 6.1], [12, 5.4], [14, 4.2], [16, 3.4], [18, 2.6], [20, 2.1], [22, 1.6], [24, 1.3], [26, 1.0], [28, 0.7], [30, 0.5]]);
 
+// HK40 9 m boom-extension chart, 360°, 4.5 t counterweight, correct supplied HK40 specification page 12.
+const HK40_EXTENSION_10_5_9_0 = pointsT([[3, 6.5], [3.5, 6.5], [4, 6.5], [4.5, 6.5], [5, 6.5], [6, 6.5], [7, 6.5], [8, 6.4], [9, 6.0], [10, 5.6], [11, 5.3], [12, 5.0], [14, 4.6], [16, 4.2]]);
+const HK40_EXTENSION_10_5_9_20 = pointsT([[4, 6.5], [4.5, 6.5], [5, 6.4], [6, 6.0], [7, 5.6], [8, 5.4], [9, 5.1], [10, 4.9], [11, 4.6], [12, 4.4], [14, 4.1], [16, 4.0]]);
+const HK40_EXTENSION_10_5_9_40 = pointsT([[7, 4.7], [8, 4.5], [9, 4.4], [10, 4.2], [11, 4.1], [12, 4.0], [14, 3.9]]);
+const HK40_EXTENSION_30_3_9_0 = pointsT([[6, 5.1], [7, 5.1], [8, 5.1], [9, 5.1], [10, 5.1], [11, 4.9], [12, 4.7], [14, 4.3], [16, 4.0], [18, 3.7], [20, 3.4], [22, 2.9], [24, 2.4], [26, 2.0], [28, 1.7], [30, 1.4], [32, 1.2], [34, 1.0], [36, 0.8]]);
+const HK40_EXTENSION_30_3_9_20 = pointsT([[9, 4.6], [10, 4.4], [11, 4.2], [12, 4.1], [14, 3.8], [16, 3.6], [18, 3.4], [20, 3.2], [22, 3.0], [24, 2.6], [26, 2.2], [28, 1.8], [30, 1.5], [32, 1.3], [34, 1.0]]);
+const HK40_EXTENSION_30_3_9_40 = pointsT([[12, 3.8], [14, 3.5], [16, 3.3], [18, 3.2], [20, 3.0], [22, 2.9], [24, 2.7], [26, 2.3], [28, 1.9], [30, 1.6]]);
+const HK40_EXTENSION_35_2_9_0 = pointsT([[8, 4.0], [9, 4.0], [10, 4.0], [11, 4.0], [12, 4.0], [14, 3.7], [16, 3.4], [18, 3.2], [20, 2.9], [22, 2.7], [24, 2.4], [26, 2.0], [28, 1.7], [30, 1.4], [32, 1.2], [34, 1.0], [36, 0.8], [38, 0.6], [40, 0.5]]);
+const HK40_EXTENSION_35_2_9_20 = pointsT([[11, 3.7], [12, 3.5], [14, 3.3], [16, 3.1], [18, 2.9], [20, 2.8], [22, 2.6], [24, 2.5], [26, 2.2], [28, 1.8], [30, 1.5], [32, 1.3], [34, 1.0], [36, 0.8], [38, 0.7], [40, 0.5]]);
+const HK40_EXTENSION_35_2_9_40 = pointsT([[14, 3.1], [16, 2.9], [18, 2.8], [20, 2.6], [22, 2.5], [24, 2.4], [26, 2.3], [28, 1.9], [30, 1.6], [32, 1.3], [34, 1.1]]);
+
+// AnnS owned HIAB configurations verified against the supplied manufacturer documents and vehicle photographs.
+// SN74 XPX: HIAB X-HIPRO 858 EP-6, main boom only.
+const HIAB_X_HIPRO_858_EP6_MAIN = [
+  point(3.9, 18000), point(4.7, 15700), point(6.2, 11700), point(8.0, 8800),
+  point(9.9, 7000), point(11.9, 5700), point(14.1, 4750), point(16.3, 4100),
+];
+
+// SF25 XNB: Palfinger PK 65002 SH E, main boom only.
+const PALFINGER_PK65002_SH_E_MAIN = [
+  point(4.2, 13400), point(5.9, 9300), point(7.6, 7000), point(9.5, 5400),
+  point(11.5, 4350), point(13.6, 3600), point(15.7, 3100),
+];
+
 const MTK35_MAIN_32 = pointsT([[6, 7.0], [7, 7.0], [8, 7.0], [9, 6.8], [10, 6.5], [12, 5.4], [14, 4.0], [16, 3.1], [18, 2.3], [20, 1.8], [22, 1.4], [24, 1.0], [26, 0.7], [28, 0.5]]);
 const MTK35_MAIN_26_5 = pointsT([[4, 10.8], [5, 10.8], [6, 10.6], [7, 10.4], [8, 10.2], [9, 9.1], [10, 7.5], [12, 5.3], [14, 4.0], [16, 3.0], [18, 2.3], [20, 1.7], [22, 1.3]]);
 const MTK35_MAIN_19_9 = pointsT([[3, 16.5], [3.5, 16.5], [4, 16.5], [5, 16.4], [6, 16.0], [7, 14.2], [8, 11.2], [9, 8.9], [10, 7.3], [12, 5.2], [14, 3.8], [16, 2.8]]);
@@ -476,7 +500,7 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
     maxCapacityKg: 40000,
     maxBoomLengthM: 35.2,
     maxPhysicalJibLengthM: 9,
-    maxRadiusM: 35.2,
+    maxRadiusM: 40,
     maxTipHeightM: 44.2,
     planningWeightKg: 32000,
     planningWeightSource: "HK 40 spec: total weight up to 32 t depending chassis/options",
@@ -511,7 +535,7 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
       profile("hk40-main-32_7-0t", "Main boom 32.7 m — 0 t counterweight chart", 32.7, 32.7, 32, 32.7, "HK 40 load chart: 32.7 m main boom, 360°, 0 t counterweight"),
       profile("hk40-main-35_2-0t", "Main boom 35.2 m — 0 t counterweight chart", 35.2, 35.2, 32, 35.2, "HK 40 load chart: 35.2 m main boom, 360°, 0 t counterweight"),
     ],
-    jibOptions: [jib("none", "No jib / main boom only", 0), jib("hk40-extension-9", "9 m boom extension", 9, null, 44.2, "HK 40 spec: 9 m boom extension")],
+    jibOptions: [jib("none", "No jib / main boom only", 0), jib("hk40-extension-9", "9 m boom extension", 9, 40, 44.2, "Correct HK 40 specification pages 12-13: 9 m boom extension")],
     capacitySource: "HK 40 uploaded load charts. Select the correct counterweight chart and verify exact boom length/radius before approval.",
     capacityCurves: [
       curve("hk40-main-10_5-45t", "HK40 10.5 m main boom, 4.5 t counterweight", HK40_MAIN_10_5_45T, { boomLengthM: 10.5, jibLengthM: 0, counterweightT: 4.5, source: "HK 40 load chart: 10.5 m main boom, 360°, 4.5 t counterweight", setupAdvice: "Selected HK40 10.5 m boom / 4.5 t counterweight chart. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval." }),
@@ -542,8 +566,93 @@ export const RANGE_CHART_SPEC_RULES: RangeChartSpecRule[] = [
       curve("hk40-main-30_3-0t", "HK40 30.3 m main boom, 0 t counterweight", HK40_MAIN_30_3_0T, { boomLengthM: 30.3, jibLengthM: 0, counterweightT: 0, source: "HK 40 load chart: 30.3 m main boom, 360°, 0 t counterweight", setupAdvice: "Selected HK40 30.3 m boom / 0 t counterweight chart. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval." }),
       curve("hk40-main-32_7-0t", "HK40 32.7 m main boom, 0 t counterweight", HK40_MAIN_32_7_0T, { boomLengthM: 32.7, jibLengthM: 0, counterweightT: 0, source: "HK 40 load chart: 32.7 m main boom, 360°, 0 t counterweight", setupAdvice: "Selected HK40 32.7 m boom / 0 t counterweight chart. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval." }),
       curve("hk40-main-35_2-0t", "HK40 35.2 m main boom, 0 t counterweight", HK40_MAIN_35_2_0T, { boomLengthM: 35.2, jibLengthM: 0, counterweightT: 0, source: "HK 40 load chart: 35.2 m main boom, 360°, 0 t counterweight", setupAdvice: "Selected HK40 35.2 m boom / 0 t counterweight chart. Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval." }),
+      curve("hk40-extension-10_5-9-0deg-45t", "HK40 10.5 m main boom + 9 m extension at 0°, 4.5 t counterweight", HK40_EXTENSION_10_5_9_0, { boomLengthM: 10.5, jibLengthM: 9, jibAngleMinDeg: -0.5, jibAngleMaxDeg: 0.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 10.5 m main boom + 9.0 m extension, 0°, 4.5 t counterweight", setupAdvice: "Selected HK40 10.5 m main boom + 9 m extension / 0° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-10_5-9-20deg-45t", "HK40 10.5 m main boom + 9 m extension at 20°, 4.5 t counterweight", HK40_EXTENSION_10_5_9_20, { boomLengthM: 10.5, jibLengthM: 9, jibAngleMinDeg: 19.5, jibAngleMaxDeg: 20.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 10.5 m main boom + 9.0 m extension, 20°, 4.5 t counterweight", setupAdvice: "Selected HK40 10.5 m main boom + 9 m extension / 20° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-10_5-9-40deg-45t", "HK40 10.5 m main boom + 9 m extension at 40°, 4.5 t counterweight", HK40_EXTENSION_10_5_9_40, { boomLengthM: 10.5, jibLengthM: 9, jibAngleMinDeg: 39.5, jibAngleMaxDeg: 40.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 10.5 m main boom + 9.0 m extension, 40°, 4.5 t counterweight", setupAdvice: "Selected HK40 10.5 m main boom + 9 m extension / 40° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-30_3-9-0deg-45t", "HK40 30.3 m main boom + 9 m extension at 0°, 4.5 t counterweight", HK40_EXTENSION_30_3_9_0, { boomLengthM: 30.3, jibLengthM: 9, jibAngleMinDeg: -0.5, jibAngleMaxDeg: 0.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 30.3 m main boom + 9.0 m extension, 0°, 4.5 t counterweight", setupAdvice: "Selected HK40 30.3 m main boom + 9 m extension / 0° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-30_3-9-20deg-45t", "HK40 30.3 m main boom + 9 m extension at 20°, 4.5 t counterweight", HK40_EXTENSION_30_3_9_20, { boomLengthM: 30.3, jibLengthM: 9, jibAngleMinDeg: 19.5, jibAngleMaxDeg: 20.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 30.3 m main boom + 9.0 m extension, 20°, 4.5 t counterweight", setupAdvice: "Selected HK40 30.3 m main boom + 9 m extension / 20° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-30_3-9-40deg-45t", "HK40 30.3 m main boom + 9 m extension at 40°, 4.5 t counterweight", HK40_EXTENSION_30_3_9_40, { boomLengthM: 30.3, jibLengthM: 9, jibAngleMinDeg: 39.5, jibAngleMaxDeg: 40.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 30.3 m main boom + 9.0 m extension, 40°, 4.5 t counterweight", setupAdvice: "Selected HK40 30.3 m main boom + 9 m extension / 40° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-35_2-9-0deg-45t", "HK40 35.2 m main boom + 9 m extension at 0°, 4.5 t counterweight", HK40_EXTENSION_35_2_9_0, { boomLengthM: 35.2, jibLengthM: 9, jibAngleMinDeg: -0.5, jibAngleMaxDeg: 0.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 35.2 m main boom + 9.0 m extension, 0°, 4.5 t counterweight", setupAdvice: "Selected HK40 35.2 m main boom + 9 m extension / 0° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-35_2-9-20deg-45t", "HK40 35.2 m main boom + 9 m extension at 20°, 4.5 t counterweight", HK40_EXTENSION_35_2_9_20, { boomLengthM: 35.2, jibLengthM: 9, jibAngleMinDeg: 19.5, jibAngleMaxDeg: 20.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 35.2 m main boom + 9.0 m extension, 20°, 4.5 t counterweight", setupAdvice: "Selected HK40 35.2 m main boom + 9 m extension / 20° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
+      curve("hk40-extension-35_2-9-40deg-45t", "HK40 35.2 m main boom + 9 m extension at 40°, 4.5 t counterweight", HK40_EXTENSION_35_2_9_40, { boomLengthM: 35.2, jibLengthM: 9, jibAngleMinDeg: 39.5, jibAngleMaxDeg: 40.5, counterweightT: 4.5, source: "Correct HK 40 specification page 12: 35.2 m main boom + 9.0 m extension, 40°, 4.5 t counterweight", setupAdvice: "Selected HK40 35.2 m main boom + 9 m extension / 40° / 4.5 t counterweight chart. Verify extension pinning, counterweight, outrigger setup, hook/accessories and LMI before approval." }),
     ],
-    notes: "HK40 structured data now covers main boom chart columns from 10.5 m to 35.2 m for the uploaded 4.5 t, 2.1 t, 1.4 t and 0 t counterweight tables. Final chart/LMI verification is still required.",
+    notes: "HK40 structured data covers main-boom chart columns from 10.5 m to 35.2 m for the correct 4.5 t, 2.1 t, 1.4 t and 0 t tables, plus the 9 m extension duties at 0°, 20° and 40° for the 10.5 m, 30.3 m and 35.2 m / 4.5 t configurations. Final chart/LMI verification is still required.",
+  },
+  {
+    id: "hiab-x-hipro-858-ep6",
+    title: "HIAB X-HIPRO 858 EP-6",
+    match: [
+      /\bx[- ]?hipro\s*858\s*ep[- ]?6\b/i,
+      /\b858\s*ep[- ]?6\b/i,
+      /\bsn74\s*xpx\b/i,
+    ],
+    maxCapacityKg: 18000,
+    maxPhysicalJibLengthM: 0,
+    maxRadiusM: 16.3,
+    capacitySource: "HIAB X-HIPRO 858 EP-6 technical data: main boom only, supplied manufacturer specification page 2.",
+    profileOptions: [
+      profile(
+        "x-hipro-858-ep6-main-boom",
+        "X-HIPRO 858 EP-6 — main boom only — 16.4 m hydraulic outreach",
+        null,
+        null,
+        16.3,
+        null,
+        "HIAB X-HIPRO 858 EP-6 technical data, page 2"
+      ),
+    ],
+    jibOptions: [jib("none", "No jib / main boom only", 0, 16.3, null, "X-HIPRO 858 EP-6 main-boom configuration")],
+    capacityCurves: [
+      curve(
+        "x-hipro-858-ep6-main-boom",
+        "X-HIPRO 858 EP-6 main boom",
+        HIAB_X_HIPRO_858_EP6_MAIN,
+        {
+          jibLengthM: 0,
+          source: "HIAB X-HIPRO 858 EP-6 technical data, page 2",
+          setupAdvice: "Use only on SN74 XPX in the verified EP-6 main-boom configuration, with the selected support position and working sector confirmed before lifting.",
+        }
+      ),
+    ],
+    notes: "Owned AnnS artic HIAB SN74 XPX. Do not use E-10 or jib duties for this vehicle.",
+  },
+  {
+    id: "palfinger-pk65002-sh-e",
+    title: "Palfinger PK 65002 SH E",
+    match: [
+      /\bpk\s*65002[- ]?sh\s*e\b/i,
+      /\bpalfinger\b.*\b65002[- ]?sh\s*e\b/i,
+      /\bsf25\s*xnb\b/i,
+    ],
+    maxCapacityKg: 20000,
+    maxPhysicalJibLengthM: 0,
+    maxRadiusM: 15.7,
+    capacitySource: "Palfinger PK 65002 SH E main-boom chart, supplied manufacturer specification page 8.",
+    profileOptions: [
+      profile(
+        "pk65002-sh-e-main-boom",
+        "PK 65002 SH E — main boom only — 15.7 m hydraulic outreach",
+        null,
+        null,
+        15.7,
+        null,
+        "Palfinger PK 65002 SH E load chart, page 8"
+      ),
+    ],
+    jibOptions: [jib("none", "No fly jib / main boom only", 0, 15.7, null, "PK 65002 SH E main-boom configuration")],
+    capacityCurves: [
+      curve(
+        "pk65002-sh-e-main-boom",
+        "Palfinger PK 65002 SH E main boom",
+        PALFINGER_PK65002_SH_E_MAIN,
+        {
+          jibLengthM: 0,
+          source: "Palfinger PK 65002 SH E load chart, page 8",
+          setupAdvice: "Use only on SF25 XNB in the verified E main-boom configuration. Confirm the HPSC stabiliser position, working sector and vehicle level before lifting.",
+        }
+      ),
+    ],
+    notes: "Owned AnnS rigid HIAB SF25 XNB. No fly jib is fitted; do not use F, G or fly-jib charts.",
   },
   {
     id: "mtk35",
@@ -734,7 +843,7 @@ function structuredManualWarning(rule: RangeChartSpecRule, args: { radiusM: numb
   if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
     return "Grove GMK4080-1 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
   }
-  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
+  if (rule.id === "hk40" && !/\b(?:4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
     return "HK40 recognised, but the exact counterweight/load chart has not been selected. Do not use the crane's maximum capacity as capacity at radius. Select the correct counterweight chart or check manually against the manufacturer chart.";
   }
   const curvesForSetup = matchingCapacityCurves(rule, args);
@@ -801,7 +910,7 @@ function viableSetupAdvice(
   if (rule.id === "gmk4080-1" && !/\b19\.3\s*t\b|\b19\.3t\b|counterweight/i.test(selectorText)) {
     return "Select the exact GMK4080-1 counterweight/load-chart setup before the CRM auto-fills capacity. The uploaded structured curve is for the 19.3 t counterweight chart and must not be used silently.";
   }
-  if (rule.id === "hk40" && !/\b(?:8\.5|4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
+  if (rule.id === "hk40" && !/\b(?:4\.5|2\.1|1\.4|0)\s*t\b|counterweight/i.test(selectorText)) {
     return "Select the exact HK40 counterweight chart before the CRM auto-fills capacity. HK40 capacity changes by counterweight.";
   }
   if (rule.id === "spx532" && !hasJekkoExactStabilityOrAttachmentSelection(selectorText) && !selectedCurve) {
@@ -809,17 +918,25 @@ function viableSetupAdvice(
   }
 
   const selectedCapacity = selectedCurve ? conservativeCapacityFromCurve(selectedCurve.points, radiusM) : null;
+  const verificationText = rule.id === "hiab-x-hipro-858-ep6" || rule.id === "palfinger-pk65002-sh-e"
+    ? " Verify the hydraulic extension stage, selected support/stabiliser position, permitted working sector, hook and lifting accessories against the actual loader-crane system before approval."
+    : " Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.";
   if (selectedCurve && selectedCapacity !== null && selectedCapacity >= totalLiftedWeightKg) {
-    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""} Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+    return `Selected setup advice: ${selectedCurve.label} gives approximately ${Math.round(selectedCapacity).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""}${verificationText}`;
   }
   const viable = rule.capacityCurves
     .filter((item) => curveMatches({ rule, curve: item, boomLengthM, jibLengthM, jibAngleDeg, setupLabel, sourceLabel }))
     .map((item) => ({ curve: item, capacityKg: conservativeCapacityFromCurve(item.points, radiusM) }))
     .filter((item) => item.capacityKg !== null && item.capacityKg >= totalLiftedWeightKg)
     .sort((a, b) => (a.capacityKg ?? 0) - (b.capacityKg ?? 0));
-  if (!viable.length) return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
+  if (!viable.length) {
+    if (rule.id === "hiab-x-hipro-858-ep6" || rule.id === "palfinger-pk65002-sh-e") {
+      return `No structured ${rule.title} duty covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m in the verified main-boom configuration. Reduce radius, reduce gross lifted load, or select a different suitable loader crane.`;
+    }
+    return `No structured ${rule.title} setup in the CRM rules covers ${Math.round(totalLiftedWeightKg).toLocaleString("en-GB")} kg at ${radiusM.toLocaleString("en-GB", { maximumFractionDigits: 2 })} m with the selected boom/jib/counterweight/stability setup. Reduce radius, reduce load, select a different duty/counterweight/stability chart, or choose another crane.`;
+  }
   const first = viable[0];
-  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""} Verify exact boom length, counterweight, outrigger setup, hook block/accessories and LMI before approval.`;
+  return `Structured setup advice: ${first.curve.label} gives approximately ${Math.round(first.capacityKg ?? 0).toLocaleString("en-GB")} kg at this radius.${rule.id === "spx532" && totalLiftedWeightKg > 800 ? " Gross load exceeds SPX532 single-fall block limit, so use the multiple-fall hook block / minimum 2-line reeving and include hook block weight if it is not already in accessories." : ""}${verificationText}`;
 }
 
 
@@ -1150,7 +1267,7 @@ export function calculateRangeChartBearingLoad({
     return {
       bearingLoadKg,
       method: "automatic",
-      source: `Planning estimate using appointed-person mat calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + gross lifted load) × ${factor}. Use exact outrigger reaction chart if available.`,
+      source: `Worst-case ground-bearing planning calculation: (${rule.planningWeightSource || `${rule.title} planning/gross weight`} + gross lifted load) × ${factor}. Use the exact manufacturer/supplier outrigger reaction where available.`,
     };
   }
 

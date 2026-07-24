@@ -13,6 +13,14 @@ import {
   getRangeChartLimits,
   getRangeChartSpecOptions,
 } from "../../lib/rangeChartSpecs";
+import LiftArrangementEditor from "../../components/lift-drawing/LiftArrangementEditor";
+import type { LiftMachineType, LiftTechnicalSchedule } from "../../components/lift-drawing/types";
+import {
+  parseLiftDrawingModel,
+  serialiseLiftDrawingModel,
+  technicalDrawingEnabled,
+} from "../../lib/liftDrawingPersistence";
+import { liftDrawingApprovalErrors } from "../../lib/liftDrawingValidation";
 
 type CraneOption = {
   value: string;
@@ -87,6 +95,21 @@ type LiftPlanData = {
   range_chart_tip_height_m?: string | null;
   range_chart_load_weight_kg?: string | null;
   range_chart_accessory_weight_kg?: string | null;
+  range_chart_total_lifted_weight_kg?: string | null;
+  range_chart_boom_length_m?: string | null;
+  range_chart_boom_angle_deg?: string | null;
+  range_chart_chart_capacity_kg?: string | null;
+  range_chart_capacity_source?: string | null;
+  range_chart_capacity_page?: string | null;
+  range_chart_utilisation_percent?: string | null;
+  range_chart_bearing_load_kg?: string | null;
+  range_chart_bearing_pressure_kg_m2?: string | null;
+  range_chart_mat_length_m?: string | null;
+  range_chart_mat_width_m?: string | null;
+  range_chart_mats_under_loaded_outrigger?: string | null;
+  range_chart_verification_note?: string | null;
+  lift_drawing_model_json?: string | null;
+  include_technical_drawing?: string | null;
 };
 
 type LiftPlanVersionSummary = {
@@ -856,6 +879,36 @@ export default function LiftPlanForm({
           initialPackSections.range_chart_load_weight_kg ?? "",
         range_chart_accessory_weight_kg:
           initialPackSections.range_chart_accessory_weight_kg ?? "",
+        range_chart_total_lifted_weight_kg:
+          initialPackSections.range_chart_total_lifted_weight_kg ?? "",
+        range_chart_boom_length_m:
+          initialPackSections.range_chart_boom_length_m ?? "",
+        range_chart_boom_angle_deg:
+          initialPackSections.range_chart_boom_angle_deg ?? "",
+        range_chart_chart_capacity_kg:
+          initialPackSections.range_chart_chart_capacity_kg ?? "",
+        range_chart_capacity_source:
+          initialPackSections.range_chart_capacity_source ?? "",
+        range_chart_capacity_page:
+          initialPackSections.range_chart_capacity_page ?? "",
+        range_chart_utilisation_percent:
+          initialPackSections.range_chart_utilisation_percent ?? "",
+        range_chart_bearing_load_kg:
+          initialPackSections.range_chart_bearing_load_kg ?? "",
+        range_chart_bearing_pressure_kg_m2:
+          initialPackSections.range_chart_bearing_pressure_kg_m2 ?? "",
+        range_chart_mat_length_m:
+          initialPackSections.range_chart_mat_length_m ?? "",
+        range_chart_mat_width_m:
+          initialPackSections.range_chart_mat_width_m ?? "",
+        range_chart_mats_under_loaded_outrigger:
+          initialPackSections.range_chart_mats_under_loaded_outrigger ?? "",
+        range_chart_verification_note:
+          initialPackSections.range_chart_verification_note ?? "",
+        lift_drawing_model_json:
+          initialPackSections.lift_drawing_model_json ?? "",
+        include_technical_drawing:
+          initialPackSections.include_technical_drawing ?? "false",
       }),
       initialSelectedCraneLabel,
     ),
@@ -980,6 +1033,73 @@ export default function LiftPlanForm({
   const additionalCranes = useMemo(
     () => safeJsonParseArray(form.additional_cranes_json),
     [form.additional_cranes_json],
+  );
+
+  const drawingMachineType: LiftMachineType = /jekko|spider/i.test(
+    `${equipmentProfile?.machineType ?? ""} ${selectedCraneLabel}`,
+  )
+    ? "spider-crane"
+    : "mobile-crane";
+  const drawingSchedule = useMemo<LiftTechnicalSchedule>(() => ({
+    loadDescription: form.load_description,
+    loadWeightKg:
+      numberOrNull(form.range_chart_load_weight_kg) ??
+      numberOrNull(form.load_weight),
+    accessoryWeightKg:
+      numberOrNull(form.range_chart_accessory_weight_kg) ?? 0,
+    grossLiftedWeightKg:
+      numberOrNull(form.range_chart_total_lifted_weight_kg) ??
+      ((numberOrNull(form.range_chart_load_weight_kg) ??
+        numberOrNull(form.load_weight) ??
+        0) +
+        (numberOrNull(form.range_chart_accessory_weight_kg) ?? 0)),
+    radiusM:
+      numberOrNull(form.range_chart_radius_m) ??
+      numberOrNull(form.lift_radius),
+    boomLengthM: numberOrNull(form.range_chart_boom_length_m),
+    boomAngleDeg: numberOrNull(form.range_chart_boom_angle_deg),
+    hookHeightM:
+      numberOrNull(form.range_chart_tip_height_m) ??
+      numberOrNull(form.lift_height),
+    chartCapacityKg: numberOrNull(form.range_chart_chart_capacity_kg),
+    chartSource: form.range_chart_capacity_source,
+    chartPage: form.range_chart_capacity_page,
+    utilisationPercent: numberOrNull(form.range_chart_utilisation_percent),
+    exactConfiguration:
+      form.selected_crane_setup_label ?? form.crane_configuration,
+    stabiliserSetup: form.outrigger_setup,
+    workingSector: parseLiftDrawingModel(form.lift_drawing_model_json).technical
+      .workingSector,
+    groundPressureKgM2:
+      numberOrNull(form.range_chart_bearing_pressure_kg_m2) ??
+      numberOrNull(form.ground_bearing_pressure),
+    matLengthM:
+      numberOrNull(form.range_chart_mat_length_m) ??
+      numberOrNull(form.ground_bearing_mat_length_m),
+    matWidthM:
+      numberOrNull(form.range_chart_mat_width_m) ??
+      numberOrNull(form.ground_bearing_mat_width_m),
+    liftingAccessories: form.lifting_accessories,
+    siteHazards: form.site_hazards,
+    controlMeasures: form.control_measures,
+  }), [form]);
+  const drawingModel = useMemo(
+    () => parseLiftDrawingModel(form.lift_drawing_model_json, {
+      machineType: drawingMachineType,
+      machineLabel: selectedCraneLabel,
+      drawingNumber: `LP-${jobId.slice(0, 8).toUpperCase()}`,
+    }),
+    [drawingMachineType, form.lift_drawing_model_json, jobId, selectedCraneLabel],
+  );
+  const includeTechnicalDrawing = technicalDrawingEnabled(
+    form.include_technical_drawing,
+  );
+  const drawingApprovalErrors = useMemo(
+    () =>
+      includeTechnicalDrawing
+        ? liftDrawingApprovalErrors(drawingModel, drawingSchedule)
+        : [],
+    [drawingModel, drawingSchedule, includeTechnicalDrawing],
   );
 
   const additionalCraneSelectOptions = useMemo(() => {
@@ -1594,6 +1714,10 @@ export default function LiftPlanForm({
 
   function approveNow() {
     if (locked) return;
+    if (drawingApprovalErrors.length) {
+      setMsg(`Cannot approve yet: ${drawingApprovalErrors.join(" ")}`);
+      return;
+    }
     const now = new Date().toISOString();
     setForm((prev) => ({
       ...prev,
@@ -1608,6 +1732,11 @@ export default function LiftPlanForm({
     setSaving(true);
     setMsg("");
     try {
+      if (drawingApprovalErrors.length) {
+        throw new Error(
+          `Cannot finalise yet: ${drawingApprovalErrors.join(" ")}`,
+        );
+      }
       const finalPayload: LiftPlanData = {
         ...form,
         finalised_at: new Date().toISOString(),
@@ -1774,6 +1903,41 @@ export default function LiftPlanForm({
           ) : null}
         </div>
       </div>
+
+      <Section title="Optional technical lift arrangement drawing">
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <input
+            type="checkbox"
+            checked={includeTechnicalDrawing}
+            disabled={locked}
+            onChange={(event) =>
+              update(
+                "include_technical_drawing",
+                event.target.checked ? "true" : "false",
+              )
+            }
+          />
+          <span>
+            <strong>Include plan and elevation drawings in this lift plan</strong>
+            <br />
+            Off by default. Switching this off removes drawing validation and
+            drawing pages but keeps any saved drawing data.
+          </span>
+        </label>
+      </Section>
+      {includeTechnicalDrawing ? (
+        <LiftArrangementEditor
+          value={drawingModel}
+          onChange={(model) =>
+            update("lift_drawing_model_json", serialiseLiftDrawingModel(model))
+          }
+          schedule={drawingSchedule}
+          machineType={drawingMachineType}
+          machineLabel={selectedCraneLabel}
+          drawingNumber={`LP-${jobId.slice(0, 8).toUpperCase()}`}
+          disabled={locked}
+        />
+      ) : null}
 
       <Section title="Alternative cranes / multi-day crane options">
         <div style={tickRow}>
