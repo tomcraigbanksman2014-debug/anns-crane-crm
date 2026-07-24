@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { calculateHiabTechnicalSections } from "../../../../lib/liftPlanTechnicalValidation";
 import { liftDrawingApprovalErrors } from "../../../../lib/liftDrawingValidation";
+import { technicalDrawingEnabled } from "../../../../lib/liftDrawingPersistence";
 
 function cleanNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return null;
@@ -108,7 +109,8 @@ export async function POST(
     });
 
     const completionRequested = cleanBool(body.paperwork_locked) || cleanBool(body.lift_plan_complete) || Boolean(body.approved_at);
-    const drawingErrors = completionRequested
+    const drawingErrors = completionRequested &&
+      technicalDrawingEnabled(technical.sections.include_technical_drawing)
       ? liftDrawingApprovalErrors(technical.sections.lift_drawing_model_json, {
           loadDescription: cleanText(body.load_description),
           loadWeightKg: technical.loadWeightKg,
