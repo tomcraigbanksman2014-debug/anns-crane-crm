@@ -40,5 +40,9 @@ test("crane pack drawing errors only affect the pack when the drawing is enabled
     crane,
     /const drawingIncomplete\s*=\s*includeTechnicalDrawing\s*&&/,
   );
+  assert.match(
+    crane,
+    /\.\.\.\(includeTechnicalDrawing\s*\?\s*\[\["toc_item_drawing"/,
+  );
   assert.match(crane, /\{includeTechnicalDrawing \? <><PageShell/);
 });
