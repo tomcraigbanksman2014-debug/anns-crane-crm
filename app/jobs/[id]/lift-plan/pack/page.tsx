@@ -10,7 +10,10 @@ import PrintPackButton from "./PrintPackButton";
 import { calculateRangeChartBearingLoad, calculateRangeChartCapacity, getRangeChartLimits, getRangeChartSpecOptions } from "../../../../lib/rangeChartSpecs";
 import LiftArrangementDrawing from "../../../../components/lift-drawing/LiftArrangementDrawing";
 import type { LiftMachineType } from "../../../../components/lift-drawing/types";
-import { parseLiftDrawingModel } from "../../../../lib/liftDrawingPersistence";
+import {
+  parseLiftDrawingModel,
+  technicalDrawingEnabled,
+} from "../../../../lib/liftDrawingPersistence";
 import { validateLiftDrawing } from "../../../../lib/liftDrawingValidation";
 
 type StringMap = Record<string, string | null>;
@@ -2390,6 +2393,9 @@ export default async function CraneLiftPlanPackPage({
       drawingNumber: `LP-${params.id.slice(0, 8).toUpperCase()}`,
     },
   );
+  const includeTechnicalDrawing = technicalDrawingEnabled(
+    sections.include_technical_drawing,
+  );
   const drawingSchedule = {
     loadDescription: liftPlan?.load_description,
     loadWeightKg:
@@ -2924,7 +2930,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
         </BoxedParagraph>
       </PageShell>
 
-      <PageShell
+      {includeTechnicalDrawing ? <><PageShell
         sectionTitle="Technical Drawing - Plan View"
         headerTitle={inputField("page_header_title", "ANNS – LIFTING PLAN – V1")}
         headerSubtitle={inputField("page_header_subtitle", "Anns Crane Hire Ltd")}
@@ -2956,7 +2962,7 @@ ${equipmentProfile?.outriggersNote || "Outriggers are to be deployed as required
           view="elevation"
           forceDraft={draftIncomplete}
         />
-      </PageShell>
+      </PageShell></> : null}
 
       <PageShell
         sectionTitle={inputField("page_section_15_16", "15–16. Variation & Toolbox", "right")}
