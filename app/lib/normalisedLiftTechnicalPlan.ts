@@ -122,14 +122,34 @@ function stringValue(value: unknown) {
 }
 
 function stringArray(value: unknown) {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (Array.isArray(value)) {
+    return value.map(stringValue).filter(Boolean);
+  }
   if (typeof value !== "string" || !value.trim()) return [];
   try {
     const parsed = JSON.parse(value);
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+    return Array.isArray(parsed)
+      ? parsed.map(stringValue).filter(Boolean)
+      : [];
   } catch {
     return value.split(",").map((item) => item.trim()).filter(Boolean);
   }
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function booleanValue(value: unknown) {
+  if (value === true || value === 1) return true;
+  const normalised = stringValue(value).toLowerCase();
+  return ["true", "1", "yes", "on"].includes(normalised);
+}
+
+function optionalString(value: unknown) {
+  return stringValue(value) || undefined;
 }
 
 export function buildTransportNormalisedTechnicalPlan({
@@ -349,14 +369,178 @@ export function parseNormalisedTechnicalPlan(
 ): NormalisedLiftTechnicalPlanV2 | null {
   try {
     const parsed = typeof value === "string" ? JSON.parse(value) : value;
+    const source = recordValue(parsed);
     if (
-      parsed &&
-      typeof parsed === "object" &&
-      (parsed as any).schema === "anns-lift-technical-plan" &&
-      Number((parsed as any).version) === 2
-    ) {
-      return parsed as NormalisedLiftTechnicalPlanV2;
-    }
+      source.schema !== "anns-lift-technical-plan" ||
+      Number(source.version) !== 2
+    ) return null;
+
+    const job = recordValue(source.job);
+    const machine = recordValue(source.machine);
+    const supportConfiguration = recordValue(machine.supportConfiguration);
+    const workingSector = recordValue(machine.workingSector);
+    const load = recordValue(source.load);
+    const duty = recordValue(source.duty);
+    const groundBearing = recordValue(source.groundBearing);
+    const personnel = recordValue(source.personnel);
+    const narratives = recordValue(source.narratives);
+    const hiredMachineVerification = recordValue(
+      source.hiredMachineVerification,
+    );
+    const validation = recordValue(source.validation);
+    const validationState = stringValue(validation.state);
+
+    return {
+      schema: "anns-lift-technical-plan",
+      version: 2,
+      planType: source.planType === "mobile-crane"
+        ? "mobile-crane"
+        : "hiab",
+      revision: stringValue(source.revision || "A"),
+      sourceUpdatedAt: stringValue(source.sourceUpdatedAt),
+      job: {
+        id: stringValue(job.id),
+        number: stringValue(job.number),
+        client: stringValue(job.client),
+        project: stringValue(job.project),
+        collectionAddress: optionalString(job.collectionAddress),
+        deliveryAddress: optionalString(job.deliveryAddress),
+        siteAddress: optionalString(job.siteAddress),
+        plannedDate: optionalString(job.plannedDate),
+        notes: optionalString(job.notes),
+      },
+      machine: {
+        ownership: machine.ownership === "hired" ? "hired" : "owned",
+        profileId: optionalString(machine.profileId),
+        title: stringValue(machine.title),
+        manufacturer: optionalString(machine.manufacturer),
+        model: optionalString(machine.model),
+        registrationOrFleetReference: optionalString(
+          machine.registrationOrFleetReference,
+        ),
+        supplier: optionalString(machine.supplier),
+        exactConfiguration: stringValue(machine.exactConfiguration),
+        counterweightOrBallast: optionalString(
+          machine.counterweightOrBallast,
+        ),
+        boomOrJib: stringValue(machine.boomOrJib),
+        supportConfiguration: {
+          code: stringValue(supportConfiguration.code),
+          label: stringValue(supportConfiguration.label),
+          verifiedForDuty: booleanValue(
+            supportConfiguration.verifiedForDuty,
+          ),
+        },
+        workingSector: {
+          code: stringValue(workingSector.code),
+          label: stringValue(workingSector.label),
+          startDeg: numberOrUndefined(workingSector.startDeg) ?? 0,
+          endDeg: numberOrUndefined(workingSector.endDeg) ?? 0,
+        },
+      },
+      load: {
+        description: stringValue(load.description),
+        lengthM: numberOrUndefined(load.lengthM),
+        widthM: numberOrUndefined(load.widthM),
+        heightM: numberOrUndefined(load.heightM),
+        loadWeightKg: numberOrUndefined(load.loadWeightKg),
+        accessoryEquipmentIds: stringArray(load.accessoryEquipmentIds),
+        accessoryLabels: stringArray(load.accessoryLabels),
+        accessoryWeightKg: numberOrUndefined(load.accessoryWeightKg),
+        accessoryWeightConfirmed: booleanValue(
+          load.accessoryWeightConfirmed,
+        ),
+        grossLiftedWeightKg: numberOrUndefined(load.grossLiftedWeightKg),
+      },
+      duty: {
+        pickRadiusM: numberOrUndefined(duty.pickRadiusM),
+        landingRadiusM: numberOrUndefined(duty.landingRadiusM),
+        worstCaseRadiusM: numberOrUndefined(duty.worstCaseRadiusM),
+        pickHeightM: numberOrUndefined(duty.pickHeightM),
+        landingHeightM: numberOrUndefined(duty.landingHeightM),
+        hookHeightM: numberOrUndefined(duty.hookHeightM),
+        boomLengthM: numberOrUndefined(duty.boomLengthM),
+        boomAngleDeg: numberOrUndefined(duty.boomAngleDeg),
+        chartCapacityKg: numberOrUndefined(duty.chartCapacityKg),
+        utilisationPercent: numberOrUndefined(duty.utilisationPercent),
+        chartSource: stringValue(duty.chartSource),
+        chartPage: stringValue(duty.chartPage),
+        chartRuleId: optionalString(duty.chartRuleId),
+      },
+      groundBearing: {
+        basis: groundBearing.basis === "published-reaction"
+          ? "published-reaction"
+          : "worst-case-industry-standard",
+        operatingWeightKg: numberOrUndefined(
+          groundBearing.operatingWeightKg,
+        ),
+        publishedReactionKg: numberOrUndefined(
+          groundBearing.publishedReactionKg,
+        ),
+        worstCaseSupportLoadKg: numberOrUndefined(
+          groundBearing.worstCaseSupportLoadKg,
+        ),
+        selectedMatEquipmentId: optionalString(
+          groundBearing.selectedMatEquipmentId,
+        ),
+        selectedMatLabel: optionalString(
+          groundBearing.selectedMatLabel,
+        ),
+        matLengthM: numberOrUndefined(groundBearing.matLengthM),
+        matWidthM: numberOrUndefined(groundBearing.matWidthM),
+        quantity: Math.max(
+          1,
+          Math.floor(numberOrUndefined(groundBearing.quantity) ?? 1),
+        ),
+        bearingAreaM2: numberOrUndefined(groundBearing.bearingAreaM2),
+        groundPressureKgM2: numberOrUndefined(
+          groundBearing.groundPressureKgM2,
+        ),
+      },
+      personnel: {
+        operator: optionalString(personnel.operator),
+        liftSupervisor: optionalString(personnel.liftSupervisor),
+        appointedPerson: optionalString(personnel.appointedPerson),
+        approvedBy: optionalString(personnel.approvedBy),
+      },
+      narratives: {
+        collectionMethod: optionalString(narratives.collectionMethod),
+        setDownMethod: optionalString(narratives.setDownMethod),
+        loadSecuring: optionalString(narratives.loadSecuring),
+        routeAccess: optionalString(narratives.routeAccess),
+        methodStatement: optionalString(narratives.methodStatement),
+        riskAssessment: optionalString(narratives.riskAssessment),
+        siteHazards: optionalString(narratives.siteHazards),
+        controlMeasures: optionalString(narratives.controlMeasures),
+      },
+      hiredMachineVerification: Object.keys(hiredMachineVerification).length
+        ? {
+            supplierPackReference: optionalString(
+              hiredMachineVerification.supplierPackReference,
+            ),
+            currentLolerReference: optionalString(
+              hiredMachineVerification.currentLolerReference,
+            ),
+            verifiedBy: optionalString(
+              hiredMachineVerification.verifiedBy,
+            ),
+            verifiedAt: optionalString(
+              hiredMachineVerification.verifiedAt,
+            ),
+            exactChartPageIncluded: booleanValue(
+              hiredMachineVerification.exactChartPageIncluded,
+            ),
+          }
+        : undefined,
+      validation: {
+        state: validationState === "approved"
+          ? "approved"
+          : validationState === "ready-for-drawing-verification"
+            ? "ready-for-drawing-verification"
+            : "incomplete",
+        errors: stringArray(validation.errors),
+      },
+    };
   } catch {
     // The legacy compatibility path will rebuild the plan from saved columns.
   }
