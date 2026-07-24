@@ -2,6 +2,10 @@ import type { CSSProperties } from "react";
 import ClientShell from "../../../ClientShell";
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import { matchTransportJobEquipmentProfile } from "../../../lib/ai/matchEquipmentProfile";
+import {
+  buildTransportLiftPlanContext,
+  defaultTransportLiftPlanValues,
+} from "../../../lib/transportLiftPlanDefaults";
 import TransportLiftPlanForm from "../TransportLiftPlanForm";
 
 function line(label: string, value: string | null | undefined) {
@@ -16,7 +20,12 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 export default async function TransportJobLiftPlanPage({ params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
 
-  const [{ data: job, error: jobError }, { data: liftPlan, error: liftPlanError }] = await Promise.all([
+  const [
+    { data: job, error: jobError },
+    { data: liftPlan, error: liftPlanError },
+    { data: people, error: peopleError },
+    { data: liftingEquipment, error: equipmentError },
+  ] = await Promise.all([
     supabase.from("transport_jobs").select(`
       id,
       transport_number,
@@ -29,6 +38,10 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
       collection_time,
       delivery_time,
       load_description,
+      load_length_m,
+      load_width_m,
+      load_height_m,
+      load_weight_t,
       notes,
       clients:client_id (company_name, contact_name, phone, email),
       vehicles:vehicle_id (
@@ -43,6 +56,18 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
       operators:operator_id (full_name)
     `).eq("id", params.id).maybeSingle(),
     supabase.from("transport_lift_plans").select("*").eq("transport_job_id", params.id).maybeSingle(),
+    supabase
+      .from("operators")
+      .select("full_name")
+      .eq("archived", false)
+      .eq("status", "active")
+      .order("full_name"),
+    supabase
+      .from("equipment")
+      .select("id, name, asset_number, type, capacity, notes")
+      .eq("archived", false)
+      .neq("status", "out_of_service")
+      .order("name"),
   ]);
 
   const client = one((job as any)?.clients) as any;
@@ -60,11 +85,28 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
   }
 
   const equipmentProfile = matchTransportJobEquipmentProfile({ ...(job as any), vehicles: vehicle }, linkedJob);
-  const errorMessage = jobError?.message || liftPlanError?.message || "";
+  const context = buildTransportLiftPlanContext({ job, client, vehicle, operator, linkedJob });
+  const defaults = defaultTransportLiftPlanValues(context, equipmentProfile);
+  const personnelOptions = Array.from(new Set([
+    "Shaun Robinson",
+    ...((people ?? []) as Array<{ full_name?: string | null }>).map((person) => String(person.full_name ?? "").trim()),
+  ].filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const liftEquipmentOptions = ((liftingEquipment ?? []) as Array<Record<string, any>>)
+    .filter((item) => /(mat|spreader|pad|sling|chain|shackle|beam|lug|hook|lifting)/i.test(
+      [item.name, item.type, item.notes].filter(Boolean).join(" "),
+    ))
+    .map((item) => ({
+      id: String(item.id),
+      label: [item.name, item.asset_number, item.capacity].filter(Boolean).join(" / "),
+      type: String(item.type ?? ""),
+      capacity: String(item.capacity ?? ""),
+      notes: String(item.notes ?? ""),
+    }));
+  const errorMessage = jobError?.message || liftPlanError?.message || peopleError?.message || equipmentError?.message || "";
 
   return (
     <ClientShell>
-      <div style={{ width: "min(1180px, 95vw)", margin: "0 auto", display: "grid", gap: 16 }}>
+      <div style={{ width: "min(1780px, 98vw)", margin: "0 auto", display: "grid", gap: 16 }}>
         <div style={topRow}>
           <div>
             <h1 style={{ margin: 0, fontSize: 32 }}>HIAB Transport Lift Plan</h1>
@@ -99,7 +141,15 @@ export default async function TransportJobLiftPlanPage({ params }: { params: { i
           {(job as any)?.notes ? <div style={{ marginTop: 14 }}><div style={summaryLabel}>Transport notes</div><div style={notesBox}>{(job as any).notes}</div></div> : null}
         </div>
 
-        <TransportLiftPlanForm transportJobId={params.id} initial={(liftPlan as any) ?? null} equipmentProfile={equipmentProfile} />
+        <TransportLiftPlanForm
+          transportJobId={params.id}
+          initial={(liftPlan as any) ?? null}
+          equipmentProfile={equipmentProfile}
+          context={context}
+          defaults={defaults}
+          personnelOptions={personnelOptions}
+          liftEquipmentOptions={liftEquipmentOptions}
+        />
       </div>
     </ClientShell>
   );
