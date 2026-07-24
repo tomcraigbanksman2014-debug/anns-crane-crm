@@ -23,7 +23,23 @@ export type LiftDrawingObject =
       yM: number;
       widthM: number;
       depthM: number;
+      heightM?: number;
       rotationDeg: number;
+      label: string;
+    }
+  | {
+      id: string;
+      type: "line" | "fence" | "dimension";
+      x1M: number;
+      y1M: number;
+      x2M: number;
+      y2M: number;
+      label: string;
+    }
+  | {
+      id: string;
+      type: "polyline" | "polygon";
+      points: Array<{ xM: number; yM: number }>;
       label: string;
     }
   | {
@@ -46,6 +62,10 @@ export type LiftDrawingObject =
 
 export type LiftDrawingModelV1 = {
   version: 1;
+  normalisation?: {
+    state: "valid" | "migrated" | "invalid";
+    issues: string[];
+  };
   drawingNumber: string;
   revision: string;
   status: "draft" | "verified";
@@ -58,6 +78,17 @@ export type LiftDrawingModelV1 = {
     widthM: number;
     depthM: number;
     northAngleDeg: number;
+    scaleCalibrated?: boolean;
+    calibrationDistanceM?: number;
+    basis?: {
+      kind: "blank-grid" | "image" | "pdf-page" | "dxf-reference";
+      name: string;
+      dataUrl?: string;
+      sourceUrl?: string;
+      pageNumber?: number;
+      opacity: number;
+      rotationDeg: number;
+    };
   };
   machine: {
     type: LiftMachineType;
@@ -75,6 +106,10 @@ export type LiftDrawingModelV1 = {
     centreOfRotationOffsetM: number;
     cabLengthM?: number;
     bedLengthM?: number;
+    dimensionsVerified?: boolean;
+    dimensionsSource?: string;
+    supportGeometryVerified?: boolean;
+    profileGeometryKey?: string;
     stabilisers: Array<{
       id: string;
       xM: number;
@@ -128,7 +163,11 @@ export type LiftTechnicalSchedule = {
   loadDescription?: string | null;
   loadWeightKg?: number | null;
   accessoryWeightKg?: number | null;
+  accessoryWeightConfirmed?: boolean | null;
   grossLiftedWeightKg?: number | null;
+  loadLengthM?: number | null;
+  loadWidthM?: number | null;
+  loadHeightM?: number | null;
   radiusM?: number | null;
   boomLengthM?: number | null;
   boomAngleDeg?: number | null;
@@ -140,6 +179,8 @@ export type LiftTechnicalSchedule = {
   exactConfiguration?: string | null;
   stabiliserSetup?: string | null;
   workingSector?: string | null;
+  workingSectorStartDeg?: number | null;
+  workingSectorEndDeg?: number | null;
   operatingWeightKg?: number | null;
   groundPressureKgM2?: number | null;
   matLengthM?: number | null;

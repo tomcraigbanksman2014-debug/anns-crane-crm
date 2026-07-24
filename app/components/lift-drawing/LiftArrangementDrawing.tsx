@@ -1,3 +1,4 @@
+import React from "react";
 import type { CSSProperties } from "react";
 import type { LiftDrawingModelV1 } from "./types";
 import PlanView from "./PlanView";
