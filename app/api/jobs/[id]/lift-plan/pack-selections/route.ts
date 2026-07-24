@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase/server";
+import {
+  buildLiftPlanPatchFromPackEdits,
+  parsePackEditChangedKeys,
+  promoteChangedPackTechnicalInputs,
+} from "../../../../../lib/craneLiftPlanPackSync";
 
 type DynamicPackSectionsPayload = Record<string, string | null>;
 
@@ -269,6 +274,7 @@ function sanitiseSections(input: Record<string, unknown>) {
   Object.entries(input).forEach(([key, value]) => {
     if (!key) return;
     if (key.startsWith("$ACTION_")) return;
+    if (key === "pack_edit_changed_keys") return;
     next[key] = normaliseText(key, value);
   });
 
@@ -357,7 +363,11 @@ function withRangeChartPackSync(sections: DynamicPackSectionsPayload) {
   return next;
 }
 
-async function saveSections(jobId: string, sections: DynamicPackSectionsPayload) {
+async function saveSections(
+  jobId: string,
+  sections: DynamicPackSectionsPayload,
+  changedKeys: string[],
+) {
   const supabase = createSupabaseServerClient();
 
   const { data: existing, error: existingError } = await supabase
@@ -375,14 +385,21 @@ async function saveSections(jobId: string, sections: DynamicPackSectionsPayload)
   }
 
   const currentCraneName = await resolveCurrentJobCraneName(supabase, jobId, (existing as any)?.selected_job_equipment_id ?? null);
-  const incomingSafeSections = normaliseForCurrentCrane(sections, currentCraneName ?? sections.range_chart_crane_name);
+  const technicalSections = promoteChangedPackTechnicalInputs(
+    sections,
+    changedKeys,
+  );
+  const incomingSafeSections = normaliseForCurrentCrane(technicalSections, currentCraneName ?? technicalSections.range_chart_crane_name);
   const syncedSections = withRangeChartPackSync(incomingSafeSections);
   const mergedRawSections = {
     ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
     ...syncedSections,
   };
   const mergedSections = withRangeChartPackSync(normaliseForCurrentCrane(mergedRawSections as DynamicPackSectionsPayload, currentCraneName ?? syncedSections.range_chart_crane_name ?? (mergedRawSections as any).range_chart_crane_name));
-  const liftPlanPatch = liftPlanColumnPatchFromRangeChart(mergedSections);
+  const liftPlanPatch = {
+    ...liftPlanColumnPatchFromRangeChart(mergedSections),
+    ...buildLiftPlanPatchFromPackEdits(mergedSections, changedKeys),
+  };
 
   if (existing?.id) {
     const { error } = await supabase
@@ -417,9 +434,11 @@ export async function POST(
 
   try {
     let sections: DynamicPackSectionsPayload;
+    let changedKeys: string[] = [];
 
     if (wantsJson) {
       const body = (await request.json()) as Record<string, unknown>;
+      changedKeys = parsePackEditChangedKeys(body.pack_edit_changed_keys);
       sections = sanitiseSections(body);
     } else {
       const formData = await request.formData();
@@ -427,13 +446,24 @@ export async function POST(
       formData.forEach((value, key) => {
         formValues[key] = value;
       });
+      changedKeys = parsePackEditChangedKeys(
+        formValues.pack_edit_changed_keys,
+      );
       sections = sanitiseSections(formValues);
     }
 
-    const mergedSections = await saveSections(params.id, sections);
+    const mergedSections = await saveSections(
+      params.id,
+      sections,
+      changedKeys,
+    );
 
     if (wantsJson) {
-      return NextResponse.json({ ok: true, pack_sections: mergedSections });
+      return NextResponse.json({
+        ok: true,
+        pack_sections: mergedSections,
+        synced_lift_plan_fields: changedKeys,
+      });
     }
 
     const redirectUrl = new URL(`/jobs/${params.id}/lift-plan/pack?saved=1`, request.url);
