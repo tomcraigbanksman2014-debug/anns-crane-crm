@@ -33,3 +33,12 @@ test("both packs contain vector plan and elevation pages with draft watermarking
   }
   assert.doesNotMatch(hiab, /HiabTechnicalDrawing/);
 });
+
+test("crane pack drawing errors only affect the pack when the drawing is enabled", () => {
+  const crane = source("app/jobs/[id]/lift-plan/pack/page.tsx");
+  assert.match(
+    crane,
+    /const drawingIncomplete\s*=\s*includeTechnicalDrawing\s*&&/,
+  );
+  assert.match(crane, /\{includeTechnicalDrawing \? <><PageShell/);
+});
