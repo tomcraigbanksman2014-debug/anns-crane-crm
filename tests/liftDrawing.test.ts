@@ -20,6 +20,10 @@ import {
   buildTransportLiftPlanContext,
   extractLoadMeasurements,
 } from "../app/lib/transportLiftPlanDefaults";
+import {
+  parseNormalisedTechnicalPlan,
+  technicalPlanToSchedule,
+} from "../app/lib/normalisedLiftTechnicalPlan";
 
 function completeModel() {
   const model = createDefaultLiftDrawing({
@@ -129,6 +133,53 @@ test("malformed drawing JSON is rebuilt as an invalid safe draft", () => {
   assert.equal(parsed.normalisation?.state, "invalid");
   assert.equal(parsed.machine.stabilisers.length, 4);
   assert.ok(parsed.site.widthM > 0);
+});
+
+test("partial normalised HIAB data is rebuilt safely for the pack", () => {
+  const plan = parseNormalisedTechnicalPlan(JSON.stringify({
+    schema: "anns-lift-technical-plan",
+    version: 2,
+    planType: "hiab",
+    revision: "A",
+    machine: {
+      title: "HIAB X-HIPRO 858",
+      exactConfiguration: "EP-6",
+    },
+    load: {
+      description: "Steel frame",
+      loadWeightKg: "6000",
+      accessoryLabels: "chains, shackles",
+    },
+    duty: {
+      worstCaseRadiusM: "8",
+    },
+    validation: {
+      errors: "Chart page still requires AP verification",
+    },
+  }));
+
+  assert.ok(plan);
+  assert.equal(plan.machine.exactConfiguration, "EP-6");
+  assert.equal(plan.machine.supportConfiguration.label, "");
+  assert.equal(plan.machine.workingSector.startDeg, 0);
+  assert.deepEqual(plan.load.accessoryLabels, ["chains", "shackles"]);
+  assert.deepEqual(plan.validation.errors, [
+    "Chart page still requires AP verification",
+  ]);
+
+  const schedule = technicalPlanToSchedule(plan);
+  assert.equal(schedule.loadWeightKg, 6000);
+  assert.equal(schedule.radiusM, 8);
+  assert.equal(schedule.stabiliserSetup, "");
+  assert.equal(schedule.workingSector, "");
+});
+
+test("invalid normalised technical data uses the legacy fallback", () => {
+  assert.equal(parseNormalisedTechnicalPlan("{not-json"), null);
+  assert.equal(parseNormalisedTechnicalPlan({
+    schema: "wrong-schema",
+    version: 2,
+  }), null);
 });
 
 test("empty and unsupported drawing values never throw", () => {
