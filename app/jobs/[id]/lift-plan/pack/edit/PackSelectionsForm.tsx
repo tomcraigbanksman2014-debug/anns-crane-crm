@@ -89,6 +89,15 @@ export default function PackSectionsForm({
     try {
       const payload: Record<string, string> = {};
       for (const field of fields) payload[field.key] = values[field.key] ?? "";
+      payload.pack_edit_changed_keys = JSON.stringify(
+        fields
+          .filter(
+            (field) =>
+              String(initialSections?.[field.key] ?? "") !==
+              String(values[field.key] ?? ""),
+          )
+          .map((field) => field.key),
+      );
 
       const response = await fetch(`/api/jobs/${jobId}/lift-plan/pack-selections`, {
         method: "POST",
@@ -97,7 +106,9 @@ export default function PackSectionsForm({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || "Failed to save pack sections");
-      setMessage("Pack section content saved.");
+      setMessage(
+        "Pack edits saved and the corresponding lift-plan fields were updated.",
+      );
     } catch (err: any) {
       setError(err?.message || "Failed to save pack sections");
     } finally {
