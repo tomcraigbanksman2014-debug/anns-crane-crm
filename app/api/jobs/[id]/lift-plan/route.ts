@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase/server";
 import { writeAuditLog } from "../../../../lib/audit";
 import { validateMobileCraneApprovalSections } from "../../../../lib/liftPlanTechnicalValidation";
 import { liftDrawingApprovalErrors } from "../../../../lib/liftDrawingValidation";
+import { technicalDrawingEnabled } from "../../../../lib/liftDrawingPersistence";
 
 
 function getAdminClient() {
@@ -101,6 +102,7 @@ const PACK_SECTION_KEYS = [
   "range_chart_mats_under_loaded_outrigger",
   "range_chart_verification_note",
   "lift_drawing_model_json",
+  "include_technical_drawing",
 ];
 
 function packSectionsFromBody(body: Record<string, unknown>) {
@@ -222,7 +224,9 @@ export async function POST(
     const approvalErrors = completionRequested
       ? Array.from(new Set([
           ...validateMobileCraneApprovalSections(mergedPackSections),
-          ...liftDrawingApprovalErrors(mergedPackSections.lift_drawing_model_json, {
+          ...(technicalDrawingEnabled(
+            mergedPackSections.include_technical_drawing,
+          ) ? liftDrawingApprovalErrors(mergedPackSections.lift_drawing_model_json, {
             loadDescription: cleanText(body.load_description),
             loadWeightKg: cleanNumber(
               mergedPackSections.range_chart_load_weight_kg ?? body.load_weight,
@@ -286,7 +290,7 @@ export async function POST(
             liftingAccessories: cleanText(body.lifting_accessories),
             siteHazards: cleanText(body.site_hazards),
             controlMeasures: cleanText(body.control_measures),
-          }),
+          }) : []),
         ]))
       : [];
     if (approvalErrors.length) {
