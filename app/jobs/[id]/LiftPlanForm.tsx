@@ -18,6 +18,7 @@ import type { LiftMachineType, LiftTechnicalSchedule } from "../../components/li
 import {
   parseLiftDrawingModel,
   serialiseLiftDrawingModel,
+  technicalDrawingEnabled,
 } from "../../lib/liftDrawingPersistence";
 import { liftDrawingApprovalErrors } from "../../lib/liftDrawingValidation";
 
@@ -108,6 +109,7 @@ type LiftPlanData = {
   range_chart_mats_under_loaded_outrigger?: string | null;
   range_chart_verification_note?: string | null;
   lift_drawing_model_json?: string | null;
+  include_technical_drawing?: string | null;
 };
 
 type LiftPlanVersionSummary = {
@@ -905,6 +907,8 @@ export default function LiftPlanForm({
           initialPackSections.range_chart_verification_note ?? "",
         lift_drawing_model_json:
           initialPackSections.lift_drawing_model_json ?? "",
+        include_technical_drawing:
+          initialPackSections.include_technical_drawing ?? "false",
       }),
       initialSelectedCraneLabel,
     ),
@@ -1087,9 +1091,15 @@ export default function LiftPlanForm({
     }),
     [drawingMachineType, form.lift_drawing_model_json, jobId, selectedCraneLabel],
   );
+  const includeTechnicalDrawing = technicalDrawingEnabled(
+    form.include_technical_drawing,
+  );
   const drawingApprovalErrors = useMemo(
-    () => liftDrawingApprovalErrors(drawingModel, drawingSchedule),
-    [drawingModel, drawingSchedule],
+    () =>
+      includeTechnicalDrawing
+        ? liftDrawingApprovalErrors(drawingModel, drawingSchedule)
+        : [],
+    [drawingModel, drawingSchedule, includeTechnicalDrawing],
   );
 
   const additionalCraneSelectOptions = useMemo(() => {
@@ -1894,17 +1904,40 @@ export default function LiftPlanForm({
         </div>
       </div>
 
-      <LiftArrangementEditor
-        value={drawingModel}
-        onChange={(model) =>
-          update("lift_drawing_model_json", serialiseLiftDrawingModel(model))
-        }
-        schedule={drawingSchedule}
-        machineType={drawingMachineType}
-        machineLabel={selectedCraneLabel}
-        drawingNumber={`LP-${jobId.slice(0, 8).toUpperCase()}`}
-        disabled={locked}
-      />
+      <Section title="Optional technical lift arrangement drawing">
+        <label style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <input
+            type="checkbox"
+            checked={includeTechnicalDrawing}
+            disabled={locked}
+            onChange={(event) =>
+              update(
+                "include_technical_drawing",
+                event.target.checked ? "true" : "false",
+              )
+            }
+          />
+          <span>
+            <strong>Include plan and elevation drawings in this lift plan</strong>
+            <br />
+            Off by default. Switching this off removes drawing validation and
+            drawing pages but keeps any saved drawing data.
+          </span>
+        </label>
+      </Section>
+      {includeTechnicalDrawing ? (
+        <LiftArrangementEditor
+          value={drawingModel}
+          onChange={(model) =>
+            update("lift_drawing_model_json", serialiseLiftDrawingModel(model))
+          }
+          schedule={drawingSchedule}
+          machineType={drawingMachineType}
+          machineLabel={selectedCraneLabel}
+          drawingNumber={`LP-${jobId.slice(0, 8).toUpperCase()}`}
+          disabled={locked}
+        />
+      ) : null}
 
       <Section title="Alternative cranes / multi-day crane options">
         <div style={tickRow}>
