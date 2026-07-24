@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test tests/**/*.test.ts",
+    "test": "node scripts/run-tests.mjs",
     "prebuild": "node scripts/check-supabase-environment.mjs && tsx scripts/test-crane-pdf-sync-staging.ts",
     "verify:lift-plan": "node scripts/verify-lift-plan-upgrade.mjs",
     "test:safe": "npm run typecheck && npm test && npm run verify:lift-plan"
