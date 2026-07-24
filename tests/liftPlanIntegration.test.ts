@@ -46,3 +46,19 @@ test("crane pack drawing errors only affect the pack when the drawing is enabled
   );
   assert.match(crane, /\{includeTechnicalDrawing \? <><PageShell/);
 });
+
+test("PDF pack saves merge existing technical data before recalculation", () => {
+  const route = source("app/api/jobs/[id]/lift-plan/pack-selections/route.ts");
+  assert.match(route, /const mergedInputSections = \{[\s\S]*\.\.\.existingSections,[\s\S]*\.\.\.incomingSafeSections/);
+  assert.match(route, /promoteChangedPackTechnicalInputs\([\s\S]*mergedInputSections/);
+});
+
+test("ordinary PDF edits cannot overwrite unchanged range-chart source columns", () => {
+  const route = source("app/api/jobs/[id]/lift-plan/pack-selections/route.ts");
+  assert.match(route, /const isRangeChartPayload =/);
+  assert.match(route, /isRangeChartPayload[\s\S]*liftPlanColumnPatchFromRangeChart/);
+  assert.doesNotMatch(
+    route,
+    /const liftPlanPatch = \{\s*\.\.\.liftPlanColumnPatchFromRangeChart/,
+  );
+});

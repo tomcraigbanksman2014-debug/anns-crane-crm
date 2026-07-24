@@ -64,18 +64,31 @@ export default function PackSectionsForm({
   jobId: string;
   initialSections: PackSections | null;
 }) {
-  const [values, setValues] = useState<Record<string, string>>(() => {
+  const initialValues = useMemo(() => {
     const next: Record<string, string> = {};
-    for (const field of fields) next[field.key] = String(initialSections?.[field.key] ?? "");
+    for (const field of fields) {
+      next[field.key] = String(initialSections?.[field.key] ?? "");
+    }
     return next;
-  });
+  }, [initialSections]);
+  const [values, setValues] = useState<Record<string, string>>(() => ({
+    ...initialValues,
+  }));
+  const [savedValues, setSavedValues] = useState<Record<string, string>>(() => ({
+    ...initialValues,
+  }));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const dirtyCount = useMemo(
-    () => fields.filter((field) => String(initialSections?.[field.key] ?? "") !== String(values[field.key] ?? "")).length,
-    [initialSections, values]
+    () =>
+      fields.filter(
+        (field) =>
+          String(savedValues[field.key] ?? "") !==
+          String(values[field.key] ?? ""),
+      ).length,
+    [savedValues, values],
   );
 
   function setField(key: string, value: string) {
@@ -93,7 +106,7 @@ export default function PackSectionsForm({
         fields
           .filter(
             (field) =>
-              String(initialSections?.[field.key] ?? "") !==
+              String(savedValues[field.key] ?? "") !==
               String(values[field.key] ?? ""),
           )
           .map((field) => field.key),
@@ -106,6 +119,7 @@ export default function PackSectionsForm({
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || "Failed to save pack sections");
+      setSavedValues({ ...values });
       setMessage(
         "Pack edits saved and the corresponding lift-plan fields were updated.",
       );

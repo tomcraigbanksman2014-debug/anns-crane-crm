@@ -115,6 +115,46 @@ function appendVerificationNote(
   return `${existing}\n${note}`;
 }
 
+function inferredPlanningGrossWeight(sections: CranePackSections) {
+  const bearingLoad = number(sections.range_chart_bearing_load_kg);
+  const load = number(sections.range_chart_load_weight_kg) ?? 0;
+  const accessories = number(sections.range_chart_accessory_weight_kg) ?? 0;
+  const totalLifted = load + accessories;
+  const source = String(sections.range_chart_bearing_source ?? "").toLowerCase();
+  const method = String(sections.range_chart_bearing_method ?? "").toLowerCase();
+  const isPlanningEstimate =
+    source.includes("planning estimate") ||
+    source.includes("worst-case ground-bearing") ||
+    source.includes("planning/gross weight") ||
+    source.includes("existing lift-plan formula");
+
+  if (
+    bearingLoad === null ||
+    bearingLoad <= 0 ||
+    totalLifted <= 0 ||
+    method !== "automatic" ||
+    !isPlanningEstimate
+  ) {
+    return null;
+  }
+
+  const planningGrossWeight = bearingLoad / 0.75 - totalLifted;
+  return planningGrossWeight > 0 && Number.isFinite(planningGrossWeight)
+    ? planningGrossWeight
+    : null;
+}
+
+const TECHNICAL_PACK_EDIT_KEYS = new Set([
+  "crane_load_weight",
+  "crane_lifting_accessories_weight_text",
+  "crane_max_capacity",
+  "boom_length",
+  "ground_bearing_mat_size",
+  "ground_bearing_mat_count",
+  "ground_bearing_bearing_load",
+  "ground_bearing_result",
+]);
+
 function recalculateTechnicalTotals(sections: CranePackSections) {
   const next: CranePackSections = { ...sections };
   const load = number(next.range_chart_load_weight_kg) ?? 0;
@@ -145,17 +185,33 @@ function recalculateTechnicalTotals(sections: CranePackSections) {
     matWidth > 0
   ) {
     const area = matLength * matWidth * matCount;
+    next.range_chart_mat_count = String(matCount);
+    next.range_chart_mats_under_loaded_outrigger = String(matCount);
+    next.range_chart_single_mat_area_m2 = String(
+      Math.round(matLength * matWidth * 1000) / 1000,
+    );
     next.range_chart_mat_area_m2 = String(
       Math.round(area * 1000) / 1000,
     );
+    next.range_chart_mat_total_area_m2 = next.range_chart_mat_area_m2;
     next.range_chart_bearing_pressure_kg_m2 = String(
       Math.round((bearingLoad / area) * 100) / 100,
+    );
+    next.range_chart_bearing_pressure_t_m2 = String(
+      Math.round((bearingLoad / area / 1000) * 10000) / 10000,
     );
     next.range_chart_bearing_pressure = `${(
       bearingLoad / area
     ).toLocaleString("en-GB", {
       maximumFractionDigits: 0,
     })} kg/m²`;
+  } else {
+    next.range_chart_single_mat_area_m2 = null;
+    next.range_chart_mat_area_m2 = null;
+    next.range_chart_mat_total_area_m2 = null;
+    next.range_chart_bearing_pressure_kg_m2 = null;
+    next.range_chart_bearing_pressure_t_m2 = null;
+    next.range_chart_bearing_pressure = null;
   }
 
   return next;
@@ -171,6 +227,12 @@ export function promoteChangedPackTechnicalInputs(
 ) {
   const changedKeys = new Set(changedKeyList);
   const next: CranePackSections = { ...sections };
+  const technicalEditRequested = changedKeyList.some((key) =>
+    TECHNICAL_PACK_EDIT_KEYS.has(key),
+  );
+  if (!technicalEditRequested) return next;
+
+  const planningGrossWeight = inferredPlanningGrossWeight(sections);
   let technicalDutyChanged = false;
 
   if (changedKeys.has("crane_load_weight")) {
@@ -232,9 +294,20 @@ export function promoteChangedPackTechnicalInputs(
         /(?:x|×)\s*(\d+)\s*(?:under|piece|pieces|mat|mats|spreader|spreaders)/i,
       );
       if (countMatch) {
+        next.range_chart_mat_count = countMatch[1];
         next.range_chart_mats_under_loaded_outrigger = countMatch[1];
       }
+    } else {
+      next.range_chart_mat_length_m = null;
+      next.range_chart_mat_width_m = null;
     }
+  }
+
+  if (changedKeys.has("ground_bearing_mat_count")) {
+    const value = firstNumber(sections.ground_bearing_mat_count);
+    const count = value === null ? null : String(Math.max(1, Math.round(value)));
+    next.range_chart_mat_count = count;
+    next.range_chart_mats_under_loaded_outrigger = count;
   }
 
   const bearingChanged = changedValue(sections, changedKeys, [
@@ -252,6 +325,19 @@ export function promoteChangedPackTechnicalInputs(
         : "AP-entered reaction / bearing load from the editable PDF pack";
   }
 
+  if (technicalDutyChanged && planningGrossWeight !== null) {
+    const revisedLoad = number(next.range_chart_load_weight_kg) ?? 0;
+    const revisedAccessories = number(next.range_chart_accessory_weight_kg) ?? 0;
+    const revisedTotal = revisedLoad + revisedAccessories;
+    next.range_chart_bearing_load_kg =
+      revisedTotal > 0
+        ? String(
+            Math.round((planningGrossWeight + revisedTotal) * 0.75 * 100) /
+              100,
+          )
+        : null;
+  }
+
   if (
     technicalDutyChanged &&
     !changedKeys.has("crane_max_capacity")
@@ -266,6 +352,30 @@ export function promoteChangedPackTechnicalInputs(
   }
 
   return recalculateTechnicalTotals(next);
+}
+
+const PACK_DISPLAY_OVERRIDE_KEYS = new Set([
+  "boom_configuration",
+  "crane_jib_reference",
+  "crane_minimum_required_setup",
+  "crane_outreach_reference",
+  "crane_details",
+  "configuration_outrigger_note",
+  "load_chart_note",
+  "ground_bearing_notes",
+]);
+
+export function reapplyChangedPackDisplayOverrides(
+  syncedSections: CranePackSections,
+  incomingSections: CranePackSections,
+  changedKeyList: string[],
+) {
+  const next = { ...syncedSections };
+  for (const key of changedKeyList) {
+    if (!PACK_DISPLAY_OVERRIDE_KEYS.has(key)) continue;
+    next[key] = incomingSections[key] ?? null;
+  }
+  return next;
 }
 
 /**

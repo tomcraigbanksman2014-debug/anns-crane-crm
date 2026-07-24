@@ -4,6 +4,7 @@ import {
   buildLiftPlanPatchFromPackEdits,
   parsePackEditChangedKeys,
   promoteChangedPackTechnicalInputs,
+  reapplyChangedPackDisplayOverrides,
 } from "../../../../../lib/craneLiftPlanPackSync";
 
 type DynamicPackSectionsPayload = Record<string, string | null>;
@@ -384,20 +385,47 @@ async function saveSections(
     throw new Error("This lift plan is locked and cannot be edited.");
   }
 
-  const currentCraneName = await resolveCurrentJobCraneName(supabase, jobId, (existing as any)?.selected_job_equipment_id ?? null);
-  const technicalSections = promoteChangedPackTechnicalInputs(
+  const currentCraneName = await resolveCurrentJobCraneName(
+    supabase,
+    jobId,
+    (existing as any)?.selected_job_equipment_id ?? null,
+  );
+  const existingSections =
+    ((existing?.pack_sections as Record<string, unknown> | null) ?? {}) as
+      DynamicPackSectionsPayload;
+  const incomingSafeSections = normaliseForCurrentCrane(
     sections,
+    currentCraneName ??
+      sections.range_chart_crane_name ??
+      existingSections.range_chart_crane_name,
+  );
+  const mergedInputSections = {
+    ...existingSections,
+    ...incomingSafeSections,
+  };
+  const promotedSections = promoteChangedPackTechnicalInputs(
+    mergedInputSections,
     changedKeys,
   );
-  const incomingSafeSections = normaliseForCurrentCrane(technicalSections, currentCraneName ?? technicalSections.range_chart_crane_name);
-  const syncedSections = withRangeChartPackSync(incomingSafeSections);
-  const mergedRawSections = {
-    ...((existing?.pack_sections as Record<string, unknown> | null) ?? {}),
-    ...syncedSections,
-  };
-  const mergedSections = withRangeChartPackSync(normaliseForCurrentCrane(mergedRawSections as DynamicPackSectionsPayload, currentCraneName ?? syncedSections.range_chart_crane_name ?? (mergedRawSections as any).range_chart_crane_name));
+  const normalisedSections = normaliseForCurrentCrane(
+    promotedSections,
+    currentCraneName ??
+      promotedSections.range_chart_crane_name ??
+      existingSections.range_chart_crane_name,
+  );
+  const syncedSections = withRangeChartPackSync(normalisedSections);
+  const mergedSections = reapplyChangedPackDisplayOverrides(
+    syncedSections,
+    incomingSafeSections,
+    changedKeys,
+  );
+  const isRangeChartPayload =
+    changedKeys.length === 0 &&
+    Object.keys(sections).some((key) => key.startsWith("range_chart_"));
   const liftPlanPatch = {
-    ...liftPlanColumnPatchFromRangeChart(mergedSections),
+    ...(isRangeChartPayload
+      ? liftPlanColumnPatchFromRangeChart(mergedSections)
+      : {}),
     ...buildLiftPlanPatchFromPackEdits(mergedSections, changedKeys),
   };
 

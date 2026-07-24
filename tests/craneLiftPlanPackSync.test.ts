@@ -4,6 +4,7 @@ import {
   buildLiftPlanPatchFromPackEdits,
   parsePackEditChangedKeys,
   promoteChangedPackTechnicalInputs,
+  reapplyChangedPackDisplayOverrides,
 } from "../app/lib/craneLiftPlanPackSync";
 
 test("changed pack keys are parsed without duplicates", () => {
@@ -102,4 +103,103 @@ test("edited mat dimensions and bearing load recalculate the stored pressure", (
   assert.equal(promoted.range_chart_mat_area_m2, "2.4");
   assert.equal(promoted.range_chart_bearing_load_kg, "24000");
   assert.equal(promoted.range_chart_bearing_pressure_kg_m2, "10000");
+});
+
+test("an unrelated PDF edit leaves saved technical values untouched", () => {
+  const existing = {
+    scope_of_works: "Original scope",
+    range_chart_load_weight_kg: "6000",
+    range_chart_accessory_weight_kg: "500",
+    range_chart_total_lifted_weight_kg: "6500",
+    range_chart_chart_capacity_kg: "10000",
+    range_chart_utilisation_percent: "65",
+  };
+
+  const promoted = promoteChangedPackTechnicalInputs(
+    { ...existing, scope_of_works: "Updated scope" },
+    ["scope_of_works"],
+  );
+
+  assert.equal(promoted.range_chart_total_lifted_weight_kg, "6500");
+  assert.equal(promoted.range_chart_chart_capacity_kg, "10000");
+  assert.equal(promoted.range_chart_utilisation_percent, "65");
+});
+
+test("editing only the PDF load keeps the saved accessory weight in the recalculation", () => {
+  const promoted = promoteChangedPackTechnicalInputs(
+    {
+      crane_load_weight: "7,000 kg",
+      range_chart_load_weight_kg: "6000",
+      range_chart_accessory_weight_kg: "500",
+      range_chart_total_lifted_weight_kg: "6500",
+      range_chart_chart_capacity_kg: "10000",
+      range_chart_utilisation_percent: "65",
+      range_chart_bearing_load_kg: "34875",
+      range_chart_bearing_method: "automatic",
+      range_chart_bearing_source:
+        "Worst-case ground-bearing planning estimate using existing lift-plan formula",
+      range_chart_mat_length_m: "1",
+      range_chart_mat_width_m: "1",
+      range_chart_mats_under_loaded_outrigger: "1",
+    },
+    ["crane_load_weight"],
+  );
+
+  assert.equal(promoted.range_chart_load_weight_kg, "7000");
+  assert.equal(promoted.range_chart_accessory_weight_kg, "500");
+  assert.equal(promoted.range_chart_total_lifted_weight_kg, "7500");
+  assert.equal(promoted.range_chart_chart_capacity_kg, null);
+  assert.equal(promoted.range_chart_bearing_load_kg, "35625");
+  assert.equal(promoted.range_chart_bearing_pressure_kg_m2, "35625");
+});
+
+test("editing only the PDF mat count recalculates support area and pressure", () => {
+  const promoted = promoteChangedPackTechnicalInputs(
+    {
+      ground_bearing_mat_count: "2",
+      range_chart_mat_length_m: "1.2",
+      range_chart_mat_width_m: "1",
+      range_chart_mats_under_loaded_outrigger: "1",
+      range_chart_bearing_load_kg: "24000",
+    },
+    ["ground_bearing_mat_count"],
+  );
+
+  assert.equal(promoted.range_chart_mats_under_loaded_outrigger, "2");
+  assert.equal(promoted.range_chart_mat_area_m2, "2.4");
+  assert.equal(promoted.range_chart_bearing_pressure_kg_m2, "10000");
+});
+
+
+test("explicit PDF narrative overrides survive the calculation synchroniser", () => {
+  const merged = reapplyChangedPackDisplayOverrides(
+    {
+      boom_configuration: "Main boom",
+      crane_jib_reference: "No jib / main boom only",
+      ground_bearing_notes: "Calculated formula",
+    },
+    {
+      boom_configuration: "AP-approved alternative boom arrangement",
+      crane_jib_reference: "Supplier extension arrangement",
+      ground_bearing_notes: "AP note entered in the PDF pack",
+    },
+    [
+      "boom_configuration",
+      "crane_jib_reference",
+      "ground_bearing_notes",
+    ],
+  );
+
+  assert.equal(
+    merged.boom_configuration,
+    "AP-approved alternative boom arrangement",
+  );
+  assert.equal(
+    merged.crane_jib_reference,
+    "Supplier extension arrangement",
+  );
+  assert.equal(
+    merged.ground_bearing_notes,
+    "AP note entered in the PDF pack",
+  );
 });
