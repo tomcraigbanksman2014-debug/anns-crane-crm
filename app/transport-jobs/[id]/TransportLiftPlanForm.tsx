@@ -247,12 +247,6 @@ export default function TransportLiftPlanForm({
   const [unlocking, setUnlocking] = useState(false);
   const [msg, setMsg] = useState("");
   const locked = !!form.paperwork_locked;
-  const equipmentMats = useMemo(
-    () => liftEquipmentOptions
-      .map((item) => ({ ...item, dimensions: equipmentDimensions(item) }))
-      .filter((item) => /(mat|spreader|pad)/i.test(`${item.label} ${item.type} ${item.notes}`)),
-    [liftEquipmentOptions],
-  );
   const equipmentAccessories = useMemo(
     () => liftEquipmentOptions
       .map((item) => ({ ...item, selfWeightKg: equipmentSelfWeightKg(item) }))
@@ -386,7 +380,6 @@ export default function TransportLiftPlanForm({
       !selectedAccessoryIds.length ? "Select the lifting accessories from the equipment register." : "",
       !form.pack_sections?.hiab_stabiliser_position_code ? "Select the actual stabiliser/support position." : "",
       !form.pack_sections?.hiab_working_sector_code ? "Select the permitted working sector." : "",
-      !form.pack_sections?.hiab_mat_equipment_id ? "Select the actual mat/spreader from the equipment register." : "",
       !form.pack_sections?.hiab_ground_condition_code ? "Select the verified ground condition." : "",
       ["variable-verified", "restricted-verified"].includes(String(form.pack_sections?.hiab_stabiliser_position_code ?? ""))
         && !form.pack_sections?.hiab_position_capacity_confirmed
@@ -522,22 +515,6 @@ export default function TransportLiftPlanForm({
         hiab_mat_preset: code,
         hiab_mat_length_m: option[2] ?? (code === "custom" ? prev.pack_sections?.hiab_mat_length_m ?? "" : ""),
         hiab_mat_width_m: option[3] ?? (code === "custom" ? prev.pack_sections?.hiab_mat_width_m ?? "" : ""),
-      },
-    }));
-  }
-
-  function updateMatEquipment(id: string) {
-    const selected = equipmentMats.find((item) => item.id === id);
-    const dimensions = selected?.dimensions;
-    setForm((prev) => ({
-      ...prev,
-      pack_sections: {
-        ...(prev.pack_sections ?? {}),
-        hiab_mat_equipment_id: id || null,
-        hiab_mat_equipment_label: selected?.label || null,
-        hiab_mat_preset: id ? "equipment-register" : null,
-        hiab_mat_length_m: dimensions?.lengthM ?? null,
-        hiab_mat_width_m: dimensions?.widthM ?? null,
       },
     }));
   }
@@ -777,28 +754,22 @@ export default function TransportLiftPlanForm({
           <ReadOnlyFact label="Chart utilisation" value={technical.utilisationPercent === null ? "—" : `${technical.utilisationPercent}%`} />
           <Field label="Vehicle operating / gross planning weight (kg)" type="number" step="1" value={String(form.pack_sections?.hiab_vehicle_operating_weight_kg ?? "")} onChange={(v) => updateSection("hiab_vehicle_operating_weight_kg", v)} disabled={locked} />
           <ReadOnlyFact label="Worst-case outrigger load" value={technical.worstCaseOutriggerLoadKg === null ? "—" : `${technical.worstCaseOutriggerLoadKg.toLocaleString("en-GB")} kg`} />
-          <SelectField
-            label="Mat / spreader from equipment register"
-            value={String(form.pack_sections?.hiab_mat_equipment_id ?? "")}
-            onChange={updateMatEquipment}
-            options={[
-              ["", "Select registered mat / spreader..."],
-              ...equipmentMats.map((item) => [
-                item.id,
-                `${item.label}${item.dimensions ? ` - ${item.dimensions.lengthM} x ${item.dimensions.widthM} m` : " - dimensions not recorded"}`,
-              ] as [string, string]),
-            ]}
+          <Field
+            label="Mat / spreader length (m)"
+            type="number"
+            step="0.01"
+            value={String(form.pack_sections?.hiab_mat_length_m ?? "")}
+            onChange={(v) => updateSection("hiab_mat_length_m", v)}
             disabled={locked}
           />
-          {form.pack_sections?.hiab_mat_equipment_id && (!form.pack_sections?.hiab_mat_length_m || !form.pack_sections?.hiab_mat_width_m) ? (
-            <div style={positionCheck}>
-              The selected equipment record has no usable mat dimensions. Add the
-              dimensions to the equipment record, or enter and AP-verify them
-              here before approval.
-            </div>
-          ) : null}
-          {form.pack_sections?.hiab_mat_equipment_id && !form.pack_sections?.hiab_mat_length_m ? <Field label="AP-verified mat length (m)" type="number" step="0.01" value={String(form.pack_sections?.hiab_mat_length_m ?? "")} onChange={(v) => updateSection("hiab_mat_length_m", v)} disabled={locked} /> : null}
-          {form.pack_sections?.hiab_mat_equipment_id && !form.pack_sections?.hiab_mat_width_m ? <Field label="AP-verified mat width (m)" type="number" step="0.01" value={String(form.pack_sections?.hiab_mat_width_m ?? "")} onChange={(v) => updateSection("hiab_mat_width_m", v)} disabled={locked} /> : null}
+          <Field
+            label="Mat / spreader width (m)"
+            type="number"
+            step="0.01"
+            value={String(form.pack_sections?.hiab_mat_width_m ?? "")}
+            onChange={(v) => updateSection("hiab_mat_width_m", v)}
+            disabled={locked}
+          />
           <Field label="Pieces under worst-case loaded stabiliser" type="number" step="1" value={String(form.pack_sections?.hiab_mats_under_loaded_outrigger ?? "1")} onChange={(v) => updateSection("hiab_mats_under_loaded_outrigger", v)} disabled={locked} />
           <ReadOnlyFact label="Worst-case ground pressure" value={technical.pressureKgM2 === null ? "—" : `${technical.pressureKgM2.toLocaleString("en-GB")} kg/m² / ${technical.pressureTM2?.toLocaleString("en-GB")} t/m²`} />
         </div>
