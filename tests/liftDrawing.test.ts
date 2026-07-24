@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { createDefaultLiftDrawing } from "../app/components/lift-drawing/defaults";
+import LiftArrangementDrawing from "../app/components/lift-drawing/LiftArrangementDrawing";
 import {
   liftRadii,
   machineCentreOfRotation,
@@ -13,6 +16,10 @@ import {
   liftDrawingApprovalErrors,
   validateLiftDrawing,
 } from "../app/lib/liftDrawingValidation";
+import {
+  buildTransportLiftPlanContext,
+  extractLoadMeasurements,
+} from "../app/lib/transportLiftPlanDefaults";
 
 function completeModel() {
   const model = createDefaultLiftDrawing({
@@ -49,6 +56,12 @@ function completeModel() {
   model.technical.liftingAccessories = "4-leg chain sling and certified shackles";
   model.technical.siteHazards = "Public road and overhead lighting columns";
   model.technical.controlMeasures = "Traffic management and controlled exclusion zone";
+  model.scaleMode = "verified-scale";
+  model.site.scaleCalibrated = true;
+  model.site.calibrationDistanceM = 10;
+  model.machine.dimensionsVerified = true;
+  model.machine.dimensionsSource = "Verified Palfinger PK 65002-SH E profile";
+  model.machine.supportGeometryVerified = true;
   model.verifiedBy = "Appointed Person";
   model.verifiedAt = "2026-07-23T12:00:00.000Z";
   model.status = "verified";
@@ -84,7 +97,46 @@ function schedule() {
 test("versioned drawing survives JSON round-trip without changing AP data", () => {
   const model = completeModel();
   const parsed = parseLiftDrawingModel(serialiseLiftDrawingModel(model));
-  assert.deepEqual(parsed, model);
+  assert.deepEqual(
+    JSON.parse(serialiseLiftDrawingModel(parsed)),
+    JSON.parse(serialiseLiftDrawingModel(model)),
+  );
+});
+
+test("partial legacy drawing is rebuilt as a safe draft without throwing", () => {
+  const parsed = parseLiftDrawingModel(JSON.stringify({
+    version: 1,
+    drawingNumber: "LEGACY-001",
+    machine: {
+      label: "Legacy HIAB",
+      stabilisers: [{ id: "one", xM: 0, yM: 0 }],
+    },
+    lift: {
+      loadWeightKg: 2_000,
+      travelPath: [{ xM: 1, yM: 1 }],
+    },
+  }));
+  assert.equal(parsed.status, "draft");
+  assert.equal(parsed.normalisation?.state, "migrated");
+  assert.equal(parsed.machine.stabilisers.length, 4);
+  assert.ok(parsed.lift.travelPath.length >= 2);
+  assert.ok(parsed.normalisation?.issues.length);
+});
+
+test("malformed drawing JSON is rebuilt as an invalid safe draft", () => {
+  const parsed = parseLiftDrawingModel("{not-json");
+  assert.equal(parsed.status, "draft");
+  assert.equal(parsed.normalisation?.state, "invalid");
+  assert.equal(parsed.machine.stabilisers.length, 4);
+  assert.ok(parsed.site.widthM > 0);
+});
+
+test("empty and unsupported drawing values never throw", () => {
+  for (const value of [null, "", [], 42, { version: 99 }]) {
+    const parsed = parseLiftDrawingModel(value);
+    assert.equal(parsed.status, "draft");
+    assert.equal(parsed.machine.stabilisers.length, 4);
+  }
 });
 
 test("complete verified drawing passes strict approval validation", () => {
@@ -154,4 +206,74 @@ test("PRO STEEL regression: a 6,000 kg job cannot be completed with blank techni
   assert.ok(result.some((error) => error.includes("gross lifted load")));
   assert.ok(result.some((error) => error.includes("planned radius")));
   assert.ok(result.some((error) => error.includes("chart capacity, source and page")));
+});
+
+test("PRO STEEL transport description populates the load dimensions and weight", () => {
+  const measurements = extractLoadMeasurements(
+    "Frames for Wall panels/cladding.\n4540mm 9000mm 2340mm 6t",
+  );
+  assert.deepEqual(measurements, {
+    loadLengthM: 9,
+    loadWidthM: 4.54,
+    loadHeightM: 2.34,
+    loadWeightKg: 6000,
+  });
+  const context = buildTransportLiftPlanContext({
+    job: {
+      transport_number: "TR-20260416-125330",
+      load_description: "4540mm 9000mm 2340mm 6t",
+    },
+    vehicle: {
+      name: "Artic HIAB",
+      vehicle_type: "Artic HIAB",
+      reg_number: "SN74 XPX",
+    },
+  });
+  assert.equal(context.loadWeightKg, 6000);
+  assert.equal(context.loadLengthM, 9);
+  assert.equal(context.vehicleLabel, "Artic HIAB SN74 XPX");
+});
+
+test("new HIAB drawing starts at the exact saved radius from the centre of rotation", () => {
+  const model = createDefaultLiftDrawing({
+    machineType: "hiab-artic",
+    machineLabel: "HIAB X-HIPRO 858 EP-6",
+    radiusM: 12,
+  });
+  assert.equal(liftRadii(model).maximumRadiusM, 12);
+});
+
+test("print drawing server-renders without client event handlers", () => {
+  const model = completeModel();
+  const html = renderToStaticMarkup(
+    createElement(LiftArrangementDrawing, {
+      model,
+      client: "PRO STEEL",
+      project: "Transport lift",
+      jobNumber: "TR-20260416-125330",
+      view: "plan",
+    }),
+  );
+  assert.match(html, /PLAN VIEW/);
+  assert.match(html, /PICK/);
+  assert.doesNotMatch(html, /onpointerdown/i);
+});
+
+test("partial and malformed drawings server-render as marked drafts", () => {
+  for (const value of [
+    "{not-json",
+    JSON.stringify({ version: 1, machine: { label: "Recovered machine" } }),
+  ]) {
+    const html = renderToStaticMarkup(
+      createElement(LiftArrangementDrawing, {
+        model: parseLiftDrawingModel(value),
+        client: "PRO STEEL",
+        project: "Recovered transport lift",
+        jobNumber: "TR-RECOVERY",
+        view: "plan",
+      }),
+    );
+    assert.match(html, /DRAFT/);
+    assert.doesNotMatch(html, /onpointerdown/i);
+  }
 });
